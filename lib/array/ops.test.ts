@@ -1,13 +1,14 @@
 import { assert, assertEquals } from "@std/assert";
-import { collectMap, deepEquals } from "./ops.ts";
 
-Deno.test("deepEquals() works", () => {
-  assert(deepEquals([1, 2, 3], [1, 2, 3]));
-  assert(deepEquals([{ x: 42 }], [{ x: 42 }]));
+import { collectMap, equals } from "./ops.ts";
+import { deepEquals } from "../value/ops.ts";
 
-  assert(!deepEquals([1, 2, 3], [1, 2, 3, 4]));
+Deno.test("equals() works", () => {
+  assert(equals([1, 2, 3], [1, 2, 3]));
+  assert(!equals([1, 2, 3], [1, 2, 3, 4]));
 
-  assert(deepEquals([1, 2, 3], [1, 4, 9], (a, b) => (a ** 2) === b));
+  assert(equals([{ x: 42 }], [{ x: 42 }], deepEquals));
+  assert(equals([1, 2, 3], [1, 4, 9], (a, b) => (a ** 2) === b));
 });
 
 Deno.test("collectMap() works", () => {

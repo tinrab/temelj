@@ -1,14 +1,3 @@
-import merge from "deepmerge";
-
-import { combineMerge } from "../array/ops.ts";
-
-export function objectDeepMerge(...values: object[]): object {
-  return merge.all(values, {
-    clone: true,
-    arrayMerge: combineMerge,
-  });
-}
-
 export function convertMapToObject(value: object): object {
   if (value instanceof Map) {
     return Object.fromEntries(

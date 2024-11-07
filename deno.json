@@ -1,7 +1,7 @@
 {
 	"name": "@flinect/temelj",
 	"license": "MIT",
-	"version": "0.1.0",
+	"version": "0.2.0",
 	"description": "A big standard library for TypeScript.",
 	"tasks": {
 		"test": "deno test ./lib",
@@ -17,10 +17,16 @@
 	},
 	"exports": {
 		"./array": "./lib/array/mod.ts",
+		"./color": "./lib/color/mod.ts",
 		"./id": "./lib/id/mod.ts",
+		"./math": "./lib/math/mod.ts",
 		"./promise": "./lib/promise/mod.ts",
+		"./request": "./lib/request/mod.ts",
+		"./result": "./lib/result/mod.ts",
+		"./string": "./lib/string/mod.ts",
 		"./value": "./lib/value/mod.ts"
 	},
+	"compilerOptions": { "lib": ["deno.ns", "dom"] },
 	"publish": {
 		"exclude": [
 			"scripts",
@@ -29,6 +35,7 @@
 			".github",
 			".vscode",
 			"**/*.test.ts"
-		]
+		],
+		"include": ["lib", "deno.json", "LICENSE", "README.md"]
 	}
 }

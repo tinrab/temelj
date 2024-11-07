@@ -1,4 +1,4 @@
-import { build, emptyDir } from "@deno/dnt";
+import { build, emptyDir, type PackageJson } from "@deno/dnt";
 import { z } from "npm:zod";
 
 await emptyDir("./npm");
@@ -8,31 +8,23 @@ const denoJson = z.object({
   version: z.string(),
   license: z.string(),
   description: z.string(),
+  imports: z.record(z.string()),
+  exports: z.record(z.string()),
 }).parse(JSON.parse(await Deno.readTextFile("./deno.json")));
 
+const dependencies: PackageJson["dependencies"] = {};
+for (const [name, version] of Object.entries(denoJson.imports)) {
+  if (version.startsWith("npm:")) {
+    dependencies[name] = version.substring(version.indexOf("@") + 1);
+  }
+}
+
 await build({
-  entryPoints: [
-    {
-      path: "./lib/array/mod.ts",
-      name: "./array",
-      kind: "export",
-    },
-    {
-      path: "./lib/id/mod.ts",
-      name: "./id",
-      kind: "export",
-    },
-    {
-      path: "./lib/promise/mod.ts",
-      name: "./promise",
-      kind: "export",
-    },
-    {
-      path: "./lib/value/mod.ts",
-      name: "./value",
-      kind: "export",
-    },
-  ],
+  entryPoints: Object.entries(denoJson.exports).map(([name, path]) => ({
+    name,
+    path,
+    kind: "export",
+  })),
   outDir: "./npm",
   shims: {
     deno: true,
@@ -53,6 +45,7 @@ await build({
     bugs: {
       url: "https://github.com/flinect/temelj/issues",
     },
+    dependencies,
   },
   postBuild() {
     Deno.copyFileSync("LICENSE", "npm/LICENSE");

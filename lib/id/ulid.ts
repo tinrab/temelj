@@ -1,9 +1,9 @@
 import id128 from "id128";
 
-export type UlidOptions = {
+export interface UlidOptions {
   time?: Date;
   random?: Uint8Array;
-};
+}
 
 export function generateUlid(options: UlidOptions = {}): string {
   if (options.random !== undefined) {

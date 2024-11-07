@@ -1,5 +1,4 @@
 import merge from "deepmerge";
-import fastEquals from "react-fast-compare";
 import { isObjectPrimitive } from "../value/check.ts";
 
 export function equals<T>(
@@ -25,31 +24,6 @@ export function equals<T>(
   }
 
   return a.every((item, index) => Object.is(item, b[index]));
-}
-
-export function deepEquals<T>(
-  a: T[],
-  b: T[],
-  compare?: (a: T, b: T) => boolean,
-): boolean {
-  if (a.length !== b.length) {
-    return false;
-  }
-  if (a.length === 0) {
-    if (b.length === 0) {
-      return true;
-    }
-    return false;
-  }
-  if (b.length === 0) {
-    return false;
-  }
-
-  if (compare !== undefined) {
-    return a.every((item, index) => compare(item, b[index]));
-  }
-
-  return fastEquals(a, b);
 }
 
 export function combineMerge(
