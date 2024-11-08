@@ -43,7 +43,7 @@ export function combineMerge(
   return result;
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: reflects `K` in `Record<K, V>`
+// deno-lint-ignore no-explicit-any
 export function collectMap<K extends keyof any, V, V1 = V>(
   elements: V[],
   getKey: (element: V) => K,
