@@ -1,5 +1,4 @@
 {
-  "biome.enabled": false,
   "deno.enable": true,
   "deno.lint": true,
   "[typescript]": {

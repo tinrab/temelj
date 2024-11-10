@@ -1,12 +1,11 @@
-// deno-lint-ignore-file no-namespace
-
-import { clamp as mathClamp } from "../math/ops.ts";
+import { clamp as mathClamp } from "~/math/ops.ts";
 
 export interface Vector2 {
   x: number;
   y: number;
 }
 
+// deno-lint-ignore no-namespace
 export namespace Vector2 {
   export function of(x: number, y: number): Vector2 {
     return { x, y };

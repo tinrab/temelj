@@ -1,0 +1,42 @@
+name: Publish
+
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  publish:
+    name: Publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: latest
+          registry-url: 'https://registry.npmjs.org'
+          scope: '@flinect'
+      - uses: denoland/setup-deno@v1
+        with:
+          deno-version: v2.*
+
+      - run: deno --version
+      - run: node --version
+
+      - run: deno task lint
+      - run: deno task test
+
+      - name: Publish JSR
+        run: deno publish
+
+      - name: Build NPM
+        run: deno task npm:build
+
+      - run: cd ./npm && npm ci
+      - name: Publish NPM
+        run: cd ./npm && npm publish --access=public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

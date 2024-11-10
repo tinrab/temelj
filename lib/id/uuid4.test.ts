@@ -5,7 +5,7 @@ import {
   getUuid4Bytes,
   isUuid4Valid,
   makeUuid4FromBytes,
-} from "./uuid4.ts";
+} from "~/id/uuid4.ts";
 
 Deno.test("generateUuid4() works", () => {
   const id = generateUuid4();

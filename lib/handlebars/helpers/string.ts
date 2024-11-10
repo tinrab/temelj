@@ -1,11 +1,14 @@
+import { z } from "zod";
+
 import {
   capitalize,
   toCamelCase,
   toPascalCase,
   toSnakeCase,
   toTitleCase,
-} from "../../string/case.ts";
-import type { HelperDeclareSpec } from "./types.ts";
+} from "~/string/case.ts";
+import type { HelperDeclareSpec } from "~/handlebars/helpers/types.ts";
+import { makeZodHelper } from "~/handlebars/utility.ts";
 
 export function getStringHelpers(): HelperDeclareSpec {
   return {
@@ -18,13 +21,22 @@ export function getStringHelpers(): HelperDeclareSpec {
     "upperCase": (s: string) => s.toUpperCase(),
     "lowerCase": (s: string) => s.toLowerCase(),
 
-    "split": (s: string, separator: string) => s.split(separator),
-
-    "splitPart": (path: string, index: number, separator = "/") => {
-      const parts = path.split(separator);
-      return parts[index];
-    },
-    "splitPartSegment": (
+    "split": makeZodHelper(z.string(), z.string().default("/"))((
+      s,
+      separator,
+    ) => s.split(separator)),
+    "splitPart": makeZodHelper(z.string(), z.number().default(0))(
+      (path, index) => {
+        const parts = path.split("/");
+        return parts[index];
+      },
+    ),
+    "splitPartSegment": makeZodHelper(
+      z.string(),
+      z.number(),
+      z.number(),
+      z.string().default("/"),
+    )((
       path: string,
       from: number,
       to: number,
@@ -41,6 +53,6 @@ export function getStringHelpers(): HelperDeclareSpec {
         }
       }
       return result;
-    },
+    }),
   };
 }

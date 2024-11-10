@@ -1,4 +1,4 @@
-import type { Registry } from "./registry.ts";
+import type { Registry } from "~/handlebars/registry.ts";
 
 export function registerSwitchHelpers(registry: Registry): void {
   const hbs: Registry & {
@@ -26,8 +26,7 @@ export function registerSwitchHelpers(registry: Registry): void {
       return rendered;
     },
   );
-  hbs.registerHelper("case", function (_value, _options) {
-    const args = [...arguments];
+  hbs.registerHelper("case", function (...args) {
     const options = args.pop();
     const caseValues = args;
     const stack = hbs.switchStack?.at(-1);

@@ -1,7 +1,10 @@
 import handlebars from "handlebars";
 
-import { registerSwitchHelpers } from "./switch.ts";
-import type { HelperDeclareSpec, HelperDelegate } from "./helpers/types.ts";
+import { registerSwitchHelpers } from "~/handlebars/switch.ts";
+import type {
+  HelperDeclareSpec,
+  HelperDelegate,
+} from "~/handlebars/helpers/types.ts";
 
 export class Registry {
   private readonly hbs: typeof Handlebars;

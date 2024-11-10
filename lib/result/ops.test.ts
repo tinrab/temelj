@@ -1,5 +1,5 @@
 import { assert } from "@std/assert";
-import { err, isErr, isOk, ok } from "./ops.ts";
+import { err, isErr, isOk, ok } from "~/result/ops.ts";
 
 Deno.test("result", () => {
   assert(isOk(ok(42)));

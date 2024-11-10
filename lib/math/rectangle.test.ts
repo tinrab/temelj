@@ -1,6 +1,6 @@
 import { assert, assertEquals } from "@std/assert";
-import { Rectangle } from "./rectangle.ts";
-import { Vector2 } from "./vector2.ts";
+import { Rectangle } from "~/math/rectangle.ts";
+import { Vector2 } from "~/math/vector2.ts";
 
 Deno.test("Rectangle::expand works", () => {
   assertEquals(

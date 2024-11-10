@@ -1,5 +1,3 @@
-// deno-lint-ignore-file no-namespace
-
 export type Color = {
   red: number;
   green: number;
@@ -7,6 +5,7 @@ export type Color = {
   alpha?: number;
 };
 
+// deno-lint-ignore no-namespace
 export namespace Color {
   export function of(
     red: number,

@@ -1,12 +1,11 @@
-// deno-lint-ignore-file no-namespace
-
-import { Vector2 } from "./vector2.ts";
+import { Vector2 } from "~/math/vector2.ts";
 
 export interface Rectangle {
   position: Vector2;
   size: Vector2;
 }
 
+// deno-lint-ignore no-namespace
 export namespace Rectangle {
   export function of(position: Vector2, size: Vector2): Rectangle {
     return { position, size };

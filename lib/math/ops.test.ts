@@ -1,6 +1,6 @@
 import { assertEquals } from "@std/assert";
-import { clampWithOverflow } from "./ops.ts";
-import { clamp } from "./ops.ts";
+import { clampWithOverflow } from "~/math/ops.ts";
+import { clamp } from "~/math/ops.ts";
 
 Deno.test("clamp() works", () => {
   assertEquals(clamp(5, 0, 10), 5);

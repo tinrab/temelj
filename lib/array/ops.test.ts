@@ -1,7 +1,7 @@
 import { assert, assertEquals } from "@std/assert";
 
-import { collectMap, equals } from "./ops.ts";
-import { deepEquals } from "../value/ops.ts";
+import { collectMap, equals } from "~/array/ops.ts";
+import { deepEquals } from "~/value/ops.ts";
 
 Deno.test("equals() works", () => {
   assert(equals([1, 2, 3], [1, 2, 3]));

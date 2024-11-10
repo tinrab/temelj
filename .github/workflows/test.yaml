@@ -1,0 +1,33 @@
+name: Test
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+      - feature/*
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: latest
+      - uses: denoland/setup-deno@v1
+        with:
+          deno-version: v2.*
+
+      - run: deno --version
+
+      - run: deno task lint
+      - run: deno task test
+
+      - name: Build NPM
+        run: deno task npm:build

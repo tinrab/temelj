@@ -1,6 +1,6 @@
 import { assert, assertEquals } from "@std/assert";
 
-import { recordDeepMerge, recordEquals } from "./record.ts";
+import { recordDeepMerge, recordEquals } from "~/value/record.ts";
 
 Deno.test("recordDeepMerge() works", () => {
   const obj1 = { x: 1, y: 2, a: [1, 2] };

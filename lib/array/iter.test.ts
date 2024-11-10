@@ -1,6 +1,6 @@
 import { assert, assertEquals } from "@std/assert";
-import { binarySearch, containsDuplicates } from "./iter.ts";
-import { deepEquals } from "../value/ops.ts";
+import { binarySearch, containsDuplicates } from "~/array/iter.ts";
+import { deepEquals } from "~/value/ops.ts";
 
 Deno.test("containsDuplicates() works", () => {
   assert(containsDuplicates([1, 1]));

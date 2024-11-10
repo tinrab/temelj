@@ -1,5 +1,5 @@
-import type { Registry } from "../registry.ts";
-import type { HelperDeclareSpec } from "./types.ts";
+import type { Registry } from "~/handlebars/registry.ts";
+import type { HelperDeclareSpec } from "~/handlebars/helpers/types.ts";
 
 export function getCoreHelpers(registry: Registry): HelperDeclareSpec {
   return {

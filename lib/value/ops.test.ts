@@ -1,5 +1,5 @@
 import { assert } from "@std/assert";
-import { deepEquals } from "./ops.ts";
+import { deepEquals } from "~/value/ops.ts";
 
 Deno.test("deepEquals() works", () => {
   const obj1 = { x: 1, y: 2, a: [1, 2] };

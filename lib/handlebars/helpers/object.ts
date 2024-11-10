@@ -1,5 +1,8 @@
-import { isObjectPrimitive } from "../../value/check.ts";
-import type { HelperDeclareSpec, HelperDelegate } from "./types.ts";
+import { isObjectPrimitive } from "~/value/check.ts";
+import type {
+  HelperDeclareSpec,
+  HelperDelegate,
+} from "~/handlebars/helpers/types.ts";
 
 export function getObjectHelpers(): HelperDeclareSpec {
   return {

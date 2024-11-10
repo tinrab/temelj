@@ -1,5 +1,5 @@
 import { assertEquals } from "@std/assert";
-import { Registry } from "./registry.ts";
+import { Registry } from "~/handlebars/registry.ts";
 
 Deno.test("Handlebars switch helper", () => {
   const hbs = new Registry();

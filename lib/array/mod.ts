@@ -1,3 +1,7 @@
-export * from "./iter.ts";
-export * from "./ops.ts";
-export * from "./random.ts";
+/**
+ * @module
+ */
+
+export * from "~/array/iter.ts";
+export * from "~/array/ops.ts";
+export * from "~/array/random.ts";

@@ -1,8 +1,18 @@
-import { assertEquals } from "@std/assert";
-import { getStringHelpers } from "./string.ts";
+import { assertEquals, assertThrows } from "@std/assert";
+import { getStringHelpers } from "~/handlebars/helpers/string.ts";
+import { Registry } from "~/handlebars/registry.ts";
 
 Deno.test("Handlebars string helpers", () => {
-  const helpers = getStringHelpers();
+  const r = new Registry();
+  r.registerHelpers(getStringHelpers());
 
-  assertEquals(helpers.camelCase("Hello World"), "helloWorld");
+  assertEquals(r.renderTemplate(`{{splitPart "a/b/c" 1}}`), "b");
+  assertEquals(r.renderTemplate(`{{splitPartSegment "a/b/c" 1 2}}`), "b/c");
+  assertEquals(r.renderTemplate(`{{splitPartSegment "a_b_c" 1 2 "_"}}`), "b_c");
+
+  assertThrows(
+    () => r.renderTemplate(`{{splitPartSegment "a/b/c" 0}}`),
+    Error,
+    "Required",
+  );
 });

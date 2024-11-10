@@ -1,6 +1,6 @@
-import { deepEquals } from "../../value/ops.ts";
-import type { PrimitiveValue } from "../../value/types.ts";
-import type { HelperDeclareSpec } from "./types.ts";
+import { deepEquals } from "~/value/ops.ts";
+import type { PrimitiveValue } from "~/value/types.ts";
+import type { HelperDeclareSpec } from "~/handlebars/helpers/types.ts";
 
 export function getValueHelpers(): HelperDeclareSpec {
   return {

@@ -1,5 +1,5 @@
 import merge from "deepmerge";
-import { isObjectPrimitive } from "../value/check.ts";
+import { isObjectPrimitive } from "~/value/check.ts";
 
 export function equals<T>(
   a: T[],
