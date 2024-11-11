@@ -8,7 +8,7 @@ import {
   toTitleCase,
 } from "../../string/case.ts";
 import type { HelperDeclareSpec } from "./types.ts";
-import { makeZodHelper } from "../utility.ts";
+import { createHelper } from "../utility.ts";
 
 export function getStringHelpers(): HelperDeclareSpec {
   return {
@@ -21,39 +21,38 @@ export function getStringHelpers(): HelperDeclareSpec {
     "upperCase": (s: string) => s.toUpperCase(),
     "lowerCase": (s: string) => s.toLowerCase(),
 
-    "split": makeZodHelper(z.string(), z.string().default("/"))((
-      s,
-      separator,
-    ) => s.split(separator)),
-    "splitPart": makeZodHelper(z.string(), z.number().default(0))(
-      (path, index) => {
-        const parts = path.split("/");
-        return parts[index];
-      },
-    ),
-    "splitPartSegment": makeZodHelper(
+    "split": createHelper()
+      .params(z.string(), z.string().default("/"))
+      .handle(([s, separator]) => s.split(separator)),
+    "splitPart": createHelper().params(z.string(), z.number().default(0))
+      .handle(
+        ([path, index]) => {
+          const parts = path.split("/");
+          return parts[index];
+        },
+      ),
+    "splitPartSegment": createHelper().params(
       z.string(),
       z.number(),
       z.number(),
       z.string().default("/"),
-    )((
-      path: string,
-      from: number,
-      to: number,
-      separator = "/",
-    ) => {
-      const parts = path.split(separator);
-      let result = "";
-      const n = Math.min(to + 1, parts.length);
-      for (let i = from; i < n; i++) {
-        const part = parts[i];
-        result += part;
-        if (i < n - 1) {
-          result += separator;
+    ).handle(
+      (
+        [path, from, to, separator],
+      ) => {
+        const parts = path.split(separator);
+        let result = "";
+        const n = Math.min(to + 1, parts.length);
+        for (let i = from; i < n; i++) {
+          const part = parts[i];
+          result += part;
+          if (i < n - 1) {
+            result += separator;
+          }
         }
-      }
-      return result;
-    }),
+        return result;
+      },
+    ),
 
     "join": (...values: unknown[]) => {
       return values.slice(0, -1).join("");

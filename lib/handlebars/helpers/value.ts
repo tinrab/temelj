@@ -1,5 +1,8 @@
+import { z } from "zod";
+import { isObjectPrimitive } from "../../value/check.ts";
 import { deepEquals } from "../../value/ops.ts";
 import type { PrimitiveValue } from "../../value/types.ts";
+import { createHelper } from "../utility.ts";
 import type { HelperDeclareSpec } from "./types.ts";
 
 export function getValueHelpers(): HelperDeclareSpec {
@@ -17,7 +20,20 @@ export function getValueHelpers(): HelperDeclareSpec {
 
     "orElse": (value: unknown, defaultValue: unknown) => value || defaultValue,
 
-    "toJson": (value: unknown, pretty: boolean) =>
-      pretty ? JSON.stringify(value, undefined, 2) : JSON.stringify(value),
+    "toJson": createHelper()
+      .params(z.any(), z.boolean().default(false))
+      .handle(([value, pretty]) => {
+        return pretty
+          ? JSON.stringify(value, undefined, 2)
+          : JSON.stringify(value);
+      }),
+
+    "isEmpty": (obj: unknown) => {
+      return Array.isArray(obj)
+        ? obj.length === 0
+        : isObjectPrimitive(obj)
+        ? Object.keys(obj).length === 0
+        : Boolean(obj) === false;
+    },
   };
 }

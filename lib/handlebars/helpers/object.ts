@@ -1,14 +1,14 @@
+import { z } from "zod";
+
 import { isObjectPrimitive } from "../../value/check.ts";
+import { createHelper } from "../utility.ts";
 import type { HelperDeclareSpec, HelperDelegate } from "./types.ts";
 
 export function getObjectHelpers(): HelperDeclareSpec {
   return {
-    "objectIsEmpty": (obj: unknown) => {
-      if (!isObjectPrimitive(obj)) {
-        return true;
-      }
-      return Object.keys(obj).length === 0;
-    },
+    "object": createHelper()
+      .hash(z.record(z.string(), z.any()))
+      .handle((hash) => hash),
     "objectPick": ((obj: unknown, ...keys: string[]) => {
       if (!isObjectPrimitive(obj)) {
         return {};

@@ -1,7 +1,7 @@
 {
 	"name": "@flinect/temelj",
 	"license": "MIT",
-	"version": "0.5.1",
+	"version": "0.5.2",
 	"description": "A big standard library for TypeScript.",
 	"tasks": {
 		"test": "deno test --doc ./lib",
