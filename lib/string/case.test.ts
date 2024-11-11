@@ -1,5 +1,6 @@
 import { assertEquals } from "@std/assert";
-import { toCamelCase, toPascalCase, toSnakeCase } from "~/string/case.ts";
+
+import { toCamelCase, toPascalCase, toSnakeCase } from "./case.ts";
 
 Deno.test("convert case", () => {
   assertEquals(toCamelCase("Hello World"), "helloWorld");

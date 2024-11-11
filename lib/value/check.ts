@@ -1,4 +1,4 @@
-import type { PrimitiveObject, PrimitiveValue } from "~/value/types.ts";
+import type { PrimitiveObject, PrimitiveValue } from "./types.ts";
 
 export function isValuePrimitive(
   value: unknown,

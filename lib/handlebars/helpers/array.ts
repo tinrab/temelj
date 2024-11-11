@@ -1,7 +1,8 @@
-import { deepEquals } from "~/value/ops.ts";
-import type { HelperDeclareSpec } from "~/handlebars/helpers/types.ts";
-import { makeZodHelper } from "~/handlebars/utility.ts";
 import { z } from "zod";
+
+import { deepEquals } from "../../value/ops.ts";
+import type { HelperDeclareSpec } from "./types.ts";
+import { makeZodHelper } from "../utility.ts";
 
 export function getArrayHelpers(): HelperDeclareSpec {
   return {

@@ -1,4 +1,4 @@
-import { Vector2 } from "~/math/vector2.ts";
+import { Vector2 } from "./vector2.ts";
 
 export interface Rectangle {
   position: Vector2;

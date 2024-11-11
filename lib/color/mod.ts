@@ -1,1 +1,1 @@
-export * from "~/color/color.ts";
+export * from "./color.ts";

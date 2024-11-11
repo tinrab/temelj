@@ -1,15 +1,19 @@
-export function filterMap<T, U>(
-  this: T[],
-  filter: (e: T, i?: number) => U | undefined,
-): U[] {
-  const result: U[] = [];
-  for (let i = 0; i < this.length; i++) {
-    const item = filter(this[i], i);
-    if (item !== undefined) {
-      result.push(item);
+export function binarySearch<T>(
+  arr: T[],
+  value: T,
+  compare: (a: T, b: T) => number,
+): number {
+  let lo = 0;
+  let hi = arr.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (compare(arr[mid], value) < 0) {
+      lo = mid + 1;
+    } else {
+      hi = mid;
     }
   }
-  return result;
+  return lo;
 }
 
 export function containsDuplicates<T>(
@@ -38,22 +42,4 @@ export function containsDuplicates<T>(
     }
   }
   return false;
-}
-
-export function binarySearch<T>(
-  arr: T[],
-  value: T,
-  compare: (a: T, b: T) => number,
-): number {
-  let low = 0;
-  let high = arr.length;
-  while (low < high) {
-    const mid = (low + high) >>> 1;
-    if (compare(arr[mid], value) < 0) {
-      low = mid + 1;
-    } else {
-      high = mid;
-    }
-  }
-  return low;
 }

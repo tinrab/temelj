@@ -1,4 +1,4 @@
-import { clamp as mathClamp } from "~/math/ops.ts";
+import { clamp as mathClamp } from "./ops.ts";
 
 export interface Vector2 {
   x: number;

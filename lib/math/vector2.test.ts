@@ -1,5 +1,5 @@
 import { assertEquals } from "@std/assert";
-import { Vector2 } from "~/math/vector2.ts";
+import { Vector2 } from "./vector2.ts";
 
 Deno.test("Vector2 math", () => {
   assertEquals(Vector2.add(Vector2.of(3, 0), 1, 2), Vector2.of(4, 2));

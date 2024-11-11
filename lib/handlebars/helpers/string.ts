@@ -6,9 +6,9 @@ import {
   toPascalCase,
   toSnakeCase,
   toTitleCase,
-} from "~/string/case.ts";
-import type { HelperDeclareSpec } from "~/handlebars/helpers/types.ts";
-import { makeZodHelper } from "~/handlebars/utility.ts";
+} from "../../string/case.ts";
+import type { HelperDeclareSpec } from "./types.ts";
+import { makeZodHelper } from "../utility.ts";
 
 export function getStringHelpers(): HelperDeclareSpec {
   return {

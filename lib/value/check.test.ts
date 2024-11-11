@@ -1,5 +1,6 @@
 import { assert } from "@std/assert";
-import { isObjectDeepPrimitive, isObjectPrimitive } from "~/value/check.ts";
+
+import { isObjectDeepPrimitive, isObjectPrimitive } from "./check.ts";
 
 Deno.test("isObjectPlain() works", () => {
   assert(isObjectPrimitive({ x: 42 }));

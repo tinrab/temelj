@@ -6,7 +6,7 @@ import {
   getUlidBytes,
   isUlidValid,
   makeUlidFromBytes,
-} from "~/id/ulid.ts";
+} from "./ulid.ts";
 
 Deno.test("generateUlid() works", () => {
   let id = generateUlid();

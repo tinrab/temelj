@@ -1,4 +1,4 @@
-import type { Registry } from "~/handlebars/registry.ts";
+import type { Registry } from "./registry.ts";
 
 export function registerSwitchHelpers(registry: Registry): void {
   const hbs: Registry & {

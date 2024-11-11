@@ -1,1 +1,1 @@
-export * from "~/request/cookie.ts";
+export * from "./cookie.ts";

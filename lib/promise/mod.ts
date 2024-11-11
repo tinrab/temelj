@@ -1,3 +1,3 @@
-export * from "~/promise/time.ts";
-export * from "~/promise/yield.ts";
-export * from "~/promise/queue.ts";
+export * from "./time.ts";
+export * from "./yield.ts";
+export * from "./queue.ts";

@@ -1,11 +1,6 @@
 import { assert, assertEquals } from "@std/assert";
 
-import {
-  sample,
-  sampleList,
-  sampleListUnique,
-  shuffle,
-} from "~/array/random.ts";
+import { sample, sampleList, sampleListUnique, shuffle } from "./random.ts";
 
 Deno.test("shuffle() works", () => {
   const array = [1, 2, 3, 4, 5];

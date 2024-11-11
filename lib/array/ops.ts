@@ -1,5 +1,6 @@
 import merge from "deepmerge";
-import { isObjectPrimitive } from "~/value/check.ts";
+
+import { isObjectPrimitive } from "../value/check.ts";
 
 export function equals<T>(
   a: T[],
@@ -39,19 +40,6 @@ export function combineMerge(
     } else if (!target.includes(item)) {
       result.push(item);
     }
-  }
-  return result;
-}
-
-// deno-lint-ignore no-explicit-any
-export function collectMap<K extends keyof any, V, V1 = V>(
-  elements: V[],
-  getKey: (element: V) => K,
-  map: (element: V) => V1 = (v) => v as unknown as V1,
-): Record<K, V1> {
-  const result = {} as Record<K, V1>;
-  for (const element of elements) {
-    result[getKey(element)] = map(element);
   }
   return result;
 }

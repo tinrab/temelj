@@ -26,4 +26,10 @@
 </div>
 
 <br/>
+
+<div align="center">
+  <a href="https://github.com/flinect/temelj/actions" rel="nofollow"><img alt="GitHub Actions Workflow Status" src="https://img.shields.io/github/actions/workflow/status/flinect/temelj/test.yaml"></a>
+</div>
+
+<br/>
 <br/>

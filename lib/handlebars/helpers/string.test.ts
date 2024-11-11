@@ -1,6 +1,7 @@
 import { assertEquals, assertThrows } from "@std/assert";
-import { getStringHelpers } from "~/handlebars/helpers/string.ts";
-import { Registry } from "~/handlebars/registry.ts";
+
+import { getStringHelpers } from "./string.ts";
+import { Registry } from "../registry.ts";
 
 Deno.test("Handlebars string helpers", () => {
   const r = new Registry();

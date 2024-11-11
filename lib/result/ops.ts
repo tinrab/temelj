@@ -1,4 +1,4 @@
-import type { Result, ResultErr, ResultOk } from "~/result/types.ts";
+import type { Result, ResultErr, ResultOk } from "./types.ts";
 
 export function ok<T, E>(value: T): Result<T, E> {
   return { value, error: undefined };

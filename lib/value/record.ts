@@ -1,6 +1,6 @@
 import merge from "deepmerge";
 
-import { combineMerge } from "~/array/ops.ts";
+import { combineMerge } from "../array/ops.ts";
 
 export function recordDeepMerge(...values: object[]): object {
   return merge.all(values, {

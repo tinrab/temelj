@@ -1,6 +1,7 @@
 import { assertEquals, assertThrows } from "@std/assert";
-import { Registry } from "~/handlebars/registry.ts";
-import { getArrayHelpers } from "~/handlebars/helpers/array.ts";
+
+import { Registry } from "../registry.ts";
+import { getArrayHelpers } from "./array.ts";
 
 Deno.test("Handlebars array helpers", () => {
   const r = new Registry();

@@ -1,7 +1,7 @@
 {
 	"name": "@flinect/temelj",
 	"license": "MIT",
-	"version": "0.4.0",
+	"version": "0.5.0",
 	"description": "A big standard library for TypeScript.",
 	"tasks": {
 		"test": "deno test --doc ./lib",
@@ -10,7 +10,6 @@
 		"npm:build": "deno run -A ./scripts/npm_build.ts"
 	},
 	"imports": {
-		"~/": "./lib/",
 		"zod": "npm:zod@^3.23.8",
 		"@deno/dnt": "jsr:@deno/dnt@^0.41.3",
 		"@std/assert": "jsr:@std/assert@^1.0.7",
@@ -24,6 +23,7 @@
 		"./color": "./lib/color/mod.ts",
 		"./handlebars": "./lib/handlebars/mod.ts",
 		"./id": "./lib/id/mod.ts",
+		"./iterator": "./lib/iterator/mod.ts",
 		"./math": "./lib/math/mod.ts",
 		"./promise": "./lib/promise/mod.ts",
 		"./request": "./lib/request/mod.ts",

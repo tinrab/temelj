@@ -1,1 +1,1 @@
-export * from "~/string/case.ts";
+export * from "./case.ts";
