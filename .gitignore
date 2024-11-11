@@ -2,3 +2,6 @@
 /npm
 
 deno.lock
+
+.vscode
+.zed

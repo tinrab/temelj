@@ -54,5 +54,9 @@ export function getStringHelpers(): HelperDeclareSpec {
       }
       return result;
     }),
+
+    "join": (...values: unknown[]) => {
+      return values.slice(0, -1).join("");
+    },
   };
 }
