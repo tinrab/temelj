@@ -35,8 +35,24 @@ jobs:
       - name: Build NPM
         run: deno task npm:build
 
-      - run: cd ./npm && npm ci
       - name: Publish NPM
-        run: cd ./npm && npm publish --access=public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          cd ./npm && ls
+
+          cd ./@temelj
+          packages=(result value string iterator array id promise color request handlebars math)
+          for package in ${packages[@]}
+          do
+            cd "./$package"
+            echo "Publishing package '@temelj/$package'..."
+            npm publish --access=public
+            cd ../
+          done
+          cd ../
+
+          cd ./@flinect/temelj
+          echo "Publishing package '@flinect/temelj'..."
+          npm publish --access=public
+          cd ../../

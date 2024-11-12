@@ -1,0 +1,12 @@
+{
+	"name": "@temelj/result",
+	"description": "Result monad for TypeScript.",
+	"license": "MIT",
+	"version": "0.1.1",
+	"exports": {
+		".": "./mod.ts"
+	},
+	"imports": {
+		"@std/assert": "jsr:@std/assert@^1.0.7"
+	}
+}

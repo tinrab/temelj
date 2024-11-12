@@ -1,0 +1,19 @@
+{
+	"name": "@flinect/temelj",
+	"license": "MIT",
+	"version": "0.5.3",
+	"description": "A big standard library for TypeScript.",
+	"exports": {
+		"./array": "./src/array/mod.ts",
+		"./color": "./src/color/mod.ts",
+		"./handlebars": "./src/handlebars/mod.ts",
+		"./id": "./src/id/mod.ts",
+		"./iterator": "./src/iterator/mod.ts",
+		"./math": "./src/math/mod.ts",
+		"./promise": "./src/promise/mod.ts",
+		"./request": "./src/request/mod.ts",
+		"./result": "./src/result/mod.ts",
+		"./string": "./src/string/mod.ts",
+		"./value": "./src/value/mod.ts"
+	}
+}
