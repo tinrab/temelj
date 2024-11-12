@@ -1,6 +1,14 @@
 import merge from "deepmerge";
-import { isObjectPrimitive } from "@temelj/value";
+import { deepEquals, isObjectPrimitive } from "@temelj/value";
 
+/**
+ * Compares two arrays for equality, optionally using a custom comparison function.
+ *
+ * @param a The first array to compare.
+ * @param b The second array to compare.
+ * @param compare An optional custom comparison function to use for each element. If not provided, {@link deepEquals} will be used.
+ * @returns `true` if the arrays are equal, `false` otherwise.
+ */
 export function equals<T>(
   a: T[],
   b: T[],
@@ -23,22 +31,34 @@ export function equals<T>(
     return a.every((item, index) => compare(item, b[index]));
   }
 
-  return a.every((item, index) => Object.is(item, b[index]));
+  return a.every((item, index) => deepEquals(item, b[index]));
 }
 
-export function combineMerge(
-  target: Partial<unknown>[],
-  source: Partial<unknown>[],
-): unknown[] {
-  const result = [...target];
-  for (const [index, item] of source.entries()) {
-    if (result[index] === undefined) {
-      result[index] = structuredClone(item);
+/**
+ * Combines and merges two arrays.
+ * It merges object primitives at the same index.
+ *
+ * @param target The target array to combine into.
+ * @param source The source array to combine from.
+ * @returns A new array that is the combination of the target and source arrays.
+ */
+export function combineMerge<A, B>(
+  target: A[],
+  source: B[],
+): (A & B)[] {
+  const result: unknown[] = [...target];
+  let i = 0;
+  for (const item of source) {
+    if (result[i] === undefined) {
+      result[i] = structuredClone(item);
     } else if (isObjectPrimitive(item)) {
-      result[index] = merge(target[index], item) as Partial<unknown>;
-    } else if (!target.includes(item)) {
+      result[i] = merge(target[i] as Partial<A>, item) as Partial<unknown>;
+    } else if (
+      target.find((targetItem) => deepEquals(targetItem, item)) === undefined
+    ) {
       result.push(item);
     }
+    i++;
   }
-  return result;
+  return result as (A & B)[];
 }

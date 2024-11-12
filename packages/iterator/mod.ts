@@ -1,5 +1,5 @@
 /**
- * This module contains utilities for working with iterables.
+ * Utilities for working with iterables.
  *
  * @module
  */

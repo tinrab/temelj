@@ -1,7 +1,20 @@
+/**
+ * Options for case conversions.
+ */
 export interface ConvertCaseOptions {
+  /**
+   * A function to split a string into parts.
+   */
   split?: (s: string) => string[];
 }
 
+/**
+ * Converts a string to camel case.
+ *
+ * @param s The string to convert.
+ * @param options Optional options for the conversion.
+ * @returns The converted string.
+ */
 export function toCamelCase(s: string, options?: ConvertCaseOptions): string {
   if (s.length === 0) {
     return s;
@@ -13,6 +26,13 @@ export function toCamelCase(s: string, options?: ConvertCaseOptions): string {
   return result;
 }
 
+/**
+ * Converts a string to snake case.
+ *
+ * @param s The string to convert.
+ * @param options Optional options for the conversion.
+ * @returns The converted string.
+ */
 export function toSnakeCase(s: string, options?: ConvertCaseOptions): string {
   if (s.length === 0) {
     return s;
@@ -28,6 +48,13 @@ export function toSnakeCase(s: string, options?: ConvertCaseOptions): string {
   return result;
 }
 
+/**
+ * Converts a string to pascal case.
+ *
+ * @param s The string to convert.
+ * @param options Optional options for the conversion.
+ * @returns The converted string.
+ */
 export function toPascalCase(s: string, options?: ConvertCaseOptions): string {
   if (s.length === 0) {
     return s;
@@ -39,6 +66,13 @@ export function toPascalCase(s: string, options?: ConvertCaseOptions): string {
   return result;
 }
 
+/**
+ * Converts a string to title case.
+ *
+ * @param s The string to convert.
+ * @param options Optional options for the conversion.
+ * @returns The converted string.
+ */
 export function toTitleCase(s: string, options?: ConvertCaseOptions): string {
   if (s.length === 0) {
     return s;
@@ -50,6 +84,12 @@ export function toTitleCase(s: string, options?: ConvertCaseOptions): string {
   return result.trim();
 }
 
+/**
+ * Capitalizes the first letter of a string.
+ *
+ * @param s The string to capitalize.
+ * @returns The capitalized string.
+ */
 export function capitalize(s: string): string {
   if (s.length === 0) {
     return s;
@@ -57,6 +97,13 @@ export function capitalize(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
 }
 
+/**
+ * Splits a string into parts based on case changes.
+ *
+ * @param s The string to split.
+ * @param options Optional options for the split.
+ * @returns The split string.
+ */
 export function caseSplit(s: string, options?: ConvertCaseOptions): string[] {
   if (options?.split !== undefined) {
     return options.split(s);

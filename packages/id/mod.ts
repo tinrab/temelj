@@ -1,12 +1,5 @@
 /**
- * This module provides a collection of functions for generating unique identifiers.
- *
- * ```ts
- * import { generateUlid } from "@temelj/id";
- * import { assertNotEquals } from "@std/assert";
- *
- * assertNotEquals(generateUlid(), generateUlid());
- * ```
+ * Utilities for working with ids.
  *
  * @module
  */

@@ -1,5 +1,6 @@
 import { assert, assertEquals } from "@std/assert";
 import { deepEquals } from "@temelj/value";
+import { err, ok } from "@temelj/result";
 
 import { binarySearch, containsDuplicates } from "./search.ts";
 
@@ -21,6 +22,22 @@ Deno.test("binarySearch() works", () => {
       "c",
       (a, b) => a.localeCompare(b),
     ),
-    2,
+    ok(2),
+  );
+  assertEquals(
+    binarySearch(
+      ["a", "b", "c", "d", "e"],
+      "z",
+      (a, b) => a.localeCompare(b),
+    ),
+    err(5),
+  );
+  assertEquals(
+    binarySearch(
+      ["a", "b", "c", "d", "e"],
+      "0",
+      (a, b) => a.localeCompare(b),
+    ),
+    err(0),
   );
 });

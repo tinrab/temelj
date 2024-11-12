@@ -1,8 +1,8 @@
 {
   "name": "@temelj/value",
-  "description": "Utilities for working with TypeScript values.",
+  "description": "Utilities for working with plain TypeScript values.",
   "license": "MIT",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "exports": {
     ".": "./mod.ts"
   },

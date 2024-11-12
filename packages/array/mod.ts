@@ -1,5 +1,5 @@
 /**
- * This module contains utilities for working with arrays.
+ * Utilities for working with arrays.
  *
  * @module
  */

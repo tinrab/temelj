@@ -2,7 +2,7 @@ import { assert, assertEquals, assertMatch } from "@std/assert";
 
 import {
   generateUlid,
-  generateUlidMultiple,
+  generateUlidList,
   getUlidBytes,
   isUlidValid,
   makeUlidFromBytes,
@@ -45,8 +45,8 @@ Deno.test("isUlidValid() works", () => {
   assert(!isUlidValid("1234567890"));
 });
 
-Deno.test("generateUlidMultiple() works", () => {
-  const ids = generateUlidMultiple(5);
+Deno.test("generateUlidList() works", () => {
+  const ids = generateUlidList(5);
   assertEquals(ids.length, 5);
   assert(ids.every((id) => id.length === 26));
   assert(ids.every((id) => id.match(/^[0-9A-Z]{26}$/)));

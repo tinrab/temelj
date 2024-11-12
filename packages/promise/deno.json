@@ -2,7 +2,7 @@
   "name": "@temelj/promise",
   "description": "Utilities for working with promises.",
   "license": "MIT",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "exports": {
     ".": "./mod.ts"
   },

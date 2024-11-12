@@ -1,9 +1,10 @@
 {
   "tasks": {
     "test": "deno test --doc",
-    "lint": "deno lint & deno fmt --check",
+    "lint": "deno lint && deno fmt --check",
     "clean": "deno run --allow-env --allow-read --allow-write --allow-run ./scripts/clean.ts",
-    "npm:build": "deno run -A ./scripts/npm_build.ts"
+    "update-versions": "deno run --allow-env --allow-read --allow-write=./lib,./packages --allow-net ./scripts/update_versions.ts",
+    "npm:build": "deno run --allow-env --allow-read --allow-write=./npm --allow-net ./scripts/npm_build.ts"
   },
   "compilerOptions": {
     "lib": ["deno.ns", "dom"]

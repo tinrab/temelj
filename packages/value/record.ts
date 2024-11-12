@@ -1,29 +1,13 @@
 import merge from "deepmerge";
+import { deepEquals } from "./ops.ts";
 
-import { isObjectPrimitive } from "./check.ts";
-
-export function recordDeepMerge(...values: object[]): object {
-  return merge.all(values, {
-    clone: true,
-    arrayMerge: (
-      target: Partial<unknown>[],
-      source: Partial<unknown>[],
-    ) => {
-      const result = [...target];
-      for (const [index, item] of source.entries()) {
-        if (result[index] === undefined) {
-          result[index] = structuredClone(item);
-        } else if (isObjectPrimitive(item)) {
-          result[index] = merge(target[index], item) as Partial<unknown>;
-        } else if (!target.includes(item)) {
-          result.push(item);
-        }
-      }
-      return result;
-    },
-  });
-}
-
+/**
+ * Compares two records for equality, optionally using a custom comparison function.
+ *
+ * @param a The first record to compare.
+ * @param b The second record to compare.
+ * @param compare An optional custom comparison function to use for each value. If not provided, {@link deepEquals} will be used.
+ */
 export function recordEquals<V>(
   a: Record<string, V>,
   b: Record<string, V>,
@@ -39,7 +23,7 @@ export function recordEquals<V>(
       if (bValue === undefined) {
         return false;
       }
-      if (!Object.is(aValue, bValue)) {
+      if (!deepEquals(aValue, bValue)) {
         return false;
       }
     }
@@ -57,6 +41,42 @@ export function recordEquals<V>(
   return true;
 }
 
+/**
+ * Checks if a record is empty.
+ *
+ * @param value The record to check.
+ * @returns `true` if the record is empty, `false` otherwise.
+ */
 export function recordIsEmpty<V>(value: Record<string, V>): boolean {
   return Object.keys(value).length === 0;
+}
+
+/**
+ * Options for {@link recordMerge}.
+ */
+export interface RecordMergeOptions {
+  clone?: boolean;
+  arrayMerge?: <T, S>(
+    target: T[],
+    source: S[],
+  ) => (T & S)[];
+  isMergable?: (value: unknown) => boolean;
+}
+
+/**
+ * Merges multiple records into a single record.
+ *
+ * @param records The records to merge.
+ * @param options The options to use for merging the records.
+ * @returns The merged record.
+ */
+export function recordMerge<T>(
+  values: Partial<T>[],
+  options: RecordMergeOptions = { clone: true },
+): T {
+  return merge.all(values, {
+    clone: options.clone,
+    arrayMerge: options.arrayMerge,
+    isMergeableObject: options.isMergable,
+  }) as T;
 }

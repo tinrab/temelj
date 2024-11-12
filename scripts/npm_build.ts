@@ -1,71 +1,26 @@
-import { build, emptyDir, type PackageJson } from "jsr:@deno/dnt@^0.41.3";
+import { build, emptyDir } from "jsr:@deno/dnt@^0.41.3";
 import path from "node:path";
-import { z } from "npm:zod@3.23.8";
-import { yellow } from "jsr:@std/fmt/colors";
 
-const denoWorkspaceSchema = z.object({
-  workspace: z.array(z.string()),
-});
-type DenoWorkspace = z.infer<typeof denoWorkspaceSchema>;
-
-const denoMemberSchema = z.object({
-  name: z.string(),
-  description: z.string(),
-  license: z.string(),
-  version: z.string(),
-  imports: z.record(z.string()).default({}),
-  exports: z.record(z.string()),
-});
-type DenoMember = z.infer<typeof denoMemberSchema>;
-
-type WorkspaceMember = {
-  path: string;
-  deno: DenoMember;
-  packageJson?: PackageJson;
-};
+import {
+  checkPackageDependencies,
+  readWorkspace,
+  readWorkspaceMembers,
+  type WorkspaceMember,
+} from "./utility.ts";
 
 const NPM_PATH = path.resolve("./npm");
 
 if (import.meta.main) {
   await emptyDir(NPM_PATH);
 
-  const workspace: DenoWorkspace = denoWorkspaceSchema.parse(JSON.parse(
-    await Deno.readTextFile("./deno.json"),
-  ));
-  const members = await readMembers(workspace);
+  const workspace = await readWorkspace();
+  const members = await readWorkspaceMembers(workspace);
 
   checkPackageDependencies(members);
 
   for (const member of members) {
     await buildMember(member);
   }
-}
-
-async function readMembers(
-  workspace: DenoWorkspace,
-): Promise<WorkspaceMember[]> {
-  const members: WorkspaceMember[] = [];
-
-  for (const workspacePath of workspace.workspace) {
-    const deno: DenoMember = denoMemberSchema.parse(JSON.parse(
-      await Deno.readTextFile(path.join(workspacePath, "deno.json")),
-    ));
-
-    let packageJson: PackageJson | undefined;
-    try {
-      packageJson = JSON.parse(
-        await Deno.readTextFile(path.join(workspacePath, "package.json")),
-      );
-    } catch (error) {
-      if (!(error instanceof Deno.errors.NotFound)) {
-        throw error;
-      }
-    }
-
-    members.push({ path: workspacePath, deno, packageJson });
-  }
-
-  return members;
 }
 
 async function buildMember(member: WorkspaceMember): Promise<void> {
@@ -120,30 +75,4 @@ async function buildMember(member: WorkspaceMember): Promise<void> {
       }
     },
   });
-}
-
-function checkPackageDependencies(members: WorkspaceMember[]): void {
-  const versions = members.reduce((versions, member) => {
-    versions[member.deno.name] = member.deno.version;
-    return versions;
-  }, {} as Record<string, string>);
-
-  for (const member of members) {
-    for (
-      const [name, version] of Object.entries(
-        member.packageJson?.dependencies || {},
-      )
-    ) {
-      const packageVersion = version.replace(/^[\^~]/, "");
-      const latestVersion = versions[name];
-      if (packageVersion !== latestVersion) {
-        // deno-lint-ignore no-console
-        console.log(
-          yellow(
-            `Package '${name}' (${member.path}) is outdated '${version}', latest version is '${latestVersion}'`,
-          ),
-        );
-      }
-    }
-  }
 }
