@@ -1,15 +1,15 @@
 {
-	"dependencies": {
-		"@temelj/array": "^0.1.1",
-		"@temelj/color": "^0.1.1",
-		"@temelj/handlebars": "^0.1.1",
-		"@temelj/id": "^0.1.1",
-		"@temelj/iterator": "^0.1.1",
-		"@temelj/math": "^0.1.1",
-		"@temelj/promise": "^0.1.1",
-		"@temelj/request": "^0.1.1",
-		"@temelj/result": "^0.1.1",
-		"@temelj/string": "^0.1.1",
-		"@temelj/value": "^0.1.1"
-	}
+  "dependencies": {
+    "@temelj/array": "^0.1.2",
+    "@temelj/color": "^0.1.2",
+    "@temelj/handlebars": "^0.1.2",
+    "@temelj/id": "^0.1.2",
+    "@temelj/iterator": "^0.1.2",
+    "@temelj/math": "^0.1.2",
+    "@temelj/promise": "^0.1.2",
+    "@temelj/request": "^0.1.2",
+    "@temelj/result": "^0.1.2",
+    "@temelj/string": "^0.1.2",
+    "@temelj/value": "^0.1.2"
+  }
 }

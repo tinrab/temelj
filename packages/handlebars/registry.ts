@@ -1,35 +1,39 @@
-import handlebars from "handlebars";
+import { default as hbs } from "handlebars";
 
 import { registerSwitchHelpers } from "./switch.ts";
-import type { HelperDeclareSpec, HelperDelegate } from "./helpers/types.ts";
+import type {
+  HelperDeclareSpec,
+  HelperDelegate,
+  PartialSpec,
+  Template,
+  TemplateDelegate,
+} from "./helpers/types.ts";
+import { getHelpers } from "./helpers/all.ts";
 
 export class Registry {
-  private readonly hbs: typeof Handlebars;
+  public readonly handlebars: typeof Handlebars;
 
   constructor() {
-    this.hbs = handlebars.create();
+    this.handlebars = hbs.create();
     registerSwitchHelpers(this);
   }
 
-  public get partials(): Record<string, unknown> {
-    return this.hbs.partials;
+  public includeAllHelpers(): Registry {
+    this.registerHelpers(getHelpers(this));
+    return this;
   }
 
-  public static make(): Registry {
-    return new Registry();
+  public compile(source: string): TemplateDelegate {
+    return this.handlebars.compile(source);
   }
 
-  public compile(source: string): handlebars.TemplateDelegate {
-    return this.hbs.compile(source);
-  }
-
-  public renderTemplate(source: string, data?: unknown): string {
-    const compiledTemplate = this.hbs.compile(source);
+  public render(source: string, data?: unknown): string {
+    const compiledTemplate = this.compile(source);
     return compiledTemplate(data);
   }
 
   public registerHelper(name: string, helper: HelperDelegate): void {
-    this.hbs.registerHelper(name, helper);
+    this.handlebars.registerHelper(name, helper);
   }
 
   public registerHelpers(helpers: HelperDeclareSpec): void {
@@ -38,7 +42,11 @@ export class Registry {
     }
   }
 
-  public registerPartial(name: string, template: handlebars.Template): void {
-    this.hbs.registerPartial(name, template);
+  public registerPartial(name: string, template: Template): void {
+    this.handlebars.registerPartial(name, template);
+  }
+
+  public get partials(): PartialSpec {
+    return this.handlebars.partials;
   }
 }

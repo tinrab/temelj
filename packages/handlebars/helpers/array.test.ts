@@ -1,34 +1,32 @@
 import { assertEquals, assertThrows } from "@std/assert";
 
 import { Registry } from "../registry.ts";
-import { getArrayHelpers } from "./array.ts";
 
 Deno.test("Handlebars array helpers", () => {
-  const r = new Registry();
-  r.registerHelpers(getArrayHelpers());
+  const r = new Registry().includeAllHelpers();
 
-  assertEquals(r.renderTemplate("{{array 1 2 3}}"), "1,2,3");
-  assertEquals(r.renderTemplate("{{arrayItemAt (array 1 2 3) 1}}"), "2");
+  assertEquals(r.render("{{array 1 2 3}}"), "1,2,3");
+  assertEquals(r.render("{{arrayItemAt (array 1 2 3) 1}}"), "2");
   assertEquals(
-    r.renderTemplate("{{arrayContains (array 1 2 3) 2}}"),
+    r.render("{{arrayContains (array 1 2 3) 2}}"),
     "true",
   );
   assertEquals(
-    r.renderTemplate("{{arrayContains (array 1 2 3) 4}}"),
+    r.render("{{arrayContains (array 1 2 3) 4}}"),
     "false",
   );
   assertEquals(
-    r.renderTemplate(`{{arrayJoin (array 1 2 3) "|"}}`),
+    r.render(`{{arrayJoin (array 1 2 3) "|"}}`),
     "1|2|3",
   );
 
   assertThrows(
-    () => r.renderTemplate("{{arrayItemAt (array)}}"),
+    () => r.render("{{arrayItemAt (array)}}"),
     Error,
     "Required",
   );
   assertThrows(
-    () => r.renderTemplate("{{arrayItemAt (array 1 2 3)}}"),
+    () => r.render("{{arrayItemAt (array 1 2 3)}}"),
     Error,
     "Required",
   );

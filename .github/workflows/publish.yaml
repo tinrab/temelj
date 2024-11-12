@@ -2,7 +2,7 @@ name: Publish
 
 on:
   push:
-    tags: ['v*']
+    tags: ["v*"]
 
 jobs:
   publish:
@@ -17,7 +17,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: latest
-          registry-url: 'https://registry.npmjs.org'
+          registry-url: "https://registry.npmjs.org"
       - uses: denoland/setup-deno@v1
         with:
           deno-version: v2.*

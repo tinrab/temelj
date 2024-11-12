@@ -1,12 +1,12 @@
 {
-	"name": "@temelj/request",
-	"description": "Utilities for working with HTTP requests.",
-	"license": "MIT",
-	"version": "0.1.1",
-	"exports": {
-		".": "./mod.ts"
-	},
-	"imports": {
-		"@std/assert": "jsr:@std/assert@^1.0.7"
-	}
+  "name": "@temelj/request",
+  "description": "Utilities for working with HTTP requests.",
+  "license": "MIT",
+  "version": "0.1.2",
+  "exports": {
+    ".": "./mod.ts"
+  },
+  "imports": {
+    "@std/assert": "jsr:@std/assert@^1.0.7"
+  }
 }

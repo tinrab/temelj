@@ -3,7 +3,7 @@ import { assertEquals } from "@std/assert";
 import { Registry } from "./registry.ts";
 
 Deno.test("Handlebars switch helper", () => {
-  const hbs = new Registry();
+  const r = new Registry();
   const template = `
     {{#switch x}}
     {{#case 1}}A{{/case}}
@@ -12,14 +12,14 @@ Deno.test("Handlebars switch helper", () => {
     {{/switch}}
   `;
   assertEquals(
-    hbs.renderTemplate(
+    r.render(
       template,
       { x: 1 },
     ).trim(),
     "A",
   );
   assertEquals(
-    hbs.renderTemplate(
+    r.render(
       template,
       { x: 2 },
     ).trim(),
@@ -27,14 +27,14 @@ Deno.test("Handlebars switch helper", () => {
   );
 
   assertEquals(
-    hbs.renderTemplate(
+    r.render(
       template,
       { x: 99 },
     ).trim(),
     "C",
   );
   assertEquals(
-    hbs.renderTemplate(
+    r.render(
       template,
     ).trim(),
     "C",

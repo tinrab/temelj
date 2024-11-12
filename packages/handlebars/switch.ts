@@ -1,3 +1,4 @@
+import type { JsonValue } from "../value/types.ts";
 import type { Registry } from "./registry.ts";
 
 export function registerSwitchHelpers(registry: Registry): void {
@@ -12,7 +13,7 @@ export function registerSwitchHelpers(registry: Registry): void {
   hbs.switchStack = [];
   hbs.registerHelper(
     "switch",
-    function (value, options) {
+    function (value, options): JsonValue | undefined {
       if (hbs.switchStack === undefined) {
         return;
       }
@@ -26,7 +27,7 @@ export function registerSwitchHelpers(registry: Registry): void {
       return rendered;
     },
   );
-  hbs.registerHelper("case", function (...args) {
+  hbs.registerHelper("case", function (...args): JsonValue | undefined {
     const options = args.pop();
     const caseValues = args;
     const stack = hbs.switchStack?.at(-1);
@@ -39,7 +40,7 @@ export function registerSwitchHelpers(registry: Registry): void {
       return options.fn(this);
     }
   });
-  hbs.registerHelper("default", function (options) {
+  hbs.registerHelper("default", function (options): JsonValue | undefined {
     const stack = hbs.switchStack?.at(-1);
     if (!stack?.switchMatch) {
       // @ts-ignore handlebars missing types

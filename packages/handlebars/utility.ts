@@ -8,9 +8,7 @@ interface HelperBuilder {
     ...schemas: T
   ) => HelperBuilderWithParams<T>;
   hash: <T extends z.ZodSchema>(schema: T) => HelperBuilderWithHash<T>;
-  handle: (
-    handler: () => JsonValue,
-  ) => HelperDelegate;
+  handle: (handler: () => JsonValue) => HelperDelegate;
 }
 
 interface HelperBuilderWithParams<
@@ -28,9 +26,7 @@ interface HelperBuilderWithHash<THash extends z.ZodSchema> {
   params: <T extends [] | [z.ZodTypeAny, ...z.ZodTypeAny[]]>(
     ...schemas: T
   ) => HelperBuilderWithParamsAndHash<T, THash>;
-  handle: (
-    handler: (hash: z.output<THash>) => JsonValue,
-  ) => HelperDelegate;
+  handle: (handler: (hash: z.output<THash>) => JsonValue) => HelperDelegate;
 }
 
 interface HelperBuilderWithParamsAndHash<
@@ -84,13 +80,11 @@ class HelperBuilderImpl implements HelperBuilder {
       let hash: unknown | undefined;
       if (this._hashSchema !== undefined) {
         const context = args[args.length - 1] as Record<string, unknown>;
-        hash = this._hashSchema.parse(
-          context?.hash,
-        );
+        hash = this._hashSchema.parse(context?.hash);
       }
 
       return params === undefined
-        ? (hash === undefined ? handler() : handler(hash))
+        ? hash === undefined ? handler() : handler(hash)
         : hash === undefined
         ? handler(params)
         : handler(params, hash);

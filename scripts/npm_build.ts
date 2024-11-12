@@ -68,7 +68,7 @@ async function readMembers(
   return members;
 }
 
-async function buildMember(member: WorkspaceMember) {
+async function buildMember(member: WorkspaceMember): Promise<void> {
   const outputPath = path.join(NPM_PATH, member.deno.name);
 
   await build({
@@ -103,7 +103,7 @@ async function buildMember(member: WorkspaceMember) {
       },
       ...(member.packageJson ?? {}),
     },
-    async postBuild() {
+    async postBuild(): Promise<void> {
       await Deno.copyFile("LICENSE", path.join(outputPath, "LICENSE"));
 
       for (const fileName of ["README.md"]) {
@@ -122,7 +122,7 @@ async function buildMember(member: WorkspaceMember) {
   });
 }
 
-function checkPackageDependencies(members: WorkspaceMember[]) {
+function checkPackageDependencies(members: WorkspaceMember[]): void {
   const versions = members.reduce((versions, member) => {
     versions[member.deno.name] = member.deno.version;
     return versions;
