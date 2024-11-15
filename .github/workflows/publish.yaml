@@ -38,20 +38,33 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
+          function publish_package() {
+            packageName=$1
+            latestVersion=$(cat ./package.json | jq -r '.version')
+            publishedVersion=$(npm view "$packageName" version)
+
+            echo "Latest version: $latestVersion"
+            echo "Published version: $publishedVersion"
+
+            if [ "$latestVersion" != "$publishedVersion" ]; then
+              npm publish --access public
+            else
+              echo "Package '$packageName' is already up to date."
+            fi
+          }
+
           cd ./npm && ls
 
           cd ./@temelj
           packages=(result value string iterator array id color request handlebars math)
           for package in ${packages[@]}
           do
-            cd "./$package"
-            echo "Publishing package '@temelj/$package'..."
-            npm publish --access=public
+            cd ./$package
+            publish_package "@temelj/$package"
             cd ../
           done
           cd ../
 
           cd ./@flinect/temelj
-          echo "Publishing package '@flinect/temelj'..."
-          npm publish --access=public
+          publish_package "@flinect/temelj"
           cd ../../
