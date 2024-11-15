@@ -3,9 +3,9 @@ import jsonc from "npm:jsonc-parser@3.3.1";
 import path from "node:path";
 
 import {
-  type DenoMember,
   readWorkspace,
   readWorkspaceMembers,
+  updateMemberVersion,
 } from "./utility.ts";
 
 if (import.meta.main) {
@@ -13,30 +13,55 @@ if (import.meta.main) {
     await Deno.readTextFile("./lib/package.json"),
   );
 
-  const workspace = await readWorkspace();
+  const members = (await readWorkspaceMembers(await readWorkspace())).filter((
+    member,
+  ) => !member.deno.name.startsWith("@flinect"));
 
-  for (const member of await readWorkspaceMembers(workspace)) {
+  const versions: Record<string, string> = {};
+
+  for (const member of members) {
     const latestVersion = packageJson.dependencies?.[member.deno.name];
     if (!latestVersion) {
       continue;
     }
 
     const versionNumber = latestVersion.replaceAll(/^[\^~]+/g, "");
-    if (versionNumber === member.deno.version) {
+    if (versionNumber !== member.deno.version) {
+      await updateMemberVersion(member, versionNumber);
+    }
+
+    versions[member.deno.name] = versionNumber;
+    member.deno.version = versionNumber;
+  }
+
+  for (
+    const member of members
+  ) {
+    if (member.packageJson?.dependencies === undefined) {
       continue;
     }
 
-    const memberDenoPath = path.join(member.path, "deno.json");
-    const memberDeno: DenoMember = jsonc.parse(
-      await Deno.readTextFile(
-        memberDenoPath,
-      ),
-    );
-    memberDeno.version = versionNumber;
+    let updatePackageJson = false;
+    for (
+      const [name, version] of Object.entries(member.packageJson.dependencies)
+    ) {
+      const packageVersion = version.replace(/^[\^~]/, "");
+      const latestVersion = versions[name];
+      if (!latestVersion) {
+        continue;
+      }
 
-    await Deno.writeTextFile(
-      memberDenoPath,
-      JSON.stringify(memberDeno, null, 2),
-    );
+      if (packageVersion !== latestVersion) {
+        member.packageJson.dependencies[name] = `^${latestVersion}`;
+        updatePackageJson = true;
+      }
+    }
+
+    if (updatePackageJson) {
+      await Deno.writeTextFile(
+        path.join(member.path, "package.json"),
+        JSON.stringify(member.packageJson, null, 2),
+      );
+    }
   }
 }

@@ -1,40 +1,396 @@
+import { crypto } from "@std/crypto/crypto";
+import { timingSafeEqual } from "@std/crypto";
+import { decodeBase64Url, encodeBase64Url } from "@std/encoding";
+import * as cookieUtility from "tough-cookie";
+
 /**
  * A HTTP cookie.
  */
-export type Cookie = {
+export interface Cookie {
   name: string;
   value: string;
-} & CookieAttributes;
-
-/**
- * Attributes of a cookie.
- */
-export type CookieAttributes = {
   domain?: string;
   expires?: Date;
   httpOnly?: boolean;
   maxAge?: number;
   path?: string;
   priority?: "low" | "medium" | "high";
-  sameSite?: true | false | "strict" | "lax" | "none";
+  sameSite?: "strict" | "lax" | "none";
   secure?: boolean;
+  partitioned?: boolean;
+  extra?: Record<string, string>;
+}
+
+/**
+ * Parses a cookie string into a Cookie object.
+ *
+ * @param source The cookie string.
+ * @returns The parsed cookie, or undefined if the cookie is invalid.
+ */
+export function parseCookie(source: string): Cookie | undefined {
+  const parsed = cookieUtility.parse(source);
+  if (!parsed) {
+    return undefined;
+  }
+
+  const cookie: Cookie = {
+    name: parsed.key,
+    value: parsed.value,
+    httpOnly: parsed.httpOnly,
+    secure: parsed.secure,
+  };
+
+  if (parsed.domain !== null) {
+    cookie.domain = parsed.domain;
+  }
+  if (parsed.path !== null) {
+    cookie.path = parsed.path;
+  }
+  if (parsed.expires && parsed.expires !== "Infinity") {
+    cookie.expires = new Date(parsed.expires);
+  }
+
+  if (parsed.sameSite === "lax") {
+    cookie.sameSite = "lax";
+  } else if (parsed.sameSite === "strict") {
+    cookie.sameSite = "strict";
+  } else if (parsed.sameSite === "none") {
+    cookie.sameSite = "none";
+  }
+
+  if (typeof parsed.maxAge === "number") {
+    cookie.maxAge = parsed.maxAge;
+  } else if (parsed.maxAge === "-Infinity") {
+    cookie.maxAge = -1;
+  }
+
+  if (parsed.extensions) {
+    for (const extension of parsed.extensions) {
+      const parts = extension.toLowerCase().split("=");
+      if (parts.length === 2) {
+        if (parts[0] === "priority") {
+          if (
+            parts[1] === "low" || parts[1] === "medium" || parts[1] === "high"
+          ) {
+            cookie.priority = parts[1];
+          } else {
+            return undefined;
+          }
+        } else if (parts[0] === "partitioned") {
+          if (parts[1] === "true") {
+            cookie.partitioned = true;
+          } else if (parts[1] === "false") {
+            cookie.partitioned = false;
+          } else {
+            return undefined;
+          }
+        } else {
+          if (cookie.extra === undefined) {
+            cookie.extra = {};
+          }
+          cookie.extra[parts[0]] = parts[1];
+        }
+      } else if (parts.length === 1) {
+        if (parts[0] === "partitioned") {
+          cookie.partitioned = true;
+        } else {
+          if (cookie.extra === undefined) {
+            cookie.extra = {};
+          }
+          cookie.extra[parts[0]] = "true";
+        }
+      } else {
+        return undefined;
+      }
+    }
+  }
+
+  return cookie;
+}
+
+/**
+ * Serializes a Cookie object into a cookie string.
+ */
+export function serializeCookie(
+  cookie: Cookie,
+): string {
+  const extensions: string[] = [];
+  if (cookie.priority !== undefined) {
+    extensions.push(`Priority=${cookie.priority};`);
+  }
+  if (cookie.partitioned !== undefined) {
+    extensions.push("Partitioned;");
+  }
+  return new cookieUtility.Cookie({
+    key: cookie.name,
+    value: cookie.value,
+    domain: cookie.domain,
+    expires: cookie.expires,
+    httpOnly: cookie.httpOnly,
+    maxAge: cookie.maxAge,
+    path: cookie.path,
+    sameSite: typeof cookie.sameSite === "boolean"
+      ? cookie.sameSite ? "true" : undefined
+      : cookie.sameSite,
+    secure: cookie.secure,
+    extensions,
+  }).toString();
+}
+
+/**
+ * Options for cookie encryptions.
+ */
+interface CookieEncryptionOptions extends CookieEncryptionAlgorithmOptions {
+  /** The password to use for encryption. */
+  password: string;
+}
+
+interface CookieEncryptionAlgorithmOptions {
+  /**
+   * The algorithm to use for encryption.
+   * Default is "AES-CBC".
+   */
+  algorithm?: string;
+
+  /**
+   * The integrity algorithm to use for HMAC signature.
+   * Default is "SHA256".
+   */
+  integrityAlgorithm?: string;
+
+  /**
+   * The number of bits to use for the IV.
+   * Default is 128.
+   */
+  ivBits?: number;
+
+  /**
+   * The number of bits to use for the key.
+   * Default is 256.
+   */
+  keyBits?: number;
+
+  /**
+   * The number of bits to use for the salt.
+   * Default is 256.
+   */
+  saltsBits?: number;
+}
+
+const defaultEncryptionOptions: Required<CookieEncryptionAlgorithmOptions> = {
+  algorithm: "AES-CBC",
+  integrityAlgorithm: "SHA-256",
+  ivBits: 128,
+  keyBits: 256,
+  saltsBits: 256,
 };
 
 /**
- * Extracts a single cookie from a cookie string.
- *
- * @param cookieString The cookie string to parse.
- * @param name The name of the cookie to parse.
- * @returns The value of the cookie, or `undefined` if the cookie was not found.
+ * Serializes a Cookie object into a cookie string that is encrypted with a password.
  */
-export function parseCookie(
-  cookieString: string,
-  name: string,
-): string | undefined {
-  const cookies = cookieString.split(";");
-  const cookie = cookies.find((c) => c.includes(name));
-  if (!cookie) {
-    return;
+export async function serializeEncryptedCookie(
+  cookie: Cookie,
+  options: CookieEncryptionOptions,
+): Promise<string> {
+  const cookieValue = await encryptCookieValue(
+    cookie.value,
+    options,
+  );
+  return serializeCookie({ ...cookie, value: cookieValue });
+}
+
+const VERSION: string = "1";
+const SEPARATOR: string = "|";
+
+/**
+ * Encrypts a cookie value.
+ */
+export async function encryptCookieValue(
+  value: string,
+  options: CookieEncryptionOptions,
+): Promise<string> {
+  if (options.password.length < 32) {
+    throw new Error("Password must be at least 32 characters long");
   }
-  return cookie.split("=")[1] || undefined;
+
+  const keyOptions: GenerateKeyOptions = {
+    password: options.password,
+    algorithm: options.algorithm ?? defaultEncryptionOptions.algorithm,
+    integrityAlgorithm: options.integrityAlgorithm ??
+      defaultEncryptionOptions.integrityAlgorithm,
+    ivBits: options.ivBits ?? defaultEncryptionOptions.ivBits,
+    keyBits: options.keyBits ?? defaultEncryptionOptions.keyBits,
+    saltsBits: options.saltsBits ?? defaultEncryptionOptions.saltsBits,
+  };
+
+  const encryptionKey = await generateKey(keyOptions);
+  const encrypted = new Uint8Array(
+    await crypto.subtle.encrypt(
+      {
+        name: keyOptions.algorithm,
+        iv: encryptionKey.iv,
+      } as AesCbcParams,
+      encryptionKey.key,
+      new TextEncoder().encode(value),
+    ),
+  );
+
+  const encoded = [
+    VERSION,
+    encodeBase64Url(encryptionKey.iv),
+    encodeBase64Url(encryptionKey.salt),
+    encodeBase64Url(encrypted),
+  ].join(SEPARATOR);
+
+  const signed = await sign(
+    encoded,
+    keyOptions,
+  );
+
+  return [encoded, signed.digest, signed.salt].join(SEPARATOR);
+}
+
+/**
+ * Decrypts a cookie value.
+ */
+export async function decryptCookieValue(
+  value: string,
+  options: CookieEncryptionOptions,
+): Promise<string | undefined> {
+  const parts = value.split(SEPARATOR);
+  if (parts.length !== 6) {
+    return undefined;
+  }
+
+  const [version, iv, salt, encrypted, signDigest, signSalt] = parts;
+  if (
+    version !== VERSION ||
+    !iv || !salt || !encrypted || !signDigest || !signSalt
+  ) {
+    return undefined;
+  }
+
+  const keyOptions: GenerateKeyOptions = {
+    password: options.password,
+    algorithm: options.algorithm ?? defaultEncryptionOptions.algorithm,
+    integrityAlgorithm: options.integrityAlgorithm ??
+      defaultEncryptionOptions.integrityAlgorithm,
+    ivBits: options.ivBits ?? defaultEncryptionOptions.ivBits,
+    keyBits: options.keyBits ?? defaultEncryptionOptions.keyBits,
+    saltsBits: options.saltsBits ?? defaultEncryptionOptions.saltsBits,
+  };
+
+  const signature = await sign(
+    [VERSION, iv, salt, encrypted].join(SEPARATOR),
+    {
+      ...keyOptions,
+      salt: signSalt,
+    },
+  );
+  const textEncoder = new TextEncoder();
+  if (
+    !timingSafeEqual(
+      textEncoder.encode(signature.digest),
+      textEncoder.encode(signDigest),
+    )
+  ) {
+    return undefined;
+  }
+
+  const textDecoder = new TextDecoder();
+  const { key } = await generateKey({
+    ...keyOptions,
+    salt: textDecoder.decode(decodeBase64Url(salt)),
+  });
+  const decrypted = await crypto.subtle.decrypt(
+    {
+      name: keyOptions.algorithm,
+      iv: decodeBase64Url(iv),
+    } as AesCbcParams,
+    key,
+    decodeBase64Url(encrypted),
+  );
+
+  return textDecoder.decode(decrypted);
+}
+
+interface EncryptionKey {
+  key: CryptoKey;
+  iv: Uint8Array;
+  salt: string;
+}
+
+type GenerateKeyOptions = {
+  password: string;
+  salt?: string;
+  hmac?: boolean;
+} & Required<CookieEncryptionAlgorithmOptions>;
+
+async function generateKey(
+  options: GenerateKeyOptions,
+): Promise<EncryptionKey> {
+  const iv = crypto.getRandomValues(
+    new Uint8Array(Math.ceil(options.ivBits / 8)),
+  );
+
+  const passwordBytes = new TextEncoder().encode(options.password);
+  const importedKey = await crypto.subtle.importKey(
+    "raw",
+    passwordBytes,
+    { name: "PBKDF2" },
+    false,
+    ["deriveBits"],
+  );
+
+  let randomSalt = options.salt;
+  if (!randomSalt) {
+    const bytes = new Uint8Array(Math.ceil(options.saltsBits / 8));
+    crypto.getRandomValues(bytes);
+    randomSalt = [...bytes].map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+  }
+
+  const saltBytes = new TextEncoder().encode(randomSalt);
+
+  const derivedKey = await crypto.subtle.deriveBits(
+    {
+      name: "PBKDF2",
+      hash: "SHA-1",
+      salt: saltBytes,
+      iterations: 1,
+    },
+    importedKey,
+    options.keyBits,
+  );
+
+  const key = await crypto.subtle.importKey(
+    "raw",
+    derivedKey,
+    options.hmac
+      ? { name: "HMAC", hash: options.integrityAlgorithm }
+      : { name: options.algorithm },
+    false,
+    options.hmac ? ["sign", "verify"] : ["encrypt", "decrypt"],
+  );
+
+  return { key, iv, salt: randomSalt };
+}
+
+async function sign(
+  data: string,
+  options: GenerateKeyOptions,
+): Promise<{ digest: string; salt: string }> {
+  const { key, salt } = await generateKey({
+    ...options,
+    hmac: true,
+  });
+
+  const signed = await crypto.subtle.sign(
+    { name: "HMAC" },
+    key,
+    new TextEncoder().encode(data),
+  );
+  const digest = encodeBase64Url(new Uint8Array(signed));
+
+  return { digest, salt };
 }

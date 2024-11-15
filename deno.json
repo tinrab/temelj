@@ -4,7 +4,7 @@
     "lint": "deno lint && deno fmt --check",
     "clean": "deno run --allow-env --allow-read --allow-write --allow-run ./scripts/clean.ts",
     "update-versions": "deno run --allow-env --allow-read --allow-write=./lib,./packages --allow-net ./scripts/update_versions.ts",
-    "npm:build": "deno run --allow-env --allow-read --allow-write=./npm --allow-net ./scripts/npm_build.ts"
+    "npm:build": "deno run --allow-env --allow-read --allow-write --allow-net ./scripts/npm_build.ts"
   },
   "compilerOptions": {
     "lib": ["deno.ns", "dom"]
@@ -20,7 +20,8 @@
       ".zed",
       "**/*/package.json",
       "**/*.test.ts"
-    ]
+    ],
+    "include": ["README.md", "LICENSE"]
   },
   "lint": {
     "rules": {
@@ -42,7 +43,6 @@
     "./packages/id",
     "./packages/iterator",
     "./packages/math",
-    "./packages/promise",
     "./packages/request",
     "./packages/result",
     "./packages/string",

@@ -41,7 +41,7 @@ jobs:
           cd ./npm && ls
 
           cd ./@temelj
-          packages=(result value string iterator array id promise color request handlebars math)
+          packages=(result value string iterator array id color request handlebars math)
           for package in ${packages[@]}
           do
             cd "./$package"

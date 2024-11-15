@@ -2,6 +2,7 @@ import { z } from "npm:zod@3.23.8";
 import type { PackageJson } from "jsr:@deno/dnt@^0.41.3";
 import path from "node:path";
 import { yellow } from "jsr:@std/fmt/colors";
+import jsonc from "npm:jsonc-parser@3.3.1";
 
 export type { PackageJson };
 
@@ -83,4 +84,22 @@ export function checkPackageDependencies(members: WorkspaceMember[]): void {
       }
     }
   }
+}
+
+export async function updateMemberVersion(
+  member: WorkspaceMember,
+  version: string,
+): Promise<void> {
+  const memberDenoPath = path.join(member.path, "deno.json");
+  const memberDeno: DenoMember = jsonc.parse(
+    await Deno.readTextFile(
+      memberDenoPath,
+    ),
+  );
+  memberDeno.version = version;
+
+  await Deno.writeTextFile(
+    memberDenoPath,
+    JSON.stringify(memberDeno, null, 2),
+  );
 }
