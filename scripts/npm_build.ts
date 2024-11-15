@@ -60,6 +60,7 @@ async function buildMember(member: WorkspaceMember): Promise<void> {
     },
     async postBuild(): Promise<void> {
       await Deno.copyFile("LICENSE", path.join(outputPath, "LICENSE"));
+      await Deno.copyFile("README.md", path.join(outputPath, "README.md"));
 
       for (const fileName of ["README.md"]) {
         try {

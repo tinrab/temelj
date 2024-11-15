@@ -187,6 +187,35 @@ const defaultEncryptionOptions: Required<CookieEncryptionAlgorithmOptions> = {
 
 /**
  * Serializes a Cookie object into a cookie string that is encrypted with a password.
+ *
+ * @param cookie The cookie to serialize.
+ * @param options The options to use for encryption.
+ * @returns The serialized cookie.
+ */
+export async function parseEncryptedCookie(
+  source: string,
+  options: CookieEncryptionOptions,
+): Promise<Cookie | undefined> {
+  const cookie = parseCookie(source);
+  if (cookie === undefined) {
+    return undefined;
+  }
+
+  const cookieValue = await decryptCookieValue(
+    cookie.value,
+    options,
+  );
+  if (cookieValue === undefined) {
+    return undefined;
+  }
+
+  cookie.value = cookieValue;
+
+  return cookie;
+}
+
+/**
+ * Serializes a Cookie object into a cookie string that is encrypted with a password.
  */
 export async function serializeEncryptedCookie(
   cookie: Cookie,

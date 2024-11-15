@@ -2,6 +2,7 @@ import {
   decryptCookieValue,
   encryptCookieValue,
   parseCookie,
+  parseEncryptedCookie,
   serializeCookie,
   serializeEncryptedCookie,
 } from "./cookie.ts";
@@ -77,7 +78,7 @@ Deno.test("request - cookie - parse", () => {
   );
 });
 
-Deno.test("request - cookie - encrypt and decrypt", async () => {
+Deno.test("request - cookie - encrypt", async () => {
   const password = "a".repeat(32);
 
   let c = await encryptCookieValue("hello", { password });
@@ -94,5 +95,20 @@ Deno.test("request - cookie - encrypt and decrypt", async () => {
       `${c.substring(0, 5)}x${c.substring(7)}`,
       { password },
     )),
+  );
+
+  assertEquals(
+    await parseEncryptedCookie(
+      await serializeEncryptedCookie({ name: "test", value: "42" }, {
+        password,
+      }),
+      { password },
+    ),
+    {
+      name: "test",
+      value: "42",
+      httpOnly: false,
+      secure: false,
+    },
   );
 });
