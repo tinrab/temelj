@@ -2,8 +2,10 @@ import {
   decryptCookieValue,
   encryptCookieValue,
   parseCookie,
+  parseCookieHeader,
   parseEncryptedCookie,
   serializeCookie,
+  serializeCookieHeader,
   serializeEncryptedCookie,
 } from "./cookie.ts";
 import { assert, assertEquals, assertRejects } from "@std/assert";
@@ -45,7 +47,7 @@ Deno.test("request - cookie - serialize", async () => {
 Deno.test("request - cookie - parse", () => {
   assertEquals(
     parseCookie(
-      "test=42; Expires=Mon, 01 Jan 2024 00:00:00 GMT; Max-Age=42; Domain=flinect.com; Path=/; Secure; HttpOnly; SameSite=Lax; Priority=high; Partitioned;",
+      "test=42; Expires=Mon, 01 Jan 2024 00:00:00 GMT; Max-Age=42; Domain=flinect.com; Path=/; HttpOnly; SameSite=Lax; Priority=high; Partitioned;",
     ),
     {
       name: "test",
@@ -57,7 +59,6 @@ Deno.test("request - cookie - parse", () => {
       path: "/",
       priority: "high",
       sameSite: "lax",
-      secure: true,
       partitioned: true,
     },
   );
@@ -69,7 +70,6 @@ Deno.test("request - cookie - parse", () => {
     {
       name: "test",
       value: "42",
-      httpOnly: false,
       maxAge: 0,
       sameSite: "lax",
       secure: true,
@@ -107,8 +107,29 @@ Deno.test("request - cookie - encrypt", async () => {
     {
       name: "test",
       value: "42",
-      httpOnly: false,
-      secure: false,
     },
+  );
+});
+
+Deno.test("request - cookie - headers", () => {
+  assertEquals(parseCookieHeader("a=42; b=13"), [{
+    name: "a",
+    value: "42",
+  }, {
+    name: "b",
+    value: "13",
+  }]);
+
+  assertEquals(
+    serializeCookieHeader([{
+      name: "a",
+      value: "42",
+      secure: true,
+      httpOnly: false,
+    }, {
+      name: "b",
+      value: "13",
+    }]),
+    "a=42; b=13",
   );
 });

@@ -2,7 +2,7 @@
   "name": "@temelj/request",
   "description": "Utilities for working with HTTP requests.",
   "license": "MIT",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "exports": {
     ".": "./mod.ts"
   },

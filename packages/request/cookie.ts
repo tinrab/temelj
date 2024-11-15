@@ -22,7 +22,7 @@ export interface Cookie {
 }
 
 /**
- * Parses a cookie string into a Cookie object.
+ * Parses a cookie Set-Cookie header value into a Cookie object.
  *
  * @param source The cookie string.
  * @returns The parsed cookie, or undefined if the cookie is invalid.
@@ -36,9 +36,15 @@ export function parseCookie(source: string): Cookie | undefined {
   const cookie: Cookie = {
     name: parsed.key,
     value: parsed.value,
-    httpOnly: parsed.httpOnly,
-    secure: parsed.secure,
   };
+
+  const js = parsed.toJSON();
+  if ("secure" in js) {
+    cookie.secure = js.secure === true ? true : undefined;
+  }
+  if ("httpOnly" in js) {
+    cookie.httpOnly = js.httpOnly === true ? true : undefined;
+  }
 
   if (parsed.domain !== null) {
     cookie.domain = parsed.domain;
@@ -109,7 +115,7 @@ export function parseCookie(source: string): Cookie | undefined {
 }
 
 /**
- * Serializes a Cookie object into a cookie string.
+ * Serializes a Cookie object into a Set-Cookie header value.
  */
 export function serializeCookie(
   cookie: Cookie,
@@ -186,7 +192,7 @@ const defaultEncryptionOptions: Required<CookieEncryptionAlgorithmOptions> = {
 };
 
 /**
- * Serializes a Cookie object into a cookie string that is encrypted with a password.
+ * Parses an encrypted cookie from a Set-Cookie header value.
  *
  * @param cookie The cookie to serialize.
  * @param options The options to use for encryption.
@@ -215,7 +221,7 @@ export async function parseEncryptedCookie(
 }
 
 /**
- * Serializes a Cookie object into a cookie string that is encrypted with a password.
+ * Serializes a Cookie object into a Set-Cookie header value that is encrypted with a password.
  */
 export async function serializeEncryptedCookie(
   cookie: Cookie,
@@ -226,6 +232,40 @@ export async function serializeEncryptedCookie(
     options,
   );
   return serializeCookie({ ...cookie, value: cookieValue });
+}
+
+/**
+ * Parses a cookie header value into a list of cookies.
+ *
+ * @param header The cookie header value to parse.
+ * @returns The parsed cookies.
+ */
+export function parseCookieHeader(
+  header: string,
+): Cookie[] {
+  const cookies: Cookie[] = [];
+  for (const cookie of header.split(";")) {
+    const parsed = parseCookie(cookie);
+    if (parsed !== undefined) {
+      cookies.push(parsed);
+    }
+  }
+  return cookies;
+}
+
+/**
+ * Serializes a list of cookies into a cookie header value.
+ *
+ * @param cookies The cookies to serialize.
+ * @returns The serialized cookie header value.
+ */
+export function serializeCookieHeader(
+  cookies: Cookie[],
+): string {
+  return cookies.map((cookie) =>
+    new cookieUtility.Cookie({ key: cookie.name, value: cookie.value })
+      .cookieString()
+  ).join("; ");
 }
 
 const VERSION: string = "1";
