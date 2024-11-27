@@ -1,7 +1,10 @@
 {
-  "keywords": ["mdx", "react"],
+  "keywords": [
+    "mdx",
+    "react"
+  ],
   "dependencies": {
-    "@temelj/mdx": "^0.1.5",
+    "@temelj/mdx": "^0.1.6",
     "@mdx-js/react": "^3.1.0"
   },
   "peerDependencies": {
