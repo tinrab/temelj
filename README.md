@@ -48,6 +48,9 @@ can use them by importing from `@flinect/temelj/<package>`, or directly from
 - [@temelj/iterator](./packages/iterator) - Utilities for working with
   iterables.
 - [@temelj/math](./packages/math) - A collection of math utilities.
+- [@temelj/mdx](./packages/mdx) - Utilities for working with MDX.
+- [@temelj/mdx-react](./packages/mdx-react) - Helpers for rendering MDX with
+  React.
 - [@temelj/request](./packages/request) - Utilities for working with HTTP
   requests.
 - [@temelj/result](./packages/result) - A result value type for TypeScript.

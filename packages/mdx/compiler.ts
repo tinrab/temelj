@@ -20,17 +20,17 @@ export interface MdxCompileOptions {
 }
 
 export interface MdxArtifact<TFrontmatter = Record<string, unknown>> {
-  compiled?: VFile | undefined;
+  compiled?: string | undefined;
   frontmatter: TFrontmatter;
 }
 
 export class MdxCompiler {
-  private readonly mdxOptions: MdxCompileOptions;
+  private readonly mdxOptions: MdxJsCompileOptions;
   private readonly remarkPlugins: PluggableList;
   private readonly rehypePlugins: PluggableList;
 
   public constructor(
-    mdxOptions: MdxCompileOptions = {},
+    mdxOptions: MdxJsCompileOptions = {},
   ) {
     this.mdxOptions = mdxOptions;
     this.remarkPlugins = [remarkFrontmatterPlugin, remarkGfmPlugin];
@@ -67,7 +67,7 @@ export class MdxCompiler {
   ): Promise<MdxArtifact<TFrontmatter>> {
     const vfile = new VFile({
       value: source,
-      // Needed so vfile doesn't access fs
+      // Needed so vfile doesn't need to access fs.
       cwd: "/",
       path: "/",
       message: {},
@@ -75,17 +75,30 @@ export class MdxCompiler {
     });
     matter(vfile, { strip: true });
 
+    const remarkPlugins = this.mdxOptions.remarkPlugins ?? this.remarkPlugins;
+    const rehypePlugins = this.mdxOptions.rehypePlugins ?? this.rehypePlugins;
+
+    if (mdxOptions?.remarkPlugins) {
+      remarkPlugins.push(...mdxOptions.remarkPlugins);
+    }
+    if (mdxOptions?.rehypePlugins) {
+      rehypePlugins.push(...mdxOptions.rehypePlugins);
+    }
+
     let compiled: VFile | undefined;
     if (!frontmatterOnly) {
       compiled = await compileMdxJs(vfile, {
-        remarkPlugins: this.remarkPlugins,
-        rehypePlugins: this.rehypePlugins,
         outputFormat: "function-body",
         ...(this.mdxOptions ?? {}),
         ...(mdxOptions ?? {}),
+        remarkPlugins,
+        rehypePlugins,
       });
     }
 
-    return { compiled, frontmatter: (vfile.data.matter ?? {}) as TFrontmatter };
+    return {
+      compiled: compiled?.value.toString(),
+      frontmatter: (vfile.data.matter ?? {}) as TFrontmatter,
+    };
   }
 }

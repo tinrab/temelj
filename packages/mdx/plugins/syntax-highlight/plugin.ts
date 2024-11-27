@@ -99,18 +99,18 @@ export function syntaxHighlightPlugin(
             );
           }
 
-          let lineNumber = 1;
+          let lineIndex = 0;
           for (
             const line of node.children.filter(
               (node: HastNode) => node.type === "element",
             ) as HastElement[]
           ) {
-            line.properties["data-line"] = lineNumber;
+            line.properties["data-line"] = lineIndex + 1;
 
             if (options.highlight) {
               if (
                 meta.highlight &&
-                numericRangeContains(meta.highlight.lineRange, lineNumber)
+                numericRangeContains(meta.highlight.lineRange, lineIndex)
               ) {
                 this.addClassToHast(
                   line,
@@ -126,7 +126,7 @@ export function syntaxHighlightPlugin(
               (meta.showLineNumbers.lineRange.length === 0 ||
                 numericRangeContains(
                   meta.showLineNumbers.lineRange,
-                  lineNumber,
+                  lineIndex,
                 ))
             ) {
               this.addClassToHast(
@@ -140,7 +140,7 @@ export function syntaxHighlightPlugin(
               meta.commandLine &&
               numericRangeContains(
                 meta.commandLine.commandRange,
-                lineNumber,
+                lineIndex,
               )
             ) {
               this.addClassToHast(
@@ -149,7 +149,7 @@ export function syntaxHighlightPlugin(
               );
             }
 
-            lineNumber++;
+            lineIndex++;
           }
 
           if (meta.showLineNumbers) {

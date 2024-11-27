@@ -5,7 +5,7 @@ import { headingIdPlugin } from "./plugins/heading-id/plugin.ts";
 import { treeProcessorPlugin } from "./plugins/tree-processor/plugin.ts";
 import { syntaxHighlightPlugin } from "./plugins/syntax-highlight/plugin.ts";
 
-Deno.test("compile", async () => {
+Deno.test("mdx - compile", async () => {
   let headingCount = 0;
   const compiler = new MdxCompiler()
     .withRehypePlugin(headingIdPlugin, {
@@ -47,7 +47,7 @@ const x1 = 1;
   assertEquals(headingCount, 4);
   assertEquals(artifact.frontmatter.x, 42);
 
-  const value = artifact.compiled?.value;
+  const value = artifact.compiled;
   assert(typeof value === "string");
   assert(value.includes('"Hello"'));
   assert(value.includes('"h-title-2"'));

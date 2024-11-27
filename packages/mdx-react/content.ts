@@ -19,13 +19,9 @@ export function createMdxContent<
   options: MdxContentOptions<TFrontmatter, TScope>,
   components: MdxContentComponents = {},
 ): React.ReactNode {
-  let compiled: string | undefined;
-  if (options.artifact.compiled !== undefined) {
-    compiled = options.artifact.compiled.value.toString();
-  }
-
   let content: React.ReactNode;
-  if (compiled !== undefined) {
+
+  if (options.artifact.compiled !== undefined) {
     const scope = Object.assign(
       {
         opts: { ...jsxRuntime, useMDXComponents: () => components },
@@ -36,7 +32,10 @@ export function createMdxContent<
     const keys = Object.keys(scope);
     const values = Object.values(scope);
 
-    const hydrateFn = Reflect.construct(Function, [...keys, compiled]);
+    const hydrateFn = Reflect.construct(Function, [
+      ...keys,
+      options.artifact.compiled,
+    ]);
     content = React.createElement(hydrateFn.apply(hydrateFn, values).default, {
       components,
     });
