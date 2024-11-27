@@ -26,7 +26,7 @@
 <br/>
 <br/>
 
-# Installation
+## Installation
 
 ```sh
 # npm
@@ -35,7 +35,7 @@ $ npm install @temelj/iterator
 $ deno add jsr:@temelj/iterator # or jsr add @temelj/iterator
 ```
 
-# About
+## About
 
 This package is part of [Temelj](https://github.com/flinect/temelj) - a big
 standard library for TypeScript.

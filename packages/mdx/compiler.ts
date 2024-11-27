@@ -7,23 +7,38 @@ import remarkGfmPlugin from "remark-gfm";
 import { VFile } from "vfile";
 import { matter } from "vfile-matter";
 import type { Pluggable, PluggableList } from "unified";
+import type { z } from "zod";
 
 import type { PluginFactory } from "./types.ts";
 
 export { remarkFrontmatterPlugin, remarkGfmPlugin };
 
+/**
+ * Represents the source content for an MDX document.
+ */
 export type MdxSource = string | Uint8Array;
 
-export interface MdxCompileOptions {
+/**
+ * Options for compiling an MDX document.
+ */
+export interface MdxCompileOptions<TFrontmatter = Record<string, unknown>> {
   frontmatterOnly?: boolean | undefined;
+  frontmatterSchema?: z.ZodSchema<TFrontmatter>;
   mdxOptions?: MdxJsCompileOptions;
 }
 
+/**
+ * The result of compiling an MDX document.
+ * Compiled content is optional, because sometimes we only need the frontmatter.
+ */
 export interface MdxArtifact<TFrontmatter = Record<string, unknown>> {
   compiled?: string | undefined;
   frontmatter: TFrontmatter;
 }
 
+/**
+ * A reusable compiler for compiling MDX.
+ */
 export class MdxCompiler {
   private readonly mdxOptions: MdxJsCompileOptions;
   private readonly remarkPlugins: PluggableList;
@@ -61,9 +76,12 @@ export class MdxCompiler {
     return this;
   }
 
-  public async compile<TFrontmatter = Record<string, unknown>>(
+  public async compile<
+    TFrontmatter = Record<string, unknown>,
+  >(
     source: MdxSource,
-    { frontmatterOnly = false, mdxOptions }: MdxCompileOptions = {},
+    { frontmatterOnly = false, frontmatterSchema, mdxOptions }:
+      MdxCompileOptions<TFrontmatter> = {},
   ): Promise<MdxArtifact<TFrontmatter>> {
     const vfile = new VFile({
       value: source,
@@ -85,20 +103,25 @@ export class MdxCompiler {
       rehypePlugins.push(...mdxOptions.rehypePlugins);
     }
 
-    let compiled: VFile | undefined;
+    let compiled: string | undefined;
     if (!frontmatterOnly) {
-      compiled = await compileMdxJs(vfile, {
+      const compiledFile = await compileMdxJs(vfile, {
         outputFormat: "function-body",
         ...(this.mdxOptions ?? {}),
         ...(mdxOptions ?? {}),
         remarkPlugins,
         rehypePlugins,
       });
+      compiled = compiledFile.value.toString();
     }
 
+    const frontmatter = frontmatterSchema === undefined
+      ? (vfile.data.matter ?? {}) as TFrontmatter
+      : frontmatterSchema.parse(vfile.data.matter ?? {});
+
     return {
-      compiled: compiled?.value.toString(),
-      frontmatter: (vfile.data.matter ?? {}) as TFrontmatter,
+      compiled,
+      frontmatter,
     };
   }
 }

@@ -26,7 +26,7 @@
 <br/>
 <br/>
 
-# Installation
+## Installation
 
 ```sh
 # npm
@@ -35,7 +35,7 @@ $ npm install @temelj/request
 $ deno add jsr:@temelj/request # or jsr add @temelj/request
 ```
 
-# About
+## About
 
 This package is part of [Temelj](https://github.com/flinect/temelj) - a big
 standard library for TypeScript.

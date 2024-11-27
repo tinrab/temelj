@@ -15,7 +15,7 @@ import { numericRangeContains } from "@temelj/iterator";
 import type { HastElement, HastNode, PluginFactory } from "../../types.ts";
 import { extractCodeMeta } from "./code-meta.ts";
 
-type ShikiCodeToHastOptions = Partial<
+type ShikiHastOptions = Partial<
   CodeToHastOptions<BundledLanguage, BundledTheme>
 >;
 
@@ -23,20 +23,48 @@ type ShikiCodeToHastOptions = Partial<
  * Options for {@linkcode syntaxHighlightPlugin}.
  */
 export interface SyntaxHighlightPluginOptions {
+  /**
+   * A prefix for the language class name on the code tag.
+   */
   languageClassNamePrefix?: string;
+  /**
+   * Options for the highlight transformer.
+   */
   highlight?: {
     transformer?: TransformerNotationHighlightOptions;
   };
+  /**
+   * Options for line numbers.
+   */
   lineNumbers?: {
+    /**
+     * The name of the variable that contains the line number width.
+     * This is used for padding the line numbers so that they align.
+     */
     widthVariableName?: string;
+    /**
+     * A class name to be added to the line numbers.
+     */
     className?: string;
   };
+  /**
+   * Options for command line.
+   */
   commandLine?: {
+    /**
+     * A class name to be added to the prompt line.
+     */
     className?: string;
   };
-  shikiCodeToHastOptions?: ShikiCodeToHastOptions;
+  /**
+   * Extra options for the Shiki hast transformer.
+   */
+  shikiHastOptions?: ShikiHastOptions;
 }
 
+/**
+ * A plugin that highlights code blocks using Shiki.
+ */
 export function syntaxHighlightPlugin(
   options: SyntaxHighlightPluginOptions = {},
 ): PluginFactory {
@@ -78,7 +106,7 @@ export function syntaxHighlightPlugin(
           light: "github-light-default",
           dark: "github-dark-default",
         },
-        ...(options.shikiCodeToHastOptions ?? {}),
+        ...(options.shikiHastOptions ?? {}),
       };
       if (hastOptions.transformers === undefined) {
         hastOptions.transformers = [];

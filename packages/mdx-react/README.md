@@ -26,7 +26,7 @@
 <br/>
 <br/>
 
-# Installation
+## Installation
 
 ```sh
 # npm
@@ -35,7 +35,26 @@ $ npm install @temelj/mdx-react
 $ deno add jsr:@temelj/mdx-react # or jsr add @temelj/mdx-react
 ```
 
-# About
+## Usage
 
-This package is part of [Temelj](https://github.com/flinect/temelj) - a big
-standard library for TypeScript.
+To render the MDX artifact, you call the `createMdxContent` function. It will
+evaluate the compiled "function body" and return a React node. You can also
+override components with your custom ones.
+
+```tsx ignore
+import { createMdxContent, MdxCompiler } from "@temelj/mdx";
+
+const compiler = new MdxCompiler();
+const page = await compiler.compile(source, {
+  mdxOptions: {
+    // This is always 'function-body'.
+    // outputFormat: "function-body",
+    // Or 'undefined' if rendering server-side as a RSC.
+    providerImportSource: "@mdx-js/react",
+  },
+});
+
+const node = createMdxContent({ artifact: page }, mdxPageComponents);
+
+const rendered = <div>{node}</div>;
+```

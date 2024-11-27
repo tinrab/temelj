@@ -26,7 +26,7 @@
 <br/>
 <br/>
 
-# Installation
+## Installation
 
 ```sh
 # npm
@@ -35,7 +35,7 @@ $ npm install @temelj/id
 $ deno add jsr:@temelj/id # or jsr add @temelj/id
 ```
 
-# Usage
+## Usage
 
 Generate ULIDs.
 
@@ -67,7 +67,7 @@ const bytes = getUuid4Bytes(id);
 assertEquals(id, makeUuid4FromBytes(bytes));
 ```
 
-# About
+## About
 
 This package is part of [Temelj](https://github.com/flinect/temelj) - a big
 standard library for TypeScript.

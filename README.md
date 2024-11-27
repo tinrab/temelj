@@ -34,7 +34,7 @@
 <br/>
 <br/>
 
-# Packages
+## Packages
 
 The `@flinect/temelj` package re-exports packages from the `@temelj` scope. You
 can use them by importing from `@flinect/temelj/<package>`, or directly from

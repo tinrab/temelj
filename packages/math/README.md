@@ -26,7 +26,7 @@
 <br/>
 <br/>
 
-# Installation
+## Installation
 
 ```sh
 # npm
@@ -35,7 +35,7 @@ $ npm install @temelj/math
 $ deno add jsr:@temelj/math # or jsr add @temelj/math
 ```
 
-# About
+## About
 
 This package is part of [Temelj](https://github.com/flinect/temelj) - a big
 standard library for TypeScript.

@@ -26,7 +26,7 @@
 <br/>
 <br/>
 
-# Installation
+## Installation
 
 ```sh
 # npm
@@ -35,7 +35,7 @@ $ npm install @temelj/value
 $ deno add jsr:@temelj/value # or jsr add @temelj/value
 ```
 
-# About
+## About
 
 This package is part of [Temelj](https://github.com/flinect/temelj) - a big
 standard library for TypeScript.

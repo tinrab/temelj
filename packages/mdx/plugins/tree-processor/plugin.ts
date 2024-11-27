@@ -16,6 +16,10 @@ type TreeProcessorPluginOptions = {
   process: MdxTreeProcessor;
 };
 
+/**
+ * A plugin that allows to process MDX tree nodes.
+ * It can be async or sync.
+ */
 export function treeProcessorPlugin(
   { process }: TreeProcessorPluginOptions = { process: () => {} },
 ): PluginFactory {

@@ -1,9 +1,10 @@
-import { assert, assertEquals } from "@std/assert";
+import { assert, assertEquals, assertRejects } from "@std/assert";
 
 import { MdxCompiler } from "./compiler.ts";
 import { headingIdPlugin } from "./plugins/heading-id/plugin.ts";
 import { treeProcessorPlugin } from "./plugins/tree-processor/plugin.ts";
 import { syntaxHighlightPlugin } from "./plugins/syntax-highlight/plugin.ts";
+import { z, ZodError } from "zod";
 
 Deno.test("mdx - compile", async () => {
   let headingCount = 0;
@@ -26,9 +27,15 @@ Deno.test("mdx - compile", async () => {
       lineNumbers: {},
     });
 
-  const artifact = await compiler.compile<{ x: number }>(
+  const frontmatterSchema = z.object({
+    title: z.string(),
+    x: z.number().optional(),
+  });
+
+  const artifact = await compiler.compile(
     `
 ---
+title: Test
 x: 42
 ---
 
@@ -42,10 +49,18 @@ type Mdx = never; // [!code highlight]
 const x1 = 1;
 \`\`\`
     `.trim(),
+    { frontmatterSchema },
   );
 
   assertEquals(headingCount, 4);
+  assertEquals(artifact.frontmatter.title, "Test");
   assertEquals(artifact.frontmatter.x, 42);
+
+  assertRejects(() =>
+    compiler.compile(
+      "",
+      { frontmatterSchema },
+    ), ZodError);
 
   const value = artifact.compiled;
   assert(typeof value === "string");
