@@ -21,9 +21,12 @@ export type MdxSource = string | Uint8Array;
 /**
  * Options for compiling an MDX document.
  */
-export interface MdxCompileOptions<TFrontmatter = Record<string, unknown>> {
+export interface MdxCompileOptions<
+  TFrontmatter extends z.ZodSchema,
+> {
   frontmatterOnly?: boolean | undefined;
-  frontmatterSchema?: z.ZodSchema<TFrontmatter>;
+  // frontmatterSchema?: z.ZodSchema<TFrontmatter>;
+  frontmatterSchema?: TFrontmatter;
   mdxOptions?: MdxJsCompileOptions;
 }
 
@@ -77,12 +80,12 @@ export class MdxCompiler {
   }
 
   public async compile<
-    TFrontmatter = Record<string, unknown>,
+    TFrontmatterSchema extends z.ZodSchema,
   >(
     source: MdxSource,
     { frontmatterOnly = false, frontmatterSchema, mdxOptions }:
-      MdxCompileOptions<TFrontmatter> = {},
-  ): Promise<MdxArtifact<TFrontmatter>> {
+      MdxCompileOptions<TFrontmatterSchema> = {},
+  ): Promise<MdxArtifact<z.output<TFrontmatterSchema>>> {
     const vfile = new VFile({
       value: source,
       // Needed so vfile doesn't need to access fs.
@@ -116,7 +119,7 @@ export class MdxCompiler {
     }
 
     const frontmatter = frontmatterSchema === undefined
-      ? (vfile.data.matter ?? {}) as TFrontmatter
+      ? (vfile.data.matter ?? {})
       : frontmatterSchema.parse(vfile.data.matter ?? {});
 
     return {

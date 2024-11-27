@@ -166,10 +166,11 @@ export function syntaxHighlightPlugin(
             if (
               options.commandLine &&
               meta.commandLine &&
-              numericRangeContains(
-                meta.commandLine.commandRange,
-                lineIndex,
-              )
+              (meta.commandLine.commandRange.length === 0 ||
+                numericRangeContains(
+                  meta.commandLine.commandRange,
+                  lineIndex,
+                ))
             ) {
               this.addClassToHast(
                 line,

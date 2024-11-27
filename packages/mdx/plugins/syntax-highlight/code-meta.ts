@@ -29,8 +29,8 @@ export function extractCodeMeta(node: HastElement): MdxCodeMeta {
 
 const metaSchema = z.object({
   highlight: z.string().optional(),
-  showLineNumbers: z.boolean().default(false),
-  commandLine: z.string().optional(),
+  showLineNumbers: z.boolean().or(z.string()).optional(),
+  commandLine: z.boolean().or(z.string()).optional(),
   fileName: z.string().optional(),
 });
 
@@ -68,7 +68,7 @@ function parseMetaString(meta: string): MdxCodeMeta {
     }
   }
 
-  if (typeof parsed.fileName === "string") {
+  if (parsed.fileName !== undefined) {
     options.fileName = parsed.fileName.trim();
   }
 

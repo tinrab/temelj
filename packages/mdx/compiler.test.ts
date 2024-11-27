@@ -30,6 +30,7 @@ Deno.test("mdx - compile", async () => {
   const frontmatterSchema = z.object({
     title: z.string(),
     x: z.number().optional(),
+    b: z.boolean().default(true),
   });
 
   const artifact = await compiler.compile(
@@ -55,6 +56,7 @@ const x1 = 1;
   assertEquals(headingCount, 4);
   assertEquals(artifact.frontmatter.title, "Test");
   assertEquals(artifact.frontmatter.x, 42);
+  assertEquals(artifact.frontmatter.b, true);
 
   assertRejects(() =>
     compiler.compile(
