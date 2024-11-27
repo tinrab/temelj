@@ -32,7 +32,7 @@ jobs:
         run: deno publish --token ${{ secrets.JSR_TOKEN }}
 
       - name: Build NPM
-        run: deno task npm:build
+        run: deno task develop npm-build
 
       - name: Publish NPM
         env:
@@ -53,10 +53,10 @@ jobs:
             fi
           }
 
-          cd ./npm && ls
+          cd ./npm && ls -l
 
           cd ./@temelj
-          packages=(result value string iterator array id color request handlebars math)
+          packages=(result value string iterator array id color request handlebars math mdx mdx-react)
           for package in ${packages[@]}
           do
             cd ./$package

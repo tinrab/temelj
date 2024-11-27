@@ -1,3 +1,12 @@
+/**
+ * Collects the values from an iterable into a record, using the result of
+ * `getKey` as the key and the result of `map` as the value.
+ *
+ * @param it The iterable to collect from.
+ * @param getKey A function that takes an element from the iterable and returns a key.
+ * @param map An optional function that takes an element from the iterable and returns a value.
+ * @returns A record where the keys are the result of calling `getKey` on each element, and the values are the result of calling `map` on each element.
+ */
 // deno-lint-ignore no-explicit-any
 export function collectMap<K extends keyof any, V, V1 = V>(
   it: Iterable<V>,

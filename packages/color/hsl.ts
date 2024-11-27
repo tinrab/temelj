@@ -7,7 +7,7 @@ export interface HslColor {
   hue: number;
   saturation: number;
   lightness: number;
-  alpha?: number;
+  alpha?: number | undefined;
 }
 
 /**
@@ -17,13 +17,19 @@ export interface HslColor {
  * @returns True if the color is a valid HSL color, false otherwise.
  */
 export function isValidHsl(color: HslColor): boolean {
-  return Number.isFinite(color.hue) && color.hue >= 0 && color.hue <= 360 &&
-    Number.isFinite(color.saturation) && color.saturation >= 0 &&
+  return (
+    Number.isFinite(color.hue) &&
+    color.hue >= 0 &&
+    color.hue <= 360 &&
+    Number.isFinite(color.saturation) &&
+    color.saturation >= 0 &&
     color.saturation <= 1 &&
-    Number.isFinite(color.lightness) && color.lightness >= 0 &&
+    Number.isFinite(color.lightness) &&
+    color.lightness >= 0 &&
     color.lightness <= 1 &&
     (color.alpha === undefined ||
-      (!Number.isNaN(color.alpha) && color.alpha >= 0 && color.alpha <= 1));
+      (!Number.isNaN(color.alpha) && color.alpha >= 0 && color.alpha <= 1))
+  );
 }
 
 /**
@@ -81,9 +87,7 @@ export function fromHsl(
  * @param alpha - The alpha of the color [0-1].
  * @returns The color.
  */
-export function hslToRgb(
-  color: HslColor,
-): Color {
+export function hslToRgb(color: HslColor): Color {
   const { hue: h, saturation: s, lightness: l, alpha: a } = normalizeHsl(color);
 
   let r: number;
@@ -231,7 +235,7 @@ export function lerpHsl(a: HslColor, b: HslColor, t: number): HslColor {
     hue: h,
     saturation: a.saturation + t * (b.saturation - a.saturation),
     lightness: a.lightness + t * (b.lightness - a.lightness),
-    alpha: (a.alpha !== undefined && b.alpha !== undefined)
+    alpha: a.alpha !== undefined && b.alpha !== undefined
       ? a.alpha + (b.alpha - a.alpha) * t
       : undefined,
   };

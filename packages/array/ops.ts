@@ -28,10 +28,20 @@ export function equals<T>(
   }
 
   if (compare !== undefined) {
-    return a.every((item, index) => compare(item, b[index]));
+    for (let i = 0; i < a.length; i++) {
+      if (!compare(a[i], b[i])) {
+        return false;
+      }
+    }
+    return true;
   }
 
-  return a.every((item, index) => deepEquals(item, b[index]));
+  for (let i = 0; i < a.length; i++) {
+    if (!deepEquals(a[i], b[i])) {
+      return false;
+    }
+  }
+  return true;
 }
 
 /**

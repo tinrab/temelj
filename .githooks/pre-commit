@@ -1,0 +1,4 @@
+#!/bin/sh
+
+deno task lint
+exit $?

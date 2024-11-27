@@ -1,6 +1,0 @@
-{
-  "dependencies": {
-    "@temelj/value": "^0.1.4",
-    "@temelj/string": "^0.1.4"
-  }
-}

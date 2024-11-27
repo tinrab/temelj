@@ -1,4 +1,4 @@
-import merge from "deepmerge";
+import deepmerge from "deepmerge";
 import { deepEquals } from "./ops.ts";
 
 /**
@@ -74,9 +74,9 @@ export function recordMerge<T>(
   values: Partial<T>[],
   options: RecordMergeOptions = { clone: true },
 ): T {
-  return merge.all(values, {
+  return deepmerge.all(values, {
     clone: options.clone,
     arrayMerge: options.arrayMerge,
     isMergeableObject: options.isMergable,
-  }) as T;
+  } as deepmerge.Options) as T;
 }

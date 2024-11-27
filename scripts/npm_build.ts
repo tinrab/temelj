@@ -10,7 +10,7 @@ import {
 
 const NPM_PATH = path.resolve("./npm");
 
-if (import.meta.main) {
+export async function buildNpm(): Promise<void> {
   await emptyDir(NPM_PATH);
 
   const workspace = await readWorkspace();
@@ -27,13 +27,13 @@ async function buildMember(member: WorkspaceMember): Promise<void> {
   const outputPath = path.join(NPM_PATH, member.deno.name);
 
   await build({
-    entryPoints: Object.entries(member.deno.exports).map((
-      [exportName, exportPath],
-    ) => ({
-      name: exportName,
-      path: path.join(member.path, exportPath),
-      kind: "export",
-    })),
+    entryPoints: Object.entries(member.deno.exports).map(
+      ([exportName, exportPath]) => ({
+        name: exportName,
+        path: path.join(member.path, exportPath),
+        kind: "export",
+      }),
+    ),
     outDir: outputPath,
     shims: {
       deno: true,
@@ -42,7 +42,6 @@ async function buildMember(member: WorkspaceMember): Promise<void> {
     test: false,
     scriptModule: false,
     declaration: "separate",
-    importMap: path.join(member.path, "deno.json"),
     skipNpmInstall: true,
     package: {
       name: member.deno.name,
@@ -60,7 +59,6 @@ async function buildMember(member: WorkspaceMember): Promise<void> {
     },
     async postBuild(): Promise<void> {
       await Deno.copyFile("LICENSE", path.join(outputPath, "LICENSE"));
-      await Deno.copyFile("README.md", path.join(outputPath, "README.md"));
 
       for (const fileName of ["README.md"]) {
         try {

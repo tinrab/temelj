@@ -28,9 +28,9 @@ export type WorkspaceMember = {
 };
 
 export async function readWorkspace(): Promise<DenoWorkspace> {
-  return denoWorkspaceSchema.parse(JSON.parse(
-    await Deno.readTextFile("./deno.json"),
-  ));
+  return denoWorkspaceSchema.parse(
+    JSON.parse(await Deno.readTextFile("./deno.json")),
+  );
 }
 
 export async function readWorkspaceMembers(
@@ -39,14 +39,16 @@ export async function readWorkspaceMembers(
   const members: WorkspaceMember[] = [];
 
   for (const workspacePath of workspace.workspace) {
-    const deno: DenoMember = denoMemberSchema.parse(JSON.parse(
-      await Deno.readTextFile(path.join(workspacePath, "deno.json")),
-    ));
+    const deno: DenoMember = denoMemberSchema.parse(
+      JSON.parse(
+        await Deno.readTextFile(path.join(workspacePath, "deno.json")),
+      ),
+    );
 
     let packageJson: PackageJson | undefined;
     try {
       packageJson = JSON.parse(
-        await Deno.readTextFile(path.join(workspacePath, "package.json")),
+        await Deno.readTextFile(path.join(workspacePath, "npm.json")),
       );
     } catch (error) {
       if (!(error instanceof Deno.errors.NotFound)) {
@@ -61,10 +63,13 @@ export async function readWorkspaceMembers(
 }
 
 export function checkPackageDependencies(members: WorkspaceMember[]): void {
-  const versions = members.reduce((versions, member) => {
-    versions[member.deno.name] = member.deno.version;
-    return versions;
-  }, {} as Record<string, string>);
+  const versions = members.reduce(
+    (versions, member) => {
+      versions[member.deno.name] = member.deno.version;
+      return versions;
+    },
+    {} as Record<string, string>,
+  );
 
   for (const member of members) {
     for (
@@ -72,6 +77,9 @@ export function checkPackageDependencies(members: WorkspaceMember[]): void {
         member.packageJson?.dependencies || {},
       )
     ) {
+      if (!members.find((member) => member.deno.name === name)) {
+        continue;
+      }
       const packageVersion = version.replace(/^[\^~]/, "");
       const latestVersion = versions[name];
       if (packageVersion !== latestVersion) {
@@ -92,14 +100,9 @@ export async function updateMemberVersion(
 ): Promise<void> {
   const memberDenoPath = path.join(member.path, "deno.json");
   const memberDeno: DenoMember = jsonc.parse(
-    await Deno.readTextFile(
-      memberDenoPath,
-    ),
+    await Deno.readTextFile(memberDenoPath),
   );
   memberDeno.version = version;
 
-  await Deno.writeTextFile(
-    memberDenoPath,
-    JSON.stringify(memberDeno, null, 2),
-  );
+  await Deno.writeTextFile(memberDenoPath, JSON.stringify(memberDeno, null, 2));
 }

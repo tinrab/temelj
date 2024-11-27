@@ -8,14 +8,14 @@ import {
   updateMemberVersion,
 } from "./utility.ts";
 
-if (import.meta.main) {
+export async function updateVersions(): Promise<void> {
   const packageJson: PackageJson = jsonc.parse(
-    await Deno.readTextFile("./lib/package.json"),
+    await Deno.readTextFile("./lib/npm.json"),
   );
 
-  const members = (await readWorkspaceMembers(await readWorkspace())).filter((
-    member,
-  ) => !member.deno.name.startsWith("@flinect"));
+  const members = (await readWorkspaceMembers(await readWorkspace())).filter(
+    (member) => !member.deno.name.startsWith("@flinect"),
+  );
 
   const versions: Record<string, string> = {};
 
@@ -34,16 +34,16 @@ if (import.meta.main) {
     member.deno.version = versionNumber;
   }
 
-  for (
-    const member of members
-  ) {
+  for (const member of members) {
     if (member.packageJson?.dependencies === undefined) {
       continue;
     }
 
     let updatePackageJson = false;
     for (
-      const [name, version] of Object.entries(member.packageJson.dependencies)
+      const [name, version] of Object.entries(
+        member.packageJson.dependencies,
+      )
     ) {
       const packageVersion = version.replace(/^[\^~]/, "");
       const latestVersion = versions[name];
@@ -59,7 +59,7 @@ if (import.meta.main) {
 
     if (updatePackageJson) {
       await Deno.writeTextFile(
-        path.join(member.path, "package.json"),
+        path.join(member.path, "npm.json"),
         JSON.stringify(member.packageJson, null, 2),
       );
     }

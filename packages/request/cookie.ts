@@ -40,10 +40,10 @@ export function parseCookie(source: string): Cookie | undefined {
 
   const js = parsed.toJSON();
   if ("secure" in js) {
-    cookie.secure = js.secure === true ? true : undefined;
+    cookie.secure = js.secure === true;
   }
   if ("httpOnly" in js) {
-    cookie.httpOnly = js.httpOnly === true ? true : undefined;
+    cookie.httpOnly = js.httpOnly === true;
   }
 
   if (parsed.domain !== null) {
@@ -127,14 +127,15 @@ export function serializeCookie(
   if (cookie.partitioned !== undefined) {
     extensions.push("Partitioned;");
   }
+  // @ts-ignore ...
   return new cookieUtility.Cookie({
     key: cookie.name,
     value: cookie.value,
-    domain: cookie.domain,
-    expires: cookie.expires,
+    domain: cookie.domain ?? null,
+    expires: cookie.expires ?? null,
     httpOnly: cookie.httpOnly,
-    maxAge: cookie.maxAge,
-    path: cookie.path,
+    maxAge: cookie.maxAge ?? null,
+    path: cookie.path ?? null,
     sameSite: typeof cookie.sameSite === "boolean"
       ? cookie.sameSite ? "true" : undefined
       : cookie.sameSite,
