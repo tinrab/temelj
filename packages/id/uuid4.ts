@@ -1,10 +1,10 @@
 import id128 from "id128";
 
-/** Max UUID4 value. */
-export const UUID4_MAX: string = id128.Uuid4.MAX().toCanonical().toLowerCase();
-
 /** Min UUID4 value. */
-export const UUID4_MIN: string = id128.Uuid4.MIN().toCanonical().toLowerCase();
+export const UUID4_MIN: string = "00000000-0000-4000-8000-000000000000";
+
+/** Max UUID4 value. */
+export const UUID4_MAX: string = "ffffffff-ffff-4fff-bfff-ffffffffffff";
 
 /** UUID4 encoded length. */
 export const UUID4_LENGTH: number = 36;

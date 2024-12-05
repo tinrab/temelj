@@ -11,10 +11,7 @@ Deno.test("generateUuid4() works", () => {
   const id = generateUuid4();
   assertEquals(id.length, 36);
   assertEquals(id.split("-").length, 5);
-  assertMatch(
-    id,
-    /^[0-9A-Fa-f]{4}(?:-?[0-9A-Fa-f]{4}){7}$/,
-  );
+  assertMatch(id, /^[0-9A-Fa-f]{4}(?:-?[0-9A-Fa-f]{4}){7}$/);
 });
 
 Deno.test("isUuid4Valid() works", () => {
