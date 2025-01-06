@@ -4,6 +4,7 @@ import {
   type BundledTheme,
   codeToHast,
   type CodeToHastOptions,
+  ShikiError,
 } from "shiki";
 import { visit } from "unist-util-visit";
 import {
@@ -27,12 +28,14 @@ export interface SyntaxHighlightPluginOptions {
    * A prefix for the language class name on the code tag.
    */
   languageClassNamePrefix?: string;
+
   /**
    * Options for the highlight transformer.
    */
   highlight?: {
     transformer?: TransformerNotationHighlightOptions;
   };
+
   /**
    * Options for line numbers.
    */
@@ -47,6 +50,7 @@ export interface SyntaxHighlightPluginOptions {
      */
     className?: string;
   };
+
   /**
    * Options for command line.
    */
@@ -56,6 +60,7 @@ export interface SyntaxHighlightPluginOptions {
      */
     className?: string;
   };
+
   /**
    * Extra options for the Shiki hast transformer.
    */
@@ -152,10 +157,7 @@ export function syntaxHighlightPlugin(
               options.lineNumbers &&
               meta.showLineNumbers &&
               (meta.showLineNumbers.lineRange.length === 0 ||
-                numericRangeContains(
-                  meta.showLineNumbers.lineRange,
-                  lineIndex,
-                ))
+                numericRangeContains(meta.showLineNumbers.lineRange, lineIndex))
             ) {
               this.addClassToHast(
                 line,
@@ -167,10 +169,7 @@ export function syntaxHighlightPlugin(
               options.commandLine &&
               meta.commandLine &&
               (meta.commandLine.commandRange.length === 0 ||
-                numericRangeContains(
-                  meta.commandLine.commandRange,
-                  lineIndex,
-                ))
+                numericRangeContains(meta.commandLine.commandRange, lineIndex))
             ) {
               this.addClassToHast(
                 line,
@@ -192,17 +191,31 @@ export function syntaxHighlightPlugin(
         },
       });
 
-      const hast = await codeToHast(sourceCode, hastOptions);
+      try {
+        const hast = await codeToHast(sourceCode, hastOptions);
 
-      // Insert highlighted code into parent
-      const hastPre = hast.children[0] as HastElement;
-      parent.children.splice(index, 1, {
-        ...hastPre,
-        properties: {
-          ...hastPre.properties,
-          dataFileName: meta.fileName,
-        },
-      });
+        // Insert highlighted code into parent
+        const hastPre = hast.children[0] as HastElement;
+        parent.children.splice(index, 1, {
+          ...hastPre,
+          properties: {
+            ...hastPre.properties,
+            dataFileName: meta.fileName,
+          },
+        });
+      } catch (error) {
+        if (error instanceof ShikiError) {
+          if (
+            error.message.includes(
+              "Language `math` is not included in this bundle",
+            )
+          ) {
+            // Skip if the block is math block.
+            return;
+          }
+        }
+        throw error;
+      }
     }
 
     visit(

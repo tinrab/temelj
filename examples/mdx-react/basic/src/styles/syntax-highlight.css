@@ -1,0 +1,109 @@
+:root {
+  --code-padding: 1rem;
+  --line-number-width-default: 0;
+  --code-line-number-color: 0 0% 9%;
+  --code-line-highlight: 0 0% 9%;
+
+  &.dark {
+    --code-line-highlight: 0 0% 96.1%;
+  }
+}
+
+pre.shiki {
+  display: block;
+  overflow-x: auto;
+  padding-top: var(--code-padding);
+  padding-bottom: var(--code-padding);
+
+  /* In case no language is specified for Shiki */
+  background-color: rgb(250, 250, 250);
+  color: rgb(31, 35, 40);
+  --shiki-dark-bg: #171717;
+  --shiki-dark: #e6edf3;
+}
+
+.shiki code {
+  display: block;
+  width: fit-content;
+  min-width: 100%;
+  padding-left: var(--code-padding);
+  padding-right: var(--code-padding);
+
+  white-space: pre;
+  word-spacing: normal;
+  word-break: normal;
+  word-wrap: normal;
+  tab-size: 4;
+  hyphens: none;
+}
+
+/********** Line highlight **********/
+
+.shiki code span.highlighted {
+  display: inline-block;
+  width: calc(100% + 2 * var(--code-padding));
+  transition: background-color 0.5s;
+  background-color: hsl(var(--code-line-highlight) / 0.1);
+
+  border-color: hsl(var(--code-line-highlight) / 0.2);
+  border-left-width: 4px;
+
+  padding-left: calc(var(--code-padding) - 4px);
+  padding-right: var(--code-padding);
+  margin-left: calc(-1 * var(--code-padding));
+  margin-right: calc(-1 * var(--code-padding));
+
+  & span {
+    background-color: transparent !important;
+    transition: background-color 0.5s;
+  }
+}
+
+.dark {
+  .shiki code span.highlighted {
+    & span {
+      background-color: transparent !important;
+    }
+  }
+}
+
+/********** Line numbers **********/
+
+.shiki code span.line-number::before {
+  display: inline-block;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  text-align: right;
+
+  color: hsl(var(--code-line-number-color) / 0.6);
+
+  content: attr(data-line);
+  width: var(--line-number-width, --line-number-width-default);
+  margin-right: var(--code-padding);
+}
+
+code span.line-number:not(.highlighted)::before {
+  /* @apply bg-red-500; */
+}
+
+code span.line-number.highlighted::before {
+  /* @apply bg-blue-500; */
+}
+
+/********** CLI **********/
+
+.shiki code span.line-command::before {
+  content: "$";
+  margin-right: 0.5rem;
+}
+
+/********** Required for Shiki **********/
+
+.dark .shiki,
+.dark .shiki span:not(.line) {
+  color: var(--shiki-dark) !important;
+  background-color: var(--shiki-dark-bg) !important;
+  font-style: var(--shiki-dark-font-style) !important;
+  font-weight: var(--shiki-dark-font-weight) !important;
+  text-decoration: var(--shiki-dark-text-decoration) !important;
+}

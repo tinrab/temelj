@@ -4,10 +4,15 @@
     "react"
   ],
   "dependencies": {
-    "@temelj/mdx": "^0.1.8",
+    "@temelj/mdx": "^0.1.9",
     "@mdx-js/react": "^3.1.0"
   },
   "peerDependencies": {
     "react": ">=18.3.0"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
   }
 }

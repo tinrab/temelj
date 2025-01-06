@@ -39,6 +39,10 @@ export async function readWorkspaceMembers(
   const members: WorkspaceMember[] = [];
 
   for (const workspacePath of workspace.workspace) {
+    if (workspacePath.startsWith("./examples")) {
+      continue;
+    }
+
     const deno: DenoMember = denoMemberSchema.parse(
       JSON.parse(
         await Deno.readTextFile(path.join(workspacePath, "deno.json")),

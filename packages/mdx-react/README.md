@@ -58,3 +58,6 @@ const node = createMdxContent({ artifact: page }, mdxPageComponents);
 
 const rendered = <div>{node}</div>;
 ```
+
+You will also need to include a CSS file. You can find an example in
+`./examples/mdx-react/basic`.

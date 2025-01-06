@@ -2,7 +2,7 @@
   "name": "@temelj/mdx",
   "description": "Utilities for working with MDX.",
   "license": "MIT",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "exports": {
     ".": "./mod.ts"
   },
