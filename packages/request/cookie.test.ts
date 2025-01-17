@@ -30,17 +30,25 @@ Deno.test("request - cookie - serialize", async () => {
 
   assertRejects(
     () =>
-      serializeEncryptedCookie({ name: "test", value: "42" }, {
-        password: "abc",
-      }),
+      serializeEncryptedCookie(
+        { name: "test", value: "42" },
+        {
+          password: "abc",
+        },
+      ),
     Error,
     "Password must be",
   );
 
   assert(
-    !(await serializeEncryptedCookie({ name: "test", value: "super secure" }, {
-      password: "a".repeat(32),
-    })).includes("super secure"),
+    !(
+      await serializeEncryptedCookie(
+        { name: "test", value: "super secure" },
+        {
+          password: "a".repeat(32),
+        },
+      )
+    ).includes("super secure"),
   );
 });
 
@@ -91,17 +99,19 @@ Deno.test("request - cookie - encrypt", async () => {
   assert(await decryptCookieValue(c, { password }));
   assert(!(await decryptCookieValue(c, { password: "b".repeat(32) })));
   assert(
-    !(await decryptCookieValue(
-      `${c.substring(0, 5)}x${c.substring(7)}`,
-      { password },
-    )),
+    !(await decryptCookieValue(`${c.substring(0, 5)}x${c.substring(7)}`, {
+      password,
+    })),
   );
 
   assertEquals(
     await parseEncryptedCookie(
-      await serializeEncryptedCookie({ name: "test", value: "42" }, {
-        password,
-      }),
+      await serializeEncryptedCookie(
+        { name: "test", value: "42" },
+        {
+          password,
+        },
+      ),
       { password },
     ),
     {
@@ -112,24 +122,30 @@ Deno.test("request - cookie - encrypt", async () => {
 });
 
 Deno.test("request - cookie - headers", () => {
-  assertEquals(parseCookieHeader("a=42; b=13"), [{
-    name: "a",
-    value: "42",
-  }, {
-    name: "b",
-    value: "13",
-  }]);
-
-  assertEquals(
-    serializeCookieHeader([{
+  assertEquals(parseCookieHeader("a=42; b=13"), [
+    {
       name: "a",
       value: "42",
-      secure: true,
-      httpOnly: false,
-    }, {
+    },
+    {
       name: "b",
       value: "13",
-    }]),
+    },
+  ]);
+
+  assertEquals(
+    serializeCookieHeader([
+      {
+        name: "a",
+        value: "42",
+        secure: true,
+        httpOnly: false,
+      },
+      {
+        name: "b",
+        value: "13",
+      },
+    ]),
     "a=42; b=13",
   );
 });

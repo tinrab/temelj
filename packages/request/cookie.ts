@@ -1,6 +1,5 @@
-import { crypto } from "@std/crypto/crypto";
-import { timingSafeEqual } from "@std/crypto";
-import { decodeBase64Url, encodeBase64Url } from "@std/encoding";
+import { timingSafeEqual } from "node:crypto";
+import { Buffer } from "node:buffer";
 import * as cookieUtility from "tough-cookie";
 
 /**
@@ -76,7 +75,9 @@ export function parseCookie(source: string): Cookie | undefined {
       if (parts.length === 2) {
         if (parts[0] === "priority") {
           if (
-            parts[1] === "low" || parts[1] === "medium" || parts[1] === "high"
+            parts[1] === "low" ||
+            parts[1] === "medium" ||
+            parts[1] === "high"
           ) {
             cookie.priority = parts[1];
           } else {
@@ -117,9 +118,7 @@ export function parseCookie(source: string): Cookie | undefined {
 /**
  * Serializes a Cookie object into a Set-Cookie header value.
  */
-export function serializeCookie(
-  cookie: Cookie,
-): string {
+export function serializeCookie(cookie: Cookie): string {
   const extensions: string[] = [];
   if (cookie.priority !== undefined) {
     extensions.push(`Priority=${cookie.priority};`);
@@ -208,10 +207,7 @@ export async function parseEncryptedCookie(
     return undefined;
   }
 
-  const cookieValue = await decryptCookieValue(
-    cookie.value,
-    options,
-  );
+  const cookieValue = await decryptCookieValue(cookie.value, options);
   if (cookieValue === undefined) {
     return undefined;
   }
@@ -228,10 +224,7 @@ export async function serializeEncryptedCookie(
   cookie: Cookie,
   options: CookieEncryptionOptions,
 ): Promise<string> {
-  const cookieValue = await encryptCookieValue(
-    cookie.value,
-    options,
-  );
+  const cookieValue = await encryptCookieValue(cookie.value, options);
   return serializeCookie({ ...cookie, value: cookieValue });
 }
 
@@ -241,9 +234,7 @@ export async function serializeEncryptedCookie(
  * @param header The cookie header value to parse.
  * @returns The parsed cookies.
  */
-export function parseCookieHeader(
-  header: string,
-): Cookie[] {
+export function parseCookieHeader(header: string): Cookie[] {
   const cookies: Cookie[] = [];
   for (const cookie of header.split(";")) {
     const parsed = parseCookie(cookie);
@@ -260,13 +251,15 @@ export function parseCookieHeader(
  * @param cookies The cookies to serialize.
  * @returns The serialized cookie header value.
  */
-export function serializeCookieHeader(
-  cookies: Cookie[],
-): string {
-  return cookies.map((cookie) =>
-    new cookieUtility.Cookie({ key: cookie.name, value: cookie.value })
-      .cookieString()
-  ).join("; ");
+export function serializeCookieHeader(cookies: Cookie[]): string {
+  return cookies
+    .map((cookie) =>
+      new cookieUtility.Cookie({
+        key: cookie.name,
+        value: cookie.value,
+      }).cookieString()
+    )
+    .join("; ");
 }
 
 const VERSION: string = "1";
@@ -307,15 +300,15 @@ export async function encryptCookieValue(
 
   const encoded = [
     VERSION,
-    encodeBase64Url(encryptionKey.iv),
-    encodeBase64Url(encryptionKey.salt),
-    encodeBase64Url(encrypted),
+    Buffer.from(encryptionKey.iv).toString("base64"),
+    Buffer.from(encryptionKey.salt).toString("base64"),
+    Buffer.from(encrypted).toString("base64"),
+    // encodeBase64Url(encryptionKey.iv),
+    // encodeBase64Url(encryptionKey.salt),
+    // encodeBase64Url(encrypted),
   ].join(SEPARATOR);
 
-  const signed = await sign(
-    encoded,
-    keyOptions,
-  );
+  const signed = await sign(encoded, keyOptions);
 
   return [encoded, signed.digest, signed.salt].join(SEPARATOR);
 }
@@ -335,7 +328,11 @@ export async function decryptCookieValue(
   const [version, iv, salt, encrypted, signDigest, signSalt] = parts;
   if (
     version !== VERSION ||
-    !iv || !salt || !encrypted || !signDigest || !signSalt
+    !iv ||
+    !salt ||
+    !encrypted ||
+    !signDigest ||
+    !signSalt
   ) {
     return undefined;
   }
@@ -350,13 +347,10 @@ export async function decryptCookieValue(
     saltsBits: options.saltsBits ?? defaultEncryptionOptions.saltsBits,
   };
 
-  const signature = await sign(
-    [VERSION, iv, salt, encrypted].join(SEPARATOR),
-    {
-      ...keyOptions,
-      salt: signSalt,
-    },
-  );
+  const signature = await sign([VERSION, iv, salt, encrypted].join(SEPARATOR), {
+    ...keyOptions,
+    salt: signSalt,
+  });
   const textEncoder = new TextEncoder();
   if (
     !timingSafeEqual(
@@ -370,15 +364,18 @@ export async function decryptCookieValue(
   const textDecoder = new TextDecoder();
   const { key } = await generateKey({
     ...keyOptions,
-    salt: textDecoder.decode(decodeBase64Url(salt)),
+    // salt: textDecoder.decode(decodeBase64Url(salt)),
+    salt: textDecoder.decode(Buffer.from(salt, "base64")),
   });
   const decrypted = await crypto.subtle.decrypt(
     {
       name: keyOptions.algorithm,
-      iv: decodeBase64Url(iv),
+      // iv: decodeBase64Url(iv),
+      iv: Buffer.from(iv, "base64"),
     } as AesCbcParams,
     key,
-    decodeBase64Url(encrypted),
+    // decodeBase64Url(encrypted),
+    Buffer.from(encrypted, "base64"),
   );
 
   return textDecoder.decode(decrypted);
@@ -416,7 +413,8 @@ async function generateKey(
   if (!randomSalt) {
     const bytes = new Uint8Array(Math.ceil(options.saltsBits / 8));
     crypto.getRandomValues(bytes);
-    randomSalt = [...bytes].map((b) => b.toString(16).padStart(2, "0"))
+    randomSalt = [...bytes]
+      .map((b) => b.toString(16).padStart(2, "0"))
       .join("");
   }
 
@@ -460,7 +458,7 @@ async function sign(
     key,
     new TextEncoder().encode(data),
   );
-  const digest = encodeBase64Url(new Uint8Array(signed));
+  const digest = Buffer.from(new Uint8Array(signed)).toString("base64url");
 
   return { digest, salt };
 }
