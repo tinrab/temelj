@@ -20,14 +20,17 @@ type ShikiHastOptions = Partial<
   CodeToHastOptions<BundledLanguage, BundledTheme>
 >;
 
+type SyntaxDataAttribute = "source-code" | "language" | "line-count";
+
 /**
  * Options for {@linkcode syntaxHighlightPlugin}.
  */
 export interface SyntaxHighlightPluginOptions {
   /**
-   * A prefix for the language class name on the code tag.
+   * Include these data attributes on the `<pre>` element.
+   * These might be useful to have when building custom code components.
    */
-  languageClassNamePrefix?: string;
+  includeDataAttributes?: SyntaxDataAttribute[];
 
   /**
    * Options for the highlight transformer.
@@ -123,15 +126,9 @@ export function syntaxHighlightPlugin(
         );
       }
 
+      let lineCount = 0;
       hastOptions.transformers.push({
         code(node): void {
-          if (options.languageClassNamePrefix) {
-            this.addClassToHast(
-              node,
-              `${options.languageClassNamePrefix}${lang}`,
-            );
-          }
-
           let lineIndex = 0;
           for (
             const line of node.children.filter(
@@ -180,6 +177,8 @@ export function syntaxHighlightPlugin(
             lineIndex++;
           }
 
+          lineCount = lineIndex;
+
           if (meta.showLineNumbers) {
             if (typeof node.properties.style !== "string") {
               node.properties.style = "";
@@ -196,12 +195,26 @@ export function syntaxHighlightPlugin(
 
         // Insert highlighted code into parent
         const hastPre = hast.children[0] as HastElement;
+
+        const properties = {
+          ...hastPre.properties,
+          dataFileName: meta.fileName,
+        };
+        if (options.includeDataAttributes) {
+          if (options.includeDataAttributes.includes("language")) {
+            properties.dataLanguage = lang;
+          }
+          if (options.includeDataAttributes.includes("source-code")) {
+            properties.dataSourceCode = sourceCode;
+          }
+          if (options.includeDataAttributes.includes("line-count")) {
+            properties.dataLineCount = lineCount;
+          }
+        }
+
         parent.children.splice(index, 1, {
           ...hastPre,
-          properties: {
-            ...hastPre.properties,
-            dataFileName: meta.fileName,
-          },
+          properties,
         });
       } catch (error) {
         if (error instanceof ShikiError) {

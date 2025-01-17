@@ -20,7 +20,7 @@ Deno.test("mdx - compile", async () => {
       },
     })
     .withRehypePlugin(syntaxHighlightPlugin, {
-      languageClassNamePrefix: "language-",
+      includeDataAttributes: ["language", "source-code", "line-count"],
       highlight: {
         transformer: { classActiveLine: "hl" },
       },
@@ -58,18 +58,17 @@ const x1 = 1;
   assertEquals(artifact.frontmatter.x, 42);
   assertEquals(artifact.frontmatter.b, true);
 
-  assertRejects(() =>
-    compiler.compile(
-      "",
-      { frontmatterSchema },
-    ), ZodError);
+  assertRejects(() => compiler.compile("", { frontmatterSchema }), ZodError);
 
   const value = artifact.compiled;
   assert(typeof value === "string");
   assert(value.includes('"Hello"'));
   assert(value.includes('"h-title-2"'));
 
-  assert(value.includes('className: "language-ts"'));
+  assert(value.includes('"data-language": "ts"'));
+  assert(value.includes('"data-line-count": "2"'));
+  assert(value.includes('"data-source-code": "'));
+
   assert(
     value.includes('"data-line": "1"') && value.includes('"data-line": "2"'),
   );

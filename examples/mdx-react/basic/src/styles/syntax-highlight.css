@@ -5,6 +5,7 @@
   --code-line-highlight: 0 0% 9%;
 
   &.dark {
+    --code-line-number-color: 0 0% 96.1%;
     --code-line-highlight: 0 0% 96.1%;
   }
 }
@@ -35,6 +36,11 @@ pre.shiki {
   word-wrap: normal;
   tab-size: 4;
   hyphens: none;
+}
+
+code {
+  font-variant-ligatures: none;
+  font-feature-settings: "liga" 0;
 }
 
 /********** Line highlight **********/

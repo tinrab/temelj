@@ -34,7 +34,7 @@ const cleanCommand = defineCommand({
 
 const main = defineCommand({
   meta: {
-    name: "develop",
+    name: "script",
   },
   subCommands: {
     "update-versions": updateVersionsCommand,

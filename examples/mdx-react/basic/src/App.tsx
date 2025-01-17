@@ -27,6 +27,7 @@ export function App(): React.ReactNode {
         .withRemarkPlugin(remarkMath)
         .withRehypePlugin(headingIdPlugin)
         .withRehypePlugin(syntaxHighlightPlugin, {
+          includeDataAttributes: ["language", "source-code", "line-count"],
           highlight: {},
           lineNumbers: {},
           commandLine: {},
@@ -51,7 +52,7 @@ Lorem ipsum dolor sit amet consectetur adipisicing elit. Eveniet, nisi voluptate
 
 # Code
 
-\`\`\`c { "highlight": "9", "showLineNumbers": true }
+\`\`\`c { "highlight": "9", "showLineNumbers": true, "fileName": "src/main.c" }
 float Q_rsqrt( float number )
 {
 	long i;

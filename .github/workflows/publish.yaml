@@ -32,7 +32,7 @@ jobs:
         run: deno publish --token ${{ secrets.JSR_TOKEN }}
 
       - name: Build NPM
-        run: deno task develop npm-build
+        run: deno task script npm-build
 
       - name: Publish NPM
         env:

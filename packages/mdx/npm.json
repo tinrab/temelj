@@ -3,19 +3,19 @@
   "dependencies": {
     "@temelj/iterator": "^0.2.0",
     "@mdx-js/mdx": "^3.1.0",
-    "@shikijs/transformers": "^1.23.1",
+    "@shikijs/transformers": "^1.27.2",
     "@types/hast": "^3.0.4",
     "github-slugger": "^2.0.0",
     "hast": "^1.0.0",
     "hast-util-to-string": "^3.0.1",
     "remark-frontmatter": "^5.0.0",
     "remark-gfm": "^4.0.0",
-    "shiki": "^1.23.1",
+    "shiki": "^1.27.2",
     "unified": "^11.0.5",
     "unist-util-remove": "^4.0.0",
     "unist-util-visit": "^5.0.0",
     "vfile": "^6.0.3",
     "vfile-matter": "^5.0.0",
-    "zod": "^3.23.8"
+    "zod": "^3.24.1"
   }
 }

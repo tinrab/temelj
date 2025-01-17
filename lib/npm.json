@@ -2,13 +2,13 @@
   "dependencies": {
     "@temelj/array": "^0.1.4",
     "@temelj/color": "^0.1.5",
-    "@temelj/handlebars": "^0.1.4",
+    "@temelj/handlebars": "^0.1.5",
     "@temelj/id": "^0.1.5",
     "@temelj/iterator": "^0.2.0",
     "@temelj/math": "^0.1.4",
-    "@temelj/mdx": "^0.1.9",
-    "@temelj/mdx-react": "^0.1.7",
-    "@temelj/request": "^0.1.6",
+    "@temelj/mdx": "^0.2.0",
+    "@temelj/mdx-react": "^0.2.0",
+    "@temelj/request": "^0.1.7",
     "@temelj/result": "^0.1.4",
     "@temelj/string": "^0.1.4",
     "@temelj/value": "^0.1.4"

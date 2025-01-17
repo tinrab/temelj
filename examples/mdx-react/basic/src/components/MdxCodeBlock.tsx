@@ -8,17 +8,20 @@ type MdxCodeBlockProps = {
 
 export function MdxCodeBlock({
   className,
-  style,
   children,
   "data-file-name": fileName,
+  "data-language": language,
+  "data-source-code": _sourceCode,
+  "data-line-count": _lineCount,
+  style: _style,
   ...restProps
 }: MdxCodeBlockProps): React.ReactNode {
   return (
     <div className="relative rounded-sm" {...restProps}>
       {fileName
         ? (
-          <div className="relative flex rounded-t-sm border-neutral-300 border-b-2 bg-neutral-200 p-2 dark:border-neutral-700 dark:bg-neutral-800">
-            <div className="grow self-center text-muted-foreground text-sm">
+          <div className="relative flex rounded-t-sm border-border border-t-2 border-r-2 border-l-2 p-2">
+            <div className="ml-2 grow self-center text-muted-foreground text-sm">
               {fileName}
             </div>
           </div>
@@ -28,11 +31,12 @@ export function MdxCodeBlock({
       <div className="relative">
         <pre
           className={cn(
-            "ligatures-none flex overflow-auto rounded-sm font-mono font-normal text-sm leading-relaxed [&_code]:bg-transparent",
+            "group relative flex overflow-auto rounded-sm border-2 border-border font-mono font-normal text-sm leading-relaxed [&_code]:bg-transparent",
+            fileName ? "rounded-t-none" : "",
             "shiki",
+            language ? `language-${language}` : "",
             className,
           )}
-          style={style}
         >
 					{children}
         </pre>

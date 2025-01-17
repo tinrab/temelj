@@ -3,7 +3,7 @@
     "test": "deno test --doc",
     "lint": "deno lint && deno fmt --check",
     "clean": "deno run --allow-env --allow-read --allow-write --allow-run ./scripts/clean.ts",
-    "develop": "deno run -A ./scripts/main.ts"
+    "script": "deno run -A ./scripts/main.ts"
   },
   "compilerOptions": {
     "strict": true,
