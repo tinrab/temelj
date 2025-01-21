@@ -21,11 +21,8 @@ export type MdxSource = string | Uint8Array;
 /**
  * Options for compiling an MDX document.
  */
-export interface MdxCompileOptions<
-  TFrontmatter extends z.ZodSchema,
-> {
+export interface MdxCompileOptions<TFrontmatter extends z.ZodSchema> {
   frontmatterOnly?: boolean | undefined;
-  // frontmatterSchema?: z.ZodSchema<TFrontmatter>;
   frontmatterSchema?: TFrontmatter;
   mdxOptions?: MdxJsCompileOptions;
 }
@@ -47,9 +44,7 @@ export class MdxCompiler {
   private readonly remarkPlugins: PluggableList;
   private readonly rehypePlugins: PluggableList;
 
-  public constructor(
-    mdxOptions: MdxJsCompileOptions = {},
-  ) {
+  public constructor(mdxOptions: MdxJsCompileOptions = {}) {
     this.mdxOptions = mdxOptions;
     this.remarkPlugins = [remarkFrontmatterPlugin, remarkGfmPlugin];
     this.rehypePlugins = [];
@@ -79,12 +74,13 @@ export class MdxCompiler {
     return this;
   }
 
-  public async compile<
-    TFrontmatterSchema extends z.ZodSchema,
-  >(
+  public async compile<TFrontmatterSchema extends z.ZodSchema>(
     source: MdxSource,
-    { frontmatterOnly = false, frontmatterSchema, mdxOptions }:
-      MdxCompileOptions<TFrontmatterSchema> = {},
+    {
+      frontmatterOnly = false,
+      frontmatterSchema,
+      mdxOptions,
+    }: MdxCompileOptions<TFrontmatterSchema> = {},
   ): Promise<MdxArtifact<z.output<TFrontmatterSchema>>> {
     const vfile = new VFile({
       value: source,
@@ -96,15 +92,16 @@ export class MdxCompiler {
     });
     matter(vfile, { strip: true });
 
-    const remarkPlugins = this.mdxOptions.remarkPlugins ?? this.remarkPlugins;
-    const rehypePlugins = this.mdxOptions.rehypePlugins ?? this.rehypePlugins;
-
-    if (mdxOptions?.remarkPlugins) {
-      remarkPlugins.push(...mdxOptions.remarkPlugins);
-    }
-    if (mdxOptions?.rehypePlugins) {
-      rehypePlugins.push(...mdxOptions.rehypePlugins);
-    }
+    const remarkPlugins = [
+      ...this.remarkPlugins,
+      ...(this.mdxOptions?.remarkPlugins ?? []),
+      ...(mdxOptions?.remarkPlugins ?? []),
+    ];
+    const rehypePlugins = [
+      ...this.rehypePlugins,
+      ...(this.mdxOptions?.rehypePlugins ?? []),
+      ...(mdxOptions?.rehypePlugins ?? []),
+    ];
 
     let compiled: string | undefined;
     if (!frontmatterOnly) {
