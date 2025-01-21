@@ -5,36 +5,46 @@ import { headingIdPlugin } from "./plugins/heading-id/plugin.ts";
 import { treeProcessorPlugin } from "./plugins/tree-processor/plugin.ts";
 import { syntaxHighlightPlugin } from "./plugins/syntax-highlight/plugin.ts";
 import { z, ZodError } from "zod";
+import type { HastNode, PluginFactory } from "./types.ts";
+
+function demoPlugin(): PluginFactory {
+	return (tree: HastNode) => {
+		console.log("demoPlugin", tree.type);
+
+		return tree;
+	};
+}
 
 Deno.test("mdx - compile", async () => {
-  let headingCount = 0;
-  const compiler = new MdxCompiler()
-    .withRehypePlugin(headingIdPlugin, {
-      prefix: "h-",
-    })
-    .withRehypePlugin(treeProcessorPlugin, {
-      process: (element) => {
-        if (element.tagName.startsWith("h")) {
-          headingCount++;
-        }
-      },
-    })
-    .withRehypePlugin(syntaxHighlightPlugin, {
-      includeDataAttributes: ["language", "source-code", "line-count"],
-      highlight: {
-        transformer: { classActiveLine: "hl" },
-      },
-      lineNumbers: {},
-    });
+	let headingCount = 0;
+	const compiler = new MdxCompiler()
+		.withRehypePlugin(headingIdPlugin, {
+			prefix: "h-",
+		})
+		.withRehypePlugin(treeProcessorPlugin, {
+			process: (element) => {
+				if (element.tagName.startsWith("h")) {
+					headingCount++;
+				}
+			},
+		})
+		.withRehypePlugin(syntaxHighlightPlugin, {
+			includeDataAttributes: ["language", "source-code", "line-count"],
+			highlight: {
+				transformer: { classActiveLine: "hl" },
+			},
+			lineNumbers: {},
+		})
+		.withRehypePlugin(demoPlugin);
 
-  const frontmatterSchema = z.object({
-    title: z.string(),
-    x: z.number().optional(),
-    b: z.boolean().default(true),
-  });
+	const frontmatterSchema = z.object({
+		title: z.string(),
+		x: z.number().optional(),
+		b: z.boolean().default(true),
+	});
 
-  const artifact = await compiler.compile(
-    `
+	const artifact = await compiler.compile(
+		`
 ---
 title: Test
 x: 42
@@ -50,27 +60,27 @@ type Mdx = never; // [!code highlight]
 const x1 = 1;
 \`\`\`
     `.trim(),
-    { frontmatterSchema },
-  );
+		{ frontmatterSchema },
+	);
 
-  assertEquals(headingCount, 4);
-  assertEquals(artifact.frontmatter.title, "Test");
-  assertEquals(artifact.frontmatter.x, 42);
-  assertEquals(artifact.frontmatter.b, true);
+	assertEquals(headingCount, 4);
+	assertEquals(artifact.frontmatter.title, "Test");
+	assertEquals(artifact.frontmatter.x, 42);
+	assertEquals(artifact.frontmatter.b, true);
 
-  assertRejects(() => compiler.compile("", { frontmatterSchema }), ZodError);
+	assertRejects(() => compiler.compile("", { frontmatterSchema }), ZodError);
 
-  const value = artifact.compiled;
-  assert(typeof value === "string");
-  assert(value.includes('"Hello"'));
-  assert(value.includes('"h-title-2"'));
+	const value = artifact.compiled;
+	assert(typeof value === "string");
+	assert(value.includes('"Hello"'));
+	assert(value.includes('"h-title-2"'));
 
-  assert(value.includes('"data-language": "ts"'));
-  assert(value.includes('"data-line-count": "2"'));
-  assert(value.includes('"data-source-code": "'));
+	assert(value.includes('"data-language": "ts"'));
+	assert(value.includes('"data-line-count": "2"'));
+	assert(value.includes('"data-source-code": "'));
 
-  assert(
-    value.includes('"data-line": "1"') && value.includes('"data-line": "2"'),
-  );
-  assert(value.includes('className: "line hl line-number"'));
+	assert(
+		value.includes('"data-line": "1"') && value.includes('"data-line": "2"'),
+	);
+	assert(value.includes('className: "line hl line-number"'));
 });
