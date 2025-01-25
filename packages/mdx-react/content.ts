@@ -1,4 +1,4 @@
-import * as React from "react";
+import React from "react";
 import jsxRuntime from "react/jsx-runtime";
 import type { MdxArtifact } from "@temelj/mdx";
 
@@ -10,7 +10,10 @@ interface MdxContentOptions<
 > {
   artifact: MdxArtifact<TFrontmatter>;
   scope?: TScope;
+  importBaseUrl?: string;
 }
+
+const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor;
 
 export function createMdxContent<
   TFrontmatter = Record<string, unknown>,
@@ -18,28 +21,34 @@ export function createMdxContent<
 >(
   options: MdxContentOptions<TFrontmatter, TScope>,
   components: MdxContentComponents = {},
-): React.ReactNode {
-  let content: React.ReactNode;
-
+): Promise<React.ReactNode> {
   if (options.artifact.compiled !== undefined) {
     const scope = Object.assign(
       {
-        opts: { ...jsxRuntime, useMDXComponents: () => components },
+        opts: {
+          ...jsxRuntime,
+          useMDXComponents: () => components,
+          baseUrl: options.importBaseUrl ?? "/",
+        },
       },
       { frontmatter: options.artifact.frontmatter },
       options.scope ?? {},
     );
-    const keys = Object.keys(scope);
+    const args = Object.keys(scope);
     const values = Object.values(scope);
 
-    const hydrateFn = Reflect.construct(Function, [
-      ...keys,
+    const hydrateFn = Reflect.construct(AsyncFunction, [
+      ...args,
       options.artifact.compiled,
     ]);
-    content = React.createElement(hydrateFn.apply(hydrateFn, values).default, {
-      components,
-    });
+    if (typeof hydrateFn === "function") {
+      return Promise.resolve(hydrateFn.apply(hydrateFn, values)).then(
+        (result) =>
+          React.createElement(result.default, {
+            components,
+          }),
+      );
+    }
   }
-
-  return content;
+  return Promise.resolve(undefined);
 }

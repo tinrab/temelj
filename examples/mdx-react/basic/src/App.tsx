@@ -1,6 +1,6 @@
 // @deno-types="@types/react"
 import type React from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import rehypeKatex from "rehype-katex";
 import remarkMath from "remark-math";
 
@@ -8,21 +8,19 @@ import {
   headingIdPlugin,
   type MdxArtifact,
   MdxCompiler,
-  removeImportsExportsPlugin,
   syntaxHighlightPlugin,
 } from "@temelj/mdx";
 import { createMdxContent } from "@temelj/mdx-react";
 import { getMdxComponents } from "./components/registry.tsx";
 
 export function App(): React.ReactNode {
-  const [artifact, setArtifact] = useState<MdxArtifact<unknown> | undefined>(
-    undefined,
-  );
+  const [artifact, setArtifact] = useState<MdxArtifact<unknown> | undefined>();
+  const [content, setContent] = useState<React.ReactNode>();
 
   useEffect(() => {
     (async () => {
       const compiler = new MdxCompiler()
-        .withRemarkPlugin(removeImportsExportsPlugin)
+        // .withRemarkPlugin(removeImportsExportsPlugin)
         // @ts-ignore missing types
         .withRemarkPlugin(remarkMath)
         .withRehypePlugin(headingIdPlugin)
@@ -41,7 +39,7 @@ export function App(): React.ReactNode {
         // @ts-ignore missing types
         .withRehypePlugin(rehypeKatex);
 
-      const r = await compiler.compile(
+      const result = await compiler.compile(
         `
 ---
 title: Hello, World!
@@ -93,18 +91,29 @@ $$
 $$
 
 Lorem ipsum, dolor sit amet consectetur adipisicing elit. Deserunt, nam.
+
+# Exported component
+
+export function Demo() {
+  let count = 0;
+  return (
+    <div className="border p-4">
+      <h1>Hello, JSX!</h1>
+    </div>
+  );
+}
+
+<Demo />
           `.trim(),
         {},
       );
-      setArtifact(r);
+      setArtifact(result);
+
+      createMdxContent({ artifact: result }, getMdxComponents()).then(
+        setContent,
+      );
     })();
   }, []);
-
-  const content = useMemo(
-    () =>
-      artifact ? createMdxContent({ artifact }, getMdxComponents()) : undefined,
-    [artifact],
-  );
 
   return (
     <div className="mx-auto p-8">
