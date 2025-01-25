@@ -13,9 +13,42 @@ interface MdxContentOptions<
   importBaseUrl?: string;
 }
 
+export function createMdxContent<
+  TFrontmatter = Record<string, unknown>,
+  TScope = unknown,
+>(
+  options: MdxContentOptions<TFrontmatter, TScope>,
+  components: MdxContentComponents = {},
+): React.ReactNode {
+  if (options.artifact.compiled !== undefined) {
+    const scope = Object.assign(
+      {
+        opts: {
+          ...jsxRuntime,
+          useMDXComponents: () => components,
+          baseUrl: options.importBaseUrl ?? "/",
+        },
+      },
+      { frontmatter: options.artifact.frontmatter },
+      options.scope ?? {},
+    );
+    const args = Object.keys(scope);
+    const values = Object.values(scope);
+
+    const hydrateFn = Reflect.construct(Function, [
+      ...args,
+      options.artifact.compiled,
+    ]);
+    return React.createElement(hydrateFn.apply(hydrateFn, values).default, {
+      components,
+    });
+  }
+  return Promise.resolve(undefined);
+}
+
 const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor;
 
-export function createMdxContent<
+export function createAsyncMdxContent<
   TFrontmatter = Record<string, unknown>,
   TScope = unknown,
 >(

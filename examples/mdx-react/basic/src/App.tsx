@@ -109,9 +109,7 @@ export function Demo() {
       );
       setArtifact(result);
 
-      createMdxContent({ artifact: result }, getMdxComponents()).then(
-        setContent,
-      );
+      setContent(createMdxContent({ artifact: result }, getMdxComponents()));
     })();
   }, []);
 
