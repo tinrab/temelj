@@ -2,12 +2,12 @@
   "name": "@temelj/mdx-react",
   "description": "Helpers for rendering MDX with React.",
   "license": "MIT",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "exports": {
     ".": "./mod.ts"
   },
   "imports": {
     "@mdx-js/react": "npm:@mdx-js/react@^3.1.0",
-    "react": "npm:react@^18.3.1"
+    "react": "npm:react@^19.0.0"
   }
 }

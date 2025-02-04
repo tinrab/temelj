@@ -122,7 +122,10 @@ export function syntaxHighlightPlugin(
 
       if (options.highlight) {
         hastOptions.transformers.push(
-          transformerNotationHighlight(options.highlight.transformer),
+          transformerNotationHighlight({
+            ...(options.highlight.transformer ?? {}),
+            matchAlgorithm: "v3",
+          }),
         );
       }
 
