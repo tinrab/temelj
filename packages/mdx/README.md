@@ -88,22 +88,26 @@ whoamai
 @temelj/mdx
 \`\`\`
 `.trim();
-const artifact = await compiler.compile(source, {
-  frontmatterOnly: false,
-  frontmatterSchema: z.object({
+const artifact = await compiler.compile(
+  source,
+  {
+    frontmatterOnly: false,
+    mdxOptions: {
+      rehypePlugins: [
+        [
+          treeProcessorPlugin,
+          {
+            process: (node: HastElement) =>
+              assert(typeof node.type === "string"),
+          },
+        ],
+      ],
+    },
+  },
+  z.object({
     title: z.string(),
   }),
-  mdxOptions: {
-    rehypePlugins: [
-      [
-        treeProcessorPlugin,
-        {
-          process: (node: HastElement) => assert(typeof node.type === "string"),
-        },
-      ],
-    ],
-  },
-});
+);
 assert(artifact.compiled !== undefined);
 assertEquals(artifact.frontmatter, {
   title: "Demo",

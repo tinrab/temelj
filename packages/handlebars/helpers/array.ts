@@ -1,17 +1,15 @@
-import { z } from "zod";
+import * as v from "valibot";
 import { deepEquals } from "@temelj/value";
 
 import type { HelperDeclareSpec } from "./types.ts";
-import { createHelper } from "../utility.ts";
+import { createHelperValibot } from "../valibot_helper_builder.ts";
 
 export function getArrayHelpers(): HelperDeclareSpec {
   return {
     "array": (...args: unknown[]): unknown[] => args.slice(0, -1),
-    "arrayItemAt": createHelper()
-      .params(z.array(z.any()), z.number())
-      .handle((
-        [array, index],
-      ) => array[index]),
+    "arrayItemAt": createHelperValibot()
+      .params(v.array(v.any()), v.number())
+      .handle(([array, index]) => array[index]),
     "arrayContains": (array: unknown[], item: unknown): boolean =>
       array.findIndex((value) => deepEquals(value, item)) !== -1,
     "arrayJoin": (array: unknown[], separator: string): string =>

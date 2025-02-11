@@ -7,6 +7,7 @@ import remarkGfmPlugin from "remark-gfm";
 import { VFile } from "vfile";
 import { matter } from "vfile-matter";
 import type { Pluggable, PluggableList } from "unified";
+import type * as v from "valibot";
 import type { z } from "zod";
 
 import type { PluginFactory } from "./types.ts";
@@ -21,11 +22,29 @@ export type MdxSource = string | Uint8Array;
 /**
  * Options for compiling an MDX document.
  */
-export interface MdxCompileOptions<TFrontmatter extends z.ZodSchema> {
+export interface MdxCompileOptions {
   frontmatterOnly?: boolean | undefined;
-  frontmatterSchema?: TFrontmatter;
   mdxOptions?: MdxJsCompileOptions;
 }
+
+/**
+ * The input frontmatter schema.
+ */
+export type FrontmatterInput =
+  | z.AnyZodObject
+  | v.ObjectSchema<v.ObjectEntries, undefined>;
+
+/**
+ * The output frontmatter type for a schema.
+ */
+export type FrontmatterOutput<
+  T extends
+    | z.AnyZodObject
+    | v.ObjectSchema<v.ObjectEntries, undefined>,
+> = T extends z.ZodSchema ? z.infer<T>
+  : T extends v.BaseSchema<unknown, unknown, v.BaseIssue<unknown>>
+    ? v.InferOutput<T>
+  : never;
 
 /**
  * The result of compiling an MDX document.
@@ -74,14 +93,16 @@ export class MdxCompiler {
     return this;
   }
 
-  public async compile<TFrontmatterSchema extends z.ZodSchema>(
+  public async compile<TFrontmatterSchema extends FrontmatterInput>(
     source: MdxSource,
     {
       frontmatterOnly = false,
-      frontmatterSchema,
       mdxOptions,
-    }: MdxCompileOptions<TFrontmatterSchema> = {},
-  ): Promise<MdxArtifact<z.output<TFrontmatterSchema>>> {
+    }: MdxCompileOptions = {},
+    frontmatterSchema?: TFrontmatterSchema,
+  ): Promise<
+    MdxArtifact<FrontmatterOutput<TFrontmatterSchema>>
+  > {
     const vfile = new VFile({
       value: source,
       // Needed so vfile doesn't need to access fs.
@@ -115,13 +136,21 @@ export class MdxCompiler {
       compiled = compiledFile.value.toString();
     }
 
-    const frontmatter = frontmatterSchema === undefined
-      ? (vfile.data.matter ?? {})
-      : frontmatterSchema.parse(vfile.data.matter ?? {});
+    let frontmatter: unknown = {};
+    if (frontmatterSchema && vfile.data.matter) {
+      if ("parse" in frontmatterSchema) {
+        frontmatter = frontmatterSchema.parse(vfile.data.matter);
+      } else if (
+        "kind" in frontmatterSchema && frontmatterSchema.kind === "schema"
+      ) {
+        const valibot = await import("valibot");
+        frontmatter = valibot.parse(frontmatterSchema, vfile.data.matter);
+      }
+    }
 
     return {
       compiled,
-      frontmatter,
+      frontmatter: frontmatter as FrontmatterOutput<TFrontmatterSchema>,
     };
   }
 }

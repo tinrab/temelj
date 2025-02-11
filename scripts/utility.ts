@@ -1,7 +1,7 @@
 import { z } from "npm:zod@3.23.8";
 import type { PackageJson } from "jsr:@deno/dnt@^0.41.3";
 import path from "node:path";
-import { yellow } from "jsr:@std/fmt/colors";
+import { yellow } from "jsr:@std/fmt@1.0.5/colors";
 import jsonc from "npm:jsonc-parser@3.3.1";
 
 export type { PackageJson };

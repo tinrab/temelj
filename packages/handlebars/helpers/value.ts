@@ -1,12 +1,12 @@
-import { z } from "zod";
+import * as v from "valibot";
 import {
   deepEquals,
   isObjectPrimitive,
   type PrimitiveValue,
 } from "@temelj/value";
 
-import { createHelper } from "../utility.ts";
 import type { HelperDeclareSpec } from "./types.ts";
+import { createHelperValibot } from "../valibot_helper_builder.ts";
 
 export function getValueHelpers(): HelperDeclareSpec {
   return {
@@ -23,8 +23,8 @@ export function getValueHelpers(): HelperDeclareSpec {
 
     "orElse": (value: unknown, defaultValue: unknown) => value || defaultValue,
 
-    "toJson": createHelper()
-      .params(z.any(), z.boolean().default(false))
+    "toJson": createHelperValibot()
+      .params(v.any(), v.optional(v.boolean(), false))
       .handle(([value, pretty]) => {
         return pretty
           ? JSON.stringify(value, undefined, 2)

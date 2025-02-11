@@ -2,7 +2,7 @@
   "name": "@temelj/mdx-react",
   "description": "Helpers for rendering MDX with React.",
   "license": "MIT",
-  "version": "0.3.2",
+  "version": "0.4.0",
   "exports": {
     ".": "./mod.ts"
   },

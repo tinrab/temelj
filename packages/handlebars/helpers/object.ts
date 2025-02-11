@@ -1,13 +1,13 @@
-import { z } from "zod";
 import { isObjectPrimitive } from "@temelj/value";
+import * as v from "valibot";
 
-import { createHelper } from "../utility.ts";
 import type { HelperDeclareSpec, HelperDelegate } from "./types.ts";
+import { createHelperValibot } from "../valibot_helper_builder.ts";
 
 export function getObjectHelpers(): HelperDeclareSpec {
   return {
-    "object": createHelper()
-      .hash(z.record(z.string(), z.any()))
+    "object": createHelperValibot()
+      .hash(v.record(v.string(), v.any()))
       .handle((hash) => hash),
     "objectPick": ((obj: unknown, ...keys: string[]) => {
       if (!isObjectPrimitive(obj)) {

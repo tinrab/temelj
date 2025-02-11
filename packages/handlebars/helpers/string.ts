@@ -1,4 +1,4 @@
-import { z } from "zod";
+import * as v from "valibot";
 import {
   capitalize,
   toCamelCase,
@@ -8,7 +8,7 @@ import {
 } from "@temelj/string";
 
 import type { HelperDeclareSpec } from "./types.ts";
-import { createHelper } from "../utility.ts";
+import { createHelperValibot } from "../valibot_helper_builder.ts";
 
 export function getStringHelpers(): HelperDeclareSpec {
   return {
@@ -21,21 +21,22 @@ export function getStringHelpers(): HelperDeclareSpec {
     "upperCase": (s: string) => s.toUpperCase(),
     "lowerCase": (s: string) => s.toLowerCase(),
 
-    "split": createHelper()
-      .params(z.string(), z.string().default("/"))
+    "split": createHelperValibot()
+      .params(v.string(), v.optional(v.string(), "/"))
       .handle(([s, separator]) => s.split(separator)),
-    "splitPart": createHelper().params(z.string(), z.number().default(0))
+    "splitPart": createHelperValibot()
+      .params(v.string(), v.number(), v.optional(v.string(), "/"))
       .handle(
         ([path, index]) => {
           const parts = path.split("/");
           return parts[index];
         },
       ),
-    "splitPartSegment": createHelper().params(
-      z.string(),
-      z.number(),
-      z.number(),
-      z.string().default("/"),
+    "splitPartSegment": createHelperValibot().params(
+      v.string(),
+      v.number(),
+      v.number(),
+      v.optional(v.string(), "/"),
     ).handle(
       (
         [path, from, to, separator],

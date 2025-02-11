@@ -1,10 +1,15 @@
 import { assert, assertEquals, assertRejects } from "@std/assert";
 
-import { MdxCompiler } from "./compiler.ts";
+import {
+  type FrontmatterInput,
+  type FrontmatterOutput,
+  MdxCompiler,
+} from "./compiler.ts";
 import { headingIdPlugin } from "./plugins/heading-id/plugin.ts";
 import { treeProcessorPlugin } from "./plugins/tree-processor/plugin.ts";
 import { syntaxHighlightPlugin } from "./plugins/syntax-highlight/plugin.ts";
-import { z, ZodError } from "zod";
+import * as v from "valibot";
+import { z } from "zod";
 
 Deno.test("mdx - compile", async () => {
   let headingCount = 0;
@@ -27,10 +32,10 @@ Deno.test("mdx - compile", async () => {
       lineNumbers: {},
     });
 
-  const frontmatterSchema = z.object({
-    title: z.string(),
-    x: z.number().optional(),
-    b: z.boolean().default(true),
+  const frontmatterSchema = v.object({
+    title: v.string(),
+    x: v.optional(v.number()),
+    b: v.optional(v.boolean(), true),
   });
 
   const artifact = await compiler.compile(
@@ -50,7 +55,8 @@ type Mdx = never; // [!code highlight]
 const x1 = 1;
 \`\`\`
     `.trim(),
-    { frontmatterSchema },
+    {},
+    frontmatterSchema,
   );
 
   assertEquals(headingCount, 4);
@@ -58,7 +64,7 @@ const x1 = 1;
   assertEquals(artifact.frontmatter.x, 42);
   assertEquals(artifact.frontmatter.b, true);
 
-  assertRejects(() => compiler.compile("", { frontmatterSchema }), ZodError);
+  assertRejects(() => compiler.compile("", {}, frontmatterSchema), v.ValiError);
 
   const value = artifact.compiled;
   assert(typeof value === "string");
@@ -73,4 +79,42 @@ const x1 = 1;
     value.includes('"data-line": "1"') && value.includes('"data-line": "2"'),
   );
   assert(value.includes('className: "line hl line-number"'));
+});
+
+Deno.test("mdx - parse frontmatter", async () => {
+  async function compile<TFrontmatterSchema extends FrontmatterInput>(
+    frontmatter: Record<string, unknown>,
+    schema: TFrontmatterSchema,
+  ): Promise<FrontmatterOutput<TFrontmatterSchema>> {
+    const compiler = new MdxCompiler();
+
+    const artifact = await compiler.compile(
+      `
+---
+${JSON.stringify(frontmatter)}
+---
+    `.trim(),
+      {},
+      schema,
+    );
+    return artifact.frontmatter;
+  }
+
+  const fm1 = await compile(
+    { x: 42 },
+    z.object({
+      x: z.number(),
+    }),
+  );
+  const _fm1type: { x: number } = fm1;
+  assertEquals(fm1, { x: 42 });
+
+  const fm2 = await compile(
+    { s: "abc" },
+    v.object({
+      s: v.string(),
+    }),
+  );
+  const _fm2type: { s: string } = fm2;
+  assertEquals(fm2, { s: "abc" });
 });

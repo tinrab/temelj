@@ -1,4 +1,5 @@
 import { assertEquals, assertThrows } from "@std/assert";
+import * as v from "valibot";
 
 import { Registry } from "../registry.ts";
 
@@ -22,12 +23,10 @@ Deno.test("Handlebars array helpers", () => {
 
   assertThrows(
     () => r.render("{{arrayItemAt (array)}}"),
-    Error,
-    "Required",
+    v.ValiError,
   );
   assertThrows(
     () => r.render("{{arrayItemAt (array 1 2 3)}}"),
-    Error,
-    "Required",
+    v.ValiError,
   );
 });

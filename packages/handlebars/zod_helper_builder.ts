@@ -3,33 +3,35 @@ import type { JsonValue } from "@temelj/value";
 
 import type { HelperDelegate } from "./helpers/types.ts";
 
-interface HelperBuilder {
-  params: <T extends [] | [z.ZodTypeAny, ...z.ZodTypeAny[]]>(
-    ...schemas: T
-  ) => HelperBuilderWithParams<T>;
-  hash: <T extends z.ZodSchema>(schema: T) => HelperBuilderWithHash<T>;
+interface HelperZodBuilder {
+  params: <TParams extends [] | [z.ZodTypeAny, ...z.ZodTypeAny[]]>(
+    ...schemas: TParams
+  ) => HelperZodBuilderWithParams<TParams>;
+  hash: <THash extends z.ZodSchema>(
+    schema: THash,
+  ) => HelperZodBuilderWithHash<THash>;
   handle: (handler: () => JsonValue) => HelperDelegate;
 }
 
-interface HelperBuilderWithParams<
+interface HelperZodBuilderWithParams<
   TParams extends [] | [z.ZodTypeAny, ...z.ZodTypeAny[]],
 > {
-  hash: <T extends z.ZodSchema>(
-    schema: T,
-  ) => HelperBuilderWithParamsAndHash<TParams, T>;
+  hash: <THash extends z.ZodSchema>(
+    schema: THash,
+  ) => HelperZodBuilderWithParamsAndHash<TParams, THash>;
   handle: (
     handler: (params: z.OutputTypeOfTuple<TParams>) => JsonValue,
   ) => HelperDelegate;
 }
 
-interface HelperBuilderWithHash<THash extends z.ZodSchema> {
+interface HelperZodBuilderWithHash<THash extends z.ZodSchema> {
   params: <T extends [] | [z.ZodTypeAny, ...z.ZodTypeAny[]]>(
     ...schemas: T
-  ) => HelperBuilderWithParamsAndHash<T, THash>;
+  ) => HelperZodBuilderWithParamsAndHash<T, THash>;
   handle: (handler: (hash: z.output<THash>) => JsonValue) => HelperDelegate;
 }
 
-interface HelperBuilderWithParamsAndHash<
+interface HelperZodBuilderWithParamsAndHash<
   TParams extends [] | [z.ZodTypeAny, ...z.ZodTypeAny[]],
   THash extends z.ZodSchema,
 > {
@@ -41,26 +43,28 @@ interface HelperBuilderWithParamsAndHash<
   ) => HelperDelegate;
 }
 
-class HelperBuilderImpl implements HelperBuilder {
+class HelperZodBuilderImpl implements HelperZodBuilder {
   constructor(
     private _paramsSchema?: z.ZodSchema,
     private _hashSchema?: z.ZodSchema,
   ) {}
 
-  params<T extends [] | [z.ZodTypeAny, ...z.ZodTypeAny[]]>(
-    ...schemas: T
-  ): HelperBuilderWithParams<T> {
-    return new HelperBuilderImpl(
+  params<TParams extends [] | [z.ZodTypeAny, ...z.ZodTypeAny[]]>(
+    ...schemas: TParams
+  ): HelperZodBuilderWithParams<TParams> {
+    return new HelperZodBuilderImpl(
       z.tuple(schemas),
       this._hashSchema,
-    ) as unknown as HelperBuilderWithParams<T>;
+    ) as unknown as HelperZodBuilderWithParams<TParams>;
   }
 
-  hash<T extends z.ZodSchema>(schema: T): HelperBuilderWithHash<T> {
-    return new HelperBuilderImpl(
+  hash<THash extends z.ZodSchema>(
+    schema: THash,
+  ): HelperZodBuilderWithHash<THash> {
+    return new HelperZodBuilderImpl(
       this._paramsSchema,
       schema,
-    ) as unknown as HelperBuilderWithHash<T>;
+    ) as unknown as HelperZodBuilderWithHash<THash>;
   }
 
   handle(handler: (...args: unknown[]) => JsonValue): HelperDelegate {
@@ -92,6 +96,6 @@ class HelperBuilderImpl implements HelperBuilder {
   }
 }
 
-export function createHelper(): HelperBuilder {
-  return new HelperBuilderImpl();
+export function createHelperZod(): HelperZodBuilder {
+  return new HelperZodBuilderImpl();
 }

@@ -8,6 +8,6 @@
   },
   "imports": {
     "@std/assert": "jsr:@std/assert@^1.0.11",
-    "tough-cookie": "npm:tough-cookie@^5.1.0"
+    "tough-cookie": "npm:tough-cookie@^5.1.1"
   }
 }

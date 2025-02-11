@@ -1,10 +1,10 @@
 import { assertEquals } from "@std/assert";
-import { z } from "zod";
+import * as v from "valibot";
 
 import { Registry } from "../registry.ts";
 import { getValueHelpers } from "./value.ts";
 import { getArrayHelpers } from "./array.ts";
-import { createHelper } from "../utility.ts";
+import { createHelperValibot } from "../valibot_helper_builder.ts";
 
 Deno.test("Handlebars value isEmpty helper", () => {
   const r = new Registry();
@@ -23,12 +23,12 @@ Deno.test("Handlebars value isEmpty helper", () => {
 
   r.registerHelper(
     "displayName",
-    createHelper()
+    createHelperValibot()
       .params(
-        z.object({
-          firstName: z.string(),
-          lastName: z.string(),
-          age: z.number().optional(),
+        v.object({
+          firstName: v.string(),
+          lastName: v.string(),
+          age: v.optional(v.number()),
         }),
       )
       .handle(([user]) => {
@@ -38,6 +38,4 @@ Deno.test("Handlebars value isEmpty helper", () => {
         return `${user.firstName} ${user.lastName}`;
       }),
   );
-
-  // awdawd
 });

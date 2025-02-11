@@ -1,5 +1,5 @@
 {
   "dependencies": {
-    "tough-cookie": "^5.1.0"
+    "tough-cookie": "^5.1.1"
   }
 }
