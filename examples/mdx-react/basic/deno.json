@@ -9,8 +9,9 @@
     "jsxImportSource": "react",
     "jsxImportSourceTypes": "@types/react"
   },
+  "exports": {},
   "imports": {
-    "@deno/vite-plugin": "npm:@deno/vite-plugin@^1.0.3",
+    "@deno/vite-plugin": "npm:@deno/vite-plugin@^1.0.4",
     "@types/react": "npm:@types/react@^19.0.8",
     "@types/react-dom": "npm:@types/react-dom@^19.0.3",
     "@vitejs/plugin-react": "npm:@vitejs/plugin-react@^4.3.4",
