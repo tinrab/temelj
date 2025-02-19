@@ -65,6 +65,6 @@ jobs:
           done
           cd ../
 
-          cd ./@flinect/temelj
-          publish_package "@flinect/temelj"
+          cd ./@tinrab/temelj
+          publish_package "@tinrab/temelj"
           cd ../../

@@ -14,7 +14,7 @@ export async function updateVersions(): Promise<void> {
   );
 
   const members = (await readWorkspaceMembers(await readWorkspace())).filter(
-    (member) => !member.deno.name.startsWith("@flinect"),
+    (member) => !member.deno.name.startsWith("@tinrab"),
   );
 
   const versions: Record<string, string> = {};

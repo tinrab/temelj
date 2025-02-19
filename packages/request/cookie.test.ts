@@ -15,7 +15,7 @@ Deno.test("request - cookie - serialize", async () => {
     serializeCookie({
       name: "test",
       value: "42",
-      domain: "flinect.com",
+      domain: "tinrab.com",
       expires: new Date("2024-01-01"),
       httpOnly: true,
       maxAge: 42,
@@ -25,7 +25,7 @@ Deno.test("request - cookie - serialize", async () => {
       secure: true,
       partitioned: true,
     }),
-    "test=42; Expires=Mon, 01 Jan 2024 00:00:00 GMT; Max-Age=42; Domain=flinect.com; Path=/; Secure; HttpOnly; SameSite=Lax; Priority=high;; Partitioned;",
+    "test=42; Expires=Mon, 01 Jan 2024 00:00:00 GMT; Max-Age=42; Domain=tinrab.com; Path=/; Secure; HttpOnly; SameSite=Lax; Priority=high;; Partitioned;",
   );
 
   assertRejects(
@@ -55,12 +55,12 @@ Deno.test("request - cookie - serialize", async () => {
 Deno.test("request - cookie - parse", () => {
   assertEquals(
     parseCookie(
-      "test=42; Expires=Mon, 01 Jan 2024 00:00:00 GMT; Max-Age=42; Domain=flinect.com; Path=/; HttpOnly; SameSite=Lax; Priority=high; Partitioned;",
+      "test=42; Expires=Mon, 01 Jan 2024 00:00:00 GMT; Max-Age=42; Domain=tinrab.com; Path=/; HttpOnly; SameSite=Lax; Priority=high; Partitioned;",
     ),
     {
       name: "test",
       value: "42",
-      domain: "flinect.com",
+      domain: "tinrab.com",
       expires: new Date("2024-01-01"),
       httpOnly: true,
       maxAge: 42,

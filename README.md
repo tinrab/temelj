@@ -8,18 +8,18 @@
 
 <p align="center">
   <a href="https://twitter.com/tinrab" rel="nofollow"><img src="https://img.shields.io/badge/created%20by-@tinrab-1d9bf0.svg" alt="Created by Tin Rabzelj"></a>
-  <a href="https://jsr.io/@flinect/temelj" rel="nofollow"><img src="https://jsr.io/badges/@flinect/temelj" alt="jsr"></a>
-  <a href="https://www.npmjs.com/package/@flinect/temelj" rel="nofollow"><img src="https://img.shields.io/npm/dw/%40flinect%2Ftemelj" alt="npm"></a>
-  <a href="https://opensource.org/licenses/MIT" rel="nofollow"><img src="https://img.shields.io/github/license/flinect/temelj" alt="License"></a>
-  <!-- <a href="https://github.com/flinect/temelj" rel="nofollow"><img src="https://img.shields.io/github/stars/flinect/temelj" alt="stars"></a> -->
+  <a href="https://jsr.io/@tinrab/temelj" rel="nofollow"><img src="https://jsr.io/badges/@tinrab/temelj" alt="jsr"></a>
+  <a href="https://www.npmjs.com/package/@tinrab/temelj" rel="nofollow"><img src="https://img.shields.io/npm/dw/%40tinrab%2Ftemelj" alt="npm"></a>
+  <a href="https://opensource.org/licenses/MIT" rel="nofollow"><img src="https://img.shields.io/github/license/tinrab/temelj" alt="License"></a>
+  <!-- <a href="https://github.com/tinrab/temelj" rel="nofollow"><img src="https://img.shields.io/github/stars/tinrab/temelj" alt="stars"></a> -->
 </p>
 
 <div align="center">
-  <a href="https://jsr.io/@flinect/temelj">jsr</a>
+  <a href="https://jsr.io/@tinrab/temelj">jsr</a>
   <span>&nbsp;&nbsp;•&nbsp;&nbsp;</span>
-  <a href="https://www.npmjs.com/package/@flinect/temelj">npm</a>
+  <a href="https://www.npmjs.com/package/@tinrab/temelj">npm</a>
   <span>&nbsp;&nbsp;•&nbsp;&nbsp;</span>
-  <a href="https://github.com/flinect/temelj/issues/new">Issues</a>
+  <a href="https://github.com/tinrab/temelj/issues/new">Issues</a>
   <span>&nbsp;&nbsp;•&nbsp;&nbsp;</span>
   <a href="https://twitter.com/tinrab">@tinrab</a>
   <br />
@@ -28,7 +28,7 @@
 <br/>
 
 <div align="center">
-  <a href="https://github.com/flinect/temelj/actions" rel="nofollow"><img alt="GitHub Actions Workflow Status" src="https://img.shields.io/github/actions/workflow/status/flinect/temelj/test.yaml"></a>
+  <a href="https://github.com/tinrab/temelj/actions" rel="nofollow"><img alt="GitHub Actions Workflow Status" src="https://img.shields.io/github/actions/workflow/status/tinrab/temelj/test.yaml"></a>
 </div>
 
 <br/>
@@ -36,9 +36,8 @@
 
 ## Packages
 
-The `@flinect/temelj` package re-exports packages from the `@temelj` scope. You
-can use them by importing from `@flinect/temelj/<package>`, or directly from
-`@temelj/<package>`.
+Packages are available under `@temelj/<package>`, or if you prefer a single
+dependency, you can use `@tinrab/temelj/<package>`.
 
 - [@temelj/array](./packages/array) - Utilities for working with arrays.
 - [@temelj/color](./packages/color) - Utilities for working with colors.

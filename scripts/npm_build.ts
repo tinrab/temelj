@@ -30,10 +30,16 @@ async function buildMember(member: WorkspaceMember): Promise<void> {
   const exportsObject = Object.entries(member.deno.exports).reduce(
     (acc, [exportName, exportPath]) => {
       const esmFile = `./${
-        path.join("esm", exportPath.replace(/\.ts$/, ".js"))
+        path.join(
+          "esm",
+          exportPath.replace(/\.ts$/, ".js"),
+        )
       }`;
       const typesFile = `./${
-        path.join("types", exportPath.replace(/\.ts$/, ".d.ts"))
+        path.join(
+          "types",
+          exportPath.replace(/\.ts$/, ".d.ts"),
+        )
       }`;
 
       acc[exportName] = {
@@ -72,10 +78,10 @@ async function buildMember(member: WorkspaceMember): Promise<void> {
       license: member.deno.license,
       repository: {
         type: "git",
-        url: "git+https://github.com/flinect/temelj.git",
+        url: "git+https://github.com/tinrab/temelj.git",
       },
       bugs: {
-        url: "https://github.com/flinect/temelj/issues",
+        url: "https://github.com/tinrab/temelj/issues",
       },
       exports: exportsObject,
       ...(member.packageJson ?? {}),

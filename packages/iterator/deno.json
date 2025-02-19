@@ -2,7 +2,7 @@
   "name": "@temelj/iterator",
   "description": "Utilities for working with iterables.",
   "license": "MIT",
-  "version": "0.2.2",
+  "version": "0.5.0",
   "exports": {
     ".": "./mod.ts"
   },
