@@ -1,4 +1,4 @@
-import * as v from "valibot";
+import { z } from "zod";
 import {
   capitalize,
   toCamelCase,
@@ -8,39 +8,36 @@ import {
 } from "@temelj/string";
 
 import type { HelperDeclareSpec } from "./types.ts";
-import { createHelperValibot } from "../valibot_helper_builder.ts";
+import { createHelperZod } from "../zod_helper_builder.ts";
 
 export function getStringHelpers(): HelperDeclareSpec {
   return {
-    "camelCase": (s: string) => toCamelCase(s),
-    "snakeCase": (s: string) => toSnakeCase(s),
-    "pascalCase": (s: string) => toPascalCase(s),
-    "titleCase": (s: string) => toTitleCase(s),
-    "capitalize": (s: string) => capitalize(s),
+    camelCase: (s: string) => toCamelCase(s),
+    snakeCase: (s: string) => toSnakeCase(s),
+    pascalCase: (s: string) => toPascalCase(s),
+    titleCase: (s: string) => toTitleCase(s),
+    capitalize: (s: string) => capitalize(s),
 
-    "upperCase": (s: string) => s.toUpperCase(),
-    "lowerCase": (s: string) => s.toLowerCase(),
+    upperCase: (s: string) => s.toUpperCase(),
+    lowerCase: (s: string) => s.toLowerCase(),
 
-    "split": createHelperValibot()
-      .params(v.string(), v.optional(v.string(), "/"))
+    split: createHelperZod()
+      .params(z.string(), z.optional(z.string()).default("/"))
       .handle(([s, separator]) => s.split(separator)),
-    "splitPart": createHelperValibot()
-      .params(v.string(), v.number(), v.optional(v.string(), "/"))
-      .handle(
-        ([path, index]) => {
-          const parts = path.split("/");
-          return parts[index];
-        },
-      ),
-    "splitPartSegment": createHelperValibot().params(
-      v.string(),
-      v.number(),
-      v.number(),
-      v.optional(v.string(), "/"),
-    ).handle(
-      (
-        [path, from, to, separator],
-      ) => {
+    splitPart: createHelperZod()
+      .params(z.string(), z.number(), z.optional(z.string()).default("/"))
+      .handle(([path, index]) => {
+        const parts = path.split("/");
+        return parts[index];
+      }),
+    splitPartSegment: createHelperZod()
+      .params(
+        z.string(),
+        z.number(),
+        z.number(),
+        z.optional(z.string()).default("/"),
+      )
+      .handle(([path, from, to, separator]) => {
         const parts = path.split(separator);
         let result = "";
         const n = Math.min(to + 1, parts.length);
@@ -52,10 +49,9 @@ export function getStringHelpers(): HelperDeclareSpec {
           }
         }
         return result;
-      },
-    ),
+      }),
 
-    "join": (...values: unknown[]) => {
+    join: (...values: unknown[]) => {
       return values.slice(0, -1).join("");
     },
   };

@@ -27,32 +27,28 @@ async function buildMember(member: WorkspaceMember): Promise<void> {
   const outputPath = path.join(NPM_PATH, member.deno.name);
 
   // Set custom exports other than what dnt does.
-  const exportsObject = Object.entries(member.deno.exports).reduce(
-    (acc, [exportName, exportPath]) => {
-      const esmFile = `./${
-        path.join(
-          "esm",
-          exportPath.replace(/\.ts$/, ".js"),
-        )
-      }`;
-      const typesFile = `./${
-        path.join(
-          "types",
-          exportPath.replace(/\.ts$/, ".d.ts"),
-        )
-      }`;
+  // const exportsObject = Object.entries(member.deno.exports).reduce(
+  // 	(acc, [exportName, exportPath]) => {
+  // 		const esmFile = `./${path.join(
+  // 			"esm",
+  // 			exportPath.replace(/\.ts$/, ".js"),
+  // 		)}`;
+  // 		const typesFile = `./${path.join(
+  // 			"types",
+  // 			exportPath.replace(/\.ts$/, ".d.ts"),
+  // 		)}`;
 
-      acc[exportName] = {
-        import: {
-          types: typesFile,
-          default: esmFile,
-        },
-        types: typesFile,
-      };
-      return acc;
-    },
-    {} as Record<string, unknown>,
-  );
+  // 		acc[exportName] = {
+  // 			import: {
+  // 				types: typesFile,
+  // 				default: esmFile,
+  // 			},
+  // 			types: typesFile,
+  // 		};
+  // 		return acc;
+  // 	},
+  // 	{} as Record<string, unknown>,
+  // );
 
   await build({
     entryPoints: Object.entries(member.deno.exports).map(
@@ -83,7 +79,7 @@ async function buildMember(member: WorkspaceMember): Promise<void> {
       bugs: {
         url: "https://github.com/tinrab/temelj/issues",
       },
-      exports: exportsObject,
+      // exports: exportsObject,
       ...(member.packageJson ?? {}),
     },
     async postBuild(): Promise<void> {

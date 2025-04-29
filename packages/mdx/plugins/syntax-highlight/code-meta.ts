@@ -1,5 +1,5 @@
 import { type NumericRange, parseNumericRange } from "@temelj/iterator";
-import * as v from "valibot";
+import { z } from "zod";
 
 import type { HastElement } from "../../types.ts";
 
@@ -23,15 +23,15 @@ export type MdxCodeMetaCommandLine = {
 };
 
 export function extractCodeMeta(node: HastElement): MdxCodeMeta {
-  const meta: string = node?.data?.meta ?? node?.properties?.metastring ?? "";
-  return parseMetaString(meta);
+  const meta = node?.data?.meta ?? node?.properties?.metastring ?? "";
+  return parseMetaString(meta as string);
 }
 
-const metaSchema = v.object({
-  highlight: v.optional(v.string()),
-  showLineNumbers: v.optional(v.union([v.boolean(), v.string()])),
-  commandLine: v.optional(v.union([v.boolean(), v.string()])),
-  fileName: v.optional(v.string()),
+const metaSchema = z.object({
+  highlight: z.optional(z.string()),
+  showLineNumbers: z.optional(z.union([z.boolean(), z.string()])),
+  commandLine: z.optional(z.union([z.boolean(), z.string()])),
+  fileName: z.optional(z.string()),
 });
 
 function parseMetaString(meta: string): MdxCodeMeta {
@@ -41,7 +41,7 @@ function parseMetaString(meta: string): MdxCodeMeta {
   } catch {
     return {};
   }
-  const parsed = v.parse(metaSchema, raw);
+  const parsed = metaSchema.parse(raw);
   const options: MdxCodeMeta = {};
 
   if (parsed.highlight !== undefined) {

@@ -6,11 +6,10 @@ import remarkFrontmatterPlugin from "remark-frontmatter";
 import remarkGfmPlugin from "remark-gfm";
 import { VFile } from "vfile";
 import { matter } from "vfile-matter";
-import type { Pluggable, PluggableList } from "unified";
-import type * as v from "valibot";
+import type { Pluggable, PluggableList, Plugin } from "unified";
 import type { z } from "zod";
 
-import type { PluginFactory } from "./types.ts";
+import type { HastNode } from "./types.ts";
 
 export { remarkFrontmatterPlugin, remarkGfmPlugin };
 
@@ -26,25 +25,6 @@ export interface MdxCompileOptions {
   frontmatterOnly?: boolean | undefined;
   mdxOptions?: MdxJsCompileOptions;
 }
-
-/**
- * The input frontmatter schema.
- */
-export type FrontmatterInput =
-  | z.AnyZodObject
-  | v.ObjectSchema<v.ObjectEntries, undefined>;
-
-/**
- * The output frontmatter type for a schema.
- */
-export type FrontmatterOutput<
-  T extends
-    | z.AnyZodObject
-    | v.ObjectSchema<v.ObjectEntries, undefined>,
-> = T extends z.ZodSchema ? z.infer<T>
-  : T extends v.BaseSchema<unknown, unknown, v.BaseIssue<unknown>>
-    ? v.InferOutput<T>
-  : never;
 
 /**
  * The result of compiling an MDX document.
@@ -70,7 +50,7 @@ export class MdxCompiler {
   }
 
   public withRemarkPlugin<TOptions>(
-    plugin: (options?: TOptions) => PluginFactory,
+    plugin: Plugin<[TOptions?], HastNode, HastNode>,
     options?: TOptions,
   ): MdxCompiler {
     if (options === undefined) {
@@ -82,7 +62,7 @@ export class MdxCompiler {
   }
 
   public withRehypePlugin<TOptions>(
-    plugin: (options?: TOptions) => PluginFactory,
+    plugin: Plugin<[TOptions?], HastNode, HastNode>,
     options?: TOptions,
   ): MdxCompiler {
     if (options === undefined) {
@@ -93,16 +73,11 @@ export class MdxCompiler {
     return this;
   }
 
-  public async compile<TFrontmatterSchema extends FrontmatterInput>(
+  public async compile<TFrontmatterSchema extends z.ZodSchema>(
     source: MdxSource,
-    {
-      frontmatterOnly = false,
-      mdxOptions,
-    }: MdxCompileOptions = {},
+    { frontmatterOnly = false, mdxOptions }: MdxCompileOptions = {},
     frontmatterSchema?: TFrontmatterSchema,
-  ): Promise<
-    MdxArtifact<FrontmatterOutput<TFrontmatterSchema>>
-  > {
+  ): Promise<MdxArtifact<z.output<TFrontmatterSchema>>> {
     const vfile = new VFile({
       value: source,
       // Needed so vfile doesn't need to access fs.
@@ -136,21 +111,13 @@ export class MdxCompiler {
       compiled = compiledFile.value.toString();
     }
 
-    let frontmatter: unknown = {};
-    if (frontmatterSchema && vfile.data.matter) {
-      if ("parse" in frontmatterSchema) {
-        frontmatter = frontmatterSchema.parse(vfile.data.matter);
-      } else if (
-        "kind" in frontmatterSchema && frontmatterSchema.kind === "schema"
-      ) {
-        const valibot = await import("valibot");
-        frontmatter = valibot.parse(frontmatterSchema, vfile.data.matter);
-      }
-    }
+    const frontmatter = frontmatterSchema === undefined
+      ? (vfile.data.matter ?? {})
+      : frontmatterSchema.parse(vfile.data.matter ?? {});
 
     return {
       compiled,
-      frontmatter: frontmatter as FrontmatterOutput<TFrontmatterSchema>,
+      frontmatter,
     };
   }
 }

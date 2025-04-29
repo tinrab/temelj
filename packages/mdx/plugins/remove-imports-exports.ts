@@ -1,13 +1,18 @@
 import { remove } from "unist-util-remove";
+import type { Plugin } from "unified";
 
-import type { HastNode, PluginFactory } from "../types.ts";
+import type { HastNode } from "../types.ts";
 
 /**
  * A remark plugin which removes all import and export statements.
  */
-export function removeImportsExportsPlugin(): PluginFactory {
+export const removeImportsExportsPlugin: Plugin<
+  [unknown],
+  HastNode,
+  HastNode
+> = () => {
   return (tree: HastNode) => {
     remove(tree, "mdxjsEsm");
     return tree;
   };
-}
+};

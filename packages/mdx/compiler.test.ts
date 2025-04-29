@@ -1,15 +1,10 @@
 import { assert, assertEquals, assertRejects } from "@std/assert";
+import { z } from "zod";
 
-import {
-  type FrontmatterInput,
-  type FrontmatterOutput,
-  MdxCompiler,
-} from "./compiler.ts";
+import { MdxCompiler } from "./compiler.ts";
 import { headingIdPlugin } from "./plugins/heading-id/plugin.ts";
 import { treeProcessorPlugin } from "./plugins/tree-processor/plugin.ts";
 import { syntaxHighlightPlugin } from "./plugins/syntax-highlight/plugin.ts";
-import * as v from "valibot";
-import { z } from "zod";
 
 Deno.test("mdx - compile", async () => {
   let headingCount = 0;
@@ -32,10 +27,10 @@ Deno.test("mdx - compile", async () => {
       lineNumbers: {},
     });
 
-  const frontmatterSchema = v.object({
-    title: v.string(),
-    x: v.optional(v.number()),
-    b: v.optional(v.boolean(), true),
+  const frontmatterSchema = z.object({
+    title: z.string(),
+    x: z.optional(z.number()),
+    b: z.optional(z.boolean()).default(true),
   });
 
   const artifact = await compiler.compile(
@@ -64,7 +59,7 @@ const x1 = 1;
   assertEquals(artifact.frontmatter.x, 42);
   assertEquals(artifact.frontmatter.b, true);
 
-  assertRejects(() => compiler.compile("", {}, frontmatterSchema), v.ValiError);
+  assertRejects(() => compiler.compile("", {}, frontmatterSchema), z.ZodError);
 
   const value = artifact.compiled;
   assert(typeof value === "string");
@@ -82,10 +77,10 @@ const x1 = 1;
 });
 
 Deno.test("mdx - parse frontmatter", async () => {
-  async function compile<TFrontmatterSchema extends FrontmatterInput>(
+  async function compile<TFrontmatterSchema extends z.ZodSchema>(
     frontmatter: Record<string, unknown>,
     schema: TFrontmatterSchema,
-  ): Promise<FrontmatterOutput<TFrontmatterSchema>> {
+  ): Promise<z.output<TFrontmatterSchema>> {
     const compiler = new MdxCompiler();
 
     const artifact = await compiler.compile(
@@ -111,8 +106,8 @@ ${JSON.stringify(frontmatter)}
 
   const fm2 = await compile(
     { s: "abc" },
-    v.object({
-      s: v.string(),
+    z.object({
+      s: z.string(),
     }),
   );
   const _fm2type: { s: string } = fm2;

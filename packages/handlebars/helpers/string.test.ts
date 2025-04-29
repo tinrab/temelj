@@ -14,7 +14,7 @@ Deno.test("Handlebars string helpers", () => {
   assertThrows(
     () => r.render(`{{splitPartSegment "a/b/c" 0}}`),
     Error,
-    "Invalid type",
+    "invalid_type",
   );
 
   assertEquals(

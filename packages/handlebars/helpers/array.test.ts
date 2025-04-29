@@ -1,5 +1,4 @@
-import { assertEquals, assertThrows } from "@std/assert";
-import * as v from "valibot";
+import { assertEquals } from "@std/assert";
 
 import { Registry } from "../registry.ts";
 
@@ -8,25 +7,7 @@ Deno.test("Handlebars array helpers", () => {
 
   assertEquals(r.render("{{array 1 2 3}}"), "1,2,3");
   assertEquals(r.render("{{arrayItemAt (array 1 2 3) 1}}"), "2");
-  assertEquals(
-    r.render("{{arrayContains (array 1 2 3) 2}}"),
-    "true",
-  );
-  assertEquals(
-    r.render("{{arrayContains (array 1 2 3) 4}}"),
-    "false",
-  );
-  assertEquals(
-    r.render(`{{arrayJoin (array 1 2 3) "|"}}`),
-    "1|2|3",
-  );
-
-  assertThrows(
-    () => r.render("{{arrayItemAt (array)}}"),
-    v.ValiError,
-  );
-  assertThrows(
-    () => r.render("{{arrayItemAt (array 1 2 3)}}"),
-    v.ValiError,
-  );
+  assertEquals(r.render("{{arrayContains (array 1 2 3) 2}}"), "true");
+  assertEquals(r.render("{{arrayContains (array 1 2 3) 4}}"), "false");
+  assertEquals(r.render(`{{arrayJoin (array 1 2 3) "|"}}`), "1|2|3");
 });

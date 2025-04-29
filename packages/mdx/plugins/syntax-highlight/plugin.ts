@@ -12,8 +12,11 @@ import {
   type TransformerNotationHighlightOptions,
 } from "@shikijs/transformers";
 import { numericRangeContains } from "@temelj/iterator";
+import type { Plugin } from "unified";
+import type { Properties } from "hast";
 
-import type { HastElement, HastNode, PluginFactory } from "../../types.ts";
+import type { HastElement, HastNode } from "../../types.ts";
+
 import { extractCodeMeta } from "./code-meta.ts";
 
 type ShikiHastOptions = Partial<
@@ -73,10 +76,12 @@ export interface SyntaxHighlightPluginOptions {
 /**
  * A plugin that highlights code blocks using Shiki.
  */
-export function syntaxHighlightPlugin(
-  options: SyntaxHighlightPluginOptions = {},
-): PluginFactory {
-  return async (tree: HastNode) => {
+export const syntaxHighlightPlugin: Plugin<
+  [SyntaxHighlightPluginOptions?],
+  HastNode,
+  HastNode
+> = (options: SyntaxHighlightPluginOptions = {}) => {
+  return async (tree) => {
     const promises: Promise<void>[] = [];
 
     async function visitor(
@@ -199,7 +204,7 @@ export function syntaxHighlightPlugin(
         // Insert highlighted code into parent
         const hastPre = hast.children[0] as HastElement;
 
-        const properties = {
+        const properties: Properties = {
           ...hastPre.properties,
           dataFileName: meta.fileName,
         };
@@ -246,7 +251,7 @@ export function syntaxHighlightPlugin(
 
     return tree;
   };
-}
+};
 
 function getNodeLanguage(node: HastElement): string | undefined {
   if (!Array.isArray(node.properties.className)) {
@@ -254,7 +259,7 @@ function getNodeLanguage(node: HastElement): string | undefined {
   }
   const prefix = "language-";
   const language = node.properties.className.find(
-    (name: string) => typeof name === "string" && name.startsWith(prefix),
+    (name) => typeof name === "string" && name.startsWith(prefix),
   ) as string | undefined;
   if (typeof language === "string") {
     return language.slice(prefix.length);
