@@ -2,6 +2,7 @@ import { z } from "zod";
 import {
   capitalize,
   toCamelCase,
+  toKebabCase,
   toPascalCase,
   toSnakeCase,
   toTitleCase,
@@ -16,6 +17,7 @@ export function getStringHelpers(): HelperDeclareSpec {
     snakeCase: (s: string) => toSnakeCase(s),
     pascalCase: (s: string) => toPascalCase(s),
     titleCase: (s: string) => toTitleCase(s),
+    kebabCase: (s: string) => toKebabCase(s),
     capitalize: (s: string) => capitalize(s),
 
     upperCase: (s: string) => s.toUpperCase(),

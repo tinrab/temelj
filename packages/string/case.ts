@@ -85,6 +85,28 @@ export function toTitleCase(s: string, options?: ConvertCaseOptions): string {
 }
 
 /**
+ * Converts a string to kebab case.
+ *
+ * @param s The string to convert.
+ * @param options Optional options for the conversion.
+ * @returns The converted string.
+ */
+export function toKebabCase(s: string, options?: ConvertCaseOptions): string {
+  if (s.length === 0) {
+    return s;
+  }
+  const parts = caseSplit(s, options);
+  let result = "";
+  for (const [i, part] of parts.entries()) {
+    result += part.toLowerCase();
+    if (i < parts.length - 1) {
+      result += "-";
+    }
+  }
+  return result;
+}
+
+/**
  * Capitalizes the first letter of a string.
  *
  * @param s The string to capitalize.

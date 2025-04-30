@@ -1,6 +1,6 @@
 import { assertEquals } from "@std/assert";
 
-import { toCamelCase, toPascalCase, toSnakeCase } from "./case.ts";
+import { toCamelCase, toKebabCase, toPascalCase, toSnakeCase } from "./case.ts";
 
 Deno.test("convert case", () => {
   assertEquals(toCamelCase("Hello World"), "helloWorld");
@@ -12,4 +12,7 @@ Deno.test("convert case", () => {
   assertEquals(toPascalCase("Hello World"), "HelloWorld");
   assertEquals(toPascalCase("data-type-id"), "DataTypeId");
   assertEquals(toPascalCase("get_User"), "GetUser");
+
+  assertEquals(toKebabCase("Hello World"), "hello-world");
+  assertEquals(toKebabCase("user_name"), "user-name");
 });

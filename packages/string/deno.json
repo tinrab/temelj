@@ -2,7 +2,7 @@
   "name": "@temelj/string",
   "description": "Utilities for working with strings.",
   "license": "MIT",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "exports": {
     ".": "./mod.ts"
   },

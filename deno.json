@@ -1,6 +1,6 @@
 {
   "tasks": {
-    "test": "deno test --doc",
+    "test": "deno test --doc --allow-env",
     "lint": "deno lint && deno fmt --check",
     "clean": "deno run --allow-env --allow-read --allow-write --allow-run ./scripts/clean.ts",
     "script": "deno run -A ./scripts/main.ts"
