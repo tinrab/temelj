@@ -4,7 +4,7 @@
  * @template T The type of the success value.
  * @template E The type of the error value.
  */
-export type Result<T, E> = ResultOk<T, E> | ResultErr<E>;
+export type Result<T, E> = ResultOk<T, E> | ResultErr<T, E>;
 
 /**
  * A result value that is a success.
@@ -23,7 +23,7 @@ export interface ResultOk<T, _E> {
  * @template E The type of the error value.
  * @template T The type of the success value.
  */
-export interface ResultErr<E> {
+export interface ResultErr<_T, E> {
   value: undefined;
   error: E;
 }

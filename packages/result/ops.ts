@@ -16,7 +16,7 @@ export function err<T, E>(error: E): Result<T, E> {
 
 export function isErr<T = unknown, E = unknown>(
   result: Result<T, E>,
-): result is ResultErr<E> {
+): result is ResultErr<T, E> {
   return result.error !== undefined && result.value === undefined;
 }
 
@@ -24,7 +24,7 @@ export function unwrap<T, E>(result: Result<T, E>): T {
   if (isOk(result)) {
     return result.value;
   }
-  throw new Error(`Result is Err: ${result.error}`);
+  throw result.error;
 }
 
 export function unwrapErr<T, E>(result: Result<T, E>): E {
