@@ -1,6 +1,6 @@
 {
   "dependencies": {
-    "@temelj/array": "^0.5.2",
+    "@temelj/array": "^0.5.3",
     "@temelj/color": "^0.5.1",
     "@temelj/handlebars": "^0.5.2",
     "@temelj/id": "^0.5.1",
@@ -9,7 +9,7 @@
     "@temelj/mdx": "^0.5.1",
     "@temelj/mdx-react": "^0.5.1",
     "@temelj/request": "^0.5.1",
-    "@temelj/result": "^0.5.2",
+    "@temelj/result": "^0.5.3",
     "@temelj/string": "^0.5.2",
     "@temelj/value": "^0.5.1"
   }

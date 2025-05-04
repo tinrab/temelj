@@ -1,23 +1,21 @@
+// deno-lint-ignore-file no-explicit-any
+
 import type { Result, ResultErr, ResultOk } from "./types.ts";
 
-export function ok<T, E>(value: T): Result<T, E> {
-  return { value, error: undefined };
+export function ok<T>(value: T): ResultOk<T> {
+  return { kind: "ok", value };
 }
 
-export function isOk<T, E = unknown>(
-  result: Result<T, E>,
-): result is ResultOk<T, E> {
-  return result.error === undefined && result.value !== undefined;
+export function err<E>(error: E): ResultErr<E> {
+  return { kind: "error", error };
 }
 
-export function err<T, E>(error: E): Result<T, E> {
-  return { value: undefined, error };
+export function isOk<T, E>(result: Result<T, E>): result is ResultOk<T> {
+  return result.kind === "ok";
 }
 
-export function isErr<T = unknown, E = unknown>(
-  result: Result<T, E>,
-): result is ResultErr<T, E> {
-  return result.error !== undefined && result.value === undefined;
+export function isErr<T, E>(result: Result<T, E>): result is ResultErr<E> {
+  return result.kind === "error";
 }
 
 export function unwrap<T, E>(result: Result<T, E>): T {
@@ -57,12 +55,12 @@ export function map<T, E, U>(
   return err(result.error);
 }
 
-export function mapErr<T, E, F>(
-  result: Result<T, E>,
+export function mapErr<E, F>(
+  result: Result<any, E>,
   fn: (error: E) => F,
-): Result<T, F> {
+): Result<any, F> {
   if (isErr(result)) {
     return err(fn(result.error));
   }
-  return ok(result.value);
+  return result;
 }

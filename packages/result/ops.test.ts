@@ -12,11 +12,21 @@ Deno.test(function makeResult(): void {
 });
 
 Deno.test(function mapErrorTypePredicate(): void {
-  function _demo(): Result<number, number> {
-    const res: Result<number, string> = ok(42);
+  type ResultA = Result<"A", string>;
+
+  function _demo1(): Result<number, number> {
+    const res = ok(42) as Result<number, string>;
     if (isErr(res)) {
       return mapErr(res, (err) => err.length);
     }
     return ok(0);
+  }
+
+  function _demo2(): Result<"B", number> {
+    const res = ok("A") as ResultA;
+    if (isErr(res)) {
+      return mapErr(res, (err) => err.length);
+    }
+    return ok("B");
   }
 });
