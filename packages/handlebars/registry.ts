@@ -1,4 +1,4 @@
-import { default as hbs } from "handlebars";
+import hbs from "handlebars";
 
 import { registerSwitchHelpers } from "./switch.ts";
 import type {
@@ -23,12 +23,16 @@ export class Registry {
     return this;
   }
 
-  public compile(source: string): TemplateDelegate {
-    return this.handlebars.compile(source);
+  public compile(source: string, options?: CompileOptions): TemplateDelegate {
+    return this.handlebars.compile(source, options);
   }
 
-  public render(source: string, data?: unknown): string {
-    const compiledTemplate = this.compile(source);
+  public render(
+    source: string,
+    data?: unknown,
+    options?: CompileOptions,
+  ): string {
+    const compiledTemplate = this.compile(source, options);
     return compiledTemplate(data);
   }
 
