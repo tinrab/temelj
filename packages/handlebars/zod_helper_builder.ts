@@ -1,7 +1,11 @@
+// deno-lint-ignore-file no-explicit-any
+
 import { z } from "zod";
 import type { JsonValue } from "@temelj/value";
 
 import type { HelperDelegate } from "./helpers/types.ts";
+
+type HelperContext = any;
 
 interface HelperZodBuilder {
   params: <TParams extends [] | [z.ZodTypeAny, ...z.ZodTypeAny[]]>(
@@ -10,7 +14,7 @@ interface HelperZodBuilder {
   hash: <THash extends z.ZodSchema>(
     schema: THash,
   ) => HelperZodBuilderWithHash<THash>;
-  handle: (handler: () => JsonValue) => HelperDelegate;
+  handle: (handler: (context: HelperContext) => JsonValue) => HelperDelegate;
 }
 
 interface HelperZodBuilderWithParams<
@@ -20,7 +24,10 @@ interface HelperZodBuilderWithParams<
     schema: THash,
   ) => HelperZodBuilderWithParamsAndHash<TParams, THash>;
   handle: (
-    handler: (params: z.OutputTypeOfTuple<TParams>) => JsonValue,
+    handler: (
+      params: z.OutputTypeOfTuple<TParams>,
+      context: HelperContext,
+    ) => JsonValue,
   ) => HelperDelegate;
 }
 
@@ -28,7 +35,9 @@ interface HelperZodBuilderWithHash<THash extends z.ZodSchema> {
   params: <T extends [] | [z.ZodTypeAny, ...z.ZodTypeAny[]]>(
     ...schemas: T
   ) => HelperZodBuilderWithParamsAndHash<T, THash>;
-  handle: (handler: (hash: z.output<THash>) => JsonValue) => HelperDelegate;
+  handle: (
+    handler: (hash: z.output<THash>, context: HelperContext) => JsonValue,
+  ) => HelperDelegate;
 }
 
 interface HelperZodBuilderWithParamsAndHash<
@@ -39,6 +48,7 @@ interface HelperZodBuilderWithParamsAndHash<
     handler: (
       params: z.OutputTypeOfTuple<TParams>,
       hash: z.output<THash>,
+      context: HelperContext,
     ) => JsonValue,
   ) => HelperDelegate;
 }
@@ -67,8 +77,10 @@ class HelperZodBuilderImpl implements HelperZodBuilder {
     ) as unknown as HelperZodBuilderWithHash<THash>;
   }
 
-  handle(handler: (...args: unknown[]) => JsonValue): HelperDelegate {
-    return (...args: unknown[]) => {
+  handle(handler: (...args: any[]) => JsonValue): HelperDelegate {
+    return (...args: any[]) => {
+      const context = args[args.length - 1] as HelperContext;
+
       let params: unknown[] | undefined;
       if (this._paramsSchema instanceof z.ZodTuple) {
         const paramsCount = this._paramsSchema._def.items.length;
@@ -83,15 +95,14 @@ class HelperZodBuilderImpl implements HelperZodBuilder {
 
       let hash: unknown | undefined;
       if (this._hashSchema !== undefined) {
-        const context = args[args.length - 1] as Record<string, unknown>;
         hash = this._hashSchema.parse(context?.hash);
       }
 
       return params === undefined
-        ? hash === undefined ? handler() : handler(hash)
+        ? hash === undefined ? handler(context) : handler(hash, context)
         : hash === undefined
-        ? handler(params)
-        : handler(params, hash);
+        ? handler(params, context)
+        : handler(params, hash, context);
     };
   }
 }
