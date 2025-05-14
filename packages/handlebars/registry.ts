@@ -2,12 +2,13 @@ import hbs from "handlebars";
 
 import { registerSwitchHelpers } from "./switch.ts";
 import type {
+  CompileOptions,
   HelperDeclareSpec,
   HelperDelegate,
   PartialSpec,
   Template,
   TemplateDelegate,
-} from "./helpers/types.ts";
+} from "./types.ts";
 import { getHelpers } from "./helpers/all.ts";
 
 export class Registry {

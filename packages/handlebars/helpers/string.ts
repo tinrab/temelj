@@ -8,8 +8,8 @@ import {
   toTitleCase,
 } from "@temelj/string";
 
-import type { HelperDeclareSpec } from "./types.ts";
 import { createHelperZod } from "../zod_helper_builder.ts";
+import type { HelperDeclareSpec } from "../types.ts";
 
 export function getStringHelpers(): HelperDeclareSpec {
   return {

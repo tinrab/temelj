@@ -1,8 +1,9 @@
 import { assertEquals } from "@std/assert";
 
 import { Registry } from "./registry.ts";
+import { SafeString } from "./types.ts";
 
-Deno.test("Handlebars switch helper", () => {
+Deno.test(function switchHelper(): void {
   const r = new Registry();
   const template = `
     {{#switch x}}
@@ -38,5 +39,14 @@ Deno.test("Handlebars switch helper", () => {
       template,
     ).trim(),
     "C",
+  );
+});
+
+Deno.test(function safeStringWorks(): void {
+  const r = new Registry();
+  r.registerHelper("safeString", () => new SafeString(`'hi'`));
+  assertEquals(
+    r.render(`{{safeString}}`),
+    `'hi'`,
   );
 });

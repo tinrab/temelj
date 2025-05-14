@@ -1,7 +1,7 @@
 import { isObjectPrimitive } from "@temelj/value";
 import { z } from "zod";
 
-import type { HelperDeclareSpec, HelperDelegate } from "./types.ts";
+import type { HelperDeclareSpec, HelperDelegate } from "../types.ts";
 import { createHelperZod } from "../zod_helper_builder.ts";
 
 export function getObjectHelpers(): HelperDeclareSpec {

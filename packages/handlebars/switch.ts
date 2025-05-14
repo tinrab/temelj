@@ -1,4 +1,5 @@
-import type { JsonValue } from "../value/types.ts";
+import type { JsonValue } from "@temelj/value";
+
 import type { Registry } from "./registry.ts";
 
 export function registerSwitchHelpers(registry: Registry): void {

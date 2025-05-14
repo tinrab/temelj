@@ -3,7 +3,7 @@
 import { z } from "zod";
 import type { JsonValue } from "@temelj/value";
 
-import type { HelperDelegate } from "./helpers/types.ts";
+import type { HelperDelegate } from "./types.ts";
 
 type HelperContext = any;
 
