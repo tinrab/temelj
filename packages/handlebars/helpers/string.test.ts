@@ -2,6 +2,7 @@ import { assertEquals, assertThrows } from "@std/assert";
 
 import { getStringHelpers } from "./string.ts";
 import { Registry } from "../registry.ts";
+import { z } from "zod";
 
 Deno.test("Handlebars string helpers", () => {
   const r = new Registry();
@@ -20,5 +21,11 @@ Deno.test("Handlebars string helpers", () => {
   assertEquals(
     r.render(`{{join (pascalCase "hello") ", World" "!"}}`),
     "Hello, World!",
+  );
+
+  assertThrows(
+    () => r.render("{{camelCase 42}}"),
+    z.ZodError,
+    "Expected string, received number",
   );
 });

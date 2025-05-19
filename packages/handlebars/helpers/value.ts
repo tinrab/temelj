@@ -23,7 +23,7 @@ export function getValueHelpers(): HelperDeclareSpec {
 
     orElse: (value: unknown, defaultValue: unknown) => value || defaultValue,
 
-    toJson: createHelperZod()
+    json: createHelperZod()
       .params(z.any(), z.optional(z.boolean()).default(false))
       .handle(([value, pretty]) => {
         return pretty

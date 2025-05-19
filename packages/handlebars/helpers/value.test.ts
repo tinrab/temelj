@@ -8,7 +8,7 @@ import { createHelperZod } from "../zod_helper_builder.ts";
 
 Deno.test("Handlebars value isEmpty helper", () => {
   const r = new Registry();
-  r.registerHelpers({ ...getValueHelpers(), ...getArrayHelpers() });
+  r.registerHelpers({ ...getValueHelpers(), ...getArrayHelpers(r) });
 
   assertEquals(r.render("{{isEmpty 0}}"), "true");
   assertEquals(r.render("{{isEmpty undefined}}"), "true");

@@ -8,7 +8,7 @@ import { getValueHelpers } from "./value.ts";
 
 export function getHelpers(registry: Registry): HelperDeclareSpec {
   return {
-    ...getArrayHelpers(),
+    ...getArrayHelpers(registry),
     ...getCoreHelpers(registry),
     ...getObjectHelpers(),
     ...getStringHelpers(),

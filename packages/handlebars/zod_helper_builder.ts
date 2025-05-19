@@ -81,28 +81,41 @@ class HelperZodBuilderImpl implements HelperZodBuilder {
     return (...args: any[]) => {
       const context = args[args.length - 1] as HelperContext;
 
-      let params: unknown[] | undefined;
-      if (this._paramsSchema instanceof z.ZodTuple) {
-        const paramsCount = this._paramsSchema._def.items.length;
-        const paramArgs = args.slice(0, -1);
-        if (paramArgs.length < paramsCount) {
-          paramArgs.push(
-            ...Array.from({ length: paramsCount - paramArgs.length }),
-          );
+      try {
+        let params: unknown[] | undefined;
+        if (this._paramsSchema instanceof z.ZodTuple) {
+          const paramsCount = this._paramsSchema._def.items.length;
+          const paramArgs = args.slice(0, -1);
+          if (paramArgs.length < paramsCount) {
+            paramArgs.push(
+              ...Array.from({ length: paramsCount - paramArgs.length }),
+            );
+          }
+          params = this._paramsSchema.parse(paramArgs);
         }
-        params = this._paramsSchema.parse(paramArgs);
-      }
 
-      let hash: unknown | undefined;
-      if (this._hashSchema !== undefined) {
-        hash = this._hashSchema.parse(context?.hash);
-      }
+        let hash: unknown | undefined;
+        if (this._hashSchema !== undefined) {
+          hash = this._hashSchema.parse(context?.hash);
+        }
 
-      return params === undefined
-        ? hash === undefined ? handler(context) : handler(hash, context)
-        : hash === undefined
-        ? handler(params, context)
-        : handler(params, hash, context);
+        return params === undefined
+          ? hash === undefined ? handler(context) : handler(hash, context)
+          : hash === undefined
+          ? handler(params, context)
+          : handler(params, hash, context);
+      } catch (error) {
+        if (error instanceof z.ZodError) {
+          error.addIssue({
+            code: z.ZodIssueCode.custom,
+            message:
+              `Input validation error in Handlebars helper '${context.name}'`,
+            path: [],
+            params: { context },
+          });
+        }
+        throw error;
+      }
     };
   }
 }

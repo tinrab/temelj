@@ -13,15 +13,31 @@ import type { HelperDeclareSpec } from "../types.ts";
 
 export function getStringHelpers(): HelperDeclareSpec {
   return {
-    camelCase: (s: string) => toCamelCase(s),
-    snakeCase: (s: string) => toSnakeCase(s),
-    pascalCase: (s: string) => toPascalCase(s),
-    titleCase: (s: string) => toTitleCase(s),
-    kebabCase: (s: string) => toKebabCase(s),
-    capitalize: (s: string) => capitalize(s),
+    camelCase: createHelperZod().params(z.string()).handle(([s]) =>
+      toCamelCase(s)
+    ),
+    snakeCase: createHelperZod().params(z.string()).handle(([s]) =>
+      toSnakeCase(s)
+    ),
+    pascalCase: createHelperZod().params(z.string()).handle(([s]) =>
+      toPascalCase(s)
+    ),
+    titleCase: createHelperZod().params(z.string()).handle(([s]) =>
+      toTitleCase(s)
+    ),
+    kebabCase: createHelperZod().params(z.string()).handle(([s]) =>
+      toKebabCase(s)
+    ),
 
-    upperCase: (s: string) => s.toUpperCase(),
-    lowerCase: (s: string) => s.toLowerCase(),
+    capitalize: createHelperZod().params(z.string()).handle(([s]) =>
+      capitalize(s)
+    ),
+    upperCase: createHelperZod().params(z.string()).handle(([s]) =>
+      s.toUpperCase()
+    ),
+    lowerCase: createHelperZod().params(z.string()).handle(([s]) =>
+      s.toLowerCase()
+    ),
 
     split: createHelperZod()
       .params(z.string(), z.optional(z.string()).default("/"))

@@ -9,7 +9,7 @@ Deno.test("Handlebars object helpers", () => {
   r.registerHelpers({ ...getObjectHelpers(), ...getValueHelpers() });
 
   assertEquals(
-    JSON.parse(r.render("{{{toJson (object s='hello' x=5 y=8)}}}")),
+    JSON.parse(r.render("{{{json (object s='hello' x=5 y=8)}}}")),
     {
       s: "hello",
       x: 5,
