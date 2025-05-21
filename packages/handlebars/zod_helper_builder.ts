@@ -1,11 +1,12 @@
 // deno-lint-ignore-file no-explicit-any
 
 import { z } from "zod";
-import type { JsonValue } from "@temelj/value";
 
 import type { HelperDelegate } from "./types.ts";
 
 type HelperContext = any;
+
+type HelperResult = any; // JsonValue | SafeString;
 
 interface HelperZodBuilder {
   params: <TParams extends [] | [z.ZodTypeAny, ...z.ZodTypeAny[]]>(
@@ -14,7 +15,7 @@ interface HelperZodBuilder {
   hash: <THash extends z.ZodSchema>(
     schema: THash,
   ) => HelperZodBuilderWithHash<THash>;
-  handle: (handler: (context: HelperContext) => JsonValue) => HelperDelegate;
+  handle: (handler: (context: HelperContext) => HelperResult) => HelperDelegate;
 }
 
 interface HelperZodBuilderWithParams<
@@ -27,7 +28,7 @@ interface HelperZodBuilderWithParams<
     handler: (
       params: z.OutputTypeOfTuple<TParams>,
       context: HelperContext,
-    ) => JsonValue,
+    ) => HelperResult,
   ) => HelperDelegate;
 }
 
@@ -36,7 +37,7 @@ interface HelperZodBuilderWithHash<THash extends z.ZodSchema> {
     ...schemas: T
   ) => HelperZodBuilderWithParamsAndHash<T, THash>;
   handle: (
-    handler: (hash: z.output<THash>, context: HelperContext) => JsonValue,
+    handler: (hash: z.output<THash>, context: HelperContext) => HelperResult,
   ) => HelperDelegate;
 }
 
@@ -49,7 +50,7 @@ interface HelperZodBuilderWithParamsAndHash<
       params: z.OutputTypeOfTuple<TParams>,
       hash: z.output<THash>,
       context: HelperContext,
-    ) => JsonValue,
+    ) => HelperResult,
   ) => HelperDelegate;
 }
 
@@ -77,7 +78,7 @@ class HelperZodBuilderImpl implements HelperZodBuilder {
     ) as unknown as HelperZodBuilderWithHash<THash>;
   }
 
-  handle(handler: (...args: any[]) => JsonValue): HelperDelegate {
+  handle(handler: (...args: any[]) => HelperResult): HelperDelegate {
     return (...args: any[]) => {
       const context = args[args.length - 1] as HelperContext;
 

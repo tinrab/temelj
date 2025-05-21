@@ -2,7 +2,7 @@
   "dependencies": {
     "@temelj/array": "^0.5.3",
     "@temelj/color": "^0.5.1",
-    "@temelj/handlebars": "^0.6.3",
+    "@temelj/handlebars": "^0.6.4",
     "@temelj/id": "^0.5.1",
     "@temelj/iterator": "^0.5.1",
     "@temelj/math": "^0.5.1",
