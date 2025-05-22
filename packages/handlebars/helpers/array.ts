@@ -18,9 +18,13 @@ export function getArrayHelpers(registry: Registry): HelperDeclareSpec {
       array.map((item) => String(item)).join(separator),
 
     arrayFilter: createHelperZod()
-      .params(z.array(z.any()), z.string())
+      .params(z.any(), z.string())
       .handle(
         ([inputArray, predicateTemplateString], ctx) => {
+          if (!inputArray || !Array.isArray(inputArray)) {
+            return [];
+          }
+
           const compiledPredicate = registry.compile(predicateTemplateString);
           const filteredArray: JsonValue[] = [];
 
@@ -33,6 +37,7 @@ export function getArrayHelpers(registry: Registry): HelperDeclareSpec {
               filteredArray.push(item);
             }
           }
+
           return filteredArray;
         },
       ),
