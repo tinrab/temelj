@@ -32,5 +32,11 @@ export function getCoreHelpers(registry: Registry): HelperDeclareSpec {
       }
       return partial(options.hash);
     },
+    render: (template: string, options) => {
+      const partial = registry.compile(template) as (
+        options: unknown,
+      ) => string;
+      return partial(options.hash);
+    },
   };
 }

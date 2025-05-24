@@ -18,4 +18,7 @@ Deno.test("Handlebars string helpers", () => {
     `),
     "hello,hello, world!",
   );
+
+  assertEquals(r.render(`{{render '42'}}`), "42");
+  assertEquals(r.render(`{{set x=42}}{{render '{{x}}' x=@x}}`), "42");
 });
