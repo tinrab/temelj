@@ -3,12 +3,26 @@ import type { HelperDeclareSpec } from "../types.ts";
 
 export function getCoreHelpers(registry: Registry): HelperDeclareSpec {
   return {
-    "set": (context) => {
+    set: (context) => {
+      if (context.data === undefined) {
+        context.data = {};
+      }
       for (const [k, v] of Object.entries(context.hash)) {
         context.data[k] = v;
       }
     },
-    "partial": (path: string, options) => {
+    setRoot: (context) => {
+      if (context.data === undefined) {
+        context.data = {};
+      }
+      if (context.data.root === undefined) {
+        context.data.root = {};
+      }
+      for (const [k, v] of Object.entries(context.hash)) {
+        context.data.root[k] = v;
+      }
+    },
+    partial: (path: string, options) => {
       let partial = registry.partials[path];
       if (typeof partial === "string") {
         partial = registry.compile(partial) as (options: unknown) => string;
