@@ -117,7 +117,7 @@ export class MdxCompiler {
 
     return {
       compiled,
-      frontmatter,
+      frontmatter: frontmatter as z.output<TFrontmatterSchema>,
     };
   }
 }

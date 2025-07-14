@@ -9,7 +9,7 @@ type HelperContext = any;
 type HelperResult = any; // JsonValue | SafeString;
 
 interface HelperZodBuilder {
-  params: <TParams extends [] | [z.ZodTypeAny, ...z.ZodTypeAny[]]>(
+  params: <TParams extends [] | [z.core.SomeType, ...z.core.SomeType[]]>(
     ...schemas: TParams
   ) => HelperZodBuilderWithParams<TParams>;
   hash: <THash extends z.ZodSchema>(
@@ -19,21 +19,24 @@ interface HelperZodBuilder {
 }
 
 interface HelperZodBuilderWithParams<
-  TParams extends [] | [z.ZodTypeAny, ...z.ZodTypeAny[]],
+  TParams extends [] | [z.core.SomeType, ...z.core.SomeType[]],
 > {
   hash: <THash extends z.ZodSchema>(
     schema: THash,
   ) => HelperZodBuilderWithParamsAndHash<TParams, THash>;
   handle: (
     handler: (
-      params: z.OutputTypeOfTuple<TParams>,
+      params: TParams extends [] ? []
+        : {
+          [K in keyof TParams]: z.output<TParams[K]>;
+        },
       context: HelperContext,
     ) => HelperResult,
   ) => HelperDelegate;
 }
 
 interface HelperZodBuilderWithHash<THash extends z.ZodSchema> {
-  params: <T extends [] | [z.ZodTypeAny, ...z.ZodTypeAny[]]>(
+  params: <T extends [] | [z.core.SomeType, ...z.core.SomeType[]]>(
     ...schemas: T
   ) => HelperZodBuilderWithParamsAndHash<T, THash>;
   handle: (
@@ -42,12 +45,15 @@ interface HelperZodBuilderWithHash<THash extends z.ZodSchema> {
 }
 
 interface HelperZodBuilderWithParamsAndHash<
-  TParams extends [] | [z.ZodTypeAny, ...z.ZodTypeAny[]],
+  TParams extends [] | [z.core.SomeType, ...z.core.SomeType[]],
   THash extends z.ZodSchema,
 > {
   handle: (
     handler: (
-      params: z.OutputTypeOfTuple<TParams>,
+      params: TParams extends [] ? []
+        : {
+          [K in keyof TParams]: z.output<TParams[K]>;
+        },
       hash: z.output<THash>,
       context: HelperContext,
     ) => HelperResult,
@@ -60,11 +66,11 @@ class HelperZodBuilderImpl implements HelperZodBuilder {
     private _hashSchema?: z.ZodSchema,
   ) {}
 
-  params<TParams extends [] | [z.ZodTypeAny, ...z.ZodTypeAny[]]>(
+  params<TParams extends [] | [z.core.SomeType, ...z.core.SomeType[]]>(
     ...schemas: TParams
   ): HelperZodBuilderWithParams<TParams> {
     return new HelperZodBuilderImpl(
-      z.tuple(schemas),
+      z.tuple(schemas as []),
       this._hashSchema,
     ) as unknown as HelperZodBuilderWithParams<TParams>;
   }
@@ -82,41 +88,54 @@ class HelperZodBuilderImpl implements HelperZodBuilder {
     return (...args: any[]) => {
       const context = args[args.length - 1] as HelperContext;
 
-      try {
-        let params: unknown[] | undefined;
-        if (this._paramsSchema instanceof z.ZodTuple) {
-          const paramsCount = this._paramsSchema._def.items.length;
-          const paramArgs = args.slice(0, -1);
-          if (paramArgs.length < paramsCount) {
-            paramArgs.push(
-              ...Array.from({ length: paramsCount - paramArgs.length }),
-            );
-          }
+      let params: unknown[] | undefined;
+      if (this._paramsSchema instanceof z.ZodTuple) {
+        const paramsCount = this._paramsSchema.def.items.length;
+        const paramArgs = args.slice(0, -1);
+        if (paramArgs.length < paramsCount) {
+          paramArgs.push(
+            ...Array.from({ length: paramsCount - paramArgs.length }),
+          );
+        }
+        try {
           params = this._paramsSchema.parse(paramArgs);
+        } catch (error) {
+          if (error instanceof z.ZodError) {
+            error.issues.push({
+              code: "custom",
+              message:
+                `Input validation error in Handlebars helper '${context.name}'`,
+              path: [],
+              input: paramArgs,
+            });
+          }
+          throw error;
         }
-
-        let hash: unknown | undefined;
-        if (this._hashSchema !== undefined) {
-          hash = this._hashSchema.parse(context?.hash);
-        }
-
-        return params === undefined
-          ? hash === undefined ? handler(context) : handler(hash, context)
-          : hash === undefined
-          ? handler(params, context)
-          : handler(params, hash, context);
-      } catch (error) {
-        if (error instanceof z.ZodError) {
-          error.addIssue({
-            code: z.ZodIssueCode.custom,
-            message:
-              `Input validation error in Handlebars helper '${context.name}'`,
-            path: [],
-            params: { context },
-          });
-        }
-        throw error;
       }
+
+      let hash: unknown | undefined;
+      if (this._hashSchema !== undefined) {
+        try {
+          hash = this._hashSchema.parse(context?.hash);
+        } catch (error) {
+          if (error instanceof z.ZodError) {
+            error.issues.push({
+              code: "custom",
+              message:
+                `Input validation error in Handlebars helper '${context.name}'`,
+              path: [],
+              input: context?.hash,
+            });
+          }
+          throw error;
+        }
+      }
+
+      return params === undefined
+        ? hash === undefined ? handler(context) : handler(hash, context)
+        : hash === undefined
+        ? handler(params, context)
+        : handler(params, hash, context);
     };
   }
 }

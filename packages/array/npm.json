@@ -1,7 +1,7 @@
 {
   "dependencies": {
-    "@temelj/value": "^0.5.1",
-    "@temelj/result": "^0.5.3",
+    "@temelj/value": "^0.7.0",
+    "@temelj/result": "^0.7.0",
     "deepmerge": "^4.3.1"
   }
 }

@@ -2,9 +2,9 @@ import { assertEquals } from "@std/assert";
 import { z } from "zod";
 
 import { Registry } from "../registry.ts";
-import { getValueHelpers } from "./value.ts";
-import { getArrayHelpers } from "./array.ts";
 import { createHelperZod } from "../zod_helper_builder.ts";
+import { getArrayHelpers } from "./array.ts";
+import { getValueHelpers } from "./value.ts";
 
 Deno.test("Handlebars value isEmpty helper", () => {
   const r = new Registry();
@@ -36,6 +36,21 @@ Deno.test("Handlebars value isEmpty helper", () => {
         const _user: number = user;
 
         return `${user.firstName} ${user.lastName}`;
+      }),
+  );
+  r.registerHelper(
+    "displayName",
+    createHelperZod()
+      .params(
+        z.object({
+          name: z.string(),
+        }),
+        z.boolean().optional(),
+      )
+      .handle((params) => {
+        const _name: string = params[0].name;
+        const _isShort: boolean = params[1] ?? false;
+        return "";
       }),
   );
 });
@@ -132,9 +147,17 @@ Deno.test("Handlebars value jsValue helper", () => {
   );
 
   // Map
-  const myMap = new Map<unknown, unknown>([["key1", "value1"], [2, true], [{
-    a: 1,
-  }, 3n], [Symbol("mapkey"), "mapvalue"]]);
+  const myMap = new Map<unknown, unknown>([
+    ["key1", "value1"],
+    [2, true],
+    [
+      {
+        a: 1,
+      },
+      3n,
+    ],
+    [Symbol("mapkey"), "mapvalue"],
+  ]);
   assertEquals(
     r.render("{{jsValue val}}", { val: myMap }),
     `new Map([["key1", "value1"], [2, true], [{"a": 1}, 3n], [Symbol("mapkey"), "mapvalue"]])`,
@@ -162,10 +185,7 @@ Deno.test("Handlebars value jsValue helper", () => {
 
   // RegExp
   assertEquals(r.render("{{jsValue val}}", { val: /abc/gi }), "/abc/gi");
-  assertEquals(
-    r.render("{{jsValue val}}", { val: new RegExp("xyz", "m") }),
-    "/xyz/m",
-  );
+  assertEquals(r.render("{{jsValue val}}", { val: /xyz/m }), "/xyz/m");
 
   // Nested structures
   const nested = {

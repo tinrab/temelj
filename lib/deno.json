@@ -1,7 +1,7 @@
 {
   "name": "@tinrab/temelj",
   "license": "MIT",
-  "version": "0.13.13",
+  "version": "0.14.0",
   "description": "A big standard library for TypeScript.",
   "exports": {
     "./array": "./src/array/mod.ts",

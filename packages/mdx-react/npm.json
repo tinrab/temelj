@@ -4,7 +4,7 @@
     "react"
   ],
   "dependencies": {
-    "@temelj/mdx": "^0.5.1",
+    "@temelj/mdx": "^0.7.0",
     "@mdx-js/react": "^3.1.0"
   },
   "peerDependencies": {

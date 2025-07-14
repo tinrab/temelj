@@ -2,7 +2,7 @@
   "name": "@temelj/id",
   "description": "Utilities for working with ids.",
   "license": "MIT",
-  "version": "0.5.1",
+  "version": "0.7.0",
   "exports": {
     ".": "./mod.ts"
   },

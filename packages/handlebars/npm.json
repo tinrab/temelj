@@ -1,8 +1,8 @@
 {
   "dependencies": {
-    "@temelj/value": "^0.5.1",
+    "@temelj/value": "^0.7.0",
     "@temelj/string": "^0.5.2",
     "handlebars": "^4.7.8",
-    "zod": "^3.25.7"
+    "zod": "^4.0.5"
   }
 }

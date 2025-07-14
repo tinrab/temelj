@@ -10,21 +10,21 @@
     "jsxImportSourceTypes": "@types/react"
   },
   "imports": {
-    "@deno/vite-plugin": "npm:@deno/vite-plugin@^1.0.4",
-    "@types/react": "npm:@types/react@^19.1.4",
-    "@types/react-dom": "npm:@types/react-dom@^19.1.5",
-    "@vitejs/plugin-react": "npm:@vitejs/plugin-react@^4.3.4",
+    "@deno/vite-plugin": "npm:@deno/vite-plugin@^1.0.5",
+    "@types/react": "npm:@types/react@^19.1.8",
+    "@types/react-dom": "npm:@types/react-dom@^19.1.6",
+    "@vitejs/plugin-react": "npm:@vitejs/plugin-react@^4.6.0",
     "autoprefixer": "npm:autoprefixer@^10.4.20",
     "clsx": "npm:clsx@^2.1.1",
     "katex": "npm:katex@^0.16.21",
-    "postcss": "npm:postcss@^8.5.2",
-    "postcss-import": "npm:postcss-import@^16.1.0",
+    "postcss": "npm:postcss@^8.5.6",
+    "postcss-import": "npm:postcss-import@^16.1.1",
     "react": "npm:react@^19.0.0",
     "react-dom": "npm:react-dom@^19.0.0",
     "rehype-katex": "npm:rehype-katex@^7.0.1",
     "remark-math": "npm:remark-math@^6.0.0",
-    "tailwind-merge": "npm:tailwind-merge@^3.3.0",
-    "tailwindcss": "npm:tailwindcss@^4.1.7",
-    "vite": "npm:vite@^6.3.5"
+    "tailwind-merge": "npm:tailwind-merge@^3.3.1",
+    "tailwindcss": "npm:tailwindcss@^4.1.11",
+    "vite": "npm:vite@^7.0.4"
   }
 }
