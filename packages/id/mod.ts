@@ -1,2 +1,2 @@
-export * from "./ulid.ts";
-export * from "./uuid4.ts";
+export * from "./ulid";
+export * from "./uuid4";

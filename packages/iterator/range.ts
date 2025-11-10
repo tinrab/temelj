@@ -25,8 +25,10 @@ interface NumericRangeErrorOptions {
 /**
  * An error for working with numeric ranges.
  */
-export class NumericRangeError extends Error
-  implements NumericRangeErrorOptions {
+export class NumericRangeError
+  extends Error
+  implements NumericRangeErrorOptions
+{
   public readonly invalidInteger?: string;
 
   constructor(
@@ -60,19 +62,17 @@ export class NumericRangeError extends Error
 export function parseNumericRange(s: string): NumericRange {
   const range: NumericRange = [];
 
-  for (
-    const part of s
-      .split(",")
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0)
-  ) {
+  for (const part of s
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0)) {
     const match = /^(-?\d+)\.\.(=?)(-?\d+)$/.exec(part);
     if (match) {
-      const from = Number.parseInt(match[1]);
+      const from = Number.parseInt(match[1], 10);
       if (!Number.isInteger(from)) {
         throw new NumericRangeError({ invalidRange: part });
       }
-      const to = Number.parseInt(match[3]);
+      const to = Number.parseInt(match[3], 10);
       if (!Number.isInteger(to)) {
         throw new NumericRangeError({ invalidRange: part });
       }
@@ -88,7 +88,7 @@ export function parseNumericRange(s: string): NumericRange {
       continue;
     }
 
-    const value = Number.parseInt(part);
+    const value = Number.parseInt(part, 10);
     if (!Number.isInteger(value) || value.toString() !== part) {
       throw new NumericRangeError({ invalidInteger: part });
     }

@@ -1,43 +1,28 @@
-import { assert, assertEquals } from "@std/assert";
-import { deepEquals } from "@temelj/value";
 import { err, ok } from "@temelj/result";
+import { deepEquals } from "@temelj/value";
+import { expect, test } from "vitest";
 
-import { binarySearch, containsDuplicates } from "./search.ts";
+import { binarySearch, containsDuplicates } from "./search";
 
-Deno.test("containsDuplicates() works", () => {
-  assert(containsDuplicates([1, 1]));
-  assert(containsDuplicates([1, 2, 3, 3]));
+test("containsDuplicates() works", () => {
+  expect(containsDuplicates([1, 1])).toBe(true);
+  expect(containsDuplicates([1, 2, 3, 3])).toBe(true);
 
-  assert(!containsDuplicates([]));
-  assert(!containsDuplicates([1, 2, 3]));
+  expect(containsDuplicates([])).toBe(false);
+  expect(containsDuplicates([1, 2, 3])).toBe(false);
 
-  assert(containsDuplicates([{ x: 1 }, { x: 1 }], deepEquals));
-  assert(!containsDuplicates([{ x: 1 }, { x: 2 }], deepEquals));
+  expect(containsDuplicates([{ x: 1 }, { x: 1 }], deepEquals)).toBe(true);
+  expect(containsDuplicates([{ x: 1 }, { x: 2 }], deepEquals)).toBe(false);
 });
 
-Deno.test("binarySearch() works", () => {
-  assertEquals(
-    binarySearch(
-      ["a", "b", "c", "d", "e"],
-      "c",
-      (a, b) => a.localeCompare(b),
-    ),
-    ok(2),
-  );
-  assertEquals(
-    binarySearch(
-      ["a", "b", "c", "d", "e"],
-      "z",
-      (a, b) => a.localeCompare(b),
-    ),
-    err(5),
-  );
-  assertEquals(
-    binarySearch(
-      ["a", "b", "c", "d", "e"],
-      "0",
-      (a, b) => a.localeCompare(b),
-    ),
-    err(0),
-  );
+test("binarySearch() works", () => {
+  expect(
+    binarySearch(["a", "b", "c", "d", "e"], "c", (a, b) => a.localeCompare(b)),
+  ).toStrictEqual(ok(2));
+  expect(
+    binarySearch(["a", "b", "c", "d", "e"], "z", (a, b) => a.localeCompare(b)),
+  ).toStrictEqual(err(5));
+  expect(
+    binarySearch(["a", "b", "c", "d", "e"], "0", (a, b) => a.localeCompare(b)),
+  ).toStrictEqual(err(0));
 });

@@ -29,11 +29,19 @@ export function fromRgb(
  * Checks if the given color is a valid RGB color.
  */
 export function isValidRgb(color: Color): boolean {
-  return Number.isInteger(color.red) && color.red >= 0 && color.red <= 255 &&
-    Number.isInteger(color.green) && color.green >= 0 && color.green <= 255 &&
-    Number.isInteger(color.blue) && color.blue >= 0 && color.blue <= 255 &&
+  return (
+    Number.isInteger(color.red) &&
+    color.red >= 0 &&
+    color.red <= 255 &&
+    Number.isInteger(color.green) &&
+    color.green >= 0 &&
+    color.green <= 255 &&
+    Number.isInteger(color.blue) &&
+    color.blue >= 0 &&
+    color.blue <= 255 &&
     (color.alpha === undefined ||
-      (!Number.isNaN(color.alpha) && color.alpha >= 0 && color.alpha <= 1));
+      (!Number.isNaN(color.alpha) && color.alpha >= 0 && color.alpha <= 1))
+  );
 }
 
 // export function isValidHsl(color: HslColor)
@@ -57,7 +65,7 @@ export function parseRgb(value: string): Color | undefined {
   const green = Number.parseInt(match[3], 10);
   const blue = Number.parseInt(match[5], 10);
 
-  let alpha: number | undefined = undefined;
+  let alpha: number | undefined;
   if (match[0].startsWith("rgba")) {
     if (match[8] !== undefined) {
       alpha = Number.parseFloat(match[8]);
@@ -110,8 +118,9 @@ export function lerpRgb(a: Color, b: Color, t: number): Color {
     red: a.red + (b.red - a.red) * t,
     green: a.green + (b.green - a.green) * t,
     blue: a.blue + (b.blue - a.blue) * t,
-    alpha: (a.alpha !== undefined && b.alpha !== undefined)
-      ? a.alpha + (b.alpha - a.alpha) * t
-      : undefined,
+    alpha:
+      a.alpha !== undefined && b.alpha !== undefined
+        ? a.alpha + (b.alpha - a.alpha) * t
+        : undefined,
   };
 }

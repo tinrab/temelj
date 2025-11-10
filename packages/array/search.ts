@@ -1,5 +1,5 @@
-import { deepEquals } from "@temelj/value";
 import { err, ok, type Result } from "@temelj/result";
+import { deepEquals } from "@temelj/value";
 
 /**
  * Performs a binary search on the given sorted array.
@@ -14,7 +14,7 @@ import { err, ok, type Result } from "@temelj/result";
  * ```ts
  * import { binarySearch } from "@temelj/array";
  * import { unwrap } from "@temelj/result";
- * import { assertEquals } from "@std/assert";
+ * import { expect, test } from "vitest";
  *
  * assertEquals(
  *  unwrap(binarySearch([1, 2, 3], 2, (a, b) => a - b)),

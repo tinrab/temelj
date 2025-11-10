@@ -1,7 +1,7 @@
 import { visit } from "unist-util-visit";
 import type { Plugin } from "unified";
 
-import type { HastElement, HastNode } from "../../types.ts";
+import type { HastElement, HastNode } from "../../types";
 
 export type MdxTreeProcessor = (
   node: HastElement,

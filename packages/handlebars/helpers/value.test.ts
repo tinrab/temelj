@@ -1,25 +1,25 @@
-import { assertEquals } from "@std/assert";
+import { expect, test } from "vitest";
 import { z } from "zod";
 
-import { Registry } from "../registry.ts";
-import { createHelperZod } from "../zod_helper_builder.ts";
-import { getArrayHelpers } from "./array.ts";
-import { getValueHelpers } from "./value.ts";
+import { Registry } from "../registry";
+import { createHelperZod } from "../zod_helper_builder";
+import { getArrayHelpers } from "./array";
+import { getValueHelpers } from "./value";
 
-Deno.test("Handlebars value isEmpty helper", () => {
+test("Handlebars value isEmpty helper", () => {
   const r = new Registry();
   r.registerHelpers({ ...getValueHelpers(), ...getArrayHelpers(r) });
 
-  assertEquals(r.render("{{isEmpty 0}}"), "true");
-  assertEquals(r.render("{{isEmpty undefined}}"), "true");
-  assertEquals(r.render("{{isEmpty false}}"), "true");
-  assertEquals(r.render("{{isEmpty ''}}"), "true");
-  assertEquals(r.render('{{isEmpty ""}}'), "true");
+  expect(r.render("{{isEmpty 0}}"), "true");
+  expect(r.render("{{isEmpty undefined}}"), "true");
+  expect(r.render("{{isEmpty false}}"), "true");
+  expect(r.render("{{isEmpty ''}}"), "true");
+  expect(r.render('{{isEmpty ""}}'), "true");
 
-  assertEquals(r.render('{{isEmpty "a"}}'), "false");
-  assertEquals(r.render('{{isEmpty " "}}'), "false");
-  assertEquals(r.render("{{isEmpty 42}}"), "false");
-  assertEquals(r.render("{{isEmpty (array 4 2)}}"), "false");
+  expect(r.render('{{isEmpty "a"}}'), "false");
+  expect(r.render('{{isEmpty " "}}'), "false");
+  expect(r.render("{{isEmpty 42}}"), "false");
+  expect(r.render("{{isEmpty (array 4 2)}}"), "false");
 
   r.registerHelper(
     "displayName",
@@ -55,96 +55,87 @@ Deno.test("Handlebars value isEmpty helper", () => {
   );
 });
 
-Deno.test("Handlebars value jsValue helper", () => {
+test("Handlebars value jsValue helper", () => {
   const r = new Registry();
   r.registerHelpers(getValueHelpers());
 
   // Primitives
-  assertEquals(
-    r.render("{{jsValue myString}}", { myString: "hello" }),
-    `"hello"`,
-  );
-  assertEquals(
-    r.render("{{jsValue myString}}", { myString: "he'llo" }),
-    `"he'llo"`,
-  );
-  assertEquals(
+  expect(r.render("{{jsValue myString}}", { myString: "hello" }), `"hello"`);
+  expect(r.render("{{jsValue myString}}", { myString: "he'llo" }), `"he'llo"`);
+  expect(
     r.render("{{jsValue myString}}", { myString: 'he"llo' }),
     `"he\\"llo"`,
   );
-  assertEquals(
+  expect(
     r.render("{{jsValue myString}}", { myString: "he\\llo" }),
     `"he\\\\llo"`,
   );
-  assertEquals(r.render("{{jsValue myNumber}}", { myNumber: 42 }), "42");
-  assertEquals(r.render("{{jsValue myFloat}}", { myFloat: 3.14 }), "3.14");
-  assertEquals(r.render("{{jsValue myBigInt}}", { myBigInt: 123n }), "123n");
-  assertEquals(
+  expect(r.render("{{jsValue myNumber}}", { myNumber: 42 }), "42");
+  expect(r.render("{{jsValue myFloat}}", { myFloat: 3.14 }), "3.14");
+  expect(r.render("{{jsValue myBigInt}}", { myBigInt: 123n }), "123n");
+  expect(
     r.render("{{jsValue myBooleanTrue}}", { myBooleanTrue: true }),
     "true",
   );
-  assertEquals(
+  expect(
     r.render("{{jsValue myBooleanFalse}}", { myBooleanFalse: false }),
     "false",
   );
-  assertEquals(r.render("{{jsValue myNull}}", { myNull: null }), "null");
-  assertEquals(
+  expect(r.render("{{jsValue myNull}}", { myNull: null }), "null");
+  expect(
     r.render("{{jsValue myUndefined}}", { myUndefined: undefined }),
     "undefined",
   );
-  assertEquals(r.render("{{jsValue myNaN}}", { myNaN: NaN }), "NaN");
-  assertEquals(
+  expect(r.render("{{jsValue myNaN}}", { myNaN: NaN }), "NaN");
+  expect(
     r.render("{{jsValue myInfinity}}", { myInfinity: Infinity }),
     "Infinity",
   );
-  assertEquals(
+  expect(
     r.render("{{jsValue myNegInfinity}}", { myNegInfinity: -Infinity }),
     "-Infinity",
   );
 
   // Symbol
-  assertEquals(
+  expect(
     r.render("{{jsValue mySymbol}}", { mySymbol: Symbol("desc") }),
     `Symbol("desc")`,
   );
-  assertEquals(
+  expect(
     r.render("{{jsValue mySymbolUndef}}", { mySymbolUndef: Symbol(undefined) }),
     `Symbol()`,
   );
-  assertEquals(
+  expect(
     r.render("{{jsValue mySymbolEmpty}}", { mySymbolEmpty: Symbol() }),
     `Symbol()`,
   );
 
   // Arrays
-  assertEquals(
+  expect(
     r.render("{{jsValue myArray}}", { myArray: [1, "two", true, null] }),
     `[1, "two", true, null]`,
   );
-  assertEquals(r.render("{{jsValue myArray}}", { myArray: [] }), `[]`);
-  assertEquals(
+  expect(r.render("{{jsValue myArray}}", { myArray: [] }), `[]`);
+  expect(
     r.render("{{jsValue myArray}}", { myArray: [1, [2, 3], { a: 4n }] }),
     `[1, [2, 3], {"a": 4n}]`,
   );
 
   // Objects (plain)
-  assertEquals(
+  expect(
     r.render("{{jsValue myObject}}", { myObject: { a: 1, b: "two" } }),
     `{"a": 1, "b": "two"}`,
   );
-  assertEquals(
+  expect(
     r.render("{{jsValue myObject}}", {
       myObject: { "key with space": 1, sub: { c: null, d: undefined } },
     }),
     `{"key with space": 1, "sub": {"c": null, "d": undefined}}`,
   );
-  assertEquals(r.render("{{jsValue myObject}}", { myObject: {} }), `{}`);
+  expect(r.render("{{jsValue myObject}}", { myObject: {} }), `{}`);
   const objWithProtoNull = Object.create(null);
   objWithProtoNull.a = 1;
-  assertEquals(
-    r.render("{{jsValue val}}", { val: objWithProtoNull }),
-    `{"a": 1}`,
-  );
+  expect(r.render("{{jsValue val}}", { val: objWithProtoNull }), `{"a": 1}`);
 
   // Map
   const myMap = new Map<unknown, unknown>([
@@ -158,11 +149,11 @@ Deno.test("Handlebars value jsValue helper", () => {
     ],
     [Symbol("mapkey"), "mapvalue"],
   ]);
-  assertEquals(
+  expect(
     r.render("{{jsValue val}}", { val: myMap }),
     `new Map([["key1", "value1"], [2, true], [{"a": 1}, 3n], [Symbol("mapkey"), "mapvalue"]])`,
   );
-  assertEquals(r.render("{{jsValue val}}", { val: new Map() }), `new Map([])`);
+  expect(r.render("{{jsValue val}}", { val: new Map() }), `new Map([])`);
 
   // Set
   const mySet = new Set<unknown>([
@@ -172,43 +163,41 @@ Deno.test("Handlebars value jsValue helper", () => {
     { b: "set value" },
     Symbol("setval"),
   ]);
-  assertEquals(
+  expect(
     r.render("{{jsValue val}}", { val: mySet }),
     `new Set(["value1", 2, true, {"b": "set value"}, Symbol("setval")])`,
   );
-  assertEquals(r.render("{{jsValue val}}", { val: new Set() }), `new Set([])`);
+  expect(r.render("{{jsValue val}}", { val: new Set() }), `new Set([])`);
 
   // Date
   const myDate = new Date(Date.UTC(2024, 0, 20, 10, 30, 0, 123)); // 20 Jan 2024, 10:30:00.123 UTC
   const expectedDateStr = `new Date("${myDate.toISOString()}")`;
-  assertEquals(r.render("{{jsValue val}}", { val: myDate }), expectedDateStr);
+  expect(r.render("{{jsValue val}}", { val: myDate }), expectedDateStr);
 
   // RegExp
-  assertEquals(r.render("{{jsValue val}}", { val: /abc/gi }), "/abc/gi");
-  assertEquals(r.render("{{jsValue val}}", { val: /xyz/m }), "/xyz/m");
+  expect(r.render("{{jsValue val}}", { val: /abc/gi }), "/abc/gi");
+  expect(r.render("{{jsValue val}}", { val: /xyz/m }), "/xyz/m");
 
   // Nested structures
   const nested = {
     arr: [new Map([[1, new Set([2, "s"])]])],
     obj: { date: new Date(0), rgx: /test/ },
   };
-  const expectedNested =
-    `{"arr": [new Map([[1, new Set([2, "s"])]])], "obj": {"date": new Date("1970-01-01T00:00:00.000Z"), "rgx": /test/}}`;
-  assertEquals(r.render("{{jsValue val}}", { val: nested }), expectedNested);
+  const expectedNested = `{"arr": [new Map([[1, new Set([2, "s"])]])], "obj": {"date": new Date("1970-01-01T00:00:00.000Z"), "rgx": /test/}}`;
+  expect(r.render("{{jsValue val}}", { val: nested }), expectedNested);
 
   // Class instance with toJSON
   class MyClass {
     constructor(
       public x: number,
       public y: string,
-      private z: boolean = true,
     ) {}
     toJSON(): unknown {
       return { xVal: this.x, yVal: this.y, type: "MyClassInstance" };
     }
   }
   const myInstance = new MyClass(10, "hello");
-  assertEquals(
+  expect(
     r.render("{{jsValue val}}", { val: myInstance }),
     `{"xVal": 10, "yVal": "hello", "type": "MyClassInstance"}`,
   );
@@ -219,7 +208,7 @@ Deno.test("Handlebars value jsValue helper", () => {
       return "primitive_value";
     }
   }
-  assertEquals(
+  expect(
     r.render("{{jsValue val}}", { val: new StringifiesToPrimitive() }),
     `"primitive_value"`,
   );
@@ -229,7 +218,7 @@ Deno.test("Handlebars value jsValue helper", () => {
       return 12345;
     }
   }
-  assertEquals(
+  expect(
     r.render("{{jsValue val}}", { val: new StringifiesToNumber() }),
     `12345`,
   );

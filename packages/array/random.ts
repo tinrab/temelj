@@ -44,10 +44,9 @@ export function sampleListUniqueIndices(
   if (length === 0) {
     return [];
   }
-  const indices: number[] = shuffle(Array.from(
-    { length: length },
-    (_, i) => i,
-  ));
+  const indices: number[] = shuffle(
+    Array.from({ length: length }, (_, i) => i),
+  );
   return indices.slice(0, Math.min(length, count));
 }
 

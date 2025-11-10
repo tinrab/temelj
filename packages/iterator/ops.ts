@@ -7,7 +7,6 @@
  * @param map An optional function that takes an element from the iterable and returns a value.
  * @returns A record where the keys are the result of calling `getKey` on each element, and the values are the result of calling `map` on each element.
  */
-// deno-lint-ignore no-explicit-any
 export function collectMap<K extends keyof any, V, V1 = V>(
   it: Iterable<V>,
   getKey: (e: V) => K,

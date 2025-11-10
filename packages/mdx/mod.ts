@@ -1,3 +1,3 @@
-export * from "./plugins/mod.ts";
-export * from "./types.ts";
-export * from "./compiler.ts";
+export * from "./plugins/mod";
+export * from "./types";
+export * from "./compiler";

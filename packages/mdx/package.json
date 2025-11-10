@@ -1,0 +1,46 @@
+{
+  "name": "@temelj/mdx",
+  "description": "MDX processing utilities.",
+  "license": "MIT",
+  "version": "0.8.0",
+  "type": "module",
+  "main": "./dist/mod.js",
+  "types": "./dist/mod.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/mod.d.ts",
+      "import": "./dist/mod.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "clean": "shx rm -rf dist"
+  },
+  "dependencies": {
+    "@mdx-js/mdx": "^3.1.1",
+    "@shikijs/transformers": "^3.15.0",
+    "@temelj/iterator": "workspace:*",
+    "@types/hast": "^3.0.4",
+    "github-slugger": "^2.0.0",
+    "hast": "^1.0.0",
+    "hast-util-to-string": "^3.0.1",
+    "remark-frontmatter": "^5.0.0",
+    "remark-gfm": "^4.0.1",
+    "remark-parse": "^11.0.0",
+    "shiki": "^3.15.0",
+    "unified": "^11.0.5",
+    "unist-util-remove": "^4.0.0",
+    "unist-util-visit": "^5.0.0",
+    "vfile": "^6.0.3",
+    "vfile-matter": "^5.0.1",
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "@types/mdast": "^4.0.4",
+    "@types/node": "24.10.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.8"
+  }
+}

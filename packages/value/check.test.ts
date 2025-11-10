@@ -1,19 +1,19 @@
-import { assert } from "@std/assert";
+import { expect, test } from "vitest";
 
-import { isObjectDeepPrimitive, isObjectPrimitive } from "./check.ts";
+import { isObjectDeepPrimitive, isObjectPrimitive } from "./check";
 
-Deno.test("isObjectPlain() works", () => {
-  assert(isObjectPrimitive({ x: 42 }));
+test("isObjectPlain() works", () => {
+  expect(isObjectPrimitive({ x: 42 }));
 
-  assert(!isObjectPrimitive(42));
-  assert(!isObjectPrimitive("abc"));
-  assert(!isObjectPrimitive(new Date()));
-  assert(!isObjectPrimitive(new Map()));
+  expect(!isObjectPrimitive(42));
+  expect(!isObjectPrimitive("abc"));
+  expect(!isObjectPrimitive(new Date()));
+  expect(!isObjectPrimitive(new Map()));
 });
 
-Deno.test("isObjectDeepPlain() works", () => {
-  assert(isObjectDeepPrimitive({ x: 42 }));
-  assert(isObjectDeepPrimitive({ x: 42, y: { z: 42 } }));
+test("isObjectDeepPlain() works", () => {
+  expect(isObjectDeepPrimitive({ x: 42 }));
+  expect(isObjectDeepPrimitive({ x: 42, y: { z: 42 } }));
 
-  assert(!isObjectDeepPrimitive({ x: 42, d: new Date() }));
+  expect(!isObjectDeepPrimitive({ x: 42, d: new Date() }));
 });

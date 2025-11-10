@@ -1,13 +1,13 @@
-import { assertEquals } from "@std/assert";
+import { expect, test } from "vitest";
 
-import { Registry } from "../registry.ts";
-import { getCoreHelpers } from "./core.ts";
+import { Registry } from "../registry";
+import { getCoreHelpers } from "./core";
 
-Deno.test("Handlebars string helpers", () => {
+test("Handlebars string helpers", () => {
   const r = new Registry();
   r.registerHelpers(getCoreHelpers(r));
 
-  assertEquals(
+  expect(
     r.render(`
       {{~set a='hello,'~}}
       {{@a}}
@@ -19,6 +19,6 @@ Deno.test("Handlebars string helpers", () => {
     "hello,hello, world!",
   );
 
-  assertEquals(r.render(`{{render '42'}}`), "42");
-  assertEquals(r.render(`{{set x=42}}{{render '{{x}}' x=@x}}`), "42");
+  expect(r.render(`{{render '42'}}`), "42");
+  expect(r.render(`{{set x=42}}{{render '{{x}}' x=@x}}`), "42");
 });

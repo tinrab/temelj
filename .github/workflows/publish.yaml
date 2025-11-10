@@ -14,57 +14,32 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
-          node-version: latest
+          node-version: 24
           registry-url: "https://registry.npmjs.org"
-      - uses: denoland/setup-deno@v1
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
         with:
-          deno-version: v2.*
+          version: 10.21.0
 
-      - run: deno --version
-      - run: node --version
+      - name: Install dependencies
+        run: pnpm install
 
-      - run: deno task lint
-      - run: deno task test
+      - name: Build packages
+        run: pnpm run build
 
-      - name: Publish JSR
-        run: deno publish --token ${{ secrets.JSR_TOKEN }}
+      - name: Run lint
+        run: |
+          pnpm run format:check
+          pnpm run lint
 
-      - name: Build NPM
-        run: deno task script npm-build
+      - name: Run tests
+        run: pnpm run test
 
-      - name: Publish NPM
+      - name: Publish NPM packages
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: |
-          function publish_package() {
-            packageName=$1
-            latestVersion=$(cat ./package.json | jq -r '.version')
-            publishedVersion=$(npm view "$packageName" version)
-
-            echo "Latest version: $latestVersion"
-            echo "Published version: $publishedVersion"
-
-            if [ "$latestVersion" != "$publishedVersion" ]; then
-              npm publish --access public
-            else
-              echo "Package '$packageName' is already up to date."
-            fi
-          }
-
-          cd ./npm && ls -l
-
-          cd ./@temelj
-          packages=(result value string iterator array id color request handlebars math mdx mdx-react)
-          for package in ${packages[@]}
-          do
-            cd ./$package
-            publish_package "@temelj/$package"
-            cd ../
-          done
-          cd ../
-
-          cd ./@tinrab/temelj
-          publish_package "@tinrab/temelj"
-          cd ../../
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: pnpm publish -r --access public --no-git-checks

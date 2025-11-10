@@ -1,6 +1,6 @@
 import type { JsonValue } from "@temelj/value";
 
-import type { Registry } from "./registry.ts";
+import type { Registry } from "./registry";
 
 export function registerSwitchHelpers(registry: Registry): void {
   const hbs: Registry & {
@@ -12,22 +12,21 @@ export function registerSwitchHelpers(registry: Registry): void {
   hbs.switchStack = [];
 
   hbs.switchStack = [];
-  hbs.registerHelper(
-    "switch",
-    function (value, options): JsonValue | undefined {
-      if (hbs.switchStack === undefined) {
-        return;
-      }
-      hbs.switchStack.push({
-        switchMatch: false,
-        switchValue: value,
-      });
-      // @ts-ignore handlebars missing types
-      const rendered = options.fn(this);
-      hbs.switchStack.pop();
-      return rendered;
-    },
-  );
+  hbs.registerHelper("switch", function (value, options):
+    | JsonValue
+    | undefined {
+    if (hbs.switchStack === undefined) {
+      return;
+    }
+    hbs.switchStack.push({
+      switchMatch: false,
+      switchValue: value,
+    });
+    // @ts-expect-error handlebars missing types
+    const rendered = options.fn(this);
+    hbs.switchStack.pop();
+    return rendered;
+  });
   hbs.registerHelper("case", function (...args): JsonValue | undefined {
     const options = args.pop();
     const caseValues = args;
@@ -37,14 +36,14 @@ export function registerSwitchHelpers(registry: Registry): void {
         return "";
       }
       stack.switchMatch = true;
-      // @ts-ignore handlebars missing types
+      // @ts-expect-error handlebars missing types
       return options.fn(this);
     }
   });
   hbs.registerHelper("default", function (options): JsonValue | undefined {
     const stack = hbs.switchStack?.at(-1);
     if (!stack?.switchMatch) {
-      // @ts-ignore handlebars missing types
+      // @ts-expect-error handlebars missing types
       return options.fn(this);
     }
   });

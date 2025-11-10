@@ -1,45 +1,40 @@
-import { assert, assertEquals } from "@std/assert";
+import { expect, test } from "vitest";
 
-import { Rectangle } from "./rectangle.ts";
-import { Vector2 } from "./vector2.ts";
+import { rectangle } from "./rectangle";
+import { vector2 } from "./vector2";
 
-Deno.test("Rectangle::expand works", () => {
-  assertEquals(
-    Rectangle.expand(
-      Rectangle.ofBounds(2, 0, 10, 5),
-      Rectangle.ofBounds(0, 2, 5, 10),
+test("rectangle::expand works", () => {
+  expect(
+    rectangle.expand(
+      rectangle.ofBounds(2, 0, 10, 5),
+      rectangle.ofBounds(0, 2, 5, 10),
     ),
-    Rectangle.ofBounds(0, 0, 12, 12),
+    rectangle.ofBounds(0, 0, 12, 12),
   );
 });
 
-Deno.test("Rectangle::center works", () => {
-  assertEquals(
-    Rectangle.center(
-      Rectangle.ofBounds(2, 2, 6, 6),
-    ),
-    Vector2.of(5, 5),
-  );
+test("rectangle::center works", () => {
+  expect(rectangle.center(rectangle.ofBounds(2, 2, 6, 6)), vector2.of(5, 5));
 });
 
-Deno.test("Rectangle::overlaps works", () => {
-  assert(
-    Rectangle.overlaps(
-      Rectangle.ofBounds(0, 0, 5, 5),
-      Rectangle.ofBounds(3, 3, 4, 4),
+test("rectangle::overlaps works", () => {
+  expect(
+    rectangle.overlaps(
+      rectangle.ofBounds(0, 0, 5, 5),
+      rectangle.ofBounds(3, 3, 4, 4),
     ),
   );
-  assert(
-    Rectangle.overlaps(
-      Rectangle.ofBounds(2, 2, 3, 3),
-      Rectangle.ofBounds(0, 0, 10, 10),
+  expect(
+    rectangle.overlaps(
+      rectangle.ofBounds(2, 2, 3, 3),
+      rectangle.ofBounds(0, 0, 10, 10),
     ),
   );
 
-  assert(
-    !Rectangle.overlaps(
-      Rectangle.ofBounds(0, 0, 1, 1),
-      Rectangle.ofBounds(1, 1, 1, 1),
+  expect(
+    !rectangle.overlaps(
+      rectangle.ofBounds(0, 0, 1, 1),
+      rectangle.ofBounds(1, 1, 1, 1),
     ),
   );
 });

@@ -1,41 +1,41 @@
-import { assert, assertEquals } from "@std/assert";
+import { expect, test } from "vitest";
 
-import { sample, sampleList, sampleListUnique, shuffle } from "./random.ts";
+import { sample, sampleList, sampleListUnique, shuffle } from "./random";
 
-Deno.test("shuffle() works", () => {
+test("shuffle() works", () => {
   const array = [1, 2, 3, 4, 5];
   const shuffled = shuffle(array);
-  assertEquals(shuffled.length, array.length);
-  assertEquals(shuffled.sort(), array.sort());
+  expect(shuffled.length, array.length);
+  expect(shuffled.sort(), array.sort());
 });
 
-Deno.test("sample() works", () => {
+test("sample() works", () => {
   const array = ["a", "b", "c"];
   const item = sample(array);
-  assert(item !== undefined);
-  assert(array.includes(item));
+  expect(item !== undefined);
+  expect(array.includes(item));
 
-  assertEquals(sample([]), undefined);
+  expect(sample([]), undefined);
 });
 
-Deno.test("sampleList() works", () => {
+test("sampleList() works", () => {
   const array = ["a", "b", "c"];
   const list = sampleList(array, 2);
-  assertEquals(list.length, 2);
-  assert(list.every((item) => array.includes(item)));
+  expect(list.length, 2);
+  expect(list.every((item) => array.includes(item)));
 
-  assertEquals(sampleList([], 2).length, 0);
+  expect(sampleList([], 2).length, 0);
 });
 
-Deno.test("sampleListUnique() works", () => {
+test("sampleListUnique() works", () => {
   const array = ["a", "b", "c"];
   for (let i = 0; i < 10; i++) {
     const list = sampleListUnique(array, 2);
-    assertEquals(list.length, 2);
-    assert(list.every((item) => array.includes(item)));
-    assertEquals(new Set(list).size, list.length);
+    expect(list.length, 2);
+    expect(list.every((item) => array.includes(item)));
+    expect(new Set(list).size, list.length);
   }
 
-  assertEquals(sampleListUnique([], 2).length, 0);
-  assertEquals(sampleListUnique(["a"], 2).length, 1);
+  expect(sampleListUnique([], 2).length, 0);
+  expect(sampleListUnique(["a"], 2).length, 1);
 });

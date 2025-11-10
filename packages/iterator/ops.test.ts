@@ -1,9 +1,9 @@
-import { assertEquals } from "@std/assert";
+import { expect, test } from "vitest";
 
-import { collectMap } from "./ops.ts";
+import { collectMap } from "./ops";
 
-Deno.test("collectMap() works", () => {
-  assertEquals(
+test("collectMap() works", () => {
+  expect(
     collectMap([1, 2, 3], (item) => item * 2),
     { 2: 1, 4: 2, 6: 3 },
   );

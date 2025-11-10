@@ -1,16 +1,17 @@
-import { assertEquals } from "@std/assert";
-import { parseHex, toHex } from "./hex.ts";
-import { fromRgb } from "./rgb.ts";
+import { expect, test } from "vitest";
 
-Deno.test("Color - hex - convert", () => {
-  assertEquals(parseHex("#FF00FF"), fromRgb(255, 0, 255));
-  assertEquals(parseHex("#FF00FFFF"), fromRgb(255, 0, 255, 1.0));
+import { parseHex, toHex } from "./hex";
+import { fromRgb } from "./rgb";
 
-  assertEquals(parseHex(""), undefined);
-  assertEquals(parseHex("#FF"), undefined);
-  assertEquals(parseHex("FFFFFFF"), undefined);
-  assertEquals(parseHex("#"), undefined);
-  assertEquals(parseHex("#FF00FZ"), undefined);
+test("Color - hex - convert", () => {
+  expect(parseHex("#FF00FF")).toStrictEqual(fromRgb(255, 0, 255));
+  expect(parseHex("#FF00FFFF")).toStrictEqual(fromRgb(255, 0, 255, 1.0));
 
-  assertEquals(toHex(fromRgb(255, 0, 255)), "ff00ff");
+  expect(parseHex("")).toBeUndefined();
+  expect(parseHex("#FF")).toBeUndefined();
+  expect(parseHex("FFFFFFF")).toBeUndefined();
+  expect(parseHex("#")).toBeUndefined();
+  expect(parseHex("#FF00FZ")).toBeUndefined();
+
+  expect(toHex(fromRgb(255, 0, 255))).toBe("ff00ff");
 });

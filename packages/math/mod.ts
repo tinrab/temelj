@@ -1,3 +1,3 @@
-export * from "./ops.ts";
-export * from "./rectangle.ts";
-export * from "./vector2.ts";
+export * from "./ops";
+export * from "./rectangle";
+export * from "./vector2";

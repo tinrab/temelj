@@ -1,6 +1,6 @@
 import type React from "react";
 
-import { cn } from "../lib/utility.ts";
+import { cn } from "../lib/utility";
 
 type MdxCodeBlockProps = {
   "data-file-name"?: string;
@@ -18,15 +18,13 @@ export function MdxCodeBlock({
 }: MdxCodeBlockProps): React.ReactNode {
   return (
     <div className="relative rounded-sm" {...restProps}>
-      {fileName
-        ? (
-          <div className="relative flex rounded-t-sm border-border border-t-2 border-r-2 border-l-2 p-2">
-            <div className="ml-2 grow self-center text-muted-foreground text-sm">
-              {fileName}
-            </div>
+      {fileName ? (
+        <div className="relative flex rounded-t-sm border-border border-t-2 border-r-2 border-l-2 p-2">
+          <div className="ml-2 grow self-center text-muted-foreground text-sm">
+            {fileName}
           </div>
-        )
-        : undefined}
+        </div>
+      ) : undefined}
 
       <div className="relative">
         <pre
@@ -38,7 +36,7 @@ export function MdxCodeBlock({
             className,
           )}
         >
-					{children}
+          {children}
         </pre>
       </div>
     </div>

@@ -30,17 +30,19 @@ export function generateUlid(options: UlidOptions = {}): string {
     const buffer = new Uint8Array(16);
     buffer.set(options.random, 6);
 
-    const time = options.time === undefined
-      ? Date.now()
-      : options.time.getTime();
-    buffer.set([
-      (time >> 40) & 0xff,
-      (time >> 32) & 0xff,
-      (time >> 24) & 0xff,
-      (time >> 16) & 0xff,
-      (time >> 8) & 0xff,
-      time & 0xff,
-    ], 0);
+    const time =
+      options.time === undefined ? Date.now() : options.time.getTime();
+    buffer.set(
+      [
+        (time >> 40) & 0xff,
+        (time >> 32) & 0xff,
+        (time >> 24) & 0xff,
+        (time >> 16) & 0xff,
+        (time >> 8) & 0xff,
+        time & 0xff,
+      ],
+      0,
+    );
 
     return id128.Ulid.construct(buffer).toCanonical();
   }

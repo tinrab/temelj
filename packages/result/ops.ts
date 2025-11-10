@@ -1,6 +1,4 @@
-// deno-lint-ignore-file no-explicit-any
-
-import type { Result, ResultErr, ResultOk } from "./types.ts";
+import type { Result, ResultErr, ResultOk } from "./types";
 
 export function ok<T>(value: T): ResultOk<T> {
   return { kind: "ok", value };

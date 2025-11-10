@@ -1,13 +1,20 @@
-import { assertEquals } from "@std/assert";
-import { fromRgb, parseRgb } from "./rgb.ts";
+import { expect, test } from "vitest";
 
-Deno.test("Color - rgb - convert", () => {
-  assertEquals(parseRgb("rgb(255, 0, 255)"), fromRgb(255, 0, 255));
-  assertEquals(parseRgb("rgb(  255,  0  , 255   )"), fromRgb(255, 0, 255));
-  assertEquals(parseRgb("rgba(255, 0, 255,1)"), fromRgb(255, 0, 255, 1));
-  assertEquals(parseRgb("rgba(255, 0, 255,  0.1)"), fromRgb(255, 0, 255, 0.1));
+import { fromRgb, parseRgb } from "./rgb";
 
-  assertEquals(parseRgb(""), undefined);
-  assertEquals(parseRgb("rgb(255, 0, 255, 1)"), undefined);
-  assertEquals(parseRgb("rgb(10, 10, 300)"), undefined);
+test("Color - rgb - convert", () => {
+  expect(parseRgb("rgb(255, 0, 255)")).toStrictEqual(fromRgb(255, 0, 255));
+  expect(parseRgb("rgb(  255,  0  , 255   )")).toStrictEqual(
+    fromRgb(255, 0, 255),
+  );
+  expect(parseRgb("rgba(255, 0, 255,1)")).toStrictEqual(
+    fromRgb(255, 0, 255, 1),
+  );
+  expect(parseRgb("rgba(255, 0, 255,  0.1)")).toStrictEqual(
+    fromRgb(255, 0, 255, 0.1),
+  );
+
+  expect(parseRgb("")).toBeUndefined();
+  expect(parseRgb("rgb(255, 0, 255, 1)")).toBeUndefined();
+  expect(parseRgb("rgb(10, 10, 300)")).toBeUndefined();
 });

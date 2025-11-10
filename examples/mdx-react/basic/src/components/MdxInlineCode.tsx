@@ -1,6 +1,6 @@
 import type React from "react";
 
-import { cn } from "../lib/utility.ts";
+import { cn } from "../lib/utility";
 
 type MdxInlineCodeProps = React.HTMLAttributes<HTMLSpanElement>;
 

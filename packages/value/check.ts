@@ -1,4 +1,4 @@
-import type { Primitive, PrimitiveObject, PrimitiveValue } from "./types.ts";
+import type { Primitive, PrimitiveObject, PrimitiveValue } from "./types";
 
 /**
  * Checks if a value is a primitive value.
@@ -6,9 +6,7 @@ import type { Primitive, PrimitiveObject, PrimitiveValue } from "./types.ts";
  * @param value The value to check.
  * @returns `true` if the value is a primitive value, `false` otherwise.
  */
-export function isValuePrimitive(
-  value: unknown,
-): value is Primitive {
+export function isValuePrimitive(value: unknown): value is Primitive {
   return (
     typeof value === "string" ||
     typeof value === "boolean" ||
@@ -26,9 +24,7 @@ export function isValuePrimitive(
  * @param value The value to check.
  * @returns `true` if the value is a primitive value, `false` otherwise.
  */
-export function isObjectPrimitive(
-  obj: unknown,
-): obj is PrimitiveObject {
+export function isObjectPrimitive(obj: unknown): obj is PrimitiveObject {
   if (typeof obj !== "object" || obj === null) {
     return false;
   }

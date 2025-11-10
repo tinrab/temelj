@@ -1,5 +1,5 @@
-import merge from "deepmerge";
 import { deepEquals, isObjectPrimitive } from "@temelj/value";
+import merge from "deepmerge";
 
 /**
  * Compares two arrays for equality, optionally using a custom comparison function.
@@ -52,10 +52,7 @@ export function equals<T>(
  * @param source The source array to combine from.
  * @returns A new array that is the combination of the target and source arrays.
  */
-export function combineMerge<A, B>(
-  target: A[],
-  source: B[],
-): (A & B)[] {
+export function combineMerge<A, B>(target: A[], source: B[]): (A & B)[] {
   const result: unknown[] = [...target];
   let i = 0;
   for (const item of source) {

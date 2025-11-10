@@ -8,11 +8,11 @@ export function clampWithOverflow<T extends number | bigint>(
   max: T,
 ): T {
   if (x < min) {
-    // @ts-ignore cast as number or bigint
+    // @ts-expect-error cast as number or bigint
     return max - ((min - x) % (max - min));
   }
   if (x > max) {
-    // @ts-ignore cast as number or bigint
+    // @ts-expect-error cast as number or bigint
     return min + ((x - max) % (max - min));
   }
   return x;

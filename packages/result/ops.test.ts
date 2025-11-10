@@ -1,17 +1,17 @@
-import { assert } from "@std/assert";
+import { expect, test } from "vitest";
 
-import { err, isErr, isOk, mapErr, ok } from "./ops.ts";
-import type { Result } from "./types.ts";
+import { err, isErr, isOk, mapErr, ok } from "./ops";
+import type { Result } from "./types";
 
-Deno.test(function makeResult(): void {
-  assert(isOk(ok(42)));
-  assert(!isOk(err(42)));
+test("make result", () => {
+  expect(isOk(ok(42)));
+  expect(!isOk(err(42)));
 
-  assert(isErr(err("a")));
-  assert(!isErr(ok(42)));
+  expect(isErr(err("a")));
+  expect(!isErr(ok(42)));
 });
 
-Deno.test(function mapErrorTypePredicate(): void {
+test("map error type predicate", () => {
   type ResultA = Result<"A", string>;
 
   function _demo1(): Result<number, number> {

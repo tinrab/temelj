@@ -1,31 +1,31 @@
-import { assert, assertEquals, assertMatch } from "@std/assert";
+import { expect, test } from "vitest";
 
 import {
   generateUuid4,
   getUuid4Bytes,
   isUuid4Valid,
   makeUuid4FromBytes,
-} from "./uuid4.ts";
+} from "./uuid4";
 
-Deno.test("generateUuid4() works", () => {
+test("generateUuid4() works", () => {
   const id = generateUuid4();
-  assertEquals(id.length, 36);
-  assertEquals(id.split("-").length, 5);
-  assertMatch(id, /^[0-9A-Fa-f]{4}(?:-?[0-9A-Fa-f]{4}){7}$/);
+  expect(id.length).toBe(36);
+  expect(id.split("-").length).toBe(5);
+  expect(id).toMatch(/^[0-9A-Fa-f]{4}(?:-?[0-9A-Fa-f]{4}){7}$/);
 });
 
-Deno.test("isUuid4Valid() works", () => {
+test("isUuid4Valid() works", () => {
   const id = "abcdef01-2345-6789-abcd-ef0123456789";
-  assert(isUuid4Valid(id));
+  expect(isUuid4Valid(id)).toBe(true);
 
-  assert(!isUuid4Valid(""));
-  assert(!isUuid4Valid("1234567890"));
-  assert(!isUuid4Valid("12345678-1234-1234-1234-1234567890"));
+  expect(isUuid4Valid("")).toBe(false);
+  expect(isUuid4Valid("1234567890")).toBe(false);
+  expect(isUuid4Valid("12345678-1234-1234-1234-1234567890")).toBe(false);
 });
 
-Deno.test("Uuid4 bytes", () => {
+test("Uuid4 bytes", () => {
   const id = "abcdef01-2345-6789-abcd-ef0123456789";
   const bytes = getUuid4Bytes(id);
-  assertEquals(bytes.length, 16);
-  assertEquals(makeUuid4FromBytes(bytes), id);
+  expect(bytes.length).toBe(16);
+  expect(makeUuid4FromBytes(bytes)).toBe(id);
 });

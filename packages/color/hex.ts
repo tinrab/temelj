@@ -1,4 +1,4 @@
-import type { Color } from "./rgb.ts";
+import type { Color } from "./rgb";
 
 const COLOR_HEX_REGEX: RegExp = /^#?([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/;
 
@@ -15,7 +15,10 @@ export function parseHex(value: string): Color | undefined {
 
   let hex = value.replace("#", "");
   if (hex.length === 3) {
-    hex = hex.split("").map((char) => char + char).join("");
+    hex = hex
+      .split("")
+      .map((char) => char + char)
+      .join("");
   }
 
   const red = Number.parseInt(hex.substring(0, 2), 16);
@@ -25,7 +28,7 @@ export function parseHex(value: string): Color | undefined {
     return undefined;
   }
 
-  let alpha = undefined;
+  let alpha: number | undefined;
   if (hex.length === 8) {
     alpha = Number.parseInt(hex.substring(6, 8), 16) / 255;
     if (Number.isNaN(alpha)) {
@@ -50,7 +53,9 @@ export function toHex(color: Color): string {
   let value = `${red}${green}${blue}`;
 
   if (color.alpha !== undefined) {
-    const alpha = Math.round(color.alpha * 255).toString(16).padStart(2, "0");
+    const alpha = Math.round(color.alpha * 255)
+      .toString(16)
+      .padStart(2, "0");
     value += alpha;
   }
 

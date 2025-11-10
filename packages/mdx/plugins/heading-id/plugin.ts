@@ -3,7 +3,7 @@ import { toString as hastToString } from "hast-util-to-string";
 import { visit } from "unist-util-visit";
 import type { Plugin } from "unified";
 
-import type { HastElement, HastNode } from "../../types.ts";
+import type { HastElement, HastNode } from "../../types";
 
 /**
  * Options for {@linkcode headingIdPlugin}.

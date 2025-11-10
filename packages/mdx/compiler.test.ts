@@ -1,12 +1,12 @@
-import { assert, assertEquals, assertRejects } from "@std/assert";
+import { expect, test } from "vitest";
 import { z } from "zod";
 
-import { MdxCompiler } from "./compiler.ts";
-import { headingIdPlugin } from "./plugins/heading-id/plugin.ts";
-import { treeProcessorPlugin } from "./plugins/tree-processor/plugin.ts";
-import { syntaxHighlightPlugin } from "./plugins/syntax-highlight/plugin.ts";
+import { MdxCompiler } from "./compiler";
+import { headingIdPlugin } from "./plugins/heading-id/plugin";
+import { syntaxHighlightPlugin } from "./plugins/syntax-highlight/plugin";
+import { treeProcessorPlugin } from "./plugins/tree-processor/plugin";
 
-Deno.test("mdx - compile", async () => {
+test("mdx - compile", async () => {
   let headingCount = 0;
   const compiler = new MdxCompiler()
     .withRehypePlugin(headingIdPlugin, {
@@ -54,29 +54,31 @@ const x1 = 1;
     frontmatterSchema,
   );
 
-  assertEquals(headingCount, 4);
-  assertEquals(artifact.frontmatter.title, "Test");
-  assertEquals(artifact.frontmatter.x, 42);
-  assertEquals(artifact.frontmatter.b, true);
+  expect(headingCount).toBe(4);
+  expect(artifact.frontmatter.title).toBe("Test");
+  expect(artifact.frontmatter.x).toBe(42);
+  expect(artifact.frontmatter.b).toBe(true);
 
-  assertRejects(() => compiler.compile("", {}, frontmatterSchema), z.ZodError);
+  await expect(() =>
+    compiler.compile("", {}, frontmatterSchema),
+  ).rejects.toThrow(z.ZodError);
 
   const value = artifact.compiled;
-  assert(typeof value === "string");
-  assert(value.includes('"Hello"'));
-  assert(value.includes('"h-title-2"'));
+  expect(typeof value === "string").toBe(true);
+  expect(value?.includes('"Hello"')).toBe(true);
+  expect(value?.includes('"h-title-2"')).toBe(true);
 
-  assert(value.includes('"data-language": "ts"'));
-  assert(value.includes('"data-line-count": "2"'));
-  assert(value.includes('"data-source-code": "'));
+  expect(value?.includes('"data-language": "ts"')).toBe(true);
+  expect(value?.includes('"data-line-count": "2"')).toBe(true);
+  expect(value?.includes('"data-source-code": "')).toBe(true);
 
-  assert(
-    value.includes('"data-line": "1"') && value.includes('"data-line": "2"'),
-  );
-  assert(value.includes('className: "line hl line-number"'));
+  expect(
+    value?.includes('"data-line": "1"') && value?.includes('"data-line": "2"'),
+  ).toBe(true);
+  expect(value?.includes('className: "line hl line-number"')).toBe(true);
 });
 
-Deno.test("mdx - parse frontmatter", async () => {
+test("mdx - parse frontmatter", async () => {
   async function compile<TFrontmatterSchema extends z.ZodSchema>(
     frontmatter: Record<string, unknown>,
     schema: TFrontmatterSchema,
@@ -102,7 +104,7 @@ ${JSON.stringify(frontmatter)}
     }),
   );
   const _fm1type: { x: number } = fm1;
-  assertEquals(fm1, { x: 42 });
+  expect(fm1).toStrictEqual({ x: 42 });
 
   const fm2 = await compile(
     { s: "abc" },
@@ -111,5 +113,5 @@ ${JSON.stringify(frontmatter)}
     }),
   );
   const _fm2type: { s: string } = fm2;
-  assertEquals(fm2, { s: "abc" });
+  expect(fm2).toStrictEqual({ s: "abc" });
 });

@@ -1,6 +1,7 @@
 import hbs from "handlebars";
 
-import { registerSwitchHelpers } from "./switch.ts";
+import { getHelpers } from "./helpers/all";
+import { registerSwitchHelpers } from "./switch";
 import type {
   CompileOptions,
   HelperDeclareSpec,
@@ -8,8 +9,7 @@ import type {
   PartialSpec,
   Template,
   TemplateDelegate,
-} from "./types.ts";
-import { getHelpers } from "./helpers/all.ts";
+} from "./types";
 
 export class Registry {
   public readonly handlebars: typeof Handlebars;

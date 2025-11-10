@@ -1,17 +1,17 @@
-import { assert, assertEquals } from "@std/assert";
+import { expect, test } from "vitest";
 
-import { deepEquals, primitivize } from "./ops.ts";
+import { deepEquals, primitivize } from "./ops";
 
-Deno.test("deepEquals() works", () => {
+test("deepEquals() works", () => {
   const obj1 = { x: 1, y: 2, a: [1, 2] };
   const obj2 = { x: 1, y: 2, a: [1, 2] };
-  const obj3 = { x: 1, y: 2, a: [3, 4] };
-  assert(deepEquals(obj1, obj2));
-  assert(!deepEquals(obj1, obj3));
+  const obj3 = { x: 1, y: 2, a: [3, 45] };
+  expect(deepEquals(obj1, obj2));
+  expect(!deepEquals(obj1, obj3));
 });
 
-Deno.test("primitivize() works", () => {
-  assertEquals(
+test("primitivize() works", () => {
+  expect(
     primitivize({
       x: 42,
       entries: new Map([

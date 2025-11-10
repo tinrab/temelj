@@ -1,16 +1,16 @@
-import { assertEquals } from "@std/assert";
+import { expect, test } from "vitest";
 
-import { Vector2 } from "./vector2.ts";
+import { vector2 } from "./vector2";
 
-Deno.test("Vector2 math", () => {
-  assertEquals(Vector2.add(Vector2.of(3, 0), 1, 2), Vector2.of(4, 2));
-  assertEquals(Vector2.subtract(Vector2.of(3, 0), 1, 2), Vector2.of(2, -2));
-  assertEquals(Vector2.multiply(Vector2.of(3, 0), 2, 3), Vector2.of(6, 0));
-  assertEquals(Vector2.divide(Vector2.of(3, 0), 2, 3), Vector2.of(1.5, 0));
+test("vector2 math", () => {
+  expect(vector2.add(vector2.of(3, 0), 1, 2), vector2.of(4, 2));
+  expect(vector2.subtract(vector2.of(3, 0), 1, 2), vector2.of(2, -2));
+  expect(vector2.multiply(vector2.of(3, 0), 2, 3), vector2.of(6, 0));
+  expect(vector2.divide(vector2.of(3, 0), 2, 3), vector2.of(1.5, 0));
 
-  assertEquals(Vector2.scale(Vector2.of(3, 1), 2), Vector2.of(6, 2));
+  expect(vector2.scale(vector2.of(3, 1), 2), vector2.of(6, 2));
 });
 
-Deno.test("Vector2::displayString works", () => {
-  assertEquals(Vector2.displayString(Vector2.of(4, 2)), "Vector2(4, 2)");
+test("vector2::displayString works", () => {
+  expect(vector2.displayString(vector2.of(4, 2)), "vector2(4, 2)");
 });

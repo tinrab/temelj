@@ -1,6 +1,6 @@
 import fastEquals from "react-fast-compare";
-import type { PrimitiveValue } from "./types.ts";
-import { isPrimitiveValue } from "./check.ts";
+import type { PrimitiveValue } from "./types";
+import { isPrimitiveValue } from "./check";
 
 /**
  * Compares two values for deep equality.
@@ -21,9 +21,7 @@ export function deepEquals(a: unknown, b: unknown): boolean {
  * @param value The value to convert.
  * @returns The primitive value.
  */
-export function primitivize(
-  value: unknown,
-): PrimitiveValue {
+export function primitivize(value: unknown): PrimitiveValue {
   if (value instanceof Map) {
     // Assumes all keys are strings.
     const entries: Record<string, PrimitiveValue> = {};

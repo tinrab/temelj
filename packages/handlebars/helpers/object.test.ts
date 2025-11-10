@@ -1,19 +1,16 @@
-import { assertEquals } from "@std/assert";
+import { expect, test } from "vitest";
 
-import { Registry } from "../registry.ts";
-import { getObjectHelpers } from "./object.ts";
-import { getValueHelpers } from "./value.ts";
+import { Registry } from "../registry";
+import { getObjectHelpers } from "./object";
+import { getValueHelpers } from "./value";
 
-Deno.test("Handlebars object helpers", () => {
+test("Handlebars object helpers", () => {
   const r = new Registry();
   r.registerHelpers({ ...getObjectHelpers(), ...getValueHelpers() });
 
-  assertEquals(
-    JSON.parse(r.render("{{{json (object s='hello' x=5 y=8)}}}")),
-    {
-      s: "hello",
-      x: 5,
-      y: 8,
-    },
-  );
+  expect(JSON.parse(r.render("{{{json (object s='hello' x=5 y=8)}}}")), {
+    s: "hello",
+    x: 5,
+    y: 8,
+  });
 });

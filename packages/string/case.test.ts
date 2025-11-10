@@ -1,18 +1,18 @@
-import { assertEquals } from "@std/assert";
+import { expect, test } from "vitest";
 
-import { toCamelCase, toKebabCase, toPascalCase, toSnakeCase } from "./case.ts";
+import { toCamelCase, toKebabCase, toPascalCase, toSnakeCase } from "./case";
 
-Deno.test("convert case", () => {
-  assertEquals(toCamelCase("Hello World"), "helloWorld");
-  assertEquals(toCamelCase("user_name"), "userName");
+test("convert case", () => {
+  expect(toCamelCase("Hello World"), "helloWorld");
+  expect(toCamelCase("user_name"), "userName");
 
-  assertEquals(toSnakeCase("A b"), "a_b");
-  assertEquals(toSnakeCase("Ab42"), "ab42");
+  expect(toSnakeCase("A b"), "a_b");
+  expect(toSnakeCase("Ab42"), "ab42");
 
-  assertEquals(toPascalCase("Hello World"), "HelloWorld");
-  assertEquals(toPascalCase("data-type-id"), "DataTypeId");
-  assertEquals(toPascalCase("get_User"), "GetUser");
+  expect(toPascalCase("Hello World"), "HelloWorld");
+  expect(toPascalCase("data-type-id"), "DataTypeId");
+  expect(toPascalCase("get_User"), "GetUser");
 
-  assertEquals(toKebabCase("Hello World"), "hello-world");
-  assertEquals(toKebabCase("user_name"), "user-name");
+  expect(toKebabCase("Hello World"), "hello-world");
+  expect(toKebabCase("user_name"), "user-name");
 });

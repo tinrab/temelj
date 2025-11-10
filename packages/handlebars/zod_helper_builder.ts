@@ -1,12 +1,10 @@
-// deno-lint-ignore-file no-explicit-any
-
 import { z } from "zod";
 
-import type { HelperDelegate } from "./types.ts";
+import type { HelperDelegate } from "./types";
 
 type HelperContext = any;
 
-type HelperResult = any; // JsonValue | SafeString;
+type HelperResult = any; // `JsonValue | SafeString`
 
 interface HelperZodBuilder {
   params: <TParams extends [] | [z.core.SomeType, ...z.core.SomeType[]]>(
@@ -26,10 +24,11 @@ interface HelperZodBuilderWithParams<
   ) => HelperZodBuilderWithParamsAndHash<TParams, THash>;
   handle: (
     handler: (
-      params: TParams extends [] ? []
+      params: TParams extends []
+        ? []
         : {
-          [K in keyof TParams]: z.output<TParams[K]>;
-        },
+            [K in keyof TParams]: z.output<TParams[K]>;
+          },
       context: HelperContext,
     ) => HelperResult,
   ) => HelperDelegate;
@@ -50,10 +49,11 @@ interface HelperZodBuilderWithParamsAndHash<
 > {
   handle: (
     handler: (
-      params: TParams extends [] ? []
+      params: TParams extends []
+        ? []
         : {
-          [K in keyof TParams]: z.output<TParams[K]>;
-        },
+            [K in keyof TParams]: z.output<TParams[K]>;
+          },
       hash: z.output<THash>,
       context: HelperContext,
     ) => HelperResult,
@@ -103,8 +103,7 @@ class HelperZodBuilderImpl implements HelperZodBuilder {
           if (error instanceof z.ZodError) {
             error.issues.push({
               code: "custom",
-              message:
-                `Input validation error in Handlebars helper '${context.name}'`,
+              message: `Input validation error in Handlebars helper '${context.name}'`,
               path: [],
               input: paramArgs,
             });
@@ -121,8 +120,7 @@ class HelperZodBuilderImpl implements HelperZodBuilder {
           if (error instanceof z.ZodError) {
             error.issues.push({
               code: "custom",
-              message:
-                `Input validation error in Handlebars helper '${context.name}'`,
+              message: `Input validation error in Handlebars helper '${context.name}'`,
               path: [],
               input: context?.hash,
             });
@@ -132,10 +130,12 @@ class HelperZodBuilderImpl implements HelperZodBuilder {
       }
 
       return params === undefined
-        ? hash === undefined ? handler(context) : handler(hash, context)
+        ? hash === undefined
+          ? handler(context)
+          : handler(hash, context)
         : hash === undefined
-        ? handler(params, context)
-        : handler(params, hash, context);
+          ? handler(params, context)
+          : handler(params, hash, context);
     };
   }
 }

@@ -1,5 +1,3 @@
-// deno-lint-ignore-file no-explicit-any
-
 import {
   deepEquals,
   isObjectPrimitive,
@@ -7,8 +5,8 @@ import {
 } from "@temelj/value";
 import { z } from "zod";
 
-import { type HelperDeclareSpec, SafeString } from "../types.ts";
-import { createHelperZod } from "../zod_helper_builder.ts";
+import { type HelperDeclareSpec, SafeString } from "../types";
+import { createHelperZod } from "../zod_helper_builder";
 
 export function getValueHelpers(): HelperDeclareSpec {
   return {
@@ -37,8 +35,8 @@ export function getValueHelpers(): HelperDeclareSpec {
       return Array.isArray(obj)
         ? obj.length === 0
         : isObjectPrimitive(obj)
-        ? Object.keys(obj).length === 0
-        : Boolean(obj) === false;
+          ? Object.keys(obj).length === 0
+          : Boolean(obj) === false;
     },
 
     jsValue: (value: unknown): SafeString => {
@@ -70,7 +68,7 @@ function renderJsValue(value: unknown): string {
       return `Symbol(${
         value.description ? JSON.stringify(value.description) : ""
       })`;
-      // case "function": return value.toString();
+    // case "function": return value.toString();
   }
 
   if (Array.isArray(value)) {
@@ -85,9 +83,9 @@ function renderJsValue(value: unknown): string {
   }
 
   if (value instanceof Set) {
-    const elements = Array.from(value.values()).map((item) =>
-      renderJsValue(item)
-    ).join(", ");
+    const elements = Array.from(value.values())
+      .map((item) => renderJsValue(item))
+      .join(", ");
     return `new Set([${elements}])`;
   }
 
@@ -100,7 +98,8 @@ function renderJsValue(value: unknown): string {
   }
 
   if (
-    typeof value === "object" && value !== null &&
+    typeof value === "object" &&
+    value !== null &&
     (value.constructor === Object || Object.getPrototypeOf(value) === null)
   ) {
     const properties = Object.entries(value)
@@ -114,9 +113,9 @@ function renderJsValue(value: unknown): string {
       try {
         return renderJsValue((value as { toJSON: () => any }).toJSON());
       } catch (e: any) {
-        return `/* Error in toJSON for ${
-          Object.prototype.toString.call(value)
-        }: ${e.message} */`;
+        return `/* Error in toJSON for ${Object.prototype.toString.call(
+          value,
+        )}: ${e.message} */`;
       }
     }
 
@@ -129,14 +128,14 @@ function renderJsValue(value: unknown): string {
         return renderJsValue(JSON.parse(jsonStr));
       }
     } catch (e: any) {
-      return `/* Unserializable object: ${
-        Object.prototype.toString.call(value)
-      } (stringify error: ${e.message}) */`;
+      return `/* Unserializable object: ${Object.prototype.toString.call(
+        value,
+      )} (stringify error: ${e.message}) */`;
     }
 
-    return `/* Unhandled object type: ${
-      Object.prototype.toString.call(value)
-    } */`;
+    return `/* Unhandled object type: ${Object.prototype.toString.call(
+      value,
+    )} */`;
   }
 
   return String(value);

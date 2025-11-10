@@ -1,3 +1,3 @@
-export * from "./filter.ts";
-export * from "./ops.ts";
-export * from "./range.ts";
+export * from "./filter";
+export * from "./ops";
+export * from "./range";

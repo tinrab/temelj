@@ -1,9 +1,9 @@
-import { assertEquals } from "@std/assert";
+import { expect, test } from "vitest";
 
-import { Registry } from "./registry.ts";
-import { SafeString } from "./types.ts";
+import { Registry } from "./registry";
+import { SafeString } from "./types";
 
-Deno.test(function switchHelper(): void {
+test("switch helper", () => {
   const r = new Registry();
   const template = `
     {{#switch x}}
@@ -12,41 +12,15 @@ Deno.test(function switchHelper(): void {
     {{#default}}C{{/default}}
     {{/switch}}
   `;
-  assertEquals(
-    r.render(
-      template,
-      { x: 1 },
-    ).trim(),
-    "A",
-  );
-  assertEquals(
-    r.render(
-      template,
-      { x: 2 },
-    ).trim(),
-    "B",
-  );
+  expect(r.render(template, { x: 1 }).trim(), "A");
+  expect(r.render(template, { x: 2 }).trim(), "B");
 
-  assertEquals(
-    r.render(
-      template,
-      { x: 99 },
-    ).trim(),
-    "C",
-  );
-  assertEquals(
-    r.render(
-      template,
-    ).trim(),
-    "C",
-  );
+  expect(r.render(template, { x: 99 }).trim(), "C");
+  expect(r.render(template).trim(), "C");
 });
 
-Deno.test(function safeStringWorks(): void {
+test("safe string works", () => {
   const r = new Registry();
   r.registerHelper("safeString", () => new SafeString(`'hi'`));
-  assertEquals(
-    r.render(`{{safeString}}`),
-    `'hi'`,
-  );
+  expect(r.render(`{{safeString}}`), `'hi'`);
 });

@@ -1,5 +1,5 @@
 import deepmerge from "deepmerge";
-import { deepEquals } from "./ops.ts";
+import { deepEquals } from "./ops";
 
 /**
  * Compares two records for equality, optionally using a custom comparison function.
@@ -56,10 +56,7 @@ export function recordIsEmpty<V>(value: Record<string, V>): boolean {
  */
 export interface RecordMergeOptions {
   clone?: boolean;
-  arrayMerge?: <T, S>(
-    target: T[],
-    source: S[],
-  ) => (T & S)[];
+  arrayMerge?: <T, S>(target: T[], source: S[]) => (T & S)[];
   isMergable?: (value: unknown) => boolean;
 }
 

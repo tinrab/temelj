@@ -1,4 +1,4 @@
 #!/bin/sh
 
-deno task lint
+pnpm run lint
 exit $?

@@ -1,17 +1,16 @@
-import { assertEquals } from "@std/assert";
+import { expect, test } from "vitest";
 
-import { extractCodeMeta } from "./code-meta.ts";
+import { extractCodeMeta } from "./code-meta";
 
-Deno.test("code meta - extract", () => {
-  assertEquals(
+test("code meta - extract", () => {
+  expect(
     extractCodeMeta({
       type: "element",
       tagName: "pre",
       properties: {},
       children: [],
       data: {
-        meta:
-          '{"highlight": "3..5", "showLineNumbers":true, "fileName":"test"}',
+        meta: '{"highlight": "3..5", "showLineNumbers":true, "fileName":"test"}',
       },
     }),
     {

@@ -1,3 +1,5 @@
+import { expect, test } from "vitest";
+
 import {
   decryptCookieValue,
   encryptCookieValue,
@@ -7,11 +9,10 @@ import {
   serializeCookie,
   serializeCookieHeader,
   serializeEncryptedCookie,
-} from "./cookie.ts";
-import { assert, assertEquals, assertRejects } from "@std/assert";
+} from "./cookie";
 
-Deno.test("request - cookie - serialize", async () => {
-  assertEquals(
+test("request - cookie - serialize", async () => {
+  expect(
     serializeCookie({
       name: "test",
       value: "42",
@@ -25,22 +26,20 @@ Deno.test("request - cookie - serialize", async () => {
       secure: true,
       partitioned: true,
     }),
+  ).toBe(
     "test=42; Expires=Mon, 01 Jan 2024 00:00:00 GMT; Max-Age=42; Domain=tinrab.com; Path=/; Secure; HttpOnly; SameSite=Lax; Priority=high;; Partitioned;",
   );
 
-  assertRejects(
-    () =>
-      serializeEncryptedCookie(
-        { name: "test", value: "42" },
-        {
-          password: "abc",
-        },
-      ),
-    Error,
-    "Password must be",
-  );
+  await expect(() =>
+    serializeEncryptedCookie(
+      { name: "test", value: "42" },
+      {
+        password: "abc",
+      },
+    ),
+  ).rejects.toThrow(Error);
 
-  assert(
+  expect(
     !(
       await serializeEncryptedCookie(
         { name: "test", value: "super secure" },
@@ -49,62 +48,62 @@ Deno.test("request - cookie - serialize", async () => {
         },
       )
     ).includes("super secure"),
-  );
+  ).toBe(true);
 });
 
-Deno.test("request - cookie - parse", () => {
-  assertEquals(
+test("request - cookie - parse", () => {
+  expect(
     parseCookie(
       "test=42; Expires=Mon, 01 Jan 2024 00:00:00 GMT; Max-Age=42; Domain=tinrab.com; Path=/; HttpOnly; SameSite=Lax; Priority=high; Partitioned;",
     ),
-    {
-      name: "test",
-      value: "42",
-      domain: "tinrab.com",
-      expires: new Date("2024-01-01"),
-      httpOnly: true,
-      maxAge: 42,
-      path: "/",
-      priority: "high",
-      sameSite: "lax",
-      partitioned: true,
-    },
-  );
+  ).toStrictEqual({
+    name: "test",
+    value: "42",
+    domain: "tinrab.com",
+    expires: new Date("2024-01-01"),
+    httpOnly: true,
+    maxAge: 42,
+    path: "/",
+    priority: "high",
+    sameSite: "lax",
+    partitioned: true,
+  });
 
-  assertEquals(
+  expect(
     parseCookie(
       "test=42; Max-Age=0; Secure=true; SameSite=lax; Partitioned=true;",
     ),
-    {
-      name: "test",
-      value: "42",
-      maxAge: 0,
-      sameSite: "lax",
-      secure: true,
-      partitioned: true,
-    },
-  );
+  ).toStrictEqual({
+    name: "test",
+    value: "42",
+    maxAge: 0,
+    sameSite: "lax",
+    secure: true,
+    partitioned: true,
+  });
 });
 
-Deno.test("request - cookie - encrypt", async () => {
+test("request - cookie - encrypt", async () => {
   const password = "a".repeat(32);
 
   let c = await encryptCookieValue("hello", { password });
-  assert(!c.includes("hello"));
-  assertEquals(await decryptCookieValue(c, { password }), "hello");
-  assertEquals(c.split("|").length, 6);
-  assert(c.split("|").every((s) => s.trim().length !== 0));
+  expect(!c.includes("hello")).toBe(true);
+  expect(await decryptCookieValue(c, { password })).toBe("hello");
+  expect(c.split("|").length).toBe(6);
+  expect(c.split("|").every((s) => s.trim().length !== 0)).toBe(true);
 
   c = await encryptCookieValue("abc", { password });
-  assert(await decryptCookieValue(c, { password }));
-  assert(!(await decryptCookieValue(c, { password: "b".repeat(32) })));
-  assert(
+  expect(await decryptCookieValue(c, { password })).toBe("abc");
+  expect(!(await decryptCookieValue(c, { password: "b".repeat(32) }))).toBe(
+    true,
+  );
+  expect(
     !(await decryptCookieValue(`${c.substring(0, 5)}x${c.substring(7)}`, {
       password,
     })),
-  );
+  ).toBe(true);
 
-  assertEquals(
+  expect(
     await parseEncryptedCookie(
       await serializeEncryptedCookie(
         { name: "test", value: "42" },
@@ -114,15 +113,14 @@ Deno.test("request - cookie - encrypt", async () => {
       ),
       { password },
     ),
-    {
-      name: "test",
-      value: "42",
-    },
-  );
+  ).toStrictEqual({
+    name: "test",
+    value: "42",
+  });
 });
 
-Deno.test("request - cookie - headers", () => {
-  assertEquals(parseCookieHeader("a=42; b=13"), [
+test("request - cookie - headers", () => {
+  expect(parseCookieHeader("a=42; b=13")).toStrictEqual([
     {
       name: "a",
       value: "42",
@@ -133,7 +131,7 @@ Deno.test("request - cookie - headers", () => {
     },
   ]);
 
-  assertEquals(
+  expect(
     serializeCookieHeader([
       {
         name: "a",
@@ -146,6 +144,5 @@ Deno.test("request - cookie - headers", () => {
         value: "13",
       },
     ]),
-    "a=42; b=13",
-  );
+  ).toBe("a=42; b=13");
 });

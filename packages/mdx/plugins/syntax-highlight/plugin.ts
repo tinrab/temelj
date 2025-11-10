@@ -15,9 +15,9 @@ import { numericRangeContains } from "@temelj/iterator";
 import type { Plugin } from "unified";
 import type { Properties } from "hast";
 
-import type { HastElement, HastNode } from "../../types.ts";
+import type { HastElement, HastNode } from "../../types";
 
-import { extractCodeMeta } from "./code-meta.ts";
+import { extractCodeMeta } from "./code-meta";
 
 type ShikiHastOptions = Partial<
   CodeToHastOptions<BundledLanguage, BundledTheme>
@@ -138,11 +138,9 @@ export const syntaxHighlightPlugin: Plugin<
       hastOptions.transformers.push({
         code(node): void {
           let lineIndex = 0;
-          for (
-            const line of node.children.filter(
-              (node: HastNode) => node.type === "element",
-            ) as HastElement[]
-          ) {
+          for (const line of node.children.filter(
+            (node: HastNode) => node.type === "element",
+          ) as HastElement[]) {
             line.properties["data-line"] = lineIndex + 1;
 
             if (options.highlight) {

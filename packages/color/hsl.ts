@@ -1,4 +1,4 @@
-import type { Color } from "./rgb.ts";
+import type { Color } from "./rgb";
 
 /**
  * An HSL color.
@@ -41,23 +41,18 @@ export function isValidHsl(color: HslColor): boolean {
 export function normalizeHsl(color: HslColor): HslColor {
   return {
     hue: color.hue % 360,
-    saturation: color.saturation < 0
-      ? 0
-      : color.saturation > 1
-      ? 1
-      : color.saturation,
-    lightness: color.lightness < 0
-      ? 0
-      : color.lightness > 1
-      ? 1
-      : color.lightness,
-    alpha: color.alpha === undefined
-      ? undefined
-      : color.alpha < 0
-      ? 0
-      : color.alpha > 1
-      ? 1
-      : color.alpha,
+    saturation:
+      color.saturation < 0 ? 0 : color.saturation > 1 ? 1 : color.saturation,
+    lightness:
+      color.lightness < 0 ? 0 : color.lightness > 1 ? 1 : color.lightness,
+    alpha:
+      color.alpha === undefined
+        ? undefined
+        : color.alpha < 0
+          ? 0
+          : color.alpha > 1
+            ? 1
+            : color.alpha,
   };
 }
 
@@ -179,11 +174,8 @@ export function rgbToHsl(color: Color): HslColor {
  */
 export function toHslString(color: HslColor): string {
   const h = color.hue % 360;
-  const s = color.saturation < 0
-    ? 0
-    : color.saturation > 1
-    ? 1
-    : color.saturation;
+  const s =
+    color.saturation < 0 ? 0 : color.saturation > 1 ? 1 : color.saturation;
   const l = color.lightness < 0 ? 0 : color.lightness > 1 ? 1 : color.lightness;
   return `hsl(${h}, ${s * 100}%, ${l * 100}%)`;
 }
@@ -235,8 +227,9 @@ export function lerpHsl(a: HslColor, b: HslColor, t: number): HslColor {
     hue: h,
     saturation: a.saturation + t * (b.saturation - a.saturation),
     lightness: a.lightness + t * (b.lightness - a.lightness),
-    alpha: a.alpha !== undefined && b.alpha !== undefined
-      ? a.alpha + (b.alpha - a.alpha) * t
-      : undefined,
+    alpha:
+      a.alpha !== undefined && b.alpha !== undefined
+        ? a.alpha + (b.alpha - a.alpha) * t
+        : undefined,
   };
 }

@@ -1,31 +1,22 @@
-import { assertEquals, assertThrows } from "@std/assert";
-
-import { getStringHelpers } from "./string.ts";
-import { Registry } from "../registry.ts";
+import { expect, test } from "vitest";
 import { z } from "zod";
 
-Deno.test("Handlebars string helpers", () => {
+import { Registry } from "../registry";
+import { getStringHelpers } from "./string";
+
+test("Handlebars string helpers", () => {
   const r = new Registry();
   r.registerHelpers(getStringHelpers());
 
-  assertEquals(r.render(`{{splitPart "a/b/c" 1}}`), "b");
-  assertEquals(r.render(`{{splitPartSegment "a/b/c" 1 2}}`), "b/c");
-  assertEquals(r.render(`{{splitPartSegment "a_b_c" 1 2 "_"}}`), "b_c");
+  expect(r.render(`{{splitPart "a/b/c" 1}}`)).toBe("b");
+  expect(r.render(`{{splitPartSegment "a/b/c" 1 2}}`)).toBe("b/c");
+  expect(r.render(`{{splitPartSegment "a_b_c" 1 2 "_"}}`)).toBe("b_c");
 
-  assertThrows(
-    () => r.render(`{{splitPartSegment "a/b/c" 0}}`),
-    Error,
-    "invalid_type",
-  );
+  expect(() => r.render(`{{splitPartSegment "a/b/c" 0}}`)).toThrow(Error);
 
-  assertEquals(
-    r.render(`{{join (pascalCase "hello") ", World" "!"}}`),
+  expect(r.render(`{{join (pascalCase "hello") ", World" "!"}}`)).toBe(
     "Hello, World!",
   );
 
-  assertThrows(
-    () => r.render("{{camelCase 42}}"),
-    z.ZodError,
-    "Expected string, received number",
-  );
+  expect(() => r.render("{{camelCase 42}}")).toThrow(z.ZodError);
 });

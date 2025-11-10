@@ -9,7 +9,7 @@ import { matter } from "vfile-matter";
 import type { Pluggable, PluggableList, Plugin } from "unified";
 import type { z } from "zod";
 
-import type { HastNode } from "./types.ts";
+import type { HastNode } from "./types";
 
 export { remarkFrontmatterPlugin, remarkGfmPlugin };
 
@@ -111,9 +111,10 @@ export class MdxCompiler {
       compiled = compiledFile.value.toString();
     }
 
-    const frontmatter = frontmatterSchema === undefined
-      ? (vfile.data.matter ?? {})
-      : frontmatterSchema.parse(vfile.data.matter ?? {});
+    const frontmatter =
+      frontmatterSchema === undefined
+        ? (vfile.data.matter ?? {})
+        : frontmatterSchema.parse(vfile.data.matter ?? {});
 
     return {
       compiled,

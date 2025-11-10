@@ -1,8 +1,8 @@
+import type { MdxArtifact } from "@temelj/mdx";
 import React from "react";
 import jsxRuntime from "react/jsx-runtime";
-import type { MdxArtifact } from "@temelj/mdx";
 
-import type { MdxContentComponents } from "./types.ts";
+import type { MdxContentComponents } from "./types";
 
 interface MdxContentOptions<
   TFrontmatter = Record<string, unknown>,

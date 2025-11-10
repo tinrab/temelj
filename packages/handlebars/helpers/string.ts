@@ -8,36 +8,36 @@ import {
   toTitleCase,
 } from "@temelj/string";
 
-import { createHelperZod } from "../zod_helper_builder.ts";
-import type { HelperDeclareSpec } from "../types.ts";
+import { createHelperZod } from "../zod_helper_builder";
+import type { HelperDeclareSpec } from "../types";
 
 export function getStringHelpers(): HelperDeclareSpec {
   return {
-    camelCase: createHelperZod().params(z.string()).handle(([s]) =>
-      toCamelCase(s)
-    ),
-    snakeCase: createHelperZod().params(z.string()).handle(([s]) =>
-      toSnakeCase(s)
-    ),
-    pascalCase: createHelperZod().params(z.string()).handle(([s]) =>
-      toPascalCase(s)
-    ),
-    titleCase: createHelperZod().params(z.string()).handle(([s]) =>
-      toTitleCase(s)
-    ),
-    kebabCase: createHelperZod().params(z.string()).handle(([s]) =>
-      toKebabCase(s)
-    ),
+    camelCase: createHelperZod()
+      .params(z.string())
+      .handle(([s]) => toCamelCase(s)),
+    snakeCase: createHelperZod()
+      .params(z.string())
+      .handle(([s]) => toSnakeCase(s)),
+    pascalCase: createHelperZod()
+      .params(z.string())
+      .handle(([s]) => toPascalCase(s)),
+    titleCase: createHelperZod()
+      .params(z.string())
+      .handle(([s]) => toTitleCase(s)),
+    kebabCase: createHelperZod()
+      .params(z.string())
+      .handle(([s]) => toKebabCase(s)),
 
-    capitalize: createHelperZod().params(z.string()).handle(([s]) =>
-      capitalize(s)
-    ),
-    upperCase: createHelperZod().params(z.string()).handle(([s]) =>
-      s.toUpperCase()
-    ),
-    lowerCase: createHelperZod().params(z.string()).handle(([s]) =>
-      s.toLowerCase()
-    ),
+    capitalize: createHelperZod()
+      .params(z.string())
+      .handle(([s]) => capitalize(s)),
+    upperCase: createHelperZod()
+      .params(z.string())
+      .handle(([s]) => s.toUpperCase()),
+    lowerCase: createHelperZod()
+      .params(z.string())
+      .handle(([s]) => s.toLowerCase()),
 
     split: createHelperZod()
       .params(z.string(), z.optional(z.string()).default("/"))

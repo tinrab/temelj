@@ -1,5 +1,6 @@
-import { timingSafeEqual } from "node:crypto";
 import { Buffer } from "node:buffer";
+import { timingSafeEqual } from "node:crypto";
+
 import * as cookieUtility from "tough-cookie";
 
 /**
@@ -126,7 +127,6 @@ export function serializeCookie(cookie: Cookie): string {
   if (cookie.partitioned !== undefined) {
     extensions.push("Partitioned;");
   }
-  // @ts-ignore ...
   return new cookieUtility.Cookie({
     key: cookie.name,
     value: cookie.value,
@@ -135,9 +135,12 @@ export function serializeCookie(cookie: Cookie): string {
     httpOnly: cookie.httpOnly,
     maxAge: cookie.maxAge ?? null,
     path: cookie.path ?? null,
-    sameSite: typeof cookie.sameSite === "boolean"
-      ? cookie.sameSite ? "true" : undefined
-      : cookie.sameSite,
+    sameSite:
+      typeof cookie.sameSite === "boolean"
+        ? cookie.sameSite
+          ? "true"
+          : undefined
+        : cookie.sameSite,
     secure: cookie.secure,
     extensions,
   }).toString();
@@ -257,7 +260,7 @@ export function serializeCookieHeader(cookies: Cookie[]): string {
       new cookieUtility.Cookie({
         key: cookie.name,
         value: cookie.value,
-      }).cookieString()
+      }).cookieString(),
     )
     .join("; ");
 }
@@ -279,8 +282,8 @@ export async function encryptCookieValue(
   const keyOptions: GenerateKeyOptions = {
     password: options.password,
     algorithm: options.algorithm ?? defaultEncryptionOptions.algorithm,
-    integrityAlgorithm: options.integrityAlgorithm ??
-      defaultEncryptionOptions.integrityAlgorithm,
+    integrityAlgorithm:
+      options.integrityAlgorithm ?? defaultEncryptionOptions.integrityAlgorithm,
     ivBits: options.ivBits ?? defaultEncryptionOptions.ivBits,
     keyBits: options.keyBits ?? defaultEncryptionOptions.keyBits,
     saltsBits: options.saltsBits ?? defaultEncryptionOptions.saltsBits,
@@ -340,8 +343,8 @@ export async function decryptCookieValue(
   const keyOptions: GenerateKeyOptions = {
     password: options.password,
     algorithm: options.algorithm ?? defaultEncryptionOptions.algorithm,
-    integrityAlgorithm: options.integrityAlgorithm ??
-      defaultEncryptionOptions.integrityAlgorithm,
+    integrityAlgorithm:
+      options.integrityAlgorithm ?? defaultEncryptionOptions.integrityAlgorithm,
     ivBits: options.ivBits ?? defaultEncryptionOptions.ivBits,
     keyBits: options.keyBits ?? defaultEncryptionOptions.keyBits,
     saltsBits: options.saltsBits ?? defaultEncryptionOptions.saltsBits,

@@ -58,7 +58,7 @@ import {
   isUuid4Valid,
   makeUuid4FromBytes,
 } from "@temelj/id";
-import { assert, assertEquals } from "@std/assert";
+import { expect, test } from "vitest";
 
 const id = generateUuid4();
 assert(isUuid4Valid(id));
