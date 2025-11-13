@@ -2,7 +2,7 @@
   "name": "@temelj/array",
   "description": "Utilities for working with arrays.",
   "license": "MIT",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "type": "module",
   "main": "./dist/mod.js",
   "types": "./dist/mod.d.ts",
@@ -12,8 +12,11 @@
       "import": "./dist/mod.js"
     }
   },
+  "files": [
+    "dist"
+  ],
   "scripts": {
-    "build": "tsc",
+    "build": "tsup",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "clean": "shx rm -rf dist"
@@ -24,7 +27,9 @@
     "deepmerge": "^4.3.1"
   },
   "devDependencies": {
-    "@types/node": "24.10.0",
+    "@types/node": "24.10.1",
+    "tsup": "^8.5.1",
+    "shx": "^0.4.0",
     "typescript": "^5.9.3",
     "vitest": "^4.0.8"
   }
