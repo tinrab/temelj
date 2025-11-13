@@ -23,6 +23,11 @@ pre.shiki {
   --shiki-dark: #e6edf3;
 }
 
+code {
+  font-variant-ligatures: none;
+  font-feature-settings: "liga" 0;
+}
+
 .shiki code {
   display: block;
   width: fit-content;
@@ -36,11 +41,6 @@ pre.shiki {
   word-wrap: normal;
   tab-size: 4;
   hyphens: none;
-}
-
-code {
-  font-variant-ligatures: none;
-  font-feature-settings: "liga" 0;
 }
 
 /********** Line highlight **********/
@@ -60,15 +60,16 @@ code {
   margin-right: calc(-1 * var(--code-padding));
 
   & span {
-    background-color: transparent !important;
+    background-color: transparent;
     transition: background-color 0.5s;
   }
 }
 
+/* biome-ignore lint/style/noDescendingSpecificity: needed */
 .dark {
   .shiki code span.highlighted {
     & span {
-      background-color: transparent !important;
+      background-color: transparent;
     }
   }
 }
@@ -107,9 +108,9 @@ code span.line-number.highlighted::before {
 
 .dark .shiki,
 .dark .shiki span:not(.line) {
-  color: var(--shiki-dark) !important;
-  background-color: var(--shiki-dark-bg) !important;
-  font-style: var(--shiki-dark-font-style) !important;
-  font-weight: var(--shiki-dark-font-weight) !important;
-  text-decoration: var(--shiki-dark-text-decoration) !important;
+  color: var(--shiki-dark);
+  background-color: var(--shiki-dark-bg);
+  font-style: var(--shiki-dark-font-style);
+  font-weight: var(--shiki-dark-font-weight);
+  text-decoration: var(--shiki-dark-text-decoration);
 }

@@ -14,20 +14,28 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: read
-      id-token: write
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
-          node-version: latest
-      - uses: denoland/setup-deno@v1
+          node-version: 24
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
         with:
-          deno-version: v2.*
+          version: 10.22.0
 
-      - run: deno --version
+      - name: Install dependencies
+        run: pnpm install
 
-      - run: deno task lint
-      - run: deno task test
+      - name: Build packages
+        run: pnpm run build
 
-      - name: Build NPM
-        run: deno task script npm-build
+      - name: Run lint
+        run: |
+          pnpm run format:check
+          pnpm run lint
+
+      - name: Run tests
+        run: pnpm run test

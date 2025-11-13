@@ -1,0 +1,84 @@
+{
+  "name": "@tinrab/temelj",
+  "license": "MIT",
+  "version": "0.15.1",
+  "description": "A big standard library for TypeScript.",
+  "type": "module",
+  "main": "./dist/mod.js",
+  "types": "./dist/mod.d.ts",
+  "exports": {
+    "./array": {
+      "types": "./dist/array/mod.d.ts",
+      "import": "./dist/array/mod.js"
+    },
+    "./color": {
+      "types": "./dist/color/mod.d.ts",
+      "import": "./dist/color/mod.js"
+    },
+    "./handlebars": {
+      "types": "./dist/handlebars/mod.d.ts",
+      "import": "./dist/handlebars/mod.js"
+    },
+    "./id": {
+      "types": "./dist/id/mod.d.ts",
+      "import": "./dist/id/mod.js"
+    },
+    "./iterator": {
+      "types": "./dist/iterator/mod.d.ts",
+      "import": "./dist/iterator/mod.js"
+    },
+    "./math": {
+      "types": "./dist/math/mod.d.ts",
+      "import": "./dist/math/mod.js"
+    },
+    "./mdx": {
+      "types": "./dist/mdx/mod.d.ts",
+      "import": "./dist/mdx/mod.js"
+    },
+    "./mdx-react": {
+      "types": "./dist/mdx-react/mod.d.ts",
+      "import": "./dist/mdx-react/mod.js"
+    },
+    "./request": {
+      "types": "./dist/request/mod.d.ts",
+      "import": "./dist/request/mod.js"
+    },
+    "./result": {
+      "types": "./dist/result/mod.d.ts",
+      "import": "./dist/result/mod.js"
+    },
+    "./string": {
+      "types": "./dist/string/mod.d.ts",
+      "import": "./dist/string/mod.js"
+    },
+    "./value": {
+      "types": "./dist/value/mod.d.ts",
+      "import": "./dist/value/mod.js"
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "clean": "shx rm -rf dist"
+  },
+  "dependencies": {
+    "@temelj/array": "workspace:*",
+    "@temelj/color": "workspace:*",
+    "@temelj/handlebars": "workspace:*",
+    "@temelj/id": "workspace:*",
+    "@temelj/iterator": "workspace:*",
+    "@temelj/math": "workspace:*",
+    "@temelj/mdx": "workspace:*",
+    "@temelj/mdx-react": "workspace:*",
+    "@temelj/request": "workspace:*",
+    "@temelj/result": "workspace:*",
+    "@temelj/string": "workspace:*",
+    "@temelj/value": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "24.10.1",
+    "shx": "^0.4.0",
+    "tsup": "^8.5.1",
+    "typescript": "^5.9.3"
+  }
+}

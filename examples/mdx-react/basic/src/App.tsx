@@ -1,9 +1,3 @@
-// @deno-types="@types/react"
-import type React from "react";
-import { useEffect, useState } from "react";
-import rehypeKatex from "rehype-katex";
-import remarkMath from "remark-math";
-
 import {
   headingIdPlugin,
   type MdxArtifact,
@@ -11,7 +5,12 @@ import {
   syntaxHighlightPlugin,
 } from "@temelj/mdx";
 import { createMdxContent } from "@temelj/mdx-react";
-import { getMdxComponents } from "./components/registry.tsx";
+import type React from "react";
+import { useEffect, useState } from "react";
+import rehypeKatex from "rehype-katex";
+import remarkMath from "remark-math";
+
+import { getMdxComponents } from "./components/registry";
 
 export function App(): React.ReactNode {
   const [artifact, setArtifact] = useState<MdxArtifact<unknown> | undefined>();
@@ -21,7 +20,6 @@ export function App(): React.ReactNode {
     (async () => {
       const compiler = new MdxCompiler()
         // .withRemarkPlugin(removeImportsExportsPlugin)
-        // @ts-ignore missing types
         .withRemarkPlugin(remarkMath)
         .withRehypePlugin(headingIdPlugin)
         .withRehypePlugin(syntaxHighlightPlugin, {
@@ -36,7 +34,7 @@ export function App(): React.ReactNode {
           // 	},
           // },
         })
-        // @ts-ignore missing types
+        // @ts-expect-error missing types
         .withRehypePlugin(rehypeKatex);
 
       const result = await compiler.compile(

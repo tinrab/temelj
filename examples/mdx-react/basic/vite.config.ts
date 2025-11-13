@@ -1,13 +1,7 @@
-import { defineConfig, searchForWorkspaceRoot } from "vite";
-import deno from "@deno/vite-plugin";
+import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
-import process from "node:process";
+import { defineConfig } from "vite";
 
 export default defineConfig({
-  plugins: [deno(), react()],
-  server: {
-    fs: {
-      allow: [searchForWorkspaceRoot(process.cwd()), "../../../node_modules"],
-    },
-  },
+  plugins: [react(), tailwindcss()],
 });

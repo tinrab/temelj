@@ -1,0 +1,35 @@
+{
+  "name": "@temelj/mdx-react",
+  "description": "React utilities for MDX processing.",
+  "license": "MIT",
+  "version": "0.8.1",
+  "type": "module",
+  "main": "./dist/mod.js",
+  "types": "./dist/mod.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/mod.d.ts",
+      "import": "./dist/mod.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "clean": "shx rm -rf dist"
+  },
+  "dependencies": {
+    "@mdx-js/react": "^3.1.1",
+    "@temelj/mdx": "workspace:*",
+    "react": "^19.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "24.10.1",
+    "@types/react": "^19.2.4",
+    "tsup": "^8.5.1",
+    "shx": "^0.4.0",
+    "typescript": "^5.9.3"
+  }
+}

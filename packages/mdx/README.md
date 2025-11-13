@@ -38,7 +38,7 @@ $ deno add jsr:@temelj/mdx # or jsr add @temelj/mdx
 ## Compile
 
 ```ts
-import { assert, assertEquals } from "@std/assert";
+import { expect, test } from "vitest";
 import {
   type HastElement,
   headingIdPlugin,

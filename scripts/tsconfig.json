@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "display": "Base",
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "erasableSyntaxOnly": true,
+    "noEmit": true,
+    "composite": false,
+    "declaration": true,
+    "declarationMap": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "inlineSources": false,
+    "isolatedModules": true,
+    "moduleDetection": "force",
+    "resolvePackageJsonImports": true,
+    "resolveJsonModule": true,
+    "preserveWatchOutput": true,
+    "skipLibCheck": true,
+    "strictNullChecks": true,
+    "noFallthroughCasesInSwitch": true,
+    "allowSyntheticDefaultImports": true,
+    "outDir": "${configDir}/dist"
+  },
+  "include": ["${configDir}/src", "${configDir}/tests"],
+  "exclude": ["${configDir}/node_modules", "${configDir}/dist"]
+}

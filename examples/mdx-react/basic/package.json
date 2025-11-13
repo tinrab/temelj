@@ -1,0 +1,31 @@
+{
+  "name": "@temelj/example-mdx-react-basic",
+  "version": "0.0.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "vite --port 3000",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "@temelj/mdx": "workspace:*",
+    "@temelj/mdx-react": "workspace:*",
+    "clsx": "^2.1.1",
+    "katex": "^0.16.25",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "rehype-katex": "^7.0.1",
+    "remark-math": "^6.0.0",
+    "tailwind-merge": "^3.4.0",
+    "tailwindcss": "^4.1.17"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.1.17",
+    "@types/react": "^19.2.4",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.1.1",
+    "typescript": "^5.9.3",
+    "vite": "^7.2.2"
+  },
+  "packageManager": "pnpm@10.22.0"
+}

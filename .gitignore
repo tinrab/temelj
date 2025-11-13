@@ -1,4 +1,5 @@
-/node_modules
-/npm
-
-deno.lock
+**/node_modules
+**/npm
+**/.turbo
+**/dist
+pnpm-lock.yaml
