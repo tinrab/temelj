@@ -1,12 +1,16 @@
 {
   "name": "@tinrab/temelj",
   "license": "MIT",
-  "version": "0.15.1",
+  "version": "0.15.2",
   "description": "A big standard library for TypeScript.",
   "type": "module",
   "main": "./dist/mod.js",
   "types": "./dist/mod.d.ts",
   "exports": {
+    ".": {
+      "types": "./dist/mod.d.ts",
+      "import": "./dist/mod.js"
+    },
     "./array": {
       "types": "./dist/array/mod.d.ts",
       "import": "./dist/array/mod.js"
@@ -57,7 +61,7 @@
     }
   },
   "scripts": {
-    "build": "tsup",
+    "build": "tsdown && tsc --emitDeclarationOnly",
     "typecheck": "tsc --noEmit",
     "clean": "shx rm -rf dist"
   },
@@ -78,7 +82,7 @@
   "devDependencies": {
     "@types/node": "24.10.1",
     "shx": "^0.4.0",
-    "tsup": "^8.5.1",
+    "tsdown": "^0.16.4",
     "typescript": "^5.9.3"
   }
 }
