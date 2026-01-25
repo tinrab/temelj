@@ -1,6 +1,7 @@
 import fastEquals from "react-fast-compare";
-import type { PrimitiveValue } from "./types";
+
 import { isPrimitiveValue } from "./check";
+import type { PrimitiveValue } from "./types";
 
 /**
  * Compares two values for deep equality.

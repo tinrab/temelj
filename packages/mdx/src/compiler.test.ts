@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { z } from "zod";
+import * as z from "zod";
 
 import { MdxCompiler } from "./compiler";
 import { headingIdPlugin } from "./plugins/heading-id/plugin";

@@ -1,22 +1,21 @@
+import {
+  type TransformerNotationHighlightOptions,
+  transformerNotationHighlight,
+} from "@shikijs/transformers";
+import { numericRangeContains } from "@temelj/iterator";
+import type { Properties } from "hast";
 import { toString as hastToString } from "hast-util-to-string";
 import {
   type BundledLanguage,
   type BundledTheme,
-  codeToHast,
   type CodeToHastOptions,
+  codeToHast,
   ShikiError,
 } from "shiki";
-import { visit } from "unist-util-visit";
-import {
-  transformerNotationHighlight,
-  type TransformerNotationHighlightOptions,
-} from "@shikijs/transformers";
-import { numericRangeContains } from "@temelj/iterator";
 import type { Plugin } from "unified";
-import type { Properties } from "hast";
+import { visit } from "unist-util-visit";
 
 import type { HastElement, HastNode } from "../../types";
-
 import { extractCodeMeta } from "./code-meta";
 
 type ShikiHastOptions = Partial<

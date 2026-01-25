@@ -3,7 +3,7 @@ import {
   isObjectPrimitive,
   type PrimitiveValue,
 } from "@temelj/value";
-import { z } from "zod";
+import * as z from "zod";
 
 import { type HelperDeclareSpec, SafeString } from "../types";
 import { createHelperZod } from "../zod_helper_builder";

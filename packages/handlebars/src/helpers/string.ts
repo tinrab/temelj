@@ -1,4 +1,3 @@
-import { z } from "zod";
 import {
   capitalize,
   toCamelCase,
@@ -7,9 +6,10 @@ import {
   toSnakeCase,
   toTitleCase,
 } from "@temelj/string";
+import * as z from "zod";
 
-import { createHelperZod } from "../zod_helper_builder";
 import type { HelperDeclareSpec } from "../types";
+import { createHelperZod } from "../zod_helper_builder";
 
 export function getStringHelpers(): HelperDeclareSpec {
   return {
