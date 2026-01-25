@@ -46,7 +46,7 @@ import {
   syntaxHighlightPlugin,
   treeProcessorPlugin,
 } from "@temelj/mdx";
-import { z } from "zod";
+import * as z from "zod";
 
 const compiler = new MdxCompiler()
   .withRehypePlugin(headingIdPlugin, {

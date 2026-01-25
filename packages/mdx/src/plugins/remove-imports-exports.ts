@@ -1,5 +1,5 @@
-import { remove } from "unist-util-remove";
 import type { Plugin } from "unified";
+import { remove } from "unist-util-remove";
 
 import type { HastNode } from "../types";
 

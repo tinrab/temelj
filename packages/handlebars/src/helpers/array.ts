@@ -1,6 +1,6 @@
 import type { JsonValue } from "@temelj/value";
 import { deepEquals } from "@temelj/value";
-import { z } from "zod";
+import * as z from "zod";
 
 import type { Registry } from "../registry";
 import type { HelperDeclareSpec } from "../types";

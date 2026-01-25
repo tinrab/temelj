@@ -1,5 +1,5 @@
 import { type NumericRange, parseNumericRange } from "@temelj/iterator";
-import { z } from "zod";
+import * as z from "zod";
 
 import type { HastElement } from "../../types";
 

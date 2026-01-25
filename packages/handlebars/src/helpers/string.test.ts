@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { z } from "zod";
+import * as z from "zod";
 
 import { Registry } from "../registry";
 import { getStringHelpers } from "./string";

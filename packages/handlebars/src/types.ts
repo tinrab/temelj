@@ -1,6 +1,5 @@
-import hbs from "handlebars";
-
 import type { TemplateDelegate } from "handlebars";
+import hbs from "handlebars";
 
 export type { HelperDeclareSpec, HelperDelegate, Template } from "handlebars";
 

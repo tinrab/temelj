@@ -2,7 +2,10 @@
   "name": "@temelj/handlebars",
   "description": "Handlebars helpers and utilities.",
   "license": "MIT",
-  "version": "0.8.2",
+  "repository": {
+    "url": "https://github.com/tinrab/temelj"
+  },
+  "version": "0.9.0",
   "type": "module",
   "main": "./dist/mod.js",
   "types": "./dist/mod.d.ts",
@@ -26,13 +29,13 @@
     "@temelj/string": "workspace:*",
     "@temelj/value": "workspace:*",
     "handlebars": "^4.7.8",
-    "zod": "^4.1.12"
+    "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@types/node": "24.10.1",
-    "tsdown": "^0.16.4",
+    "@types/node": "25.0.10",
+    "tsdown": "^0.20.1",
     "shx": "^0.4.0",
     "typescript": "^5.9.3",
-    "vitest": "^4.0.8"
+    "vitest": "^4.0.18"
   }
 }
