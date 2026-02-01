@@ -1,23 +1,23 @@
 {
   "name": "@temelj/mdx",
+  "version": "0.10.0",
   "description": "MDX processing utilities.",
   "license": "MIT",
   "repository": {
     "url": "https://github.com/tinrab/temelj"
   },
-  "version": "0.9.0",
-  "type": "module",
-  "main": "./dist/mod.js",
-  "types": "./dist/mod.d.ts",
-  "exports": {
-    ".": {
-      "types": "./dist/mod.d.ts",
-      "import": "./dist/mod.js"
-    }
-  },
   "files": [
     "dist"
   ],
+  "type": "module",
+  "main": "./dist/mod.mjs",
+  "types": "./dist/mod.d.mts",
+  "exports": {
+    ".": {
+      "types": "./dist/mod.d.mts",
+      "import": "./dist/mod.mjs"
+    }
+  },
   "scripts": {
     "build": "tsdown",
     "test": "vitest run",
@@ -26,7 +26,7 @@
   },
   "dependencies": {
     "@mdx-js/mdx": "^3.1.1",
-    "@shikijs/transformers": "^3.21.0",
+    "@shikijs/transformers": "^3.22.0",
     "@temelj/iterator": "workspace:*",
     "@types/hast": "^3.0.4",
     "github-slugger": "^2.0.0",
@@ -35,7 +35,7 @@
     "remark-frontmatter": "^5.0.0",
     "remark-gfm": "^4.0.1",
     "remark-parse": "^11.0.0",
-    "shiki": "^3.21.0",
+    "shiki": "^3.22.0",
     "unified": "^11.0.5",
     "unist-util-remove": "^4.0.0",
     "unist-util-visit": "^5.1.0",
@@ -45,9 +45,9 @@
   },
   "devDependencies": {
     "@types/mdast": "^4.0.4",
-    "@types/node": "25.0.10",
-    "tsdown": "^0.20.1",
+    "@types/node": "25.1.0",
     "shx": "^0.4.0",
+    "tsdown": "^0.20.1",
     "typescript": "^5.9.3",
     "vitest": "^4.0.18"
   }

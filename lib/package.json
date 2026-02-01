@@ -1,18 +1,18 @@
 {
   "name": "@tinrab/temelj",
+  "version": "0.17.0",
   "description": "A big standard library for TypeScript.",
   "license": "MIT",
   "repository": {
     "url": "https://github.com/tinrab/temelj"
   },
-  "version": "0.16.0",
   "type": "module",
-  "main": "./dist/mod.js",
-  "types": "./dist/mod.d.ts",
+  "main": "./dist/mod.mjs",
+  "types": "./dist/mod.d.mts",
   "exports": {
     ".": {
-      "types": "./dist/mod.d.ts",
-      "import": "./dist/mod.js"
+      "types": "./dist/mod.d.mts",
+      "import": "./dist/mod.mjs"
     },
     "./array": {
       "types": "./dist/array/mod.d.ts",
@@ -83,7 +83,7 @@
     "@temelj/value": "workspace:*"
   },
   "devDependencies": {
-    "@types/node": "25.0.10",
+    "@types/node": "25.1.0",
     "shx": "^0.4.0",
     "tsdown": "^0.20.1",
     "typescript": "^5.9.3"

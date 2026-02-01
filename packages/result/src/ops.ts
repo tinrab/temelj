@@ -62,3 +62,63 @@ export function mapErr<E, F>(
   }
   return result;
 }
+
+/**
+ * Calls a function that may throw and returns a Result.
+ *
+ * @param fn - The synchronous function to execute.
+ */
+export function fromThrowable<T>(fn: () => T): Result<T, unknown>;
+
+/**
+ * Calls a function that may throw and returns a Result, mapping the error if one occurs.
+ *
+ * @param fn - The synchronous function to execute.
+ * @param onErr - A function to convert the unknown thrown value to type E.
+ */
+export function fromThrowable<T, E>(
+  fn: () => T,
+  onErr: (e: unknown) => E,
+): Result<T, E>;
+export function fromThrowable<T, E>(
+  fn: () => T,
+  onErr?: (e: unknown) => E,
+): Result<T, E | unknown> {
+  try {
+    return ok(fn());
+  } catch (e) {
+    return err(onErr ? onErr(e) : e);
+  }
+}
+
+/**
+ * Calls a function that returns a Promise and returns a Promise<Result>.
+ * Catches both synchronous exceptions in the factory and asynchronous rejections.
+ *
+ * @param fn - The async function to execute.
+ */
+export function fromPromise<T>(
+  fn: () => Promise<T>,
+): Promise<Result<T, unknown>>;
+
+/**
+ * Calls a function that returns a Promise and returns a Promise<Result>, mapping the error if one occurs.
+ *
+ * @param fn - The async function to execute.
+ * @param onErr - A function to convert the unknown rejection reason to type E.
+ */
+export function fromPromise<T, E>(
+  fn: () => Promise<T>,
+  onErr: (e: unknown) => E,
+): Promise<Result<T, E>>;
+export async function fromPromise<T, E>(
+  fn: () => Promise<T>,
+  onErr?: (e: unknown) => E,
+): Promise<Result<T, E | unknown>> {
+  try {
+    const value = await fn();
+    return ok(value);
+  } catch (e) {
+    return err(onErr ? onErr(e) : e);
+  }
+}

@@ -6,8 +6,4 @@ export default defineConfig({
   target: false,
   unbundle: true,
   sourcemap: false,
-  outExtensions: () => ({
-    js: ".js",
-    dts: ".d.ts",
-  }),
 });

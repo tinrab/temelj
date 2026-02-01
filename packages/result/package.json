@@ -1,23 +1,23 @@
 {
   "name": "@temelj/result",
+  "version": "0.10.0",
   "description": "Result type utilities for error handling.",
   "license": "MIT",
   "repository": {
     "url": "https://github.com/tinrab/temelj"
   },
-  "version": "0.9.0",
-  "type": "module",
-  "main": "./dist/mod.js",
-  "types": "./dist/mod.d.ts",
-  "exports": {
-    ".": {
-      "types": "./dist/mod.d.ts",
-      "import": "./dist/mod.js"
-    }
-  },
   "files": [
     "dist"
   ],
+  "type": "module",
+  "main": "./dist/mod.mjs",
+  "types": "./dist/mod.d.mts",
+  "exports": {
+    ".": {
+      "types": "./dist/mod.d.mts",
+      "import": "./dist/mod.mjs"
+    }
+  },
   "scripts": {
     "build": "tsdown",
     "test": "vitest run",
@@ -25,9 +25,9 @@
     "clean": "shx rm -rf dist"
   },
   "devDependencies": {
-    "@types/node": "25.0.10",
-    "tsdown": "^0.20.1",
+    "@types/node": "25.1.0",
     "shx": "^0.4.0",
+    "tsdown": "^0.20.1",
     "typescript": "^5.9.3",
     "vitest": "^4.0.18"
   }
