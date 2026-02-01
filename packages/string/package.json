@@ -1,23 +1,23 @@
 {
   "name": "@temelj/string",
+  "version": "0.10.0",
   "description": "String manipulation utilities.",
   "license": "MIT",
   "repository": {
     "url": "https://github.com/tinrab/temelj"
   },
-  "version": "0.9.0",
-  "type": "module",
-  "main": "./dist/mod.js",
-  "types": "./dist/mod.d.ts",
-  "exports": {
-    ".": {
-      "types": "./dist/mod.d.ts",
-      "import": "./dist/mod.js"
-    }
-  },
   "files": [
     "dist"
   ],
+  "type": "module",
+  "main": "./dist/mod.mjs",
+  "types": "./dist/mod.d.mts",
+  "exports": {
+    ".": {
+      "types": "./dist/mod.d.mts",
+      "import": "./dist/mod.mjs"
+    }
+  },
   "scripts": {
     "build": "tsdown",
     "test": "vitest run",
@@ -25,8 +25,8 @@
     "clean": "shx rm -rf dist"
   },
   "devDependencies": {
-    "tsdown": "^0.20.1",
     "shx": "^0.4.0",
+    "tsdown": "^0.20.1",
     "typescript": "^5.9.3",
     "vitest": "^4.0.18"
   }
