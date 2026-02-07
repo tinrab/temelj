@@ -5,7 +5,15 @@ export interface Rectangle {
   size: Vector2;
 }
 
-export const rectangle = {
+export const rectangle: {
+  of(position: Vector2, size: Vector2): Rectangle;
+  ofBounds(x: number, y: number, width: number, height: number): Rectangle;
+  fromDOM(rect: DOMRect): Rectangle;
+  expand(a: Rectangle, b: Rectangle): Rectangle;
+  center(r: Rectangle): Vector2;
+  overlaps(a: Rectangle, b: Rectangle): boolean;
+  displayString(r: Rectangle): string;
+} = {
   of(position: Vector2, size: Vector2): Rectangle {
     return { position, size };
   },
@@ -64,4 +72,4 @@ export const rectangle = {
   displayString(r: Rectangle): string {
     return `Rectangle(${r.position.x}, ${r.position.y}, ${r.size.x}, ${r.size.y})`;
   },
-};
+} as const;

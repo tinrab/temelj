@@ -5,7 +5,27 @@ export interface Vector2 {
   y: number;
 }
 
-export const vector2 = {
+export const vector2: {
+  of(x: number, y: number): Vector2;
+  copy(v: Vector2): Vector2;
+  zero(): Vector2;
+  equals(a: Vector2, b: Vector2): boolean;
+  plus(a: Vector2, b: Vector2): Vector2;
+  add(v: Vector2, x: number, y: number): Vector2;
+  minus(a: Vector2, b: Vector2): Vector2;
+  subtract(v: Vector2, x: number, y: number): Vector2;
+  times(a: Vector2, b: Vector2): Vector2;
+  multiply(v: Vector2, x: number, y: number): Vector2;
+  divided(a: Vector2, b: Vector2): Vector2;
+  divide(v: Vector2, x: number, y: number): Vector2;
+  scale(v: Vector2, x: number): Vector2;
+  negate(v: Vector2): Vector2;
+  snap(v: Vector2, size: number): Vector2;
+  clamp(v: Vector2, min: Vector2, max: Vector2): Vector2;
+  clampMin(v: Vector2, min: Vector2): Vector2;
+  clampMax(v: Vector2, max: Vector2): Vector2;
+  displayString(v: Vector2): string;
+} = {
   of(x: number, y: number): Vector2 {
     return { x, y };
   },
@@ -84,4 +104,4 @@ export const vector2 = {
   displayString(v: Vector2): string {
     return `Vector2(${v.x}, ${v.y})`;
   },
-};
+} as const;

@@ -1,0 +1,11 @@
+{
+  "name": "@temelj/id",
+  "version": "0.10.2",
+  "exports": "./src/mod.ts",
+  "license": "MIT",
+  "nodeModulesDir": "auto",
+  "publish": {
+    "include": ["src/**/*.ts", "README.md"],
+    "exclude": ["src/**/*.test.ts"]
+  }
+}
