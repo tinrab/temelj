@@ -40,3 +40,22 @@ jobs:
 
       - name: Publish NPM packages
         run: pnpm publish -r --access public --no-git-checks
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish JSR packages
+        run: |
+          (cd "packages/value" && npx jsr publish)
+          (cd "packages/string" && npx jsr publish)
+          (cd "packages/color" && npx jsr publish)
+          (cd "packages/result" && npx jsr publish)
+          (cd "packages/iterator" && npx jsr publish)
+          (cd "packages/math" && npx jsr publish)
+          (cd "packages/id" && npx jsr publish)
+          (cd "packages/request" && npx jsr publish)
+          (cd "packages/array" && npx jsr publish)
+          (cd "packages/handlebars" && npx jsr publish)
+          (cd "packages/mdx" && npx jsr publish)
+          (cd "packages/mdx-react" && npx jsr publish)
+
+          (cd lib && npx jsr publish)

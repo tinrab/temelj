@@ -1,6 +1,6 @@
 {
   "name": "@tinrab/temelj",
-  "version": "0.17.0",
+  "version": "0.17.2",
   "description": "A big standard library for TypeScript.",
   "license": "MIT",
   "repository": {
@@ -15,52 +15,52 @@
       "import": "./dist/mod.mjs"
     },
     "./array": {
-      "types": "./dist/array/mod.d.ts",
-      "import": "./dist/array/mod.js"
+      "types": "./dist/array/mod.d.mts",
+      "import": "./dist/array/mod.mjs"
     },
     "./color": {
-      "types": "./dist/color/mod.d.ts",
-      "import": "./dist/color/mod.js"
+      "types": "./dist/color/mod.d.mts",
+      "import": "./dist/color/mod.mjs"
     },
     "./handlebars": {
-      "types": "./dist/handlebars/mod.d.ts",
-      "import": "./dist/handlebars/mod.js"
+      "types": "./dist/handlebars/mod.d.mts",
+      "import": "./dist/handlebars/mod.mjs"
     },
     "./id": {
-      "types": "./dist/id/mod.d.ts",
-      "import": "./dist/id/mod.js"
+      "types": "./dist/id/mod.d.mts",
+      "import": "./dist/id/mod.mjs"
     },
     "./iterator": {
-      "types": "./dist/iterator/mod.d.ts",
-      "import": "./dist/iterator/mod.js"
+      "types": "./dist/iterator/mod.d.mts",
+      "import": "./dist/iterator/mod.mjs"
     },
     "./math": {
-      "types": "./dist/math/mod.d.ts",
-      "import": "./dist/math/mod.js"
+      "types": "./dist/math/mod.d.mts",
+      "import": "./dist/math/mod.mjs"
     },
     "./mdx": {
-      "types": "./dist/mdx/mod.d.ts",
-      "import": "./dist/mdx/mod.js"
+      "types": "./dist/mdx/mod.d.mts",
+      "import": "./dist/mdx/mod.mjs"
     },
     "./mdx-react": {
-      "types": "./dist/mdx-react/mod.d.ts",
-      "import": "./dist/mdx-react/mod.js"
+      "types": "./dist/mdx-react/mod.d.mts",
+      "import": "./dist/mdx-react/mod.mjs"
     },
     "./request": {
-      "types": "./dist/request/mod.d.ts",
-      "import": "./dist/request/mod.js"
+      "types": "./dist/request/mod.d.mts",
+      "import": "./dist/request/mod.mjs"
     },
     "./result": {
-      "types": "./dist/result/mod.d.ts",
-      "import": "./dist/result/mod.js"
+      "types": "./dist/result/mod.d.mts",
+      "import": "./dist/result/mod.mjs"
     },
     "./string": {
-      "types": "./dist/string/mod.d.ts",
-      "import": "./dist/string/mod.js"
+      "types": "./dist/string/mod.d.mts",
+      "import": "./dist/string/mod.mjs"
     },
     "./value": {
-      "types": "./dist/value/mod.d.ts",
-      "import": "./dist/value/mod.js"
+      "types": "./dist/value/mod.d.mts",
+      "import": "./dist/value/mod.mjs"
     }
   },
   "scripts": {
@@ -83,9 +83,9 @@
     "@temelj/value": "workspace:*"
   },
   "devDependencies": {
-    "@types/node": "25.1.0",
+    "@types/node": "25.2.1",
     "shx": "^0.4.0",
-    "tsdown": "^0.20.1",
+    "tsdown": "^0.20.3",
     "typescript": "^5.9.3"
   }
 }

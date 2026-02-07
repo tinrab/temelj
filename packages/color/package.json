@@ -1,6 +1,6 @@
 {
   "name": "@temelj/color",
-  "version": "0.10.0",
+  "version": "0.10.2",
   "description": "Utilities for working with colors.",
   "license": "MIT",
   "repository": {
@@ -28,10 +28,10 @@
     "remove": "^0.1.5"
   },
   "devDependencies": {
-    "@types/node": "25.1.0",
+    "@types/node": "25.2.1",
     "esbuild-plugin-file-path-extensions": "^2.1.4",
     "shx": "^0.4.0",
-    "tsdown": "^0.20.1",
+    "tsdown": "^0.20.3",
     "typescript": "^5.9.3",
     "vitest": "^4.0.18"
   }

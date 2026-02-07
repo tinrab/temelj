@@ -1,0 +1,25 @@
+{
+  "name": "@tinrab/temelj",
+  "version": "0.17.2",
+  "exports": "./src/mod.ts",
+  "license": "MIT",
+  "nodeModulesDir": "auto",
+  "imports": {
+    "@temelj/array": "jsr:@temelj/array@^0.10.2",
+    "@temelj/color": "jsr:@temelj/color@^0.10.2",
+    "@temelj/handlebars": "jsr:@temelj/handlebars@^0.10.2",
+    "@temelj/id": "jsr:@temelj/id@^0.10.2",
+    "@temelj/iterator": "jsr:@temelj/iterator@^0.10.2",
+    "@temelj/math": "jsr:@temelj/math@^0.10.2",
+    "@temelj/mdx": "jsr:@temelj/mdx@^0.10.2",
+    "@temelj/mdx-react": "jsr:@temelj/mdx-react@^0.10.2",
+    "@temelj/request": "jsr:@temelj/request@^0.10.2",
+    "@temelj/result": "jsr:@temelj/result@^0.10.2",
+    "@temelj/string": "jsr:@temelj/string@^0.10.2",
+    "@temelj/value": "jsr:@temelj/value@^0.10.2"
+  },
+  "publish": {
+    "include": ["src/**/*.ts"],
+    "exclude": ["src/**/*.test.ts"]
+  }
+}
