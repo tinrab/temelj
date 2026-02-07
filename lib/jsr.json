@@ -1,0 +1,24 @@
+{
+  "name": "@tinrab/temelj",
+  "version": "0.17.1",
+  "imports": {
+    "@temelj/array": "jsr:@temelj/array@0.10.1",
+    "@temelj/color": "jsr:@temelj/color@0.10.1",
+    "@temelj/handlebars": "jsr:@temelj/handlebars@0.10.1",
+    "@temelj/id": "jsr:@temelj/id@0.10.1",
+    "@temelj/iterator": "jsr:@temelj/iterator@0.10.1",
+    "@temelj/math": "jsr:@temelj/math@0.10.1",
+    "@temelj/mdx": "jsr:@temelj/mdx@0.10.1",
+    "@temelj/mdx-react": "jsr:@temelj/mdx-react@0.10.1",
+    "@temelj/request": "jsr:@temelj/request@0.10.1",
+    "@temelj/result": "jsr:@temelj/result@0.10.1",
+    "@temelj/string": "jsr:@temelj/string@0.10.1",
+    "@temelj/value": "jsr:@temelj/value@0.10.1"
+  },
+  "exports": "./src/mod.ts",
+  "license": "MIT",
+  "publish": {
+    "include": ["src/**/*.ts", "../README.md"],
+    "exclude": ["src/**/*.test.ts"]
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "name": "@temelj/mdx-react",
+  "version": "0.10.1",
+  "imports": {
+    "@temelj/mdx": "jsr:@temelj/mdx@0.10.1"
+  },
+  "exports": "./src/mod.ts",
+  "license": "MIT",
+  "publish": {
+    "include": ["src/**/*.ts", "src/**/*.tsx", "README.md", "LICENSE"],
+    "exclude": ["src/**/*.test.ts", "src/**/*.test.tsx"]
+  }
+}

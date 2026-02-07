@@ -16,11 +16,11 @@
     "test:watch": "vitest"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.3.13",
-    "@types/node": "25.1.0",
+    "@biomejs/biome": "2.3.14",
+    "@types/node": "25.2.1",
     "shx": "^0.4.0",
     "tsx": "^4.21.0",
-    "turbo": "^2.8.1",
+    "turbo": "^2.8.3",
     "typescript": "^5.9.3",
     "vitest": "^4.0.18"
   },
