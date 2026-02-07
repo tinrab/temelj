@@ -1,6 +1,6 @@
 {
   "name": "@temelj/string",
-  "version": "0.10.0",
+  "version": "0.10.1",
   "description": "String manipulation utilities.",
   "license": "MIT",
   "repository": {
@@ -26,7 +26,7 @@
   },
   "devDependencies": {
     "shx": "^0.4.0",
-    "tsdown": "^0.20.1",
+    "tsdown": "^0.20.3",
     "typescript": "^5.9.3",
     "vitest": "^4.0.18"
   }

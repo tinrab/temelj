@@ -1,0 +1,14 @@
+{
+  "name": "@temelj/array",
+  "version": "0.10.1",
+  "imports": {
+    "@temelj/result": "jsr:@temelj/result@0.10.1",
+    "@temelj/value": "jsr:@temelj/value@0.10.1"
+  },
+  "exports": "./src/mod.ts",
+  "license": "MIT",
+  "publish": {
+    "include": ["src/**/*.ts", "README.md"],
+    "exclude": ["src/**/*.test.ts"]
+  }
+}

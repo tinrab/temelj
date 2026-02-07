@@ -1,6 +1,6 @@
 {
   "name": "@temelj/iterator",
-  "version": "0.10.0",
+  "version": "0.10.1",
   "description": "Utilities for working with iterators.",
   "license": "MIT",
   "repository": {
@@ -25,9 +25,9 @@
     "clean": "shx rm -rf dist"
   },
   "devDependencies": {
-    "@types/node": "25.1.0",
+    "@types/node": "25.2.1",
     "shx": "^0.4.0",
-    "tsdown": "^0.20.1",
+    "tsdown": "^0.20.3",
     "typescript": "^5.9.3",
     "vitest": "^4.0.18"
   }
