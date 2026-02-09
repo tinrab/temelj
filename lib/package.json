@@ -1,6 +1,6 @@
 {
   "name": "@tinrab/temelj",
-  "version": "0.17.2",
+  "version": "0.17.3",
   "description": "A big standard library for TypeScript.",
   "license": "MIT",
   "repository": {
@@ -83,7 +83,7 @@
     "@temelj/value": "workspace:*"
   },
   "devDependencies": {
-    "@types/node": "25.2.1",
+    "@types/node": "25.2.2",
     "shx": "^0.4.0",
     "tsdown": "^0.20.3",
     "typescript": "^5.9.3"

@@ -22,7 +22,7 @@
     },
     "clean": {},
     "typecheck": {
-      "dependsOn": ["^build", "^typecheck"]
+      "dependsOn": ["^build"]
     }
   }
 }

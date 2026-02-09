@@ -1,6 +1,6 @@
 {
   "name": "@temelj/request",
-  "version": "0.10.2",
+  "version": "0.10.3",
   "description": "HTTP request utilities.",
   "license": "MIT",
   "repository": {
@@ -28,7 +28,7 @@
     "tough-cookie": "^6.0.0"
   },
   "devDependencies": {
-    "@types/node": "25.2.1",
+    "@types/node": "25.2.2",
     "shx": "^0.4.0",
     "tsdown": "^0.20.3",
     "typescript": "^5.9.3",

@@ -1,6 +1,6 @@
 {
   "name": "@temelj/array",
-  "version": "0.10.2",
+  "version": "0.10.3",
   "description": "Utilities for working with arrays.",
   "license": "MIT",
   "repository": {
@@ -30,7 +30,7 @@
     "deepmerge": "^4.3.1"
   },
   "devDependencies": {
-    "@types/node": "25.2.1",
+    "@types/node": "25.2.2",
     "shx": "^0.4.0",
     "tsdown": "^0.20.3",
     "typescript": "^5.9.3",

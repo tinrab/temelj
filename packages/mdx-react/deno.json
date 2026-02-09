@@ -1,11 +1,11 @@
 {
   "name": "@temelj/mdx-react",
-  "version": "0.10.2",
+  "version": "0.10.3",
   "exports": "./src/mod.ts",
   "license": "MIT",
   "nodeModulesDir": "auto",
   "imports": {
-    "@temelj/mdx": "jsr:@temelj/mdx@^0.10.2"
+    "@temelj/mdx": "jsr:@temelj/mdx@^0.10.3"
   },
   "publish": {
     "include": ["src/**/*.ts", "src/**/*.tsx", "README.md", "LICENSE"],
