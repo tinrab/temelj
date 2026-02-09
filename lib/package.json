@@ -18,6 +18,10 @@
       "types": "./dist/array/mod.d.mts",
       "import": "./dist/array/mod.mjs"
     },
+    "./async": {
+      "types": "./dist/async/mod.d.mts",
+      "import": "./dist/async/mod.mjs"
+    },
     "./color": {
       "types": "./dist/color/mod.d.mts",
       "import": "./dist/color/mod.mjs"
@@ -70,6 +74,7 @@
   },
   "dependencies": {
     "@temelj/array": "workspace:*",
+    "@temelj/async": "workspace:*",
     "@temelj/color": "workspace:*",
     "@temelj/handlebars": "workspace:*",
     "@temelj/id": "workspace:*",

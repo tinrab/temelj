@@ -6,6 +6,7 @@
   "nodeModulesDir": "auto",
   "imports": {
     "@temelj/array": "jsr:@temelj/array@^0.10.3",
+    "@temelj/async": "jsr:@temelj/async@^0.10.3",
     "@temelj/color": "jsr:@temelj/color@^0.10.3",
     "@temelj/handlebars": "jsr:@temelj/handlebars@^0.10.3",
     "@temelj/id": "jsr:@temelj/id@^0.10.3",
