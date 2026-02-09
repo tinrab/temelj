@@ -53,7 +53,6 @@ jobs:
           (cd "packages/math" && npx jsr publish)
           (cd "packages/id" && npx jsr publish)
           (cd "packages/request" && npx jsr publish)
-          (cd "packages/array" && npx jsr publish)
           (cd "packages/handlebars" && npx jsr publish)
           (cd "packages/mdx" && npx jsr publish)
           (cd "packages/mdx-react" && npx jsr publish)

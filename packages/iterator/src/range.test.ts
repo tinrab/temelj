@@ -7,6 +7,7 @@ import {
   NumericRangeError,
   NumericRangeIterator,
   parseNumericRange,
+  range,
   reverseNumericRange,
 } from "./range";
 
@@ -115,4 +116,21 @@ test("numeric range - iterator", () => {
   expect(
     Array.from(new NumericRangeIterator(parseNumericRange("3..0"))),
   ).toStrictEqual([3, 2, 1]);
+});
+
+test("range() generator works", () => {
+  expect(Array.from(range(0, 5))).toEqual([0, 1, 2, 3, 4]);
+  expect(Array.from(range(5, 0))).toEqual([]);
+  expect(Array.from(range(0, 0))).toEqual([]);
+  expect(Array.from(range(2, 5))).toEqual([2, 3, 4]);
+});
+
+test("range() with step works", () => {
+  expect(Array.from(range(0, 10, 2))).toEqual([0, 2, 4, 6, 8]);
+  expect(Array.from(range(10, 0, -2))).toEqual([10, 8, 6, 4, 2]);
+  expect(Array.from(range(0, 5, 3))).toEqual([0, 3]);
+});
+
+test("range() throws on zero step", () => {
+  expect(() => Array.from(range(0, 5, 0))).toThrow("Step cannot be zero");
 });

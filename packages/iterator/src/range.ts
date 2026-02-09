@@ -340,3 +340,32 @@ export class NumericRangeIterator implements Iterator<number, number> {
     return this;
   }
 }
+
+/**
+ * A simple programmatic generator for numeric ranges.
+ *
+ * @param start The starting number (inclusive).
+ * @param end The ending number (exclusive).
+ * @param step The step size (default is 1).
+ * @returns A generator that yields numbers from start to end.
+ * ```
+ */
+export function* range(
+  start: number,
+  end: number,
+  step: number = 1,
+): Generator<number> {
+  if (step === 0) {
+    throw new Error("Step cannot be zero");
+  }
+
+  if (step > 0) {
+    for (let i = start; i < end; i += step) {
+      yield i;
+    }
+  } else {
+    for (let i = start; i > end; i += step) {
+      yield i;
+    }
+  }
+}

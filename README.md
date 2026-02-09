@@ -39,7 +39,6 @@
 Packages are available under `@temelj/<package>`, or if you prefer a single
 dependency, you can use `@tinrab/temelj/<package>`.
 
-- [@temelj/array](./packages/array) - Utilities for working with arrays.
 - [@temelj/async](./packages/async) - Utilities for working with async.
 - [@temelj/color](./packages/color) - Utilities for working with colors.
 - [@temelj/handlebars](./packages/handlebars) - Utilities for working with

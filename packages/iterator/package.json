@@ -24,6 +24,11 @@
     "typecheck": "tsc --noEmit",
     "clean": "shx rm -rf dist"
   },
+  "dependencies": {
+    "@temelj/result": "workspace:*",
+    "@temelj/value": "workspace:*",
+    "deepmerge": "^4.3.1"
+  },
   "devDependencies": {
     "@types/node": "25.2.2",
     "shx": "^0.4.0",

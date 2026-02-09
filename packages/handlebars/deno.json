@@ -5,7 +5,6 @@
   "license": "MIT",
   "nodeModulesDir": "auto",
   "imports": {
-    "@temelj/array": "jsr:@temelj/array@^0.10.3",
     "@temelj/value": "jsr:@temelj/value@^0.10.3",
     "@temelj/string": "jsr:@temelj/string@^0.10.3"
   },

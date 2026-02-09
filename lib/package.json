@@ -14,10 +14,6 @@
       "types": "./dist/mod.d.mts",
       "import": "./dist/mod.mjs"
     },
-    "./array": {
-      "types": "./dist/array/mod.d.mts",
-      "import": "./dist/array/mod.mjs"
-    },
     "./async": {
       "types": "./dist/async/mod.d.mts",
       "import": "./dist/async/mod.mjs"
@@ -73,7 +69,6 @@
     "clean": "shx rm -rf dist"
   },
   "dependencies": {
-    "@temelj/array": "workspace:*",
     "@temelj/async": "workspace:*",
     "@temelj/color": "workspace:*",
     "@temelj/handlebars": "workspace:*",

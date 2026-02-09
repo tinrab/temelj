@@ -44,7 +44,7 @@ export function sampleListUniqueIndices(
   if (length === 0) {
     return [];
   }
-  const indices: number[] = shuffle(
+  const indices: number[] = arrayShuffle(
     Array.from({ length: length }, (_, i) => i),
   );
   return indices.slice(0, Math.min(length, count));
@@ -102,7 +102,7 @@ export function sampleListUnique<T>(array: T[], count: number): T[] {
  * @param array The array to shuffle.
  * @returns The shuffled array.
  */
-export function shuffle<T>(array: T[]): T[] {
+export function arrayShuffle<T>(array: T[]): T[] {
   for (let i = array.length; i; i--) {
     const j = Math.floor(Math.random() * i);
     [array[i - 1], array[j]] = [array[j], array[i - 1]];
