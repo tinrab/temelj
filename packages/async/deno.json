@@ -1,13 +1,9 @@
 {
-  "name": "@temelj/array",
-  "version": "0.10.2",
+  "name": "@temelj/async",
+  "version": "0.10.4",
   "exports": "./src/mod.ts",
   "license": "MIT",
   "nodeModulesDir": "auto",
-  "imports": {
-    "@temelj/value": "jsr:@temelj/value@^0.10.2",
-    "@temelj/result": "jsr:@temelj/result@^0.10.2"
-  },
   "publish": {
     "include": ["src/**/*.ts", "README.md"],
     "exclude": ["src/**/*.test.ts"]

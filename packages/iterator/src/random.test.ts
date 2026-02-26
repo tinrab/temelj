@@ -1,10 +1,10 @@
 import { expect, test } from "vitest";
 
-import { sample, sampleList, sampleListUnique, shuffle } from "./random";
+import { arrayShuffle, sample, sampleList, sampleListUnique } from "./random";
 
-test("shuffle() works", () => {
+test("arrayShuffle() works", () => {
   const array = [1, 2, 3, 4, 5];
-  const shuffled = shuffle(array);
+  const shuffled = arrayShuffle(array);
   expect(shuffled.length).toStrictEqual(array.length);
   expect(shuffled.sort()).toEqual(array.sort());
 });

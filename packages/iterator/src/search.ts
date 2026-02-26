@@ -12,17 +12,17 @@ import { deepEquals } from "@temelj/value";
  * @example Basic usage.
  *
  * ```ts
- * import { binarySearch } from "@temelj/array";
+ * import { arrayBinarySearch } from "@temelj/iterator";
  * import { unwrap } from "@temelj/result";
  * import { expect, test } from "vitest";
  *
  * assertEquals(
- *  unwrap(binarySearch([1, 2, 3], 2, (a, b) => a - b)),
+ *  unwrap(arrayBinarySearch([1, 2, 3], 2, (a, b) => a - b)),
  *  1,
  * );
  * ```
  */
-export function binarySearch<T>(
+export function arrayBinarySearch<T>(
   arr: T[],
   value: T,
   compare: (a: T, b: T) => number,
@@ -51,7 +51,7 @@ export function binarySearch<T>(
  * @param compare An optional custom comparison function to use for each element. If not provided, {@link deepEquals} will be used.
  * @returns `true` if the array contains any duplicates, `false` otherwise.
  */
-export function containsDuplicates<T>(
+export function arrayContainsDuplicates<T>(
   arr: T[],
   compare?: (a: T, b: T) => boolean,
 ): boolean {

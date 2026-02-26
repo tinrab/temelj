@@ -10,21 +10,21 @@
     "@temelj/mdx": "workspace:*",
     "@temelj/mdx-react": "workspace:*",
     "clsx": "^2.1.1",
-    "katex": "^0.16.28",
+    "katex": "^0.16.33",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "rehype-katex": "^7.0.1",
     "remark-math": "^6.0.0",
-    "tailwind-merge": "^3.4.0",
-    "tailwindcss": "^4.1.18"
+    "tailwind-merge": "^3.5.0",
+    "tailwindcss": "^4.2.1"
   },
   "devDependencies": {
-    "@tailwindcss/vite": "^4.1.18",
-    "@types/react": "^19.2.13",
+    "@tailwindcss/vite": "^4.2.1",
+    "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
-    "@vitejs/plugin-react": "^5.1.3",
+    "@vitejs/plugin-react": "^5.1.4",
     "typescript": "^5.9.3",
     "vite": "^7.3.1"
   },
-  "packageManager": "pnpm@10.28.2"
+  "packageManager": "pnpm@10.30.2"
 }

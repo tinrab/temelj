@@ -1,6 +1,6 @@
 {
   "name": "@temelj/iterator",
-  "version": "0.10.2",
+  "version": "0.10.4",
   "description": "Utilities for working with iterators.",
   "license": "MIT",
   "repository": {
@@ -24,8 +24,13 @@
     "typecheck": "tsc --noEmit",
     "clean": "shx rm -rf dist"
   },
+  "dependencies": {
+    "@temelj/result": "workspace:*",
+    "@temelj/value": "workspace:*",
+    "deepmerge": "^4.3.1"
+  },
   "devDependencies": {
-    "@types/node": "25.2.1",
+    "@types/node": "25.3.0",
     "shx": "^0.4.0",
     "tsdown": "^0.20.3",
     "typescript": "^5.9.3",

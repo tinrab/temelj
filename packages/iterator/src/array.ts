@@ -9,7 +9,7 @@ import merge from "deepmerge";
  * @param compare An optional custom comparison function to use for each element. If not provided, {@link deepEquals} will be used.
  * @returns `true` if the arrays are equal, `false` otherwise.
  */
-export function equals<T>(
+export function arrayEquals<T>(
   a: T[],
   b: T[],
   compare?: (a: T, b: T) => boolean,
@@ -52,7 +52,7 @@ export function equals<T>(
  * @param source The source array to combine from.
  * @returns A new array that is the combination of the target and source arrays.
  */
-export function combineMerge<A, B>(target: A[], source: B[]): (A & B)[] {
+export function arrayCombineMerge<A, B>(target: A[], source: B[]): (A & B)[] {
   const result: unknown[] = [...target];
   let i = 0;
   for (const item of source) {
