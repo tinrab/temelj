@@ -8,11 +8,11 @@ import type { StandardOptions } from "./types";
  * If a `fallback` value is provided, it is returned instead of throwing on timeout.
  */
 export function timeout<T>(
-  promise: Promise<T> | (() => Promise<T>),
+  promise: PromiseLike<T> | (() => PromiseLike<T> | T),
   ms: number,
   options?: StandardOptions & { fallback?: T },
 ): Promise<T> {
-  const p = typeof promise === "function" ? promise() : promise;
+  const p = typeof promise === "function" ? Promise.try(promise) : promise;
 
   return new Promise<T>((resolve, reject) => {
     if (options?.signal?.aborted) {

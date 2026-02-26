@@ -7,7 +7,7 @@ import type { StandardOptions } from "./types";
  * once per `intervalMs` milliseconds.
  */
 export function throttle<Args extends unknown[], R>(
-  fn: (...args: Args) => Promise<R>,
+  fn: (...args: Args) => PromiseLike<R> | R,
   intervalMs: number,
   options?: StandardOptions,
 ): (...args: Args) => Promise<R> {
@@ -19,7 +19,7 @@ export function throttle<Args extends unknown[], R>(
 
   function invoke(args: Args, d: Deferred<R>) {
     lastCallTime = Date.now();
-    fn(...args).then(
+    Promise.try(fn, ...args).then(
       (value) => d.resolve(value),
       (error) => d.reject(error),
     );

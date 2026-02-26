@@ -2,7 +2,7 @@ import { type Deferred, defer } from "./defer";
 import { AbortError } from "./errors";
 
 interface QueueTask {
-  fn: () => Promise<unknown>;
+  fn: () => PromiseLike<unknown> | unknown;
   priority: number;
   signal?: AbortSignal;
   resolve: (value: unknown) => void;
@@ -37,7 +37,7 @@ export class Queue {
   /**
    * Adds a task to the queue. Supports optional priority (higher executes sooner).
    */
-  add<T>(fn: () => Promise<T>, options?: AddOptions): Promise<T> {
+  add<T>(fn: () => PromiseLike<T> | T, options?: AddOptions): Promise<T> {
     return new Promise<T>((resolve, reject) => {
       const signal = options?.signal;
       if (signal?.aborted) {
@@ -46,7 +46,7 @@ export class Queue {
       }
 
       const task: QueueTask = {
-        fn: fn as () => Promise<unknown>,
+        fn: fn as () => PromiseLike<unknown> | unknown,
         priority: options?.priority ?? 0,
         signal,
         resolve: resolve as (value: unknown) => void,
@@ -177,7 +177,7 @@ export class Queue {
 
     task.signal?.addEventListener("abort", onAbort, { once: true });
 
-    task.fn().then(
+    Promise.try(task.fn).then(
       (value) => {
         task.signal?.removeEventListener("abort", onAbort);
         this.#activeCount--;

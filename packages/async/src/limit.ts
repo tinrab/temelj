@@ -7,7 +7,7 @@ import type { StandardOptions } from "./types";
  * All calls to the wrapper share the same concurrency pool.
  */
 export function limit<Args extends unknown[], R>(
-  fn: (...args: Args) => Promise<R>,
+  fn: (...args: Args) => PromiseLike<R> | R,
   concurrency: number,
   options?: StandardOptions,
 ): (...args: Args) => Promise<R> {
@@ -29,7 +29,7 @@ export function limit<Args extends unknown[], R>(
 
     const run = () => {
       activeCount++;
-      fn(...args).then(
+      Promise.try(fn, ...args).then(
         (value) => {
           activeCount--;
           deferred.resolve(value);

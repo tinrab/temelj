@@ -16,7 +16,7 @@ interface DebounceOptions {
  * function was invoked.
  */
 export function debounce<Args extends unknown[], R>(
-  fn: (...args: Args) => Promise<R>,
+  fn: (...args: Args) => PromiseLike<R> | R,
   waitMs: number,
   options?: DebounceOptions,
 ): (...args: Args) => Promise<R> {
@@ -63,7 +63,7 @@ export function debounce<Args extends unknown[], R>(
 
     if (leading && !isLeadingInvoked) {
       isLeadingInvoked = true;
-      fn(...args).then(
+      Promise.try(fn, ...args).then(
         (value) => currentDeferred.resolve(value),
         (error) => currentDeferred.reject(error),
       );
@@ -78,7 +78,7 @@ export function debounce<Args extends unknown[], R>(
         if (!d) return;
         pendingDeferred = undefined;
         if (!leading || latestArgs !== args) {
-          fn(...latestArgs).then(
+          Promise.try(fn, ...latestArgs).then(
             (value) => d.resolve(value),
             (error) => d.reject(error),
           );
