@@ -1,10 +1,16 @@
+import rehypeKatex from "rehype-katex";
+import remarkMath from "remark-math";
+import type { Plugin } from "unified";
 import { expect, test } from "vitest";
 import * as z from "zod";
 
-import { MdxCompiler } from "./compiler";
+import { MdxCompileError, MdxCompiler } from "./compiler";
 import { headingIdPlugin } from "./plugins/heading-id/plugin";
 import { syntaxHighlightPlugin } from "./plugins/syntax-highlight/plugin";
 import { treeProcessorPlugin } from "./plugins/tree-processor/plugin";
+import type { HastElement } from "./types";
+
+const rehypeKatexPlugin = rehypeKatex as unknown as Plugin;
 
 test("mdx - compile", async () => {
   let headingCount = 0;
@@ -13,7 +19,7 @@ test("mdx - compile", async () => {
       prefix: "h-",
     })
     .withRehypePlugin(treeProcessorPlugin, {
-      process: (element) => {
+      process: (element: HastElement) => {
         if (element.tagName.startsWith("h")) {
           headingCount++;
         }
@@ -116,4 +122,54 @@ ${JSON.stringify(frontmatter)}
   );
   const _fm2type: { s: string } = fm2;
   expect(fm2).toStrictEqual({ s: "abc" });
+});
+
+test("mdx - malformed latex is reported as diagnostic", async () => {
+  const compiler = new MdxCompiler()
+    .withRemarkPlugin(remarkMath)
+    .withRehypePlugin(rehypeKatexPlugin);
+
+  const source = [
+    "Hello, World!",
+    "This is $2$nd line, the one with faulty: $\\f$$42$ GB",
+  ].join("\n");
+
+  const artifact = await compiler.compile(source);
+
+  expect(typeof artifact.compiled).toStrictEqual("string");
+  expect(artifact.messages).toHaveLength(1);
+  expect(artifact.messages[0]).toMatchObject({
+    source: "rehype-katex",
+    reason: "Could not render math with KaTeX",
+    line: 2,
+    sourceLine: "This is $2$nd line, the one with faulty: $\\f$$42$ GB",
+    snippet: "$\\f$$42$",
+    cause: {
+      name: "ParseError",
+    },
+  });
+  expect(artifact.messages[0].message).toContain(
+    "Could not render math with KaTeX",
+  );
+  expect(artifact.messages[0].message).toContain("Source: $\\f$$42$");
+});
+
+test("mdx - compile errors include source context", async () => {
+  const compiler = new MdxCompiler();
+  const source = ["# Hello", "export const answer = ;"].join("\n");
+
+  await expect(compiler.compile(source)).rejects.toThrow(MdxCompileError);
+
+  try {
+    await compiler.compile(source);
+  } catch (error) {
+    expect(error).toBeInstanceOf(MdxCompileError);
+    const mdxError = error as MdxCompileError;
+    expect(mdxError.line).toStrictEqual(2);
+    expect(mdxError.sourceLine).toStrictEqual("export const answer = ;");
+    expect(mdxError.snippet).toStrictEqual(";");
+    expect(mdxError.message).toContain("at 2");
+    expect(mdxError.message).toContain("Source: ;");
+    expect(mdxError.message).toContain("Line: export const answer = ;");
+  }
 });
