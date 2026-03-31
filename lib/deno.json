@@ -1,6 +1,6 @@
 {
   "name": "@tinrab/temelj",
-  "version": "0.18.0",
+  "version": "0.18.1",
   "exports": "./src/mod.ts",
   "license": "MIT",
   "nodeModulesDir": "auto",
