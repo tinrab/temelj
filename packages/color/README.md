@@ -37,5 +37,4 @@ $ deno add jsr:@temelj/color # or jsr add @temelj/color
 
 ## About
 
-This package is part of [Temelj](https://github.com/tinrab/temelj) - a big
-standard library for TypeScript.
+This package is part of [Temelj](https://github.com/tinrab/temelj) - a core library for TypeScript.
