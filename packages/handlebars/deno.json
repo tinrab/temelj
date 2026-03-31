@@ -1,12 +1,12 @@
 {
   "name": "@temelj/handlebars",
-  "version": "0.10.4",
+  "version": "0.11.0",
   "exports": "./src/mod.ts",
   "license": "MIT",
   "nodeModulesDir": "auto",
   "imports": {
-    "@temelj/value": "jsr:@temelj/value@^0.10.4",
-    "@temelj/string": "jsr:@temelj/string@^0.10.4"
+    "@temelj/value": "jsr:@temelj/value@^0.11.0",
+    "@temelj/string": "jsr:@temelj/string@^0.11.0"
   },
   "publish": {
     "include": ["src/**/*.ts", "README.md"],

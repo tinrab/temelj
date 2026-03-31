@@ -2,7 +2,7 @@
   <h1 align="center" style="text-decoration:none;">Temelj</h1>
   <br/>
   <p align="center">
-    A big standard library for TypeScript.
+    A core library for TypeScript.
   </p>
 </p>
 

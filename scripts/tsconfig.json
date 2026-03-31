@@ -23,7 +23,8 @@
     "strictNullChecks": true,
     "noFallthroughCasesInSwitch": true,
     "allowSyntheticDefaultImports": true,
-    "outDir": "${configDir}/dist"
+    "outDir": "${configDir}/dist",
+    "types": ["node"]
   },
   "include": ["${configDir}/src", "${configDir}/tests"],
   "exclude": ["${configDir}/node_modules", "${configDir}/dist"]

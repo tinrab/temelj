@@ -37,5 +37,4 @@ $ deno add jsr:@temelj/iterator # or jsr add @temelj/iterator
 
 ## About
 
-This package is part of [Temelj](https://github.com/tinrab/temelj) - a big
-standard library for TypeScript.
+This package is part of [Temelj](https://github.com/tinrab/temelj) - a core library for TypeScript.
