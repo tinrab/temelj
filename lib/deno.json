@@ -1,6 +1,6 @@
 {
   "name": "@tinrab/temelj",
-  "version": "0.18.1",
+  "version": "0.18.2",
   "exports": "./src/mod.ts",
   "license": "MIT",
   "nodeModulesDir": "auto",
@@ -11,8 +11,8 @@
     "@temelj/id": "jsr:@temelj/id@^0.11.0",
     "@temelj/iterator": "jsr:@temelj/iterator@^0.11.0",
     "@temelj/math": "jsr:@temelj/math@^0.11.0",
-    "@temelj/mdx": "jsr:@temelj/mdx@^0.11.0",
-    "@temelj/mdx-react": "jsr:@temelj/mdx-react@^0.11.0",
+    "@temelj/mdx": "jsr:@temelj/mdx@^0.11.2",
+    "@temelj/mdx-react": "jsr:@temelj/mdx-react@^0.11.2",
     "@temelj/request": "jsr:@temelj/request@^0.11.0",
     "@temelj/result": "jsr:@temelj/result@^0.11.0",
     "@temelj/string": "jsr:@temelj/string@^0.11.0",

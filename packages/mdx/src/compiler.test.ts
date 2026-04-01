@@ -173,3 +173,74 @@ test("mdx - compile errors include source context", async () => {
     expect(mdxError.message).toContain("Line: export const answer = ;");
   }
 });
+
+test("mdx - compile errors use frontmatter-stripped source locations", async () => {
+  const compiler = new MdxCompiler();
+  const source = [
+    "---",
+    "title: Test",
+    "---",
+    "",
+    "# Hello",
+    "",
+    "The W{weight bits}A{activation bits} format uses ternary weights.",
+  ].join("\n");
+
+  await expect(compiler.compile(source)).rejects.toThrow(MdxCompileError);
+
+  try {
+    await compiler.compile(source);
+  } catch (error) {
+    expect(error).toBeInstanceOf(MdxCompileError);
+    const mdxError = error as MdxCompileError;
+    expect(mdxError.line).toStrictEqual(7);
+    expect(mdxError.column).toStrictEqual(6);
+    expect(mdxError.source).toStrictEqual("micromark-extension-mdx-expression");
+    expect(mdxError.ruleId).toStrictEqual("acorn");
+    expect(mdxError.sourceLine).toStrictEqual(
+      "The W{weight bits}A{activation bits} format uses ternary weights.",
+    );
+    expect(mdxError.snippet).toStrictEqual("W{weight bits}A{activation bits}");
+    expect(mdxError.sourcePointer).toStrictEqual("     ^");
+    expect(mdxError.message).toContain("at 7:6");
+    expect(mdxError.message).toContain(
+      "Source: W{weight bits}A{activation bits}",
+    );
+    expect(mdxError.message).toContain(
+      "Line: The W{weight bits}A{activation bits} format uses ternary weights.",
+    );
+    expect(mdxError.message).toContain("     ^");
+    expect(mdxError.message).toContain(
+      "Cause: Unexpected content after expression",
+    );
+    expect(mdxError.hint).toContain("MDX treats `{...}` as JavaScript");
+  }
+});
+
+test("mdx - compile errors keep actual JS expression locations", async () => {
+  const compiler = new MdxCompiler();
+  const source = ["# Hello", "Value is {foo bar} baz"].join("\n");
+
+  await expect(compiler.compile(source)).rejects.toThrow(MdxCompileError);
+
+  try {
+    await compiler.compile(source);
+  } catch (error) {
+    expect(error).toBeInstanceOf(MdxCompileError);
+    const mdxError = error as MdxCompileError;
+    expect(mdxError.line).toStrictEqual(2);
+    expect(mdxError.column).toStrictEqual(10);
+    expect(mdxError.sourceLine).toStrictEqual("Value is {foo bar} baz");
+    expect(mdxError.snippet).toStrictEqual("{foo bar}");
+    expect(mdxError.sourcePointer).toStrictEqual("         ^");
+    expect(mdxError.hint).toContain("MDX treats `{...}` as JavaScript");
+    expect(mdxError.message).toContain("at 2:10");
+    expect(mdxError.message).toContain("Source: {foo bar}");
+    expect(mdxError.message).toContain(
+      "Cause: Unexpected content after expression",
+    );
+    expect(mdxError.message).toContain(
+      "Hint: MDX treats `{...}` as JavaScript.",
+    );
+  }
+});

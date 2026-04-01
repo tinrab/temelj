@@ -1,6 +1,6 @@
 {
   "name": "@temelj/mdx-react",
-  "version": "0.11.0",
+  "version": "0.11.2",
   "description": "React utilities for MDX processing.",
   "license": "MIT",
   "repository": {
