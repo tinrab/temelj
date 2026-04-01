@@ -48,6 +48,8 @@ export interface MdxMessage {
   place?: MdxMessagePlace | undefined;
   sourceLine?: string | undefined;
   snippet?: string | undefined;
+  sourcePointer?: string | undefined;
+  hint?: string | undefined;
   cause?: {
     name?: string | undefined;
     message: string;
@@ -55,6 +57,11 @@ export interface MdxMessage {
 }
 
 type VFileLikeMessage = VFile["messages"][number];
+
+interface MdxDiagnosticSourceContext {
+  originalSourceText: string;
+  lineOffset: number;
+}
 
 /**
  * The result of compiling an MDX document.
@@ -75,6 +82,8 @@ export class MdxCompileError extends Error {
   public readonly place?: MdxMessagePlace | undefined;
   public readonly sourceLine?: string | undefined;
   public readonly snippet?: string | undefined;
+  public readonly sourcePointer?: string | undefined;
+  public readonly hint?: string | undefined;
   public readonly diagnostics: MdxMessage[];
 
   public constructor(
@@ -87,6 +96,9 @@ export class MdxCompileError extends Error {
       place?: MdxMessagePlace | undefined;
       sourceLine?: string | undefined;
       snippet?: string | undefined;
+      sourcePointer?: string | undefined;
+      hint?: string | undefined;
+      causeMessage?: string | undefined;
       diagnostics?: MdxMessage[] | undefined;
       cause?: unknown;
     } = {},
@@ -99,6 +111,9 @@ export class MdxCompileError extends Error {
         column: options.column,
         sourceLine: options.sourceLine,
         snippet: options.snippet,
+        sourcePointer: options.sourcePointer,
+        hint: options.hint,
+        causeMessage: options.causeMessage,
       }),
       options.cause === undefined ? undefined : { cause: options.cause },
     );
@@ -112,6 +127,8 @@ export class MdxCompileError extends Error {
     this.place = options.place;
     this.sourceLine = options.sourceLine;
     this.snippet = options.snippet;
+    this.sourcePointer = options.sourcePointer;
+    this.hint = options.hint;
     this.diagnostics = options.diagnostics ?? [];
   }
 }
@@ -167,6 +184,11 @@ export class MdxCompiler {
       path: "/source.mdx",
     });
     matter(vfile, { strip: true });
+    const compileSourceText = toSourceText(vfile.value as MdxSource);
+    const sourceContext = createDiagnosticSourceContext(
+      sourceText,
+      compileSourceText,
+    );
 
     const remarkPlugins = [
       ...this.remarkPlugins,
@@ -191,7 +213,7 @@ export class MdxCompiler {
         });
         compiled = compiledFile.value.toString();
       } catch (error) {
-        throw toMdxCompileError(error, sourceText, vfile.messages);
+        throw toMdxCompileError(error, sourceContext, vfile.messages);
       }
     }
 
@@ -203,17 +225,22 @@ export class MdxCompiler {
     return {
       compiled,
       frontmatter: frontmatter as z.output<TFrontmatterSchema>,
-      messages: normalizeMessages(vfile.messages, sourceText),
+      messages: normalizeMessages(vfile.messages, sourceContext),
     };
   }
 }
 
 function toMdxCompileError(
   error: unknown,
-  sourceText: string,
+  sourceContext: MdxDiagnosticSourceContext,
   diagnostics: readonly VFileLikeMessage[],
 ): MdxCompileError {
-  const details = getDiagnosticDetails(sourceText, getErrorPlace(error), error);
+  const details = getDiagnosticDetails(
+    sourceContext,
+    getErrorPlace(error),
+    error,
+  );
+  const cause = getErrorCause(error);
 
   return new MdxCompileError(getErrorReason(error), {
     source: getErrorField(error, "source"),
@@ -223,18 +250,21 @@ function toMdxCompileError(
     place: details.place,
     sourceLine: details.sourceLine,
     snippet: details.snippet,
-    diagnostics: normalizeMessages(diagnostics, sourceText),
+    sourcePointer: details.sourcePointer,
+    hint: details.hint,
+    causeMessage: cause?.message,
+    diagnostics: normalizeMessages(diagnostics, sourceContext),
     cause: error,
   });
 }
 
 function normalizeMessages(
   messages: readonly VFileLikeMessage[],
-  sourceText: string,
+  sourceContext: MdxDiagnosticSourceContext,
 ): MdxMessage[] {
   return messages.map((message) => {
     const details = getDiagnosticDetails(
-      sourceText,
+      sourceContext,
       toMessagePlace(message),
       message,
     );
@@ -251,6 +281,8 @@ function normalizeMessages(
         column: details.column,
         sourceLine: details.sourceLine,
         snippet: details.snippet,
+        sourcePointer: details.sourcePointer,
+        hint: details.hint,
         causeMessage: cause?.message,
       }),
       reason,
@@ -262,6 +294,8 @@ function normalizeMessages(
       place: details.place,
       sourceLine: details.sourceLine,
       snippet: details.snippet,
+      sourcePointer: details.sourcePointer,
+      hint: details.hint,
       cause,
     };
   });
@@ -276,6 +310,8 @@ function formatDiagnosticMessage(
     column?: number | undefined;
     sourceLine?: string | undefined;
     snippet?: string | undefined;
+    sourcePointer?: string | undefined;
+    hint?: string | undefined;
     causeMessage?: string | undefined;
   },
 ): string {
@@ -302,6 +338,9 @@ function formatDiagnosticMessage(
     options.sourceLine !== options.snippet
   ) {
     lines.push(`Line: ${options.sourceLine}`);
+    if (options.sourcePointer !== undefined) {
+      lines.push(`      ${options.sourcePointer}`);
+    }
   }
   if (
     options.causeMessage !== undefined &&
@@ -310,12 +349,15 @@ function formatDiagnosticMessage(
   ) {
     lines.push(`Cause: ${options.causeMessage}`);
   }
+  if (options.hint !== undefined) {
+    lines.push(`Hint: ${options.hint}`);
+  }
 
   return lines.join("\n");
 }
 
 function getDiagnosticDetails(
-  sourceText: string,
+  sourceContext: MdxDiagnosticSourceContext,
   place: MdxMessagePlace | undefined,
   error: unknown,
 ): {
@@ -324,15 +366,21 @@ function getDiagnosticDetails(
   place?: MdxMessagePlace | undefined;
   sourceLine?: string | undefined;
   snippet?: string | undefined;
+  sourcePointer?: string | undefined;
+  hint?: string | undefined;
 } {
-  const line = place?.start?.line ?? getErrorNumberField(error, "line");
-  const column = place?.start?.column ?? getErrorNumberField(error, "column");
-  const normalizedPlace =
-    line === undefined && column === undefined && place === undefined
+  const compileLine = place?.start?.line ?? getErrorNumberField(error, "line");
+  let line =
+    compileLine === undefined
+      ? undefined
+      : compileLine + sourceContext.lineOffset;
+  let column = place?.start?.column ?? getErrorNumberField(error, "column");
+  let normalizedPlace = mapPlaceToOriginalSource(
+    place === undefined && compileLine === undefined && column === undefined
       ? undefined
       : {
           start: {
-            line,
+            line: compileLine,
             column,
             offset: place?.start?.offset,
           },
@@ -344,15 +392,118 @@ function getDiagnosticDetails(
                   column: place.end.column,
                   offset: place.end.offset,
                 },
-        };
+        },
+    sourceContext.lineOffset,
+  );
+  let sourceLine = getSourceLine(sourceContext.originalSourceText, line);
+  let snippet = getSourceSnippet(
+    sourceContext.originalSourceText,
+    normalizedPlace,
+  );
+  let sourcePointer = getSourcePointer(column);
+  let hint: string | undefined;
+
+  const refinedExpressionContext = getMdxExpressionContext(
+    sourceContext.originalSourceText,
+    {
+      line,
+      column,
+      sourceLine,
+      snippet,
+      error,
+    },
+  );
+
+  if (refinedExpressionContext !== undefined) {
+    line = refinedExpressionContext.line;
+    column = refinedExpressionContext.column;
+    sourceLine = refinedExpressionContext.sourceLine;
+    snippet = refinedExpressionContext.snippet;
+    sourcePointer = refinedExpressionContext.sourcePointer;
+    hint = refinedExpressionContext.hint;
+    normalizedPlace = {
+      start: {
+        line,
+        column,
+        offset: undefined,
+      },
+      end: undefined,
+    };
+  }
 
   return {
     line,
     column,
     place: normalizedPlace,
-    sourceLine: getSourceLine(sourceText, line),
-    snippet: getSourceSnippet(sourceText, normalizedPlace),
+    sourceLine,
+    snippet,
+    sourcePointer,
+    hint,
   };
+}
+
+function getMdxExpressionContext(
+  sourceText: string,
+  options: {
+    line?: number | undefined;
+    column?: number | undefined;
+    sourceLine?: string | undefined;
+    snippet?: string | undefined;
+    error: unknown;
+  },
+):
+  | {
+      line: number;
+      column: number;
+      sourceLine: string;
+      snippet: string;
+      sourcePointer: string;
+      hint?: string | undefined;
+    }
+  | undefined {
+  if (!shouldRefineMdxExpressionContext(options)) {
+    return undefined;
+  }
+
+  const candidate = findSuspiciousBraceExpression(
+    sourceText,
+    options.line,
+    options.column,
+  );
+  if (candidate === undefined) {
+    return undefined;
+  }
+
+  return {
+    line: candidate.line,
+    column: candidate.column,
+    sourceLine: candidate.sourceLine,
+    snippet: candidate.snippet,
+    sourcePointer: getSourcePointer(candidate.column) ?? "^",
+    hint:
+      getErrorCause(options.error)?.message ===
+      "Unexpected content after expression"
+        ? "MDX treats `{...}` as JavaScript. If you meant literal braces in text, escape them or wrap the text in code."
+        : undefined,
+  };
+}
+
+function shouldRefineMdxExpressionContext(options: {
+  sourceLine?: string | undefined;
+  snippet?: string | undefined;
+  error: unknown;
+}): boolean {
+  const trimmedSourceLine = options.sourceLine?.trim();
+
+  return (
+    isMdxExpressionError(options.error) &&
+    getErrorCause(options.error)?.message ===
+      "Unexpected content after expression" &&
+    (options.sourceLine === undefined ||
+      options.sourceLine.trim() === "" ||
+      options.snippet === undefined) &&
+    !(trimmedSourceLine?.startsWith("{") && trimmedSourceLine.endsWith("}"))
+  );
 }
 
 function getSourceLine(
@@ -377,6 +528,19 @@ function getSourceSnippet(
     return undefined;
   }
 
+  if (place.end === undefined) {
+    const lines = sourceText.split(/\r?\n/u);
+    const line = lines[place.start.line - 1];
+    if (line === undefined) {
+      return undefined;
+    }
+
+    const character = line.at(place.start.column - 1);
+    return character === undefined || character.trim() === ""
+      ? undefined
+      : character;
+  }
+
   const lines = sourceText.split(/\r?\n/u);
   const startLineIndex = place.start.line - 1;
   const endLineIndex = (place.end?.line ?? place.start.line) - 1;
@@ -399,6 +563,247 @@ function getSourceSnippet(
   }
 
   return selectedLines.join("\n") || undefined;
+}
+
+function getSourcePointer(column: number | undefined): string | undefined {
+  if (column === undefined || column < 1) {
+    return undefined;
+  }
+
+  return `${" ".repeat(column - 1)}^`;
+}
+
+function mapPlaceToOriginalSource(
+  place: MdxMessagePlace | undefined,
+  lineOffset: number,
+): MdxMessagePlace | undefined {
+  if (place === undefined) {
+    return undefined;
+  }
+
+  return {
+    start: mapPointToOriginalSource(place.start, lineOffset),
+    end: mapPointToOriginalSource(place.end, lineOffset),
+  };
+}
+
+function mapPointToOriginalSource(
+  point: MdxMessagePoint | undefined,
+  lineOffset: number,
+): MdxMessagePoint | undefined {
+  if (point === undefined) {
+    return undefined;
+  }
+
+  return {
+    line: point.line === undefined ? undefined : point.line + lineOffset,
+    column: point.column,
+    offset: lineOffset === 0 ? point.offset : undefined,
+  };
+}
+
+function findSuspiciousBraceExpression(
+  sourceText: string,
+  line: number | undefined,
+  column: number | undefined,
+):
+  | {
+      line: number;
+      column: number;
+      sourceLine: string;
+      snippet: string;
+    }
+  | undefined {
+  const lines = sourceText.split(/\r?\n/u);
+  const searchLines = getNearbyLineNumbers(line, lines.length, 2);
+  let bestMatch:
+    | {
+        line: number;
+        column: number;
+        sourceLine: string;
+        snippet: string;
+        score: number;
+      }
+    | undefined;
+
+  for (const lineNumber of searchLines) {
+    const sourceLine = lines[lineNumber - 1];
+    if (sourceLine === undefined || sourceLine.trim() === "") {
+      continue;
+    }
+
+    const expression = findLineBraceExpression(sourceLine, lineNumber, column);
+    if (expression === undefined) {
+      continue;
+    }
+
+    const lineDistance = line === undefined ? 0 : Math.abs(lineNumber - line);
+    const score = lineDistance * 10 + expression.distance;
+
+    if (bestMatch === undefined || score < bestMatch.score) {
+      bestMatch = {
+        ...expression,
+        score,
+      };
+    }
+  }
+
+  return bestMatch;
+}
+
+function getNearbyLineNumbers(
+  line: number | undefined,
+  totalLines: number,
+  radius: number,
+): number[] {
+  if (line === undefined) {
+    return Array.from({ length: totalLines }, (_, index) => index + 1);
+  }
+
+  const lineNumbers: number[] = [];
+  for (let distance = 0; distance <= radius; distance++) {
+    const before = line - distance;
+    if (before >= 1) {
+      lineNumbers.push(before);
+    }
+
+    if (distance === 0) {
+      continue;
+    }
+
+    const after = line + distance;
+    if (after <= totalLines) {
+      lineNumbers.push(after);
+    }
+  }
+
+  return lineNumbers;
+}
+
+function findLineBraceExpression(
+  sourceLine: string,
+  line: number,
+  column: number | undefined,
+):
+  | {
+      line: number;
+      column: number;
+      sourceLine: string;
+      snippet: string;
+      distance: number;
+    }
+  | undefined {
+  let bestMatch:
+    | {
+        line: number;
+        column: number;
+        sourceLine: string;
+        snippet: string;
+        distance: number;
+      }
+    | undefined;
+
+  for (const match of sourceLine.matchAll(/\{[^{}\n]+\}/gu)) {
+    const braceStart = match.index;
+    if (braceStart === undefined) {
+      continue;
+    }
+
+    const expanded = expandBraceExpression(sourceLine, braceStart);
+    if (expanded === undefined) {
+      continue;
+    }
+
+    const distance =
+      column === undefined ? 0 : Math.abs(braceStart + 1 - column);
+    if (bestMatch === undefined || distance < bestMatch.distance) {
+      bestMatch = {
+        line,
+        column: braceStart + 1,
+        sourceLine,
+        snippet: expanded,
+        distance,
+      };
+    }
+  }
+
+  return bestMatch;
+}
+
+function expandBraceExpression(
+  sourceLine: string,
+  braceStart: number,
+): string | undefined {
+  const braceEnd = sourceLine.indexOf("}", braceStart);
+  if (braceEnd === -1) {
+    return undefined;
+  }
+
+  let start = braceStart;
+  while (start > 0 && /[A-Za-z0-9_]/u.test(sourceLine[start - 1])) {
+    start--;
+  }
+
+  let end = braceEnd + 1;
+  while (end < sourceLine.length) {
+    while (end < sourceLine.length && /[A-Za-z0-9_]/u.test(sourceLine[end])) {
+      end++;
+    }
+
+    if (sourceLine[end] !== "{") {
+      break;
+    }
+
+    const chainedEnd = sourceLine.indexOf("}", end);
+    if (chainedEnd === -1) {
+      break;
+    }
+    end = chainedEnd + 1;
+  }
+
+  return sourceLine.slice(start, end) || undefined;
+}
+
+function isMdxExpressionError(error: unknown): boolean {
+  return (
+    getErrorField(error, "source") === "micromark-extension-mdx-expression" &&
+    getErrorField(error, "ruleId") === "acorn"
+  );
+}
+
+function createDiagnosticSourceContext(
+  originalSourceText: string,
+  compileSourceText: string,
+): MdxDiagnosticSourceContext {
+  return {
+    originalSourceText,
+    lineOffset: getSourceLineOffset(originalSourceText, compileSourceText),
+  };
+}
+
+function getSourceLineOffset(
+  originalSourceText: string,
+  compileSourceText: string,
+): number {
+  const originalLines = originalSourceText.split(/\r?\n/u);
+  const compileLines = compileSourceText.split(/\r?\n/u);
+  const maxOffset = originalLines.length - compileLines.length;
+
+  for (let offset = 0; offset <= maxOffset; offset++) {
+    let isMatch = true;
+    for (let index = 0; index < compileLines.length; index++) {
+      if (originalLines[offset + index] !== compileLines[index]) {
+        isMatch = false;
+        break;
+      }
+    }
+
+    if (isMatch) {
+      return offset;
+    }
+  }
+
+  return maxOffset > 0 ? maxOffset : 0;
 }
 
 function getErrorPlace(error: unknown): MdxMessagePlace | undefined {

@@ -1,6 +1,6 @@
 {
   "name": "@temelj/mdx",
-  "version": "0.11.0",
+  "version": "0.11.2",
   "exports": "./src/mod.ts",
   "license": "MIT",
   "nodeModulesDir": "auto",
