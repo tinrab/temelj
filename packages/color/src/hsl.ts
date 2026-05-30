@@ -41,10 +41,8 @@ export function isValidHsl(color: HslColor): boolean {
 export function normalizeHsl(color: HslColor): HslColor {
   return {
     hue: color.hue % 360,
-    saturation:
-      color.saturation < 0 ? 0 : color.saturation > 1 ? 1 : color.saturation,
-    lightness:
-      color.lightness < 0 ? 0 : color.lightness > 1 ? 1 : color.lightness,
+    saturation: color.saturation < 0 ? 0 : color.saturation > 1 ? 1 : color.saturation,
+    lightness: color.lightness < 0 ? 0 : color.lightness > 1 ? 1 : color.lightness,
     alpha:
       color.alpha === undefined
         ? undefined
@@ -174,8 +172,7 @@ export function rgbToHsl(color: Color): HslColor {
  */
 export function toHslString(color: HslColor): string {
   const h = color.hue % 360;
-  const s =
-    color.saturation < 0 ? 0 : color.saturation > 1 ? 1 : color.saturation;
+  const s = color.saturation < 0 ? 0 : color.saturation > 1 ? 1 : color.saturation;
   const l = color.lightness < 0 ? 0 : color.lightness > 1 ? 1 : color.lightness;
   return `hsl(${h}, ${s * 100}%, ${l * 100}%)`;
 }
@@ -188,9 +185,7 @@ export function toHslString(color: HslColor): string {
  */
 export function toHslaString(color: HslColor): string {
   const c = normalizeHsl(color);
-  return `hsla(${c.hue}, ${c.saturation * 100}%, ${c.lightness * 100}%, ${
-    c.alpha ?? 1
-  })`;
+  return `hsla(${c.hue}, ${c.saturation * 100}%, ${c.lightness * 100}%, ${c.alpha ?? 1})`;
 }
 
 /**

@@ -10,15 +10,11 @@ interface HelperZodBuilder {
   params: <TParams extends [] | [z.core.SomeType, ...z.core.SomeType[]]>(
     ...schemas: TParams
   ) => HelperZodBuilderWithParams<TParams>;
-  hash: <THash extends z.ZodSchema>(
-    schema: THash,
-  ) => HelperZodBuilderWithHash<THash>;
+  hash: <THash extends z.ZodSchema>(schema: THash) => HelperZodBuilderWithHash<THash>;
   handle: (handler: (context: HelperContext) => HelperResult) => HelperDelegate;
 }
 
-interface HelperZodBuilderWithParams<
-  TParams extends [] | [z.core.SomeType, ...z.core.SomeType[]],
-> {
+interface HelperZodBuilderWithParams<TParams extends [] | [z.core.SomeType, ...z.core.SomeType[]]> {
   hash: <THash extends z.ZodSchema>(
     schema: THash,
   ) => HelperZodBuilderWithParamsAndHash<TParams, THash>;
@@ -78,9 +74,7 @@ class HelperZodBuilderImpl implements HelperZodBuilder {
     ) as unknown as HelperZodBuilderWithParams<TParams>;
   }
 
-  hash<THash extends z.ZodSchema>(
-    schema: THash,
-  ): HelperZodBuilderWithHash<THash> {
+  hash<THash extends z.ZodSchema>(schema: THash): HelperZodBuilderWithHash<THash> {
     return new HelperZodBuilderImpl(
       this._paramsSchema,
       schema,
@@ -96,9 +90,7 @@ class HelperZodBuilderImpl implements HelperZodBuilder {
         const paramsCount = this._paramsSchema.def.items.length;
         const paramArgs = args.slice(0, -1);
         if (paramArgs.length < paramsCount) {
-          paramArgs.push(
-            ...Array.from({ length: paramsCount - paramArgs.length }),
-          );
+          paramArgs.push(...Array.from({ length: paramsCount - paramArgs.length }));
         }
         try {
           params = this._paramsSchema.parse(paramArgs);
@@ -115,7 +107,7 @@ class HelperZodBuilderImpl implements HelperZodBuilder {
         }
       }
 
-      let hash: unknown | undefined;
+      let hash: unknown;
       if (this._hashSchema !== undefined) {
         try {
           hash = this._hashSchema.parse(context?.hash);

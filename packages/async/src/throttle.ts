@@ -1,6 +1,7 @@
+import type { StandardOptions } from "./types";
+
 import { type Deferred, defer } from "./defer";
 import { AbortError } from "./errors";
-import type { StandardOptions } from "./types";
 
 /**
  * Creates an async-aware throttled function that only invokes `fn` at most

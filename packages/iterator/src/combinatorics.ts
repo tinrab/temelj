@@ -6,10 +6,7 @@
  * @param b The second iterable.
  * @returns An array of tuples containing all possible pairs.
  */
-export function cartesianProduct<T, U>(
-  a: Iterable<T>,
-  b: Iterable<U>,
-): [T, U][] {
+export function cartesianProduct<T, U>(a: Iterable<T>, b: Iterable<U>): [T, U][] {
   const bArray = Array.from(b);
   const result: [T, U][] = [];
 

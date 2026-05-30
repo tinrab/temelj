@@ -6,8 +6,8 @@ test("deepEquals() works", () => {
   const obj1 = { x: 1, y: 2, a: [1, 2] };
   const obj2 = { x: 1, y: 2, a: [1, 2] };
   const obj3 = { x: 1, y: 2, a: [3, 45] };
-  expect(deepEquals(obj1, obj2));
-  expect(!deepEquals(obj1, obj3));
+  expect(deepEquals(obj1, obj2)).toBe(true);
+  expect(deepEquals(obj1, obj3)).toBe(false);
 });
 
 test("primitivize() works", () => {

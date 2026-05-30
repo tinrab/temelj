@@ -1,11 +1,7 @@
-import {
-  headingIdPlugin,
-  type MdxArtifact,
-  MdxCompiler,
-  syntaxHighlightPlugin,
-} from "@temelj/mdx";
-import { createMdxContent } from "@temelj/mdx-react";
 import type React from "react";
+
+import { headingIdPlugin, MdxCompiler, syntaxHighlightPlugin } from "@temelj/mdx";
+import { createMdxContent } from "@temelj/mdx-react";
 import { useEffect, useState } from "react";
 import rehypeKatex from "rehype-katex";
 import remarkMath from "remark-math";
@@ -13,11 +9,11 @@ import remarkMath from "remark-math";
 import { getMdxComponents } from "./components/registry";
 
 export function App(): React.ReactNode {
-  const [artifact, setArtifact] = useState<MdxArtifact<unknown> | undefined>();
+  const [frontmatter, setFrontmatter] = useState<Record<string, unknown> | undefined>();
   const [content, setContent] = useState<React.ReactNode>();
 
   useEffect(() => {
-    (async () => {
+    void (async () => {
       const compiler = new MdxCompiler()
         // .withRemarkPlugin(removeImportsExportsPlugin)
         .withRemarkPlugin(remarkMath)
@@ -105,7 +101,7 @@ export function Demo() {
           `.trim(),
         {},
       );
-      setArtifact(result);
+      setFrontmatter(result.frontmatter);
 
       setContent(createMdxContent({ artifact: result }, getMdxComponents()));
     })();
@@ -115,9 +111,9 @@ export function Demo() {
     <div className="mx-auto p-8">
       <h1 className="underline">MDX</h1>
 
-      {artifact && content && (
+      {frontmatter && content && (
         <>
-          <pre>{JSON.stringify(artifact.frontmatter, null, 2)}</pre>
+          <pre>{JSON.stringify(frontmatter, null, 2)}</pre>
 
           <div>{content}</div>
         </>

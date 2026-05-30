@@ -1,6 +1,7 @@
+import type { ConcurrencyOptions, StandardOptions } from "./types";
+
 import { map } from "./map";
 import { reduce } from "./reduce";
-import type { ConcurrencyOptions, StandardOptions } from "./types";
 import { Skip } from "./types";
 
 type StreamSource<T> = AsyncIterable<T> | Iterable<T> | Promise<Iterable<T>>;
@@ -63,10 +64,7 @@ export class AsyncStream<T> {
    * it retries the entire pipeline up to `times` attempts.
    */
   retry(options?: { times?: number; delay?: number }): AsyncStream<T> {
-    return new AsyncStream<T>(this.#source, [
-      ...this.#steps,
-      { kind: "retry", args: [options] },
-    ]);
+    return new AsyncStream<T>(this.#source, [...this.#steps, { kind: "retry", args: [options] }]);
   }
 
   /**
@@ -131,7 +129,7 @@ export class AsyncStream<T> {
       switch (step.kind) {
         case "map": {
           const [mapper, mapOptions] = step.args as [
-            (item: unknown, index: number) => Promise<unknown> | unknown,
+            (item: unknown, index: number) => unknown,
             ConcurrencyOptions | undefined,
           ];
           current = await map(current, mapper, {
@@ -159,9 +157,7 @@ export class AsyncStream<T> {
           break;
         }
         case "retry": {
-          const [retryOptions] = step.args as [
-            { times?: number; delay?: number } | undefined,
-          ];
+          const [retryOptions] = step.args as [{ times?: number; delay?: number } | undefined];
           void retryOptions;
           break;
         }

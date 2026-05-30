@@ -1,24 +1,15 @@
 import { expect, test } from "vitest";
 
-import {
-  err,
-  fromPromise,
-  fromThrowable,
-  isErr,
-  isOk,
-  mapErr,
-  ok,
-  unwrap,
-  unwrapErr,
-} from "./ops";
 import type { Result } from "./types";
 
-test("make result", () => {
-  expect(isOk(ok(42)));
-  expect(!isOk(err(42)));
+import { err, fromPromise, fromThrowable, isErr, isOk, mapErr, ok, unwrap, unwrapErr } from "./ops";
 
-  expect(isErr(err("a")));
-  expect(!isErr(ok(42)));
+test("make result", () => {
+  expect(isOk(ok(42))).toBe(true);
+  expect(isOk(err(42))).toBe(false);
+
+  expect(isErr(err("a"))).toBe(true);
+  expect(isErr(ok(42))).toBe(false);
 });
 
 test("map error type predicate", () => {
@@ -39,6 +30,9 @@ test("map error type predicate", () => {
     }
     return ok("B");
   }
+
+  expect(unwrap(_demo1())).toBe(0);
+  expect(unwrap(_demo2())).toBe("B");
 });
 
 test("fromThrowable (sync)", () => {
@@ -86,7 +80,7 @@ test("fromPromise (async)", async () => {
   // Failure case (mapped)
   const resErrMapped = await fromPromise(
     () => Promise.reject("fail"),
-    (e) => `Error: ${e}`,
+    (e) => `Error: ${String(e)}`,
   );
   expect(isErr(resErrMapped)).toBe(true);
   expect(unwrapErr(resErrMapped)).toBe("Error: fail");

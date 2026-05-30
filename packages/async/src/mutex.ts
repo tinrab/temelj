@@ -56,10 +56,7 @@ export class Mutex {
    * @param fn - The function to run exclusively.
    * @param signal - Optional AbortSignal to cancel waiting for the lock.
    */
-  async runExclusive<T>(
-    fn: () => Promise<T>,
-    signal?: AbortSignal,
-  ): Promise<T> {
+  async runExclusive<T>(fn: () => Promise<T>, signal?: AbortSignal): Promise<T> {
     const release = await this.acquire(signal);
     try {
       return await fn();

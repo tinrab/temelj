@@ -5,11 +5,11 @@ import { Registry } from "../registry";
 test("Handlebars array helpers", () => {
   const r = new Registry().includeAllHelpers();
 
-  expect(r.render("{{array 1 2 3}}"), "1,2,3");
-  expect(r.render("{{arrayItemAt (array 1 2 3) 1}}"), "2");
-  expect(r.render("{{arrayContains (array 1 2 3) 2}}"), "true");
-  expect(r.render("{{arrayContains (array 1 2 3) 4}}"), "false");
-  expect(r.render(`{{arrayJoin (array 1 2 3) "|"}}`), "1|2|3");
+  expect(r.render("{{array 1 2 3}}")).toBe("1,2,3");
+  expect(r.render("{{arrayItemAt (array 1 2 3) 1}}")).toBe("2");
+  expect(r.render("{{arrayContains (array 1 2 3) 2}}")).toBe("true");
+  expect(r.render("{{arrayContains (array 1 2 3) 4}}")).toBe("false");
+  expect(r.render(`{{arrayJoin (array 1 2 3) "|"}}`)).toBe("1|2|3");
 });
 
 test("Handlebars arrayFilter helper", () => {
@@ -29,35 +29,35 @@ test("Handlebars arrayFilter helper", () => {
 
   // Filter active items using a simple boolean property
   let template = `{{#each (arrayFilter items "{{this.active}}")}}[{{this.name}}]{{/each}}`;
-  expect(r.render(template, { items }), "[apple][carrot][date]");
+  expect(r.render(template, { items })).toBe("[apple][carrot][date]");
 
   // Filter by type "fruit" using 'eq' helper in the predicate
   template = `{{#each (arrayFilter items "{{eq this.type 'fruit'}}")}}[{{this.name}}]{{/each}}`;
-  expect(r.render(template, { items }), "[apple][banana][date]");
+  expect(r.render(template, { items })).toBe("[apple][banana][date]");
 
   // Filter by price > 8 using 'gt' helper in the predicate
   template = `{{#each (arrayFilter items "{{gt this.price 8}}")}}[{{this.name}}]{{/each}}`;
-  expect(r.render(template, { items }), "[apple][date]");
+  expect(r.render(template, { items })).toBe("[apple][date]");
 
   // Predicate always "true" (string)
   template = `{{#each (arrayFilter items "true")}}[{{this.name}}]{{/each}}`;
-  expect(r.render(template, { items }), "[apple][banana][carrot][date]");
+  expect(r.render(template, { items })).toBe("[apple][banana][carrot][date]");
 
   // Predicate always "false" (string)
   template = `{{#each (arrayFilter items "false")}}[{{this.name}}]{{/each}}`;
-  expect(r.render(template, { items }), "");
+  expect(r.render(template, { items })).toBe("");
 
   // Empty input array
   template = `{{#each (arrayFilter emptyItems "{{this.active}}")}}[{{this.name}}]{{/each}}`;
-  expect(r.render(template, { emptyItems: [] }), "");
+  expect(r.render(template, { emptyItems: [] })).toBe("");
 
   // Predicate with leading/trailing spaces, case-insensitive "true"
   template = `{{#each (arrayFilter items " TRUE ")}}[{{this.name}}]{{/each}}`;
-  expect(r.render(template, { items }), "[apple][banana][carrot][date]");
+  expect(r.render(template, { items })).toBe("[apple][banana][carrot][date]");
 
   // Predicate that results in a non-"true" string
   template = `{{#each (arrayFilter items "{{this.type}}")}}[{{this.name}}]{{/each}}`; // "fruit" or "vegetable" is not "true"
-  expect(r.render(template, { items }), "");
+  expect(r.render(template, { items })).toBe("");
 
   // Using @root context in predicate (if applicable, though typically predicate focuses on 'this')
   // This test ensures data context is propagated.
@@ -66,19 +66,15 @@ test("Handlebars arrayFilter helper", () => {
     filterValue: "fruit",
   };
   template = `{{#each (arrayFilter items "{{eq this.type @root.filterValue}}")}}[{{this.name}}]{{/each}}`;
-  expect(r.render(template, contextWithRootValue), "[apple][banana][date]");
+  expect(r.render(template, contextWithRootValue)).toBe("[apple][banana][date]");
 
   // Filtering with a path in 'this'
   template = `{{#each (arrayFilter itemsWithOwner "{{eq this.owner.name 'Alice'}}")}}[{{this.name}}]{{/each}}`;
-  expect(r.render(template, { itemsWithOwner }), "[item1][item3]");
+  expect(r.render(template, { itemsWithOwner })).toBe("[item1][item3]");
 
   // arrayFilter with no items returns empty array
   expect(
-    r.render(
-      '{{#if (arrayFilter items "false")}}content{{else}}no_content{{/if}}',
-      { items },
-    ),
-    "no_content",
-  );
-  expect(r.render('{{json (arrayFilter items "false")}}', { items }), "[]");
+    r.render('{{#if (arrayFilter items "false")}}content{{else}}no_content{{/if}}', { items }),
+  ).toBe("no_content");
+  expect(r.render('{{json (arrayFilter items "false")}}', { items })).toBe("[]");
 });

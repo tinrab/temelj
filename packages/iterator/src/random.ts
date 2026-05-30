@@ -37,16 +37,11 @@ export function sampleListIndices(length: number, count: number): number[] {
  * @param count The number of indices to sample.
  * @returns A list of random indices in the range [0, length).
  */
-export function sampleListUniqueIndices(
-  length: number,
-  count: number,
-): number[] {
+export function sampleListUniqueIndices(length: number, count: number): number[] {
   if (length === 0) {
     return [];
   }
-  const indices: number[] = arrayShuffle(
-    Array.from({ length: length }, (_, i) => i),
-  );
+  const indices: number[] = arrayShuffle(Array.from({ length: length }, (_, i) => i));
   return indices.slice(0, Math.min(length, count));
 }
 

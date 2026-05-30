@@ -97,8 +97,7 @@ const artifact = await compiler.compile(
         [
           treeProcessorPlugin,
           {
-            process: (node: HastElement) =>
-              assert(typeof node.type === "string"),
+            process: (node: HastElement) => assert(typeof node.type === "string"),
           },
         ],
       ],

@@ -1,5 +1,6 @@
-import { type OkLabColor, okLabToRgb, rgbToOkLab } from "./oklab";
 import type { Color } from "./rgb";
+
+import { type OkLabColor, okLabToRgb, rgbToOkLab } from "./oklab";
 
 /**
  * An OKLCH color.

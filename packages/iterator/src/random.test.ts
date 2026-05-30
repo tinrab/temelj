@@ -6,7 +6,7 @@ test("arrayShuffle() works", () => {
   const array = [1, 2, 3, 4, 5];
   const shuffled = arrayShuffle(array);
   expect(shuffled.length).toStrictEqual(array.length);
-  expect(shuffled.sort()).toEqual(array.sort());
+  expect(shuffled.sort((a, b) => a - b)).toEqual(array.sort((a, b) => a - b));
 });
 
 test("sample() works", () => {

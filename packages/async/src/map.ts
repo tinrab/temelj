@@ -1,9 +1,6 @@
+import type { ConcurrencyOptions, ResilienceOptions, SkipSymbol } from "./types";
+
 import { AbortError } from "./errors";
-import type {
-  ConcurrencyOptions,
-  ResilienceOptions,
-  SkipSymbol,
-} from "./types";
 import { Skip } from "./types";
 
 type AsyncInput<T> = AsyncIterable<T> | Iterable<T> | Promise<Iterable<T>>;
@@ -87,7 +84,7 @@ export async function map<T, R>(
     errors.push(error);
     activeCount--;
     checkDone();
-    consume();
+    void consume();
   }
 
   function handleResult(index: number, value: R | SkipSymbol) {
@@ -99,7 +96,7 @@ export async function map<T, R>(
     }
     activeCount--;
     checkDone();
-    consume();
+    void consume();
   }
 
   let iterator: Iterator<T> | AsyncIterator<T>;
@@ -143,7 +140,7 @@ export async function map<T, R>(
     }
   }
 
-  consume();
+  void consume();
 
   return promise;
 }

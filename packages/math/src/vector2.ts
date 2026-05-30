@@ -83,10 +83,7 @@ export const vector2: {
   },
 
   snap(v: Vector2, size: number): Vector2 {
-    return this.of(
-      size * Math.round(v.x / size),
-      size * Math.round(v.y / size),
-    );
+    return this.of(size * Math.round(v.x / size), size * Math.round(v.y / size));
   },
 
   clamp(v: Vector2, min: Vector2, max: Vector2): Vector2 {

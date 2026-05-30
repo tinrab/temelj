@@ -9,11 +9,7 @@ import merge from "deepmerge";
  * @param compare An optional custom comparison function to use for each element. If not provided, {@link deepEquals} will be used.
  * @returns `true` if the arrays are equal, `false` otherwise.
  */
-export function arrayEquals<T>(
-  a: T[],
-  b: T[],
-  compare?: (a: T, b: T) => boolean,
-): boolean {
+export function arrayEquals<T>(a: T[], b: T[], compare?: (a: T, b: T) => boolean): boolean {
   if (a.length !== b.length) {
     return false;
   }
@@ -60,9 +56,7 @@ export function arrayCombineMerge<A, B>(target: A[], source: B[]): (A & B)[] {
       result[i] = structuredClone(item);
     } else if (isObjectPrimitive(item)) {
       result[i] = merge(target[i] as any, item as any) as any;
-    } else if (
-      target.find((targetItem) => deepEquals(targetItem, item)) === undefined
-    ) {
+    } else if (target.find((targetItem) => deepEquals(targetItem, item)) === undefined) {
       result.push(item);
     }
     i++;

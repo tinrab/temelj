@@ -19,17 +19,15 @@ export function MdxCodeBlock({
   return (
     <div className="relative rounded-sm" {...restProps}>
       {fileName ? (
-        <div className="relative flex rounded-t-sm border-border border-t-2 border-r-2 border-l-2 p-2">
-          <div className="ml-2 grow self-center text-muted-foreground text-sm">
-            {fileName}
-          </div>
+        <div className="border-border relative flex rounded-t-sm border-t-2 border-r-2 border-l-2 p-2">
+          <div className="text-muted-foreground ml-2 grow self-center text-sm">{fileName}</div>
         </div>
       ) : undefined}
 
       <div className="relative">
         <pre
           className={cn(
-            "group relative flex overflow-auto rounded-sm border-2 border-border font-mono font-normal text-sm leading-relaxed [&_code]:bg-transparent",
+            "group border-border relative flex overflow-auto rounded-sm border-2 font-mono text-sm leading-relaxed font-normal [&_code]:bg-transparent",
             fileName ? "rounded-t-none" : "",
             "shiki",
             language ? `language-${language}` : "",

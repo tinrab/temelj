@@ -1,16 +1,32 @@
+import type { Plugin } from "unified";
+
 import rehypeKatex from "rehype-katex";
 import remarkMath from "remark-math";
-import type { Plugin } from "unified";
 import { expect, test } from "vitest";
 import * as z from "zod";
+
+import type { HastElement } from "./types";
 
 import { MdxCompileError, MdxCompiler } from "./compiler";
 import { headingIdPlugin } from "./plugins/heading-id/plugin";
 import { syntaxHighlightPlugin } from "./plugins/syntax-highlight/plugin";
 import { treeProcessorPlugin } from "./plugins/tree-processor/plugin";
-import type { HastElement } from "./types";
 
 const rehypeKatexPlugin = rehypeKatex as unknown as Plugin;
+
+async function getCompileError(compiler: MdxCompiler, source: string): Promise<MdxCompileError> {
+  try {
+    await compiler.compile(source);
+  } catch (error) {
+    if (error instanceof MdxCompileError) {
+      return error;
+    }
+
+    throw error;
+  }
+
+  throw new Error("Expected compiler.compile() to throw");
+}
 
 test("mdx - compile", async () => {
   let headingCount = 0;
@@ -65,9 +81,7 @@ const x1 = 1;
   expect(artifact.frontmatter.x).toStrictEqual(42);
   expect(artifact.frontmatter.b).toStrictEqual(true);
 
-  await expect(() =>
-    compiler.compile("", {}, frontmatterSchema),
-  ).rejects.toThrow(z.ZodError);
+  await expect(() => compiler.compile("", {}, frontmatterSchema)).rejects.toThrow(z.ZodError);
 
   const value = artifact.compiled;
   expect(typeof value === "string").toStrictEqual(true);
@@ -78,12 +92,10 @@ const x1 = 1;
   expect(value?.includes('"data-line-count": "2"')).toStrictEqual(true);
   expect(value?.includes('"data-source-code": "')).toStrictEqual(true);
 
-  expect(
-    value?.includes('"data-line": "1"') && value?.includes('"data-line": "2"'),
-  ).toStrictEqual(true);
-  expect(value?.includes('className: "line hl line-number"')).toStrictEqual(
+  expect(value?.includes('"data-line": "1"') && value?.includes('"data-line": "2"')).toStrictEqual(
     true,
   );
+  expect(value?.includes('className: "line hl line-number"')).toStrictEqual(true);
 });
 
 test("mdx - parse frontmatter", async () => {
@@ -129,10 +141,9 @@ test("mdx - malformed latex is reported as diagnostic", async () => {
     .withRemarkPlugin(remarkMath)
     .withRehypePlugin(rehypeKatexPlugin);
 
-  const source = [
-    "Hello, World!",
-    "This is $2$nd line, the one with faulty: $\\f$$42$ GB",
-  ].join("\n");
+  const source = ["Hello, World!", "This is $2$nd line, the one with faulty: $\\f$$42$ GB"].join(
+    "\n",
+  );
 
   const artifact = await compiler.compile(source);
 
@@ -148,9 +159,7 @@ test("mdx - malformed latex is reported as diagnostic", async () => {
       name: "ParseError",
     },
   });
-  expect(artifact.messages[0].message).toContain(
-    "Could not render math with KaTeX",
-  );
+  expect(artifact.messages[0].message).toContain("Could not render math with KaTeX");
   expect(artifact.messages[0].message).toContain("Source: $\\f$$42$");
 });
 
@@ -159,19 +168,13 @@ test("mdx - compile errors include source context", async () => {
   const source = ["# Hello", "export const answer = ;"].join("\n");
 
   await expect(compiler.compile(source)).rejects.toThrow(MdxCompileError);
-
-  try {
-    await compiler.compile(source);
-  } catch (error) {
-    expect(error).toBeInstanceOf(MdxCompileError);
-    const mdxError = error as MdxCompileError;
-    expect(mdxError.line).toStrictEqual(2);
-    expect(mdxError.sourceLine).toStrictEqual("export const answer = ;");
-    expect(mdxError.snippet).toStrictEqual(";");
-    expect(mdxError.message).toContain("at 2");
-    expect(mdxError.message).toContain("Source: ;");
-    expect(mdxError.message).toContain("Line: export const answer = ;");
-  }
+  const mdxError = await getCompileError(compiler, source);
+  expect(mdxError.line).toStrictEqual(2);
+  expect(mdxError.sourceLine).toStrictEqual("export const answer = ;");
+  expect(mdxError.snippet).toStrictEqual(";");
+  expect(mdxError.message).toContain("at 2");
+  expect(mdxError.message).toContain("Source: ;");
+  expect(mdxError.message).toContain("Line: export const answer = ;");
 });
 
 test("mdx - compile errors use frontmatter-stripped source locations", async () => {
@@ -187,34 +190,24 @@ test("mdx - compile errors use frontmatter-stripped source locations", async () 
   ].join("\n");
 
   await expect(compiler.compile(source)).rejects.toThrow(MdxCompileError);
-
-  try {
-    await compiler.compile(source);
-  } catch (error) {
-    expect(error).toBeInstanceOf(MdxCompileError);
-    const mdxError = error as MdxCompileError;
-    expect(mdxError.line).toStrictEqual(7);
-    expect(mdxError.column).toStrictEqual(6);
-    expect(mdxError.source).toStrictEqual("micromark-extension-mdx-expression");
-    expect(mdxError.ruleId).toStrictEqual("acorn");
-    expect(mdxError.sourceLine).toStrictEqual(
-      "The W{weight bits}A{activation bits} format uses ternary weights.",
-    );
-    expect(mdxError.snippet).toStrictEqual("W{weight bits}A{activation bits}");
-    expect(mdxError.sourcePointer).toStrictEqual("     ^");
-    expect(mdxError.message).toContain("at 7:6");
-    expect(mdxError.message).toContain(
-      "Source: W{weight bits}A{activation bits}",
-    );
-    expect(mdxError.message).toContain(
-      "Line: The W{weight bits}A{activation bits} format uses ternary weights.",
-    );
-    expect(mdxError.message).toContain("     ^");
-    expect(mdxError.message).toContain(
-      "Cause: Unexpected content after expression",
-    );
-    expect(mdxError.hint).toContain("MDX treats `{...}` as JavaScript");
-  }
+  const mdxError = await getCompileError(compiler, source);
+  expect(mdxError.line).toStrictEqual(7);
+  expect(mdxError.column).toStrictEqual(6);
+  expect(mdxError.source).toStrictEqual("micromark-extension-mdx-expression");
+  expect(mdxError.ruleId).toStrictEqual("acorn");
+  expect(mdxError.sourceLine).toStrictEqual(
+    "The W{weight bits}A{activation bits} format uses ternary weights.",
+  );
+  expect(mdxError.snippet).toStrictEqual("W{weight bits}A{activation bits}");
+  expect(mdxError.sourcePointer).toStrictEqual("     ^");
+  expect(mdxError.message).toContain("at 7:6");
+  expect(mdxError.message).toContain("Source: W{weight bits}A{activation bits}");
+  expect(mdxError.message).toContain(
+    "Line: The W{weight bits}A{activation bits} format uses ternary weights.",
+  );
+  expect(mdxError.message).toContain("     ^");
+  expect(mdxError.message).toContain("Cause: Unexpected content after expression");
+  expect(mdxError.hint).toContain("MDX treats `{...}` as JavaScript");
 });
 
 test("mdx - compile errors keep actual JS expression locations", async () => {
@@ -222,25 +215,15 @@ test("mdx - compile errors keep actual JS expression locations", async () => {
   const source = ["# Hello", "Value is {foo bar} baz"].join("\n");
 
   await expect(compiler.compile(source)).rejects.toThrow(MdxCompileError);
-
-  try {
-    await compiler.compile(source);
-  } catch (error) {
-    expect(error).toBeInstanceOf(MdxCompileError);
-    const mdxError = error as MdxCompileError;
-    expect(mdxError.line).toStrictEqual(2);
-    expect(mdxError.column).toStrictEqual(10);
-    expect(mdxError.sourceLine).toStrictEqual("Value is {foo bar} baz");
-    expect(mdxError.snippet).toStrictEqual("{foo bar}");
-    expect(mdxError.sourcePointer).toStrictEqual("         ^");
-    expect(mdxError.hint).toContain("MDX treats `{...}` as JavaScript");
-    expect(mdxError.message).toContain("at 2:10");
-    expect(mdxError.message).toContain("Source: {foo bar}");
-    expect(mdxError.message).toContain(
-      "Cause: Unexpected content after expression",
-    );
-    expect(mdxError.message).toContain(
-      "Hint: MDX treats `{...}` as JavaScript.",
-    );
-  }
+  const mdxError = await getCompileError(compiler, source);
+  expect(mdxError.line).toStrictEqual(2);
+  expect(mdxError.column).toStrictEqual(10);
+  expect(mdxError.sourceLine).toStrictEqual("Value is {foo bar} baz");
+  expect(mdxError.snippet).toStrictEqual("{foo bar}");
+  expect(mdxError.sourcePointer).toStrictEqual("         ^");
+  expect(mdxError.hint).toContain("MDX treats `{...}` as JavaScript");
+  expect(mdxError.message).toContain("at 2:10");
+  expect(mdxError.message).toContain("Source: {foo bar}");
+  expect(mdxError.message).toContain("Cause: Unexpected content after expression");
+  expect(mdxError.message).toContain("Hint: MDX treats `{...}` as JavaScript.");
 });

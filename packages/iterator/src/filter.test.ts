@@ -3,9 +3,7 @@ import { expect, test } from "vitest";
 import { filterMap, partition } from "./filter";
 
 test("filterMap() works", () => {
-  const result = filterMap([1, 2, 3, 4, 5], (x: number) =>
-    x % 2 === 0 ? x * 10 : undefined,
-  );
+  const result = filterMap([1, 2, 3, 4, 5], (x: number) => (x % 2 === 0 ? x * 10 : undefined));
   expect(result).toEqual([20, 40]);
 });
 

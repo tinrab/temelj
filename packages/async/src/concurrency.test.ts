@@ -60,11 +60,11 @@ test("Queue pause/resume", async () => {
   const q = new Queue({ concurrency: 1, autoStart: false });
   const results: number[] = [];
 
-  q.add(async () => {
+  void q.add(async () => {
     results.push(1);
     return 1;
   });
-  q.add(async () => {
+  void q.add(async () => {
     results.push(2);
     return 2;
   });
@@ -85,11 +85,11 @@ test("Queue addAll", async () => {
 
 test("Queue clear", async () => {
   const q = new Queue({ concurrency: 1 });
-  q.add(async () => {
+  void q.add(async () => {
     await new Promise((r) => setTimeout(r, 100));
   });
-  q.add(async () => "should not run");
-  q.add(async () => "should not run");
+  void q.add(async () => "should not run");
+  void q.add(async () => "should not run");
   expect(q.size).toBe(2);
   q.clear();
   expect(q.size).toBe(0);
@@ -98,6 +98,7 @@ test("Queue clear", async () => {
 test("Queue onIdle resolves when empty", async () => {
   const q = new Queue({ concurrency: 1 });
   await q.onIdle;
+  expect(q.size).toBe(0);
 });
 
 test("limit enforces concurrency", async () => {
@@ -171,9 +172,9 @@ test("retry with shouldRetry", async () => {
 test("retry with abort", async () => {
   const controller = new AbortController();
   controller.abort();
-  await expect(
-    retry(async () => "ok", { signal: controller.signal }),
-  ).rejects.toBeInstanceOf(AbortError);
+  await expect(retry(async () => "ok", { signal: controller.signal })).rejects.toBeInstanceOf(
+    AbortError,
+  );
 });
 
 test("retry with backoff function", async () => {

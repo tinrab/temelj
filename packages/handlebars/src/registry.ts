@@ -1,7 +1,5 @@
 import hbs from "handlebars";
 
-import { getHelpers } from "./helpers/all";
-import { registerSwitchHelpers } from "./switch";
 import type {
   CompileOptions,
   HelperDeclareSpec,
@@ -10,6 +8,9 @@ import type {
   Template,
   TemplateDelegate,
 } from "./types";
+
+import { getHelpers } from "./helpers/all";
+import { registerSwitchHelpers } from "./switch";
 
 export class Registry {
   public readonly handlebars: typeof Handlebars;
@@ -28,11 +29,7 @@ export class Registry {
     return this.handlebars.compile(source, options);
   }
 
-  public render(
-    source: string,
-    data?: unknown,
-    options?: CompileOptions,
-  ): string {
+  public render(source: string, data?: unknown, options?: CompileOptions): string {
     const compiledTemplate = this.compile(source, options);
     return compiledTemplate(data);
   }

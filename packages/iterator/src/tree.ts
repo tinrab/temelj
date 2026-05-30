@@ -4,6 +4,7 @@
  * @param root The root node of the tree.
  * @param getChildren A function that returns the children of a node.
  * @returns A generator that yields nodes in BFS order.
+ * @yields Nodes in BFS order.
  *
  * @example
  * ```ts
@@ -19,10 +20,7 @@
  * }
  * ```
  */
-export function* traverseBfs<T>(
-  root: T,
-  getChildren: (node: T) => Iterable<T>,
-): Generator<T> {
+export function* traverseBfs<T>(root: T, getChildren: (node: T) => Iterable<T>): Generator<T> {
   const queue: T[] = [root];
 
   while (queue.length > 0) {
@@ -44,6 +42,7 @@ export function* traverseBfs<T>(
  * @param root The root node of the tree.
  * @param getChildren A function that returns the children of a node.
  * @returns A generator that yields nodes in DFS pre-order.
+ * @yields Nodes in DFS pre-order.
  *
  * @example
  * ```ts
@@ -59,10 +58,7 @@ export function* traverseBfs<T>(
  * }
  * ```
  */
-export function* traverseDfs<T>(
-  root: T,
-  getChildren: (node: T) => Iterable<T>,
-): Generator<T> {
+export function* traverseDfs<T>(root: T, getChildren: (node: T) => Iterable<T>): Generator<T> {
   yield root;
 
   for (const child of getChildren(root)) {

@@ -21,9 +21,7 @@ test("delay rejects on abort", async () => {
 test("delay rejects immediately if already aborted", async () => {
   const controller = new AbortController();
   controller.abort();
-  await expect(
-    delay(1000, { signal: controller.signal }),
-  ).rejects.toBeInstanceOf(AbortError);
+  await expect(delay(1000, { signal: controller.signal })).rejects.toBeInstanceOf(AbortError);
 });
 
 test("timeout resolves if promise is fast", async () => {
@@ -32,9 +30,7 @@ test("timeout resolves if promise is fast", async () => {
 });
 
 test("timeout rejects with TimeoutError if slow", async () => {
-  await expect(timeout(new Promise(() => {}), 50)).rejects.toBeInstanceOf(
-    TimeoutError,
-  );
+  await expect(timeout(new Promise(() => {}), 50)).rejects.toBeInstanceOf(TimeoutError);
 });
 
 test("timeout accepts a factory function", async () => {

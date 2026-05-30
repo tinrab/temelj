@@ -1,8 +1,4 @@
-import {
-  deepEquals,
-  isObjectPrimitive,
-  type PrimitiveValue,
-} from "@temelj/value";
+import { deepEquals, isObjectPrimitive, type PrimitiveValue } from "@temelj/value";
 import * as z from "zod";
 
 import { type HelperDeclareSpec, SafeString } from "../types";
@@ -17,8 +13,7 @@ export function getValueHelpers(): HelperDeclareSpec {
     lte: (a: number, b: number) => a <= b,
     gte: (a: number, b: number) => a >= b,
     and: (...args: unknown[]) => Array.prototype.every.call(args, Boolean),
-    or: (...args: unknown[]) =>
-      Array.prototype.slice.call(args, 0, -1).some(Boolean),
+    or: (...args: unknown[]) => Array.prototype.slice.call(args, 0, -1).some(Boolean),
     not: (x: number | boolean) => !x,
 
     orElse: (value: unknown, defaultValue: unknown) => value || defaultValue,
@@ -26,9 +21,7 @@ export function getValueHelpers(): HelperDeclareSpec {
     json: createHelperZod()
       .params(z.any(), z.optional(z.boolean()).default(false))
       .handle(([value, pretty]) => {
-        return pretty
-          ? JSON.stringify(value, undefined, 2)
-          : JSON.stringify(value);
+        return pretty ? JSON.stringify(value, undefined, 2) : JSON.stringify(value);
       }),
 
     isEmpty: (obj: unknown) => {
@@ -65,10 +58,9 @@ function renderJsValue(value: unknown): string {
     case "boolean":
       return String(value);
     case "symbol":
-      return `Symbol(${
-        value.description ? JSON.stringify(value.description) : ""
-      })`;
-    // case "function": return value.toString();
+      return `Symbol(${value.description ? JSON.stringify(value.description) : ""})`;
+    case "function":
+      return Function.prototype.toString.call(value);
   }
 
   if (Array.isArray(value)) {
@@ -113,9 +105,7 @@ function renderJsValue(value: unknown): string {
       try {
         return renderJsValue((value as { toJSON: () => any }).toJSON());
       } catch (e: any) {
-        return `/* Error in toJSON for ${Object.prototype.toString.call(
-          value,
-        )}: ${e.message} */`;
+        return `/* Error in toJSON for ${String(value)}: ${String(e.message)} */`;
       }
     }
 
@@ -128,14 +118,10 @@ function renderJsValue(value: unknown): string {
         return renderJsValue(JSON.parse(jsonStr));
       }
     } catch (e: any) {
-      return `/* Unserializable object: ${Object.prototype.toString.call(
-        value,
-      )} (stringify error: ${e.message}) */`;
+      return `/* Unserializable object: ${String(value)} (stringify error: ${e.message}) */`;
     }
 
-    return `/* Unhandled object type: ${Object.prototype.toString.call(
-      value,
-    )} */`;
+    return `/* Unhandled object type: ${String(value)} */`;
   }
 
   return String(value);

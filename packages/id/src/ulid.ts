@@ -30,8 +30,7 @@ export function generateUlid(options: UlidOptions = {}): string {
     const buffer = new Uint8Array(16);
     buffer.set(options.random, 6);
 
-    const time =
-      options.time === undefined ? Date.now() : options.time.getTime();
+    const time = options.time === undefined ? Date.now() : options.time.getTime();
     buffer.set(
       [
         (time >> 40) & 0xff,
@@ -66,14 +65,9 @@ export function generateUlid(options: UlidOptions = {}): string {
  * @param options The options to use for generating the ULIDs.
  * @returns The generated ULID strings.
  */
-export function generateUlidList(
-  count: number,
-  options: UlidOptions = {},
-): string[] {
+export function generateUlidList(count: number, options: UlidOptions = {}): string[] {
   if (options.random !== undefined) {
-    throw new Error(
-      "Cannot generate multiple ULIDs with the same random bytes",
-    );
+    throw new Error("Cannot generate multiple ULIDs with the same random bytes");
   }
 
   const ids = [];

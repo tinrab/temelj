@@ -1,6 +1,7 @@
+import type { Plugin } from "unified";
+
 import GithubSlugger from "github-slugger";
 import { toString as hastToString } from "hast-util-to-string";
-import type { Plugin } from "unified";
 import { visit } from "unist-util-visit";
 
 import type { HastElement, HastNode } from "../../types";
@@ -16,22 +17,16 @@ export interface HeadingIdPluginOptions {
 /**
  * A rehype plugin that adds IDs to heading tags.
  */
-export const headingIdPlugin: Plugin<
-  [HeadingIdPluginOptions?],
-  HastNode,
-  HastNode
-> = ({ prefix } = {}) => {
+export const headingIdPlugin: Plugin<[HeadingIdPluginOptions?], HastNode, HastNode> = ({
+  prefix,
+} = {}) => {
   const slugger = new GithubSlugger();
   return (tree) => {
     slugger.reset();
     visit(
       tree,
       "element",
-      function visitor(
-        node: HastElement,
-        index: number,
-        parent: HastElement,
-      ): void {
+      function visitor(node: HastElement, index: number, parent: HastElement): void {
         if (!parent || index === null || !node.tagName.startsWith("h")) return;
         const id = (prefix ?? "") + slugger.slug(hastToString(node));
         node.properties.id = id;

@@ -1,9 +1,11 @@
+import type { Properties } from "hast";
+import type { Plugin } from "unified";
+
 import {
   type TransformerNotationHighlightOptions,
   transformerNotationHighlight,
 } from "@shikijs/transformers";
 import { numericRangeContains } from "@temelj/iterator";
-import type { Properties } from "hast";
 import { toString as hastToString } from "hast-util-to-string";
 import {
   type BundledLanguage,
@@ -12,15 +14,13 @@ import {
   codeToHast,
   ShikiError,
 } from "shiki";
-import type { Plugin } from "unified";
 import { visit } from "unist-util-visit";
 
 import type { HastElement, HastNode } from "../../types";
+
 import { extractCodeMeta } from "./code-meta";
 
-type ShikiHastOptions = Partial<
-  CodeToHastOptions<BundledLanguage, BundledTheme>
->;
+type ShikiHastOptions = Partial<CodeToHastOptions<BundledLanguage, BundledTheme>>;
 
 type SyntaxDataAttribute = "source-code" | "language" | "line-count";
 
@@ -75,19 +75,13 @@ export interface SyntaxHighlightPluginOptions {
 /**
  * A plugin that highlights code blocks using Shiki.
  */
-export const syntaxHighlightPlugin: Plugin<
-  [SyntaxHighlightPluginOptions?],
-  HastNode,
-  HastNode
-> = (options: SyntaxHighlightPluginOptions = {}) => {
+export const syntaxHighlightPlugin: Plugin<[SyntaxHighlightPluginOptions?], HastNode, HastNode> = (
+  options: SyntaxHighlightPluginOptions = {},
+) => {
   return async (tree) => {
     const promises: Promise<void>[] = [];
 
-    async function visitor(
-      node: HastElement,
-      index: number,
-      parent: HastElement,
-    ): Promise<void> {
+    async function visitor(node: HastElement, index: number, parent: HastElement): Promise<void> {
       if (!parent || index === null || node.tagName !== "pre") {
         return;
       }
@@ -118,7 +112,7 @@ export const syntaxHighlightPlugin: Plugin<
           light: "github-light-default",
           dark: "github-dark-default",
         },
-        ...(options.shikiHastOptions ?? {}),
+        ...options.shikiHastOptions,
       };
       if (hastOptions.transformers === undefined) {
         hastOptions.transformers = [];
@@ -127,7 +121,7 @@ export const syntaxHighlightPlugin: Plugin<
       if (options.highlight) {
         hastOptions.transformers.push(
           transformerNotationHighlight({
-            ...(options.highlight.transformer ?? {}),
+            ...options.highlight.transformer,
             matchAlgorithm: "v3",
           }),
         );
@@ -143,14 +137,10 @@ export const syntaxHighlightPlugin: Plugin<
             line.properties["data-line"] = lineIndex + 1;
 
             if (options.highlight) {
-              if (
-                meta.highlight &&
-                numericRangeContains(meta.highlight.lineRange, lineIndex)
-              ) {
+              if (meta.highlight && numericRangeContains(meta.highlight.lineRange, lineIndex)) {
                 this.addClassToHast(
                   line,
-                  options.highlight.transformer?.classActiveLine ??
-                    "highlighted",
+                  options.highlight.transformer?.classActiveLine ?? "highlighted",
                 );
               }
             }
@@ -161,10 +151,7 @@ export const syntaxHighlightPlugin: Plugin<
               (meta.showLineNumbers.lineRange.length === 0 ||
                 numericRangeContains(meta.showLineNumbers.lineRange, lineIndex))
             ) {
-              this.addClassToHast(
-                line,
-                options.lineNumbers.className ?? "line-number",
-              );
+              this.addClassToHast(line, options.lineNumbers.className ?? "line-number");
             }
 
             if (
@@ -173,10 +160,7 @@ export const syntaxHighlightPlugin: Plugin<
               (meta.commandLine.commandRange.length === 0 ||
                 numericRangeContains(meta.commandLine.commandRange, lineIndex))
             ) {
-              this.addClassToHast(
-                line,
-                options.commandLine.className ?? "line-command",
-              );
+              this.addClassToHast(line, options.commandLine.className ?? "line-command");
             }
 
             lineIndex++;
@@ -223,11 +207,7 @@ export const syntaxHighlightPlugin: Plugin<
         });
       } catch (error) {
         if (error instanceof ShikiError) {
-          if (
-            error.message.includes(
-              "Language `math` is not included in this bundle",
-            )
-          ) {
+          if (error.message.includes("Language `math` is not included in this bundle")) {
             // Skip if the block is math block.
             return;
           }
@@ -236,13 +216,9 @@ export const syntaxHighlightPlugin: Plugin<
       }
     }
 
-    visit(
-      tree,
-      "element",
-      (node: HastElement, index: number, parent: HastElement) => {
-        promises.push(visitor(node, index, parent));
-      },
-    );
+    visit(tree, "element", (node: HastElement, index: number, parent: HastElement) => {
+      promises.push(visitor(node, index, parent));
+    });
 
     await Promise.all(promises);
 

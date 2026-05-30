@@ -1,6 +1,5 @@
 import { Buffer } from "node:buffer";
 import { timingSafeEqual } from "node:crypto";
-
 import * as cookieUtility from "tough-cookie";
 
 /**
@@ -75,11 +74,7 @@ export function parseCookie(source: string): Cookie | undefined {
       const parts = extension.toLowerCase().split("=");
       if (parts.length === 2) {
         if (parts[0] === "priority") {
-          if (
-            parts[1] === "low" ||
-            parts[1] === "medium" ||
-            parts[1] === "high"
-          ) {
+          if (parts[1] === "low" || parts[1] === "medium" || parts[1] === "high") {
             cookie.priority = parts[1];
           } else {
             return undefined;
@@ -282,8 +277,7 @@ export async function encryptCookieValue(
   const keyOptions: GenerateKeyOptions = {
     password: options.password,
     algorithm: options.algorithm ?? defaultEncryptionOptions.algorithm,
-    integrityAlgorithm:
-      options.integrityAlgorithm ?? defaultEncryptionOptions.integrityAlgorithm,
+    integrityAlgorithm: options.integrityAlgorithm ?? defaultEncryptionOptions.integrityAlgorithm,
     ivBits: options.ivBits ?? defaultEncryptionOptions.ivBits,
     keyBits: options.keyBits ?? defaultEncryptionOptions.keyBits,
     saltsBits: options.saltsBits ?? defaultEncryptionOptions.saltsBits,
@@ -329,22 +323,14 @@ export async function decryptCookieValue(
   }
 
   const [version, iv, salt, encrypted, signDigest, signSalt] = parts;
-  if (
-    version !== VERSION ||
-    !iv ||
-    !salt ||
-    !encrypted ||
-    !signDigest ||
-    !signSalt
-  ) {
+  if (version !== VERSION || !iv || !salt || !encrypted || !signDigest || !signSalt) {
     return undefined;
   }
 
   const keyOptions: GenerateKeyOptions = {
     password: options.password,
     algorithm: options.algorithm ?? defaultEncryptionOptions.algorithm,
-    integrityAlgorithm:
-      options.integrityAlgorithm ?? defaultEncryptionOptions.integrityAlgorithm,
+    integrityAlgorithm: options.integrityAlgorithm ?? defaultEncryptionOptions.integrityAlgorithm,
     ivBits: options.ivBits ?? defaultEncryptionOptions.ivBits,
     keyBits: options.keyBits ?? defaultEncryptionOptions.keyBits,
     saltsBits: options.saltsBits ?? defaultEncryptionOptions.saltsBits,
@@ -355,12 +341,7 @@ export async function decryptCookieValue(
     salt: signSalt,
   });
   const textEncoder = new TextEncoder();
-  if (
-    !timingSafeEqual(
-      textEncoder.encode(signature.digest),
-      textEncoder.encode(signDigest),
-    )
-  ) {
+  if (!timingSafeEqual(textEncoder.encode(signature.digest), textEncoder.encode(signDigest))) {
     return undefined;
   }
 
@@ -396,12 +377,8 @@ type GenerateKeyOptions = {
   hmac?: boolean;
 } & Required<CookieEncryptionAlgorithmOptions>;
 
-async function generateKey(
-  options: GenerateKeyOptions,
-): Promise<EncryptionKey> {
-  const iv = crypto.getRandomValues(
-    new Uint8Array(Math.ceil(options.ivBits / 8)),
-  );
+async function generateKey(options: GenerateKeyOptions): Promise<EncryptionKey> {
+  const iv = crypto.getRandomValues(new Uint8Array(Math.ceil(options.ivBits / 8)));
 
   const passwordBytes = new TextEncoder().encode(options.password);
   const importedKey = await crypto.subtle.importKey(
@@ -416,9 +393,7 @@ async function generateKey(
   if (!randomSalt) {
     const bytes = new Uint8Array(Math.ceil(options.saltsBits / 8));
     crypto.getRandomValues(bytes);
-    randomSalt = [...bytes]
-      .map((b) => b.toString(16).padStart(2, "0"))
-      .join("");
+    randomSalt = [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
   }
 
   const saltBytes = new TextEncoder().encode(randomSalt);
@@ -437,9 +412,7 @@ async function generateKey(
   const key = await crypto.subtle.importKey(
     "raw",
     derivedKey,
-    options.hmac
-      ? { name: "HMAC", hash: options.integrityAlgorithm }
-      : { name: options.algorithm },
+    options.hmac ? { name: "HMAC", hash: options.integrityAlgorithm } : { name: options.algorithm },
     false,
     options.hmac ? ["sign", "verify"] : ["encrypt", "decrypt"],
   );
@@ -456,11 +429,7 @@ async function sign(
     hmac: true,
   });
 
-  const signed = await crypto.subtle.sign(
-    { name: "HMAC" },
-    key,
-    new TextEncoder().encode(data),
-  );
+  const signed = await crypto.subtle.sign({ name: "HMAC" }, key, new TextEncoder().encode(data));
   const digest = Buffer.from(new Uint8Array(signed)).toString("base64url");
 
   return { digest, salt };

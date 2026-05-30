@@ -1,6 +1,7 @@
+import type { StandardOptions } from "./types";
+
 import { type Deferred, defer } from "./defer";
 import { AbortError } from "./errors";
-import type { StandardOptions } from "./types";
 
 /**
  * Returns a wrapper around `fn` that enforces concurrency limits.

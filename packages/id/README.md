@@ -52,12 +52,7 @@ console.log(generateUlidList(5));
 Generate UUIDs.
 
 ```ts
-import {
-  generateUuid4,
-  getUuid4Bytes,
-  isUuid4Valid,
-  makeUuid4FromBytes,
-} from "@temelj/id";
+import { generateUuid4, getUuid4Bytes, isUuid4Valid, makeUuid4FromBytes } from "@temelj/id";
 import { expect, test } from "vitest";
 
 const id = generateUuid4();

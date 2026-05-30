@@ -1,5 +1,6 @@
-import { AbortError } from "./errors";
 import type { StandardOptions } from "./types";
+
+import { AbortError } from "./errors";
 
 /**
  * Resolves after the specified duration in milliseconds.

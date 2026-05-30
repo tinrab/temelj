@@ -8,11 +8,9 @@ test("Handlebars object helpers", () => {
   const r = new Registry();
   r.registerHelpers({ ...getObjectHelpers(), ...getValueHelpers() });
 
-  expect(JSON.parse(r.render("{{{json (object s='hello' x=5 y=8)}}}"))).toEqual(
-    {
-      s: "hello",
-      x: 5,
-      y: 8,
-    },
-  );
+  expect(JSON.parse(r.render("{{{json (object s='hello' x=5 y=8)}}}"))).toEqual({
+    s: "hello",
+    x: 5,
+    y: 8,
+  });
 });

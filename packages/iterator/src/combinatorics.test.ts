@@ -85,9 +85,7 @@ test("combinations() with n=1 returns single elements", () => {
 });
 
 test("combinations() throws on negative size", () => {
-  expect(() => combinations([1, 2, 3], -1)).toThrow(
-    "Combination size must be non-negative",
-  );
+  expect(() => combinations([1, 2, 3], -1)).toThrow("Combination size must be non-negative");
 });
 
 test("combinations() with all elements", () => {

@@ -2,6 +2,7 @@ import { type Deferred, defer } from "./defer";
 import { AbortError } from "./errors";
 
 interface QueueTask {
+  // oxlint-disable-next-line no-redundant-type-constituents
   fn: () => PromiseLike<unknown> | unknown;
   priority: number;
   signal?: AbortSignal;
@@ -46,7 +47,7 @@ export class Queue {
       }
 
       const task: QueueTask = {
-        fn: fn as () => PromiseLike<unknown> | unknown,
+        fn: fn as () => unknown,
         priority: options?.priority ?? 0,
         signal,
         resolve: resolve as (value: unknown) => void,
