@@ -28,13 +28,13 @@
     "@temelj/string": "workspace:*",
     "@temelj/value": "workspace:*",
     "handlebars": "^4.7.9",
-    "zod": "^4.3.6"
+    "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@types/node": "25.5.0",
+    "@types/node": "25.9.1",
     "shx": "^0.4.0",
-    "tsdown": "^0.21.7",
-    "typescript": "^6.0.2",
-    "vitest": "^4.1.2"
+    "tsdown": "^0.22.1",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.7"
   }
 }

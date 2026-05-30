@@ -17,14 +17,14 @@
     "script:bumb-version": "node --import tsx/esm ./scripts/bumb-version.ts"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.4.10",
-    "@types/node": "25.5.0",
-    "citty": "^0.2.1",
+    "@biomejs/biome": "2.4.16",
+    "@types/node": "25.9.1",
+    "citty": "^0.2.2",
     "shx": "^0.4.0",
-    "tsx": "^4.21.0",
-    "turbo": "^2.9.1",
-    "typescript": "^6.0.2",
-    "vitest": "^4.1.2"
+    "tsx": "^4.22.3",
+    "turbo": "^2.9.16",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.7"
   },
-  "packageManager": "pnpm@10.33.0"
+  "packageManager": "pnpm@11.5.0"
 }
