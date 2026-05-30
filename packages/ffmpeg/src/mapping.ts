@@ -1,3 +1,4 @@
+import type { FilterGraphStream } from "./filter-graph.ts";
 import type { StreamType } from "./types.ts";
 
 export type MapStreamType = StreamType;
@@ -64,8 +65,9 @@ export function mapAllStreams(fileIndex: number): string {
   return serializeInputMap({ fileIndex });
 }
 
-export function mapLabel(label: string): string {
-  return normalizeLabel(label);
+export function mapLabel(label: FilterGraphStream | string): string {
+  const raw = typeof label === "string" ? label : label.label;
+  return normalizeLabel(raw);
 }
 
 export function disableMap(target: InputMapSpecifier | string): string {

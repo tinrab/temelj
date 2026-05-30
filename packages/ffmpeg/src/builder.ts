@@ -1,7 +1,7 @@
 import type { GlobalOptions, InputOptions, OutputOptions } from "./types.ts";
 
 import { serializeGlobal, serializeInput, serializeOutput } from "./args.ts";
-import { FilterGraph } from "./filter-graph.ts";
+import { FilterGraph, FilterGraphStream } from "./filter-graph.ts";
 import {
   mapInputStream as serializeMapInputStream,
   mapLabel as serializeMapLabel,
@@ -109,6 +109,16 @@ export class FFmpegBuilder {
     return this;
   }
 
+  strict(value: OutputOptions["strict"]): this {
+    this.currentOutput().opts.strict = value;
+    return this;
+  }
+
+  avoidNegativeTs(value: OutputOptions["avoidNegativeTs"]): this {
+    this.currentOutput().opts.avoidNegativeTs = value;
+    return this;
+  }
+
   size(value: OutputOptions["s"]): this {
     this.currentOutput().opts.s = value;
     return this;
@@ -149,7 +159,7 @@ export class FFmpegBuilder {
     return this;
   }
 
-  filterComplex(filter: string | { toString(): string }): this {
+  filterComplex(filter: FilterGraph | string): this {
     this._global.filterComplex = String(filter);
     this._filterGraph = filter instanceof FilterGraph ? filter : null;
     return this;
@@ -172,8 +182,8 @@ export class FFmpegBuilder {
     return this.map(serializeMapInputStream(fileIndex, streamType, streamIndex));
   }
 
-  mapLabel(label: string | { toString(): string }): this {
-    return this.map(serializeMapLabel(String(label)));
+  mapLabel(label: FilterGraphStream | string): this {
+    return this.map(serializeMapLabel(label));
   }
 
   toArgs(): readonly string[] {

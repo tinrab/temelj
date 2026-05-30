@@ -1,13 +1,7 @@
 import { assert, describe, it } from "vitest";
 
 import { ffmpeg } from "./builder.ts";
-import {
-  filterGraph,
-  mapInputStream,
-  mapLabel,
-  resetFilterGraphLabelCounter,
-  serializeInputMap,
-} from "./mod.ts";
+import { filterGraph, mapInputStream, mapLabel, serializeInputMap } from "./mod.ts";
 
 describe("mapping helpers", () => {
   it("serializes input stream maps", () => {
@@ -19,7 +13,6 @@ describe("mapping helpers", () => {
 
 describe("filter graph", () => {
   it("serializes a simple video chain", () => {
-    resetFilterGraphLabelCounter();
     const graph = filterGraph();
     graph.videoInput(0).scale(1280, 720).fps(30).label("scaled");
 
@@ -27,7 +20,6 @@ describe("filter graph", () => {
   });
 
   it("serializes a multi-stage overlay graph", () => {
-    resetFilterGraphLabelCounter();
     const graph = filterGraph();
     const base = graph.videoInput(0).scale(1280, 720).label("base");
     const logo = graph.videoInput(1).scale(160, 90).label("logo");
@@ -40,7 +32,6 @@ describe("filter graph", () => {
   });
 
   it("rejects duplicate output labels", () => {
-    resetFilterGraphLabelCounter();
     const graph = filterGraph();
     graph.videoInput(0).scale(1280, 720).label("dup");
 
@@ -63,7 +54,6 @@ describe("builder integration", () => {
   });
 
   it("accepts a filter graph and mapped label", () => {
-    resetFilterGraphLabelCounter();
     const graph = filterGraph();
     const output = graph.videoInput(0).hflip().scale(1280, 720).label("outv");
 
@@ -86,7 +76,6 @@ describe("builder integration", () => {
   });
 
   it("rejects mapped labels that are not defined in the current filter graph", () => {
-    resetFilterGraphLabelCounter();
     const graph = filterGraph();
     graph.videoInput(0).hflip().label("outv");
 

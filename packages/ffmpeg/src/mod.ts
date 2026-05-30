@@ -1,10 +1,5 @@
 export { ffmpeg, FFmpegBuilder } from "./builder.ts";
-export {
-  filterGraph,
-  FilterGraph,
-  FilterGraphStream,
-  resetFilterGraphLabelCounter,
-} from "./filter-graph.ts";
+export { filterGraph, FilterGraph, FilterGraphStream } from "./filter-graph.ts";
 export {
   mapInputStream,
   mapAllStreams,
@@ -56,6 +51,13 @@ export type {
   OverlayOptions,
   AmixOptions,
   ConcatOptions,
+  CropOptions,
+  PadOptions,
+  FadeOptions,
+  EqOptions,
+  HueOptions,
+  PalettegenOptions,
+  PaletteuseOptions,
 } from "./filter-graph.ts";
 export type {
   InputMapSpecifier,

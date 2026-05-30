@@ -1,3 +1,4 @@
+import type { FilterGraph } from "./filter-graph.ts";
 import type {
   InputOptions as GeneratedInputOptions,
   InputStreamOptions as GeneratedInputStreamOptions,
@@ -44,7 +45,9 @@ type StructuredOutputMetadataOptions = Omit<
 };
 
 export type InputOptions = GeneratedInputOptions;
-export type GlobalOptions = GeneratedGlobalOptions;
+export type GlobalOptions = Omit<GeneratedGlobalOptions, "filterComplex"> & {
+  filterComplex?: string | FilterGraph;
+};
 export type InputStreamOptions = GeneratedInputStreamOptions;
 export type OutputStreamOptions = GeneratedOutputStreamOptions;
 export type OutputMetadataOptions = StructuredOutputMetadataOptions;

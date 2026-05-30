@@ -42,7 +42,8 @@ const FLAG_OVERRIDES: Record<string, string> = {
   stream_groupst: "-stream_group",
 };
 
-// Custom type alias definitions emitted in generated output
+// Custom type alias definitions emitted in generated output.
+// Keep only types that can't be auto-generated from scraped possible_values.
 const CUSTOM_TYPES: Record<string, string> = {
   Bitrate: "`${number}k` | `${number}M` | `${number}G`",
   FrameSize: "`${number}x${number}`",
@@ -52,6 +53,9 @@ const CUSTOM_TYPES: Record<string, string> = {
   Target:
     '"vcd" | "svcd" | "dvd" | "dv" | "dv50" | "pal-vcd" | "pal-svcd" | "pal-dvd" | "ntsc-vcd" | "ntsc-svcd" | "ntsc-dvd"',
   AspectRatio: "`${number}:${number}` | `${number}/${number}` | number",
+  /** Encoder preset (not from scraped JSON — -preset is an encoder AVOption, not a CLI option with documented possible_values) */
+  Preset:
+    '"ultrafast" | "superfast" | "veryfast" | "faster" | "fast" | "medium" | "slow" | "slower" | "veryslow" | "placebo"',
 };
 
 // Maps property names to custom type aliases above
@@ -68,7 +72,63 @@ const TYPE_ALIASES: Record<string, string> = {
   vsync: "Vsync",
   target: "Target",
   aspect: "AspectRatio",
+  preset: "Preset",
+  movflags: "MovFlag",
+  strict: "Strict",
+  avoidNegativeTs: "AvoidNegativeTs",
+  errDetect: "ErrDetect",
+  fflags: "FFlags",
+  defaultMode: "DefaultMode",
 };
+
+// Flag names from non-ffmpeg pages whose possible_values should auto-generate named types.
+// These are looked up in the full scraped JSON at generation time.
+// The generated type is widened with a string fallback to allow values like "+faststart".
+const EXTRA_ENUM_TYPES: Record<string, string> = {
+  movflags: "MovFlag",
+  strict: "Strict",
+  avoid_negative_ts: "AvoidNegativeTs",
+  err_detect: "ErrDetect",
+  fflags: "FFlags",
+  default_mode: "DefaultMode",
+};
+
+// Flag names whose possible_values from the scraped JSON can generate union types.
+// These must have clean, finite enum values documented in ffmpeg's option table.
+// Excluded on purpose:
+//   loglevel — scraper captures flag prefixes (repeat,level,time,datetime), not the actual loglevel values
+//   vsync    — needs | number fallback and includes "drop" not in scraped values
+//   report   — scraper values (file,level) are misleading, not real enum options for -report
+const ENUM_FLAGS = new Set(["hwaccel", "discard", "copytb", "apply_cropping", "abort_on"]);
+
+function cleanEnumValue(raw: string): string {
+  let v = raw.trim();
+  v = v.replace(/^['\u2018\u2019]\s*/, "").replace(/\s*['\u2018\u2019]$/, "");
+  v = v.replace(/\s*\(.*?\)\s*$/, "").trim();
+  return v;
+}
+
+function generateEnumType(
+  flagName: string,
+  possibleValues: Array<{ value: string; description: string }> | null,
+): string | null {
+  if (!possibleValues || possibleValues.length === 0) return null;
+  if (!ENUM_FLAGS.has(flagName) && !(flagName in EXTRA_ENUM_TYPES)) return null;
+
+  const literals: string[] = [];
+  for (const pv of possibleValues) {
+    const cleaned = cleanEnumValue(pv.value);
+    if (!cleaned) return null;
+    if (/^-?\d+(\.\d+)?$/.test(cleaned)) {
+      literals.push(cleaned);
+    } else if (/^[a-zA-Z_]\w*$/.test(cleaned)) {
+      literals.push(`"${cleaned}"`);
+    } else {
+      return null;
+    }
+  }
+  return literals.join(" | ");
+}
 
 // Maps snake_case or raw ffmpeg flag names to camelCase property names
 const PROP_OVERRIDES: Record<string, string> = {
@@ -651,13 +711,18 @@ function normalize(raw: RawOption[]): Normalized[] {
 
     const prop = toPropName(cleanName);
 
-    const { tsType, isFlag, isArray } = inferType(
+    let { tsType, isFlag, isArray } = inferType(
       cleanName,
       opt.name,
       opt.type,
       opt.possible_values,
       opt.description,
     );
+
+    const enumType = generateEnumType(flagName, opt.possible_values);
+    if (enumType) {
+      tsType = enumType;
+    }
 
     const desc = opt.description.split("\n")[0].replace(/`/g, "'").trim().slice(0, 120);
     const supportsStreamSpecifier = opt.categories.includes("per-stream");
@@ -1030,6 +1095,61 @@ function normalize(raw: RawOption[]): Normalized[] {
       supportsStreamSpecifier: false,
       supportsMetadataSpecifier: false,
     },
+    {
+      prop: "strict",
+      flag: "-strict",
+      cat: "output",
+      tsType: "string",
+      isFlag: false,
+      isArray: false,
+      description: "Strict standard compliance",
+      supportsStreamSpecifier: false,
+      supportsMetadataSpecifier: false,
+    },
+    {
+      prop: "avoidNegativeTs",
+      flag: "-avoid_negative_ts",
+      cat: "output",
+      tsType: "string",
+      isFlag: false,
+      isArray: false,
+      description: "Avoid negative timestamps",
+      supportsStreamSpecifier: false,
+      supportsMetadataSpecifier: false,
+    },
+    {
+      prop: "errDetect",
+      flag: "-err_detect",
+      cat: "input",
+      tsType: "string",
+      isFlag: false,
+      isArray: false,
+      description: "Error detection level",
+      supportsStreamSpecifier: false,
+      supportsMetadataSpecifier: false,
+    },
+    {
+      prop: "fflags",
+      flag: "-fflags",
+      cat: "input",
+      tsType: "string",
+      isFlag: false,
+      isArray: false,
+      description: "Format flags",
+      supportsStreamSpecifier: false,
+      supportsMetadataSpecifier: false,
+    },
+    {
+      prop: "defaultMode",
+      flag: "-default_mode",
+      cat: "output",
+      tsType: "string",
+      isFlag: false,
+      isArray: false,
+      description: "Default stream selection mode",
+      supportsStreamSpecifier: false,
+      supportsMetadataSpecifier: false,
+    },
   ];
 
   for (const extra of extras) {
@@ -1196,6 +1316,31 @@ const makeArray = (flag: string) => ({ flag, isFlag: false as const, isArray: tr
 async function main() {
   const raw = await loadJSON();
   console.log(`Loaded ${raw.length} options`);
+
+  // Auto-generate types from scraped possible_values for explicitly listed flags.
+  for (const [flagName, typeName] of Object.entries(EXTRA_ENUM_TYPES)) {
+    const rawOpt = raw.find(
+      (o) =>
+        o.possible_values &&
+        o.possible_values.length > 0 &&
+        o.name.replace(/^-/, "").startsWith(flagName),
+    );
+    if (!rawOpt?.possible_values) {
+      console.warn(
+        `  WARN: No possible_values found for "${flagName}" — skipping type "${typeName}"`,
+      );
+      continue;
+    }
+    const enumType = generateEnumType(flagName, rawOpt.possible_values);
+    if (enumType) {
+      CUSTOM_TYPES[typeName] = `${enumType} | (string & Record<never, never>)`;
+      console.log(
+        `  Auto-generated type "${typeName}" = ${enumType} (widened with string fallback)`,
+      );
+    } else {
+      console.warn(`  WARN: Could not generate clean enum type for "${flagName}" — skipping`);
+    }
+  }
 
   const normals = normalize(raw);
   console.log(`Normalized ${normals.length} options`);

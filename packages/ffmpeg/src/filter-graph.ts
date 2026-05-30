@@ -1,3 +1,5 @@
+import type { StreamType } from "./generated/options.ts";
+
 export type FilterGraphMediaType = "video" | "audio" | "unknown";
 
 export type FilterScalar = string | number | boolean;
@@ -40,6 +42,77 @@ export interface ConcatOptions {
   unsafe?: boolean;
 }
 
+export interface CropOptions {
+  w: string | number;
+  h: string | number;
+  x?: string | number;
+  y?: string | number;
+  keepAspect?: boolean;
+  exact?: boolean;
+}
+
+export interface PadOptions {
+  w: string | number;
+  h: string | number;
+  x?: string | number;
+  y?: string | number;
+  color?: string;
+}
+
+export interface FadeOptions {
+  type: "in" | "out";
+  startFrame?: number;
+  nbFrames?: number;
+  alpha?: boolean;
+  startTime?: number;
+  duration?: number;
+  color?: string;
+}
+
+export interface EqOptions {
+  contrast?: number;
+  brightness?: number;
+  saturation?: number;
+  gamma?: number;
+  gammaR?: number;
+  gammaG?: number;
+  gammaB?: number;
+  gammaWeight?: number;
+}
+
+export interface HueOptions {
+  h?: string | number;
+  s?: number;
+  H?: string | number;
+  b?: number;
+}
+
+export interface PalettegenOptions {
+  maxColors?: number;
+  reserveTransparent?: boolean;
+  transparencyColor?: string;
+  statsMode?: "full" | "diff" | "single";
+}
+
+export interface PaletteuseOptions {
+  dither?:
+    | "bayer"
+    | "heckbert"
+    | "floyd_steinberg"
+    | "sierra2"
+    | "sierra2_4a"
+    | "sierra3"
+    | "burkes"
+    | "atkinson"
+    | "ordered"
+    | "serpentine"
+    | "none";
+  bayerScale?: number;
+  diffMode?: number;
+  new?: boolean;
+  alphaThreshold?: number;
+}
+
 function escapeFilterValue(value: FilterScalar): string {
   if (typeof value === "boolean") {
     return value ? "1" : "0";
@@ -78,18 +151,6 @@ function joinInputs(inputs: readonly FilterGraphStream[]): string {
 
 function joinOutputs(outputs: readonly string[]): string {
   return outputs.map((label) => `[${label}]`).join("");
-}
-
-let autoLabelId = 0;
-
-function nextAutoLabel(prefix: string): string {
-  const label = `${prefix}${autoLabelId}`;
-  autoLabelId += 1;
-  return label;
-}
-
-export function resetFilterGraphLabelCounter(): void {
-  autoLabelId = 0;
 }
 
 export class FilterGraphStream {
@@ -182,8 +243,83 @@ class FilterGraphChain {
     return this.filter("atempo", [value]);
   }
 
+  crop(options: CropOptions): this {
+    return this.filter("crop", [], {
+      w: options.w,
+      h: options.h,
+      x: options.x,
+      y: options.y,
+      keep_aspect: options.keepAspect,
+      exact: options.exact,
+    });
+  }
+
+  pad(options: PadOptions): this {
+    return this.filter("pad", [], {
+      w: options.w,
+      h: options.h,
+      x: options.x,
+      y: options.y,
+      color: options.color,
+    });
+  }
+
+  fade(options: FadeOptions): this {
+    return this.filter("fade", [], {
+      type: options.type,
+      start_frame: options.startFrame,
+      nb_frames: options.nbFrames,
+      alpha: options.alpha,
+      start_time: options.startTime,
+      duration: options.duration,
+      color: options.color,
+    });
+  }
+
+  eq(options: EqOptions): this {
+    return this.filter("eq", [], {
+      contrast: options.contrast,
+      brightness: options.brightness,
+      saturation: options.saturation,
+      gamma: options.gamma,
+      gamma_r: options.gammaR,
+      gamma_g: options.gammaG,
+      gamma_b: options.gammaB,
+      gamma_weight: options.gammaWeight,
+    });
+  }
+
+  hue(options: HueOptions): this {
+    return this.filter("hue", [], {
+      h: options.h,
+      s: options.s,
+      H: options.H,
+      b: options.b,
+    });
+  }
+
+  palettegen(options: PalettegenOptions = {}): this {
+    return this.filter("palettegen", [], {
+      max_colors: options.maxColors,
+      reserve_transparent: options.reserveTransparent,
+      transparency_color: options.transparencyColor,
+      stats_mode: options.statsMode,
+    });
+  }
+
+  paletteuse(options: PaletteuseOptions = {}): this {
+    return this.filter("paletteuse", [], {
+      dither: options.dither,
+      bayer_scale: options.bayerScale,
+      diff_mode: options.diffMode,
+      new: options.new,
+      alpha_threshold: options.alphaThreshold,
+    });
+  }
+
   split(...labels: string[]): FilterGraphStream[] {
-    const outputLabels = labels.length > 0 ? labels : [nextAutoLabel("v"), nextAutoLabel("v")];
+    const outputLabels =
+      labels.length > 0 ? labels : [this.graph.nextAutoLabel("v"), this.graph.nextAutoLabel("v")];
 
     return this.commit(
       outputLabels,
@@ -193,7 +329,8 @@ class FilterGraphChain {
   }
 
   asplit(...labels: string[]): FilterGraphStream[] {
-    const outputLabels = labels.length > 0 ? labels : [nextAutoLabel("a"), nextAutoLabel("a")];
+    const outputLabels =
+      labels.length > 0 ? labels : [this.graph.nextAutoLabel("a"), this.graph.nextAutoLabel("a")];
 
     return this.commit(
       outputLabels,
@@ -207,7 +344,7 @@ class FilterGraphChain {
   }
 
   labels(...labels: string[]): FilterGraphStream[] {
-    const outputLabels = labels.length > 0 ? labels : [nextAutoLabel("out")];
+    const outputLabels = labels.length > 0 ? labels : [this.graph.nextAutoLabel("out")];
     return this.commit(
       outputLabels,
       outputLabels.map(
@@ -220,7 +357,7 @@ class FilterGraphChain {
     const mediaType = this.outputMediaTypes[0] ?? "unknown";
     const fallbackPrefix =
       prefix ?? (mediaType === "audio" ? "a" : mediaType === "video" ? "v" : "out");
-    return this.label(nextAutoLabel(fallbackPrefix));
+    return this.label(this.graph.nextAutoLabel(fallbackPrefix));
   }
 
   private commit(
@@ -251,6 +388,17 @@ class FilterGraphChain {
 export class FilterGraph {
   private readonly segments: string[] = [];
   private readonly outputLabels = new Set<string>();
+  private autoLabelId = 0;
+
+  nextAutoLabel(prefix: string): string {
+    const label = `${prefix}${this.autoLabelId}`;
+    this.autoLabelId += 1;
+    return label;
+  }
+
+  resetLabelCounter(): void {
+    this.autoLabelId = 0;
+  }
 
   addSegment(segment: string, labels: readonly string[]): void {
     for (const label of labels) {
@@ -270,11 +418,7 @@ export class FilterGraph {
     return [...this.outputLabels];
   }
 
-  input(
-    index: number,
-    streamType?: "v" | "a" | "s" | "d" | "t",
-    streamIndex?: number,
-  ): FilterGraphStream {
+  input(index: number, streamType?: StreamType, streamIndex?: number): FilterGraphStream {
     const label =
       streamType === undefined
         ? String(index)

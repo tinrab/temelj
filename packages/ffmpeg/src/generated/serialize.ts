@@ -67,6 +67,8 @@ export const generatedInputDefs: Record<
   discard: makeValue("-discard"),
   loop: makeValue("-loop"),
   initHwDevice: makeValue("-init_hw_device"),
+  errDetect: makeValue("-err_detect"),
+  fflags: makeValue("-fflags"),
 };
 
 export const generatedOutputDefs: Record<
@@ -164,6 +166,9 @@ export const generatedOutputDefs: Record<
   codec: makeValue("-codec"),
   statsEncPost: makeValue("-stats_enc_post"),
   statsEncPostFmt: makeValue("-stats_enc_post_fmt"),
+  strict: makeValue("-strict"),
+  avoidNegativeTs: makeValue("-avoid_negative_ts"),
+  defaultMode: makeValue("-default_mode"),
 };
 
 export const generatedGlobalDefs: Record<

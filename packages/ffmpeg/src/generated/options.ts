@@ -47,6 +47,81 @@ export type Target =
   | "ntsc-svcd"
   | "ntsc-dvd";
 export type AspectRatio = `${number}:${number}` | `${number}/${number}` | number;
+export type Preset =
+  | "ultrafast"
+  | "superfast"
+  | "veryfast"
+  | "faster"
+  | "fast"
+  | "medium"
+  | "slow"
+  | "slower"
+  | "veryslow"
+  | "placebo";
+export type MovFlag =
+  | "cmaf"
+  | "dash"
+  | "default_base_moof"
+  | "delay_moov"
+  | "disable_chpl"
+  | "faststart"
+  | "frag_custom"
+  | "frag_discont"
+  | "frag_every_frame"
+  | "frag_keyframe"
+  | "global_sidx"
+  | "isml"
+  | "negative_cts_offsets"
+  | "omit_tfhd_offset"
+  | "prefer_icc"
+  | "rtphint"
+  | "separate_moof"
+  | "skip_sidx"
+  | "skip_trailer"
+  | "use_metadata_tags"
+  | "write_colr"
+  | "write_gama"
+  | "hybrid_fragmented"
+  | (string & Record<never, never>);
+export type Strict =
+  | "very"
+  | "strict"
+  | "normal"
+  | "unofficial"
+  | "experimental"
+  | (string & Record<never, never>);
+export type AvoidNegativeTs =
+  | "make_non_negative"
+  | "make_zero"
+  | "auto"
+  | "disabled"
+  | (string & Record<never, never>);
+export type ErrDetect =
+  | "crccheck"
+  | "bitstream"
+  | "buffer"
+  | "explode"
+  | "ignore_err"
+  | "careful"
+  | "compliant"
+  | "aggressive"
+  | (string & Record<never, never>);
+export type FFlags =
+  | "discardcorrupt"
+  | "fastseek"
+  | "genpts"
+  | "igndts"
+  | "ignidx"
+  | "nobuffer"
+  | "nofillin"
+  | "noparse"
+  | "sortdts"
+  | (string & Record<never, never>);
+export type DefaultMode =
+  | "infer"
+  | "infer_no_subs"
+  | "passthrough"
+  | (string & Record<never, never>);
 
 export interface InputOptions {
   /** Set the number of audio channels. For output streams it is set by */
@@ -58,7 +133,7 @@ export interface InputOptions {
   /** As an input option, blocks all audio streams of a file from being filtered or */
   an?: boolean;
   /** Automatically crop the video after decoding according to file metadata. */
-  applyCropping?: string;
+  applyCropping?: "none" | "all" | "codec" | "container";
   /** Set the audio sampling frequency. For output streams it is set by */
   ar?: number;
   /** Enable bitexact mode for (de)muxer and (de/en)coder */
@@ -70,13 +145,13 @@ export interface InputOptions {
   /** Set video content light metadata. */
   contentLight?: string;
   /** Specify how to set the encoder timebase when stream copying. mode is an */
-  copyTb?: number;
+  copyTb?: 1 | 0 | -1;
   /** Do not process input timestamps, but keep their values without trying */
   copyTs?: boolean;
   /** Allow input streams with unknown type to be copied instead of failing if copying */
   copyUnknown?: boolean;
   /** Allows discarding specific streams or frames from streams. */
-  discard?: string;
+  discard?: "none" | "default" | "noref" | "bidir" | "nokey" | "all";
   /** Set whether on display the image should be horizontally flipped. */
   displayHflip?: boolean;
   /** Set video rotation metadata. */
@@ -93,8 +168,12 @@ export interface InputOptions {
   dtsErrorThreshold?: number;
   /** Extract the matching attachment stream into a file named filename . If filename is empty, then the value of the filename */
   dumpAttachment?: string;
+  /** Error detection level */
+  errDetect?: ErrDetect;
   /** Force input or output file format. The format is normally auto detected for input */
   f?: string;
+  /** Format flags */
+  fflags?: FFlags;
   /** Pass the hardware device called name to all filters in any filter graph. */
   filterHwDevice?: string;
   /** Set a specific output video stream as the heartbeat stream according to which */
@@ -102,7 +181,7 @@ export interface InputOptions {
   /** If some input channel layout is not known, try to guess only if it */
   guessLayoutMax?: number;
   /** Use hardware acceleration to decode the matching stream(s). The allowed values */
-  hwaccel?: string;
+  hwaccel?: "none" | "auto" | "vdpau" | "dxva2" | "d3d11va" | "vaapi" | "qsv" | "videotoolbox";
   /** Select a device to use for hardware acceleration. */
   hwaccelDevice?: string;
   /** input file url */
@@ -196,6 +275,8 @@ export interface OutputOptions {
   audioBitrate?: Bitrate;
   /** Audio codec (-c:a) */
   audioCodec?: string;
+  /** Avoid negative timestamps */
+  avoidNegativeTs?: AvoidNegativeTs;
   /** Declare the number of bits per raw sample in the given output stream to be value . Note that this option sets the inform */
   bitsPerRawSample?: number;
   /** Apply bitstream filters to matching streams. The filters are applied to each */
@@ -218,6 +299,8 @@ export interface OutputOptions {
   crf?: number;
   /** Data codec (-c:d) */
   dataCodec?: string;
+  /** Default stream selection mode */
+  defaultMode?: DefaultMode;
   /** Set the number of data frames to output. This is an obsolete alias for -frames:d , which you should use instead. */
   dframes?: number;
   /** Sets the disposition flags for a stream. */
@@ -255,7 +338,7 @@ export interface OutputOptions {
   /** Set min bitrate tolerance */
   minrate?: Bitrate;
   /** Set mov/mp4 writing flags */
-  movflags?: string;
+  movflags?: MovFlag;
   /** Set the maximum demux-decode delay. */
   muxdelay?: Duration;
   /** This is a minimum threshold until which the muxing queue size is not taken into */
@@ -271,7 +354,7 @@ export interface OutputOptions {
   /** Specify the preset for matching stream(s). */
   pre?: string;
   /** Set codec preset */
-  preset?: string;
+  preset?: Preset;
   /** Set codec profile */
   profile?: string;
   /** Creates a program with the specified title , program_num and adds the specified stream (s) to it. */
@@ -310,6 +393,8 @@ export interface OutputOptions {
   streamGroup?: string | string[];
   /** Assign a new stream-id value to an output stream. This option should be */
   streamid?: string | string[];
+  /** Strict standard compliance */
+  strict?: Strict;
   /** Subtitle bitrate (-b:s) */
   subtitleBitrate?: Bitrate;
   /** Subtitle codec (-c:s) */
@@ -362,7 +447,7 @@ export interface OutputOptions {
 
 export interface GlobalOptions {
   /** Stop and abort on various conditions. The following flags are available: */
-  abortOn?: string;
+  abortOn?: "empty_output" | "empty_output_stream";
   /** Enable automatically inserting format conversion filters in all filter */
   autoConversionFilters?: boolean;
   /** Automatically rotate the video according to file metadata. Enabled by */
@@ -447,7 +532,7 @@ export interface GlobalOptions {
 
 export interface InputStreamOptions {
   ac?: number;
-  applyCropping?: string;
+  applyCropping?: "none" | "all" | "codec" | "container";
   ar?: number;
   bsf?: string;
   c?: string;
@@ -458,7 +543,7 @@ export interface InputStreamOptions {
   dropChanged?: boolean;
   dumpAttachment?: string;
   guessLayoutMax?: number;
-  hwaccel?: string;
+  hwaccel?: "none" | "auto" | "vdpau" | "dxva2" | "d3d11va" | "vaapi" | "qsv" | "videotoolbox";
   hwaccelDevice?: string;
   itsscale?: number;
   masteringDisplay?: string;
@@ -502,7 +587,7 @@ export interface OutputStreamOptions {
   passLogfile?: string;
   pixFmt?: string;
   pre?: string;
-  preset?: string;
+  preset?: Preset;
   profile?: string;
   q?: number;
   qscale?: number;
