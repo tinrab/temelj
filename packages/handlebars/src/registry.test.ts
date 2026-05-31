@@ -12,15 +12,15 @@ test("switch helper", () => {
     {{#default}}C{{/default}}
     {{/switch}}
   `;
-  expect(r.render(template, { x: 1 }).trim(), "A");
-  expect(r.render(template, { x: 2 }).trim(), "B");
+  expect(r.render(template, { x: 1 }).trim()).toBe("A");
+  expect(r.render(template, { x: 2 }).trim()).toBe("B");
 
-  expect(r.render(template, { x: 99 }).trim(), "C");
-  expect(r.render(template).trim(), "C");
+  expect(r.render(template, { x: 99 }).trim()).toBe("C");
+  expect(r.render(template).trim()).toBe("C");
 });
 
 test("safe string works", () => {
   const r = new Registry();
   r.registerHelper("safeString", () => new SafeString(`'hi'`));
-  expect(r.render(`{{safeString}}`), `'hi'`);
+  expect(r.render(`{{safeString}}`)).toBe(`'hi'`);
 });

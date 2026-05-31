@@ -51,10 +51,7 @@ export function arrayBinarySearch<T>(
  * @param compare An optional custom comparison function to use for each element. If not provided, {@link deepEquals} will be used.
  * @returns `true` if the array contains any duplicates, `false` otherwise.
  */
-export function arrayContainsDuplicates<T>(
-  arr: T[],
-  compare?: (a: T, b: T) => boolean,
-): boolean {
+export function arrayContainsDuplicates<T>(arr: T[], compare?: (a: T, b: T) => boolean): boolean {
   if (compare === undefined) {
     for (let i = 0; i < arr.length - 1; i++) {
       const a = arr[i];

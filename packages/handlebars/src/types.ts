@@ -1,4 +1,5 @@
 import type { TemplateDelegate } from "handlebars";
+
 import hbs from "handlebars";
 
 export type { HelperDeclareSpec, HelperDelegate, Template } from "handlebars";
@@ -22,9 +23,7 @@ export interface CompileOptions {
   explicitPartialContext?: boolean;
 }
 
-export type KnownHelpers = {
-  [name in BuiltinHelperName | CustomHelperName]: boolean;
-};
+export type KnownHelpers = Record<string, boolean>;
 
 export type BuiltinHelperName =
   | "helperMissing"
@@ -35,5 +34,3 @@ export type BuiltinHelperName =
   | "with"
   | "log"
   | "lookup";
-
-export type CustomHelperName = string;

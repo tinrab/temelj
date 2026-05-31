@@ -1,5 +1,6 @@
-import { AbortError, TimeoutError } from "./errors";
 import type { StandardOptions } from "./types";
+
+import { AbortError, TimeoutError } from "./errors";
 
 /**
  * Waits until a predicate returns `true`, polling at a configurable interval.

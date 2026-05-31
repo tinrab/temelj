@@ -1,13 +1,11 @@
-import {
-  compile as compileMdxJs,
-  type CompileOptions as MdxJsCompileOptions,
-} from "@mdx-js/mdx";
+import type { Pluggable, PluggableList, Plugin } from "unified";
+import type { z } from "zod";
+
+import { compile as compileMdxJs, type CompileOptions as MdxJsCompileOptions } from "@mdx-js/mdx";
 import remarkFrontmatterPlugin from "remark-frontmatter";
 import remarkGfmPlugin from "remark-gfm";
-import type { Pluggable, PluggableList, Plugin } from "unified";
 import { VFile } from "vfile";
 import { matter } from "vfile-matter";
-import type { z } from "zod";
 
 import type { HastNode } from "./types";
 
@@ -185,10 +183,7 @@ export class MdxCompiler {
     });
     matter(vfile, { strip: true });
     const compileSourceText = toSourceText(vfile.value as MdxSource);
-    const sourceContext = createDiagnosticSourceContext(
-      sourceText,
-      compileSourceText,
-    );
+    const sourceContext = createDiagnosticSourceContext(sourceText, compileSourceText);
 
     const remarkPlugins = [
       ...this.remarkPlugins,
@@ -206,8 +201,8 @@ export class MdxCompiler {
       try {
         const compiledFile = await compileMdxJs(vfile, {
           outputFormat: "function-body",
-          ...(this.mdxOptions ?? {}),
-          ...(mdxOptions ?? {}),
+          ...this.mdxOptions,
+          ...mdxOptions,
           remarkPlugins,
           rehypePlugins,
         });
@@ -235,11 +230,7 @@ function toMdxCompileError(
   sourceContext: MdxDiagnosticSourceContext,
   diagnostics: readonly VFileLikeMessage[],
 ): MdxCompileError {
-  const details = getDiagnosticDetails(
-    sourceContext,
-    getErrorPlace(error),
-    error,
-  );
+  const details = getDiagnosticDetails(sourceContext, getErrorPlace(error), error);
   const cause = getErrorCause(error);
 
   return new MdxCompileError(getErrorReason(error), {
@@ -263,11 +254,7 @@ function normalizeMessages(
   sourceContext: MdxDiagnosticSourceContext,
 ): MdxMessage[] {
   return messages.map((message) => {
-    const details = getDiagnosticDetails(
-      sourceContext,
-      toMessagePlace(message),
-      message,
-    );
+    const details = getDiagnosticDetails(sourceContext, toMessagePlace(message), message);
     const reason = getErrorReason(message);
     const source = getErrorField(message, "source");
     const ruleId = getErrorField(message, "ruleId");
@@ -333,10 +320,7 @@ function formatDiagnosticMessage(
   if (options.snippet !== undefined) {
     lines.push(`Source: ${options.snippet}`);
   }
-  if (
-    options.sourceLine !== undefined &&
-    options.sourceLine !== options.snippet
-  ) {
+  if (options.sourceLine !== undefined && options.sourceLine !== options.snippet) {
     lines.push(`Line: ${options.sourceLine}`);
     if (options.sourcePointer !== undefined) {
       lines.push(`      ${options.sourcePointer}`);
@@ -370,10 +354,7 @@ function getDiagnosticDetails(
   hint?: string | undefined;
 } {
   const compileLine = place?.start?.line ?? getErrorNumberField(error, "line");
-  let line =
-    compileLine === undefined
-      ? undefined
-      : compileLine + sourceContext.lineOffset;
+  let line = compileLine === undefined ? undefined : compileLine + sourceContext.lineOffset;
   let column = place?.start?.column ?? getErrorNumberField(error, "column");
   let normalizedPlace = mapPlaceToOriginalSource(
     place === undefined && compileLine === undefined && column === undefined
@@ -396,23 +377,17 @@ function getDiagnosticDetails(
     sourceContext.lineOffset,
   );
   let sourceLine = getSourceLine(sourceContext.originalSourceText, line);
-  let snippet = getSourceSnippet(
-    sourceContext.originalSourceText,
-    normalizedPlace,
-  );
+  let snippet = getSourceSnippet(sourceContext.originalSourceText, normalizedPlace);
   let sourcePointer = getSourcePointer(column);
   let hint: string | undefined;
 
-  const refinedExpressionContext = getMdxExpressionContext(
-    sourceContext.originalSourceText,
-    {
-      line,
-      column,
-      sourceLine,
-      snippet,
-      error,
-    },
-  );
+  const refinedExpressionContext = getMdxExpressionContext(sourceContext.originalSourceText, {
+    line,
+    column,
+    sourceLine,
+    snippet,
+    error,
+  });
 
   if (refinedExpressionContext !== undefined) {
     line = refinedExpressionContext.line;
@@ -465,11 +440,7 @@ function getMdxExpressionContext(
     return undefined;
   }
 
-  const candidate = findSuspiciousBraceExpression(
-    sourceText,
-    options.line,
-    options.column,
-  );
+  const candidate = findSuspiciousBraceExpression(sourceText, options.line, options.column);
   if (candidate === undefined) {
     return undefined;
   }
@@ -481,8 +452,7 @@ function getMdxExpressionContext(
     snippet: candidate.snippet,
     sourcePointer: getSourcePointer(candidate.column) ?? "^",
     hint:
-      getErrorCause(options.error)?.message ===
-      "Unexpected content after expression"
+      getErrorCause(options.error)?.message === "Unexpected content after expression"
         ? "MDX treats `{...}` as JavaScript. If you meant literal braces in text, escape them or wrap the text in code."
         : undefined,
   };
@@ -497,8 +467,7 @@ function shouldRefineMdxExpressionContext(options: {
 
   return (
     isMdxExpressionError(options.error) &&
-    getErrorCause(options.error)?.message ===
-      "Unexpected content after expression" &&
+    getErrorCause(options.error)?.message === "Unexpected content after expression" &&
     (options.sourceLine === undefined ||
       options.sourceLine.trim() === "" ||
       options.snippet === undefined) &&
@@ -506,10 +475,7 @@ function shouldRefineMdxExpressionContext(options: {
   );
 }
 
-function getSourceLine(
-  sourceText: string,
-  line: number | undefined,
-): string | undefined {
+function getSourceLine(sourceText: string, line: number | undefined): string | undefined {
   if (line === undefined || line < 1) {
     return undefined;
   }
@@ -536,9 +502,7 @@ function getSourceSnippet(
     }
 
     const character = line.at(place.start.column - 1);
-    return character === undefined || character.trim() === ""
-      ? undefined
-      : character;
+    return character === undefined || character.trim() === "" ? undefined : character;
   }
 
   const lines = sourceText.split(/\r?\n/u);
@@ -714,8 +678,7 @@ function findLineBraceExpression(
       continue;
     }
 
-    const distance =
-      column === undefined ? 0 : Math.abs(braceStart + 1 - column);
+    const distance = column === undefined ? 0 : Math.abs(braceStart + 1 - column);
     if (bestMatch === undefined || distance < bestMatch.distance) {
       bestMatch = {
         line,
@@ -730,10 +693,7 @@ function findLineBraceExpression(
   return bestMatch;
 }
 
-function expandBraceExpression(
-  sourceLine: string,
-  braceStart: number,
-): string | undefined {
+function expandBraceExpression(sourceLine: string, braceStart: number): string | undefined {
   const braceEnd = sourceLine.indexOf("}", braceStart);
   if (braceEnd === -1) {
     return undefined;
@@ -781,10 +741,7 @@ function createDiagnosticSourceContext(
   };
 }
 
-function getSourceLineOffset(
-  originalSourceText: string,
-  compileSourceText: string,
-): number {
+function getSourceLineOffset(originalSourceText: string, compileSourceText: string): number {
   const originalLines = originalSourceText.split(/\r?\n/u);
   const compileLines = compileSourceText.split(/\r?\n/u);
   const maxOffset = originalLines.length - compileLines.length;
@@ -819,9 +776,7 @@ function getErrorPlace(error: unknown): MdxMessagePlace | undefined {
   return toPlace(candidate.place) ?? toPlace(candidate.position);
 }
 
-function toMessagePlace(
-  message: VFileLikeMessage,
-): MdxMessagePlace | undefined {
+function toMessagePlace(message: VFileLikeMessage): MdxMessagePlace | undefined {
   return toPlace(message.place);
 }
 
@@ -860,10 +815,8 @@ function toPoint(value: unknown): MdxMessagePoint | undefined {
     offset?: unknown;
   };
   const line = typeof candidate.line === "number" ? candidate.line : undefined;
-  const column =
-    typeof candidate.column === "number" ? candidate.column : undefined;
-  const offset =
-    typeof candidate.offset === "number" ? candidate.offset : undefined;
+  const column = typeof candidate.column === "number" ? candidate.column : undefined;
+  const offset = typeof candidate.offset === "number" ? candidate.offset : undefined;
 
   if (line === undefined && column === undefined && offset === undefined) {
     return undefined;
@@ -885,9 +838,7 @@ function getErrorReason(error: unknown): string {
   return String(error);
 }
 
-function getErrorCause(
-  error: unknown,
-): { name?: string | undefined; message: string } | undefined {
+function getErrorCause(error: unknown): { name?: string | undefined; message: string } | undefined {
   if (typeof error !== "object" || error === null || !("cause" in error)) {
     return undefined;
   }
@@ -908,10 +859,7 @@ function getErrorCause(
   return undefined;
 }
 
-function getErrorField(
-  error: unknown,
-  field: "source" | "ruleId" | "reason",
-): string | undefined {
+function getErrorField(error: unknown, field: "source" | "ruleId" | "reason"): string | undefined {
   if (typeof error !== "object" || error === null || !(field in error)) {
     return undefined;
   }
@@ -920,10 +868,7 @@ function getErrorField(
   return typeof value === "string" && value !== "" ? value : undefined;
 }
 
-function getErrorNumberField(
-  error: unknown,
-  field: "line" | "column",
-): number | undefined {
+function getErrorNumberField(error: unknown, field: "line" | "column"): number | undefined {
   if (typeof error !== "object" || error === null || !(field in error)) {
     return undefined;
   }

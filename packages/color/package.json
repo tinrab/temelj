@@ -28,11 +28,11 @@
     "remove": "^0.1.5"
   },
   "devDependencies": {
-    "@types/node": "25.5.0",
+    "@types/node": "25.9.1",
     "esbuild-plugin-file-path-extensions": "^2.1.4",
     "shx": "^0.4.0",
-    "tsdown": "^0.21.7",
-    "typescript": "^6.0.2",
-    "vitest": "^4.1.2"
+    "tsdown": "^0.22.1",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.7"
   }
 }

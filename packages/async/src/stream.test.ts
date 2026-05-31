@@ -12,8 +12,8 @@ test("debounce delays execution", async () => {
     return n;
   }, 50);
 
-  fn(1);
-  fn(2);
+  void fn(1);
+  void fn(2);
   const p3 = fn(3);
 
   const result = await p3;
@@ -49,7 +49,7 @@ test("throttle limits call frequency", async () => {
   expect(r1).toBe(1);
   expect(callCount).toBe(1);
 
-  fn(2);
+  void fn(2);
   const p3 = fn(3);
   const r3 = await p3;
   expect(r3).toBe(3);
@@ -88,10 +88,7 @@ test("AsyncStream forEach", async () => {
 });
 
 test("AsyncStream reduce", async () => {
-  const result = await AsyncStream.from([1, 2, 3, 4]).reduce(
-    async (acc, x) => acc + x,
-    0,
-  );
+  const result = await AsyncStream.from([1, 2, 3, 4]).reduce(async (acc, x) => acc + x, 0);
   expect(result).toBe(10);
 });
 

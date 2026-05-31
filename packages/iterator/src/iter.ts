@@ -26,10 +26,7 @@ export function collectMap<K extends keyof any, V, V1 = V>(
  * @param selector A function that returns a comparable value for each element.
  * @returns The minimum element, or undefined if the iterable is empty.
  */
-export function minBy<T>(
-  iterable: Iterable<T>,
-  selector: (item: T) => number,
-): T | undefined {
+export function minBy<T>(iterable: Iterable<T>, selector: (item: T) => number): T | undefined {
   let minItem: T | undefined;
   let minValue = Infinity;
 
@@ -51,10 +48,7 @@ export function minBy<T>(
  * @param selector A function that returns a comparable value for each element.
  * @returns The maximum element, or undefined if the iterable is empty.
  */
-export function maxBy<T>(
-  iterable: Iterable<T>,
-  selector: (item: T) => number,
-): T | undefined {
+export function maxBy<T>(iterable: Iterable<T>, selector: (item: T) => number): T | undefined {
   let maxItem: T | undefined;
   let maxValue = -Infinity;
 
@@ -182,10 +176,7 @@ export function flatten<T>(iterable: Iterable<Iterable<T> | T>): T[] {
  * @param getKey A function that derives a key from an element.
  * @returns A Map where keys are the result of calling `getKey` on each element, and values are arrays of elements with that key.
  */
-export function groupBy<T, K>(
-  it: Iterable<T>,
-  getKey: (item: T) => K,
-): Map<K, T[]> {
+export function groupBy<T, K>(it: Iterable<T>, getKey: (item: T) => K): Map<K, T[]> {
   const map = new Map<K, T[]>();
   for (const item of it) {
     const key = getKey(item);
@@ -207,10 +198,7 @@ export function groupBy<T, K>(
  * @param identity An optional function that returns a value to use for uniqueness comparison.
  * @returns An array of unique items.
  */
-export function unique<T>(
-  iterable: Iterable<T>,
-  identity?: (item: T) => unknown,
-): T[] {
+export function unique<T>(iterable: Iterable<T>, identity?: (item: T) => unknown): T[] {
   const result: T[] = [];
   const seen = new Set<unknown>();
 
@@ -364,10 +352,7 @@ export function isEmpty<T>(iterable: Iterable<T>): boolean {
  * @param predicate A function that returns `true` for elements to include.
  * @returns An array containing elements while the predicate was true.
  */
-export function takeWhile<T>(
-  iterable: Iterable<T>,
-  predicate: (item: T) => boolean,
-): T[] {
+export function takeWhile<T>(iterable: Iterable<T>, predicate: (item: T) => boolean): T[] {
   const result: T[] = [];
 
   for (const item of iterable) {
@@ -387,10 +372,7 @@ export function takeWhile<T>(
  * @param predicate A function that returns `true` for elements to skip.
  * @returns An array containing elements after the predicate returned `false`.
  */
-export function skipWhile<T>(
-  iterable: Iterable<T>,
-  predicate: (item: T) => boolean,
-): T[] {
+export function skipWhile<T>(iterable: Iterable<T>, predicate: (item: T) => boolean): T[] {
   const result: T[] = [];
   let skipping = true;
 
@@ -415,10 +397,7 @@ export function skipWhile<T>(
  * @param predicate A function that returns `true` for the desired element.
  * @returns The first matching element, or `undefined` if not found.
  */
-export function find<T>(
-  iterable: Iterable<T>,
-  predicate: (item: T) => boolean,
-): T | undefined {
+export function find<T>(iterable: Iterable<T>, predicate: (item: T) => boolean): T | undefined {
   for (const item of iterable) {
     if (predicate(item)) {
       return item;
@@ -434,10 +413,7 @@ export function find<T>(
  * @param predicate A function that returns `true` for matching elements.
  * @returns `true` if any element satisfies the predicate, `false` otherwise.
  */
-export function any<T>(
-  iterable: Iterable<T>,
-  predicate: (item: T) => boolean,
-): boolean {
+export function any<T>(iterable: Iterable<T>, predicate: (item: T) => boolean): boolean {
   for (const item of iterable) {
     if (predicate(item)) {
       return true;
@@ -453,10 +429,7 @@ export function any<T>(
  * @param predicate A function that returns `true` for matching elements.
  * @returns `true` if all elements satisfy the predicate, `false` otherwise.
  */
-export function all<T>(
-  iterable: Iterable<T>,
-  predicate: (item: T) => boolean,
-): boolean {
+export function all<T>(iterable: Iterable<T>, predicate: (item: T) => boolean): boolean {
   for (const item of iterable) {
     if (!predicate(item)) {
       return false;
@@ -472,10 +445,7 @@ export function all<T>(
  * @param predicate An optional predicate to filter elements.
  * @returns The count of elements.
  */
-export function count<T>(
-  iterable: Iterable<T>,
-  predicate?: (item: T) => boolean,
-): number {
+export function count<T>(iterable: Iterable<T>, predicate?: (item: T) => boolean): number {
   let counter = 0;
 
   for (const item of iterable) {

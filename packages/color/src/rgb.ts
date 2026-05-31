@@ -11,12 +11,7 @@ export interface Color {
 /**
  * Creates a RGB color from the given RGB values.
  */
-export function fromRgb(
-  red: number,
-  green: number,
-  blue: number,
-  alpha?: number,
-): Color {
+export function fromRgb(red: number, green: number, blue: number, alpha?: number): Color {
   return {
     red,
     green,
@@ -102,9 +97,7 @@ export function toRgbString(color: Color): string {
  * @returns A CSS color string.
  */
 export function toRgbaString(color: Color): string {
-  return `rgba(${color.red}, ${color.green}, ${color.blue}, ${
-    color.alpha ?? 1
-  })`;
+  return `rgba(${color.red}, ${color.green}, ${color.blue}, ${color.alpha ?? 1})`;
 }
 
 /**

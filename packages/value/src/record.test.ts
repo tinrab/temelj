@@ -3,9 +3,9 @@ import { expect, test } from "vitest";
 import { recordEquals, recordMerge } from "./record";
 
 test("recordEquals() works", () => {
-  expect(recordEquals({ a: 1, b: 2 }, { a: 1, b: 2 }));
+  expect(recordEquals({ a: 1, b: 2 }, { a: 1, b: 2 })).toBe(true);
 
-  expect(!recordEquals({ a: 1 }, { a: 3 }));
+  expect(recordEquals({ a: 1 }, { a: 3 })).toBe(false);
 });
 
 test("recordMerge() works", () => {

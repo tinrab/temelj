@@ -1,5 +1,6 @@
-import { AbortError, TimeoutError } from "./errors";
 import type { StandardOptions } from "./types";
+
+import { AbortError, TimeoutError } from "./errors";
 
 /**
  * Races a promise against a timer. Rejects with {@link TimeoutError} if the

@@ -5,10 +5,7 @@
  * @param filter A function that takes an element and its index, and returns the mapped element or `undefined` if the element should be filtered out.
  * @returns A new array containing the mapped elements that passed the filter.
  */
-export function filterMap<T, U>(
-  it: Iterable<T>,
-  filter: (e: T, i: number) => U | undefined,
-): U[] {
+export function filterMap<T, U>(it: Iterable<T>, filter: (e: T, i: number) => U | undefined): U[] {
   const result: U[] = [];
   let i = 0;
   for (const e of it) {
@@ -28,10 +25,7 @@ export function filterMap<T, U>(
  * @param predicate A function that returns true for elements that should go in the first array.
  * @returns A tuple of two arrays: [truthyElements, falsyElements].
  */
-export function partition<T>(
-  iterable: Iterable<T>,
-  predicate: (item: T) => boolean,
-): [T[], T[]] {
+export function partition<T>(iterable: Iterable<T>, predicate: (item: T) => boolean): [T[], T[]] {
   const truthy: T[] = [];
   const falsy: T[] = [];
 

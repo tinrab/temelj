@@ -1,5 +1,6 @@
-import { AbortError } from "./errors";
 import type { StandardOptions } from "./types";
+
+import { AbortError } from "./errors";
 
 type AsyncInput<T> = AsyncIterable<T> | Iterable<T>;
 

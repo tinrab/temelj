@@ -12,7 +12,5 @@ test("vector2 math", () => {
 });
 
 test("vector2::displayString works", () => {
-  expect(vector2.displayString(vector2.of(4, 2))).toStrictEqual(
-    "Vector2(4, 2)",
-  );
+  expect(vector2.displayString(vector2.of(4, 2))).toStrictEqual("Vector2(4, 2)");
 });

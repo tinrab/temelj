@@ -1,4 +1,5 @@
 import type { Plugin } from "unified";
+
 import { visit } from "unist-util-visit";
 
 import type { HastElement, HastNode } from "../../types";
@@ -21,27 +22,18 @@ type TreeProcessorPluginOptions = {
  * A plugin that allows to process MDX tree nodes.
  * It can be async or sync.
  */
-export const treeProcessorPlugin: Plugin<
-  [TreeProcessorPluginOptions?],
-  HastNode,
-  HastNode
-> = ({ process } = { process: () => {} }) => {
+export const treeProcessorPlugin: Plugin<[TreeProcessorPluginOptions?], HastNode, HastNode> = (
+  { process } = { process: () => {} },
+) => {
   return async (tree) => {
     const promises: Promise<void>[] = [];
 
     visit(
       tree,
       "element",
-      function visitor(
-        node: HastElement,
-        index: number,
-        parent: HastElement,
-      ): void {
+      function visitor(node: HastElement, index: number, parent: HastElement): void {
         const p = process(node, index, parent);
-        if (
-          p instanceof Promise ||
-          Object.prototype.toString.call(p) === "[object Promise]"
-        ) {
+        if (p instanceof Promise || Object.prototype.toString.call(p) === "[object Promise]") {
           promises.push(p as Promise<void>);
         }
       },

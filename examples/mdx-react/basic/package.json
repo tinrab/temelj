@@ -1,7 +1,7 @@
 {
   "name": "@temelj/example-mdx-react-basic",
-  "type": "module",
   "private": true,
+  "type": "module",
   "scripts": {
     "dev": "vite --port 3000",
     "build": "vite build"
@@ -10,21 +10,21 @@
     "@temelj/mdx": "workspace:*",
     "@temelj/mdx-react": "workspace:*",
     "clsx": "^2.1.1",
-    "katex": "^0.16.44",
-    "react": "^19.2.4",
-    "react-dom": "^19.2.4",
+    "katex": "^0.17.0",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6",
     "rehype-katex": "^7.0.1",
     "remark-math": "^6.0.0",
-    "tailwind-merge": "^3.5.0",
-    "tailwindcss": "^4.2.2"
+    "tailwind-merge": "^3.6.0",
+    "tailwindcss": "^4.3.0"
   },
   "devDependencies": {
-    "@tailwindcss/vite": "^4.2.2",
-    "@types/react": "^19.2.14",
+    "@tailwindcss/vite": "^4.3.0",
+    "@types/react": "^19.2.15",
     "@types/react-dom": "^19.2.3",
-    "@vitejs/plugin-react": "^6.0.1",
-    "typescript": "^6.0.2",
-    "vite": "^8.0.3"
+    "@vitejs/plugin-react": "^6.0.2",
+    "typescript": "^6.0.3",
+    "vite": "^8.0.14"
   },
-  "packageManager": "pnpm@10.33.0"
+  "packageManager": "pnpm@11.5.0"
 }

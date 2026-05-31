@@ -1,5 +1,6 @@
-import { type LabColor, labToRgb, rgbToLab } from "./lab";
 import type { Color } from "./rgb";
+
+import { type LabColor, labToRgb, rgbToLab } from "./lab";
 
 /**
  * An LCH color.

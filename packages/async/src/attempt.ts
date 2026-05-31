@@ -1,5 +1,6 @@
-import { AbortError } from "./errors";
 import type { StandardOptions } from "./types";
+
+import { AbortError } from "./errors";
 
 /**
  * Safely executes a function (synchronous or asynchronous) and wraps its result in a Promise.

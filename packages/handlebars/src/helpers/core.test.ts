@@ -16,9 +16,8 @@ test("Handlebars string helpers", () => {
         {{@a}} {{@b}}
       {{~/with~}}
     `),
-    "hello,hello, world!",
-  );
+  ).toBe("hello,hello, world!");
 
-  expect(r.render(`{{render '42'}}`), "42");
-  expect(r.render(`{{set x=42}}{{render '{{x}}' x=@x}}`), "42");
+  expect(r.render(`{{render '42'}}`)).toBe("42");
+  expect(r.render(`{{set x=42}}{{render '{{x}}' x=@x}}`)).toBe("42");
 });

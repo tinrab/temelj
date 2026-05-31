@@ -9,6 +9,7 @@ import {
 import * as z from "zod";
 
 import type { HelperDeclareSpec } from "../types";
+
 import { createHelperZod } from "../zod_helper_builder";
 
 export function getStringHelpers(): HelperDeclareSpec {
@@ -49,12 +50,7 @@ export function getStringHelpers(): HelperDeclareSpec {
         return parts[index];
       }),
     splitPartSegment: createHelperZod()
-      .params(
-        z.string(),
-        z.number(),
-        z.number(),
-        z.optional(z.string()).default("/"),
-      )
+      .params(z.string(), z.number(), z.number(), z.optional(z.string()).default("/"))
       .handle(([path, from, to, separator]) => {
         const parts = path.split(separator);
         let result = "";

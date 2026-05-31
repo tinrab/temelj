@@ -70,9 +70,7 @@ test("request - cookie - parse", () => {
   });
 
   expect(
-    parseCookie(
-      "test=42; Max-Age=0; Secure=true; SameSite=lax; Partitioned=true;",
-    ),
+    parseCookie("test=42; Max-Age=0; Secure=true; SameSite=lax; Partitioned=true;"),
   ).toStrictEqual({
     name: "test",
     value: "42",
@@ -94,9 +92,7 @@ test("request - cookie - encrypt", async () => {
 
   c = await encryptCookieValue("abc", { password });
   expect(await decryptCookieValue(c, { password })).toStrictEqual("abc");
-  expect(
-    !(await decryptCookieValue(c, { password: "b".repeat(32) })),
-  ).toStrictEqual(true);
+  expect(!(await decryptCookieValue(c, { password: "b".repeat(32) }))).toStrictEqual(true);
   expect(
     !(await decryptCookieValue(`${c.substring(0, 5)}x${c.substring(7)}`, {
       password,

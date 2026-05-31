@@ -14,9 +14,7 @@ test("Handlebars string helpers", () => {
 
   expect(() => r.render(`{{splitPartSegment "a/b/c" 0}}`)).toThrow(Error);
 
-  expect(r.render(`{{join (pascalCase "hello") ", World" "!"}}`)).toStrictEqual(
-    "Hello, World!",
-  );
+  expect(r.render(`{{join (pascalCase "hello") ", World" "!"}}`)).toStrictEqual("Hello, World!");
 
   expect(() => r.render("{{camelCase 42}}")).toThrow(z.ZodError);
 });

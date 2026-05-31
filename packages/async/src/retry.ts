@@ -1,6 +1,7 @@
+import type { StandardOptions } from "./types";
+
 import { delay } from "./delay";
 import { AbortError } from "./errors";
-import type { StandardOptions } from "./types";
 
 interface RetryOptions extends StandardOptions {
   /** Maximum number of attempts. Default: 3. */
@@ -45,10 +46,7 @@ export async function retry<T>(
       }
 
       if (attempt < times - 1) {
-        const ms =
-          typeof delayOption === "function"
-            ? delayOption(attempt)
-            : (delayOption ?? 0);
+        const ms = typeof delayOption === "function" ? delayOption(attempt) : (delayOption ?? 0);
 
         if (ms > 0) {
           await delay(ms, { signal });

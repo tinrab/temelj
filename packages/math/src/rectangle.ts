@@ -61,12 +61,7 @@ export const rectangle: {
     const bTop = b.position.y;
     const bBottom = b.position.y + b.size.y;
 
-    return !(
-      aRight <= bLeft ||
-      aLeft >= bRight ||
-      aBottom <= bTop ||
-      aTop >= bBottom
-    );
+    return !(aRight <= bLeft || aLeft >= bRight || aBottom <= bTop || aTop >= bBottom);
   },
 
   displayString(r: Rectangle): string {

@@ -128,15 +128,13 @@ test("wait resolves when predicate is true", async () => {
 });
 
 test("wait throws on timeout", async () => {
-  await expect(
-    wait(() => false, { interval: 10, timeout: 50 }),
-  ).rejects.toBeInstanceOf(TimeoutError);
+  await expect(wait(() => false, { interval: 10, timeout: 50 })).rejects.toBeInstanceOf(
+    TimeoutError,
+  );
 });
 
 test("wait aborts", async () => {
   const controller = new AbortController();
   controller.abort();
-  await expect(
-    wait(() => false, { signal: controller.signal }),
-  ).rejects.toBeInstanceOf(AbortError);
+  await expect(wait(() => false, { signal: controller.signal })).rejects.toBeInstanceOf(AbortError);
 });

@@ -2,7 +2,7 @@ name: Publish
 
 on:
   push:
-    tags: ["v*"]
+    branches: [main]
 
 jobs:
   publish:
@@ -48,6 +48,7 @@ jobs:
           (cd "packages/value" && npx jsr publish)
           (cd "packages/string" && npx jsr publish)
           (cd "packages/color" && npx jsr publish)
+          (cd "packages/ffmpeg" && npx jsr publish)
           (cd "packages/result" && npx jsr publish)
           (cd "packages/iterator" && npx jsr publish)
           (cd "packages/math" && npx jsr publish)

@@ -83,12 +83,8 @@ test("chunk() splits iterable into chunks", () => {
 });
 
 test("chunk() throws on invalid size", () => {
-  expect(() => chunk([1, 2, 3], 0)).toThrow(
-    "Chunk size must be greater than 0",
-  );
-  expect(() => chunk([1, 2, 3], -1)).toThrow(
-    "Chunk size must be greater than 0",
-  );
+  expect(() => chunk([1, 2, 3], 0)).toThrow("Chunk size must be greater than 0");
+  expect(() => chunk([1, 2, 3], -1)).toThrow("Chunk size must be greater than 0");
 });
 
 test("window() creates sliding windows", () => {
@@ -106,12 +102,8 @@ test("window() creates sliding windows", () => {
 });
 
 test("window() throws on invalid size", () => {
-  expect(() => window([1, 2, 3], 0)).toThrow(
-    "Window size must be greater than 0",
-  );
-  expect(() => window([1, 2, 3], -1)).toThrow(
-    "Window size must be greater than 0",
-  );
+  expect(() => window([1, 2, 3], 0)).toThrow("Window size must be greater than 0");
+  expect(() => window([1, 2, 3], -1)).toThrow("Window size must be greater than 0");
 });
 
 test("zip() combines two iterables", () => {
@@ -138,9 +130,7 @@ test("flatten() flattens nested iterables", () => {
 });
 
 test("groupBy() groups elements by key", () => {
-  const result = groupBy([1, 2, 3, 4, 5, 6], (x: number) =>
-    x % 2 === 0 ? "even" : "odd",
-  );
+  const result = groupBy([1, 2, 3, 4, 5, 6], (x: number) => (x % 2 === 0 ? "even" : "odd"));
   expect(result.get("even")).toEqual([2, 4, 6]);
   expect(result.get("odd")).toEqual([1, 3, 5]);
 
@@ -149,10 +139,7 @@ test("groupBy() groups elements by key", () => {
     { name: "Bob", group: "B" },
     { name: "Charlie", group: "A" },
   ];
-  const byGroup = groupBy(
-    users,
-    (u: { name: string; group: string }) => u.group,
-  );
+  const byGroup = groupBy(users, (u: { name: string; group: string }) => u.group);
   expect(byGroup.get("A")).toEqual([
     { name: "Alice", group: "A" },
     { name: "Charlie", group: "A" },

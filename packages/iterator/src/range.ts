@@ -25,16 +25,10 @@ interface NumericRangeErrorOptions {
 /**
  * An error for working with numeric ranges.
  */
-export class NumericRangeError
-  extends Error
-  implements NumericRangeErrorOptions
-{
+export class NumericRangeError extends Error implements NumericRangeErrorOptions {
   public readonly invalidInteger?: string;
 
-  constructor(
-    options: NumericRangeErrorOptions = {},
-    errorOptions?: ErrorOptions,
-  ) {
+  constructor(options: NumericRangeErrorOptions = {}, errorOptions?: ErrorOptions) {
     let message: string | undefined;
     if (options.invalidInteger !== undefined) {
       message = `Invalid integer '${options.invalidInteger}'`;
@@ -114,9 +108,7 @@ export function numericRangeToString(range: NumericRange): string {
       const inclusive = from < to ? to : to;
       const exclusive = from < to ? to + 1 : to - 1;
       return `${from}..${
-        (from < to && to === inclusive) || (from > to && to === exclusive)
-          ? "="
-          : ""
+        (from < to && to === inclusive) || (from > to && to === exclusive) ? "=" : ""
       }${to}`;
     })
     .join(",");
@@ -262,10 +254,7 @@ export function reverseNumericRange(range: NumericRange): NumericRange {
  * @param value The value to check for in the range.
  * @returns `true` if the value is contained in the range, `false` otherwise.
  */
-export function numericRangeContains(
-  range: NumericRange,
-  value: number,
-): boolean {
+export function numericRangeContains(range: NumericRange, value: number): boolean {
   for (const part of range) {
     if (typeof part === "number") {
       if (part === value) {
@@ -348,13 +337,10 @@ export class NumericRangeIterator implements Iterator<number, number> {
  * @param end The ending number (exclusive).
  * @param step The step size (default is 1).
  * @returns A generator that yields numbers from start to end.
+ * @yields Numbers from `start` to `end` using `step`.
  * ```
  */
-export function* range(
-  start: number,
-  end: number,
-  step: number = 1,
-): Generator<number> {
+export function* range(start: number, end: number, step: number = 1): Generator<number> {
   if (step === 0) {
     throw new Error("Step cannot be zero");
   }

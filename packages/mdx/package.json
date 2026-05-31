@@ -26,7 +26,7 @@
   },
   "dependencies": {
     "@mdx-js/mdx": "^3.1.1",
-    "@shikijs/transformers": "^4.0.2",
+    "@shikijs/transformers": "^4.1.0",
     "@temelj/iterator": "workspace:*",
     "@types/hast": "^3.0.4",
     "github-slugger": "^2.0.0",
@@ -37,20 +37,20 @@
     "remark-gfm": "^4.0.1",
     "remark-math": "^6.0.0",
     "remark-parse": "^11.0.0",
-    "shiki": "^4.0.2",
+    "shiki": "^4.1.0",
     "unified": "^11.0.5",
     "unist-util-remove": "^4.0.0",
     "unist-util-visit": "^5.1.0",
     "vfile": "^6.0.3",
     "vfile-matter": "^5.0.1",
-    "zod": "^4.3.6"
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/mdast": "^4.0.4",
-    "@types/node": "25.5.0",
+    "@types/node": "25.9.1",
     "shx": "^0.4.0",
-    "tsdown": "^0.21.7",
-    "typescript": "^6.0.2",
-    "vitest": "^4.1.2"
+    "tsdown": "^0.22.1",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.7"
   }
 }
