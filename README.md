@@ -36,8 +36,9 @@
 
 ## Packages
 
-Packages are available under `@temelj/<package>`, or if you prefer a single
-dependency, you can use `@tinrab/temelj/<package>`.
+List of packages in the Temelj ecosystem.
+
+Foundational packages are also available in a singe dependency `@tinrab/temelj`, from which you can import `@tinrab/temelj/<package>`.
 
 - [@temelj/async](./packages/async) - Utilities for working with async.
 - [@temelj/color](./packages/color) - Utilities for working with colors.
@@ -56,3 +57,4 @@ dependency, you can use `@tinrab/temelj/<package>`.
 - [@temelj/string](./packages/string) - Utilities for working with strings.
 - [@temelj/value](./packages/value) - Utilities for working with plain
   TypeScript values.
+- [@temelj/ffmpeg](./packages/ffmpeg) - Type-safe fluent builder for ffmpeg.
