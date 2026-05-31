@@ -1,13 +1,15 @@
 import { assert, describe, it } from "vitest";
 
 import { ffmpeg } from "./builder.ts";
-import { filterGraph, mapInputStream, mapLabel, serializeInputMap } from "./mod.ts";
+import { FilterGraphStream } from "./filter-graph.ts";
+import { serializeInputMap } from "./mapping.ts";
+import { filterGraph, mapInputStream, mapLabel } from "./mod.ts";
 
 describe("mapping helpers", () => {
   it("serializes input stream maps", () => {
     assert.equal(mapInputStream(0, "v", 0), "0:v:0");
     assert.equal(serializeInputMap({ fileIndex: 1, streamType: "a", optional: true }), "1:a?");
-    assert.equal(mapLabel("outv"), "[outv]");
+    assert.equal(mapLabel(new FilterGraphStream("outv", "video")), "[outv]");
   });
 });
 
@@ -80,7 +82,12 @@ describe("builder integration", () => {
     graph.videoInput(0).hflip().label("outv");
 
     assert.throws(() => {
-      ffmpeg().input("in.mp4").filterComplex(graph).output("out.mp4").mapLabel("missing").build();
+      ffmpeg()
+        .input("in.mp4")
+        .filterComplex(graph)
+        .output("out.mp4")
+        .unsafeMapLabel("missing")
+        .build();
     }, /Mapped filter label "missing" is not defined/);
   });
 

@@ -113,6 +113,14 @@ export interface PaletteuseOptions {
   alphaThreshold?: number;
 }
 
+type FirstMediaType<TMediaTypes extends readonly FilterGraphMediaType[]> =
+  TMediaTypes extends readonly [
+    infer TFirst extends FilterGraphMediaType,
+    ...(readonly FilterGraphMediaType[]),
+  ]
+    ? TFirst
+    : "unknown";
+
 function escapeFilterValue(value: FilterScalar): string {
   if (typeof value === "boolean") {
     return value ? "1" : "0";
@@ -153,11 +161,14 @@ function joinOutputs(outputs: readonly string[]): string {
   return outputs.map((label) => `[${label}]`).join("");
 }
 
-export class FilterGraphStream {
-  public readonly label: string;
-  public readonly mediaType: FilterGraphMediaType;
+export class FilterGraphStream<
+  TLabel extends string = string,
+  TMediaType extends FilterGraphMediaType = FilterGraphMediaType,
+> {
+  public readonly label: TLabel;
+  public readonly mediaType: TMediaType;
 
-  constructor(label: string, mediaType: FilterGraphMediaType) {
+  constructor(label: TLabel, mediaType: TMediaType) {
     this.label = label;
     this.mediaType = mediaType;
   }
@@ -167,16 +178,18 @@ export class FilterGraphStream {
   }
 }
 
-class FilterGraphChain {
+export class FilterGraphChain<
+  TOutputMediaTypes extends readonly FilterGraphMediaType[] = readonly [FilterGraphMediaType],
+> {
   private readonly filters: string[] = [];
   private readonly graph: FilterGraph;
   private readonly inputs: readonly FilterGraphStream[];
-  private readonly outputMediaTypes: readonly FilterGraphMediaType[];
+  private readonly outputMediaTypes: TOutputMediaTypes;
 
   constructor(
     graph: FilterGraph,
     inputs: readonly FilterGraphStream[],
-    outputMediaTypes: readonly FilterGraphMediaType[],
+    outputMediaTypes: TOutputMediaTypes,
   ) {
     this.graph = graph;
     this.inputs = inputs;
@@ -317,43 +330,70 @@ class FilterGraphChain {
     });
   }
 
-  split(...labels: string[]): FilterGraphStream[] {
+  split(
+    ...labels: string[]
+  ): readonly [
+    FilterGraphStream<string, "video">,
+    FilterGraphStream<string, "video">,
+    ...FilterGraphStream<string, "video">[],
+  ] {
     const outputLabels =
       labels.length > 0 ? labels : [this.graph.nextAutoLabel("v"), this.graph.nextAutoLabel("v")];
 
     return this.commit(
       outputLabels,
-      outputLabels.map(() => this.outputMediaTypes[0] ?? "unknown"),
+      outputLabels.map(() => "video") as readonly "video"[],
       serializeFilter({ name: "split", named: { outputs: outputLabels.length } }),
-    );
+    ) as readonly [
+      FilterGraphStream<string, "video">,
+      FilterGraphStream<string, "video">,
+      ...FilterGraphStream<string, "video">[],
+    ];
   }
 
-  asplit(...labels: string[]): FilterGraphStream[] {
+  asplit(
+    ...labels: string[]
+  ): readonly [
+    FilterGraphStream<string, "audio">,
+    FilterGraphStream<string, "audio">,
+    ...FilterGraphStream<string, "audio">[],
+  ] {
     const outputLabels =
       labels.length > 0 ? labels : [this.graph.nextAutoLabel("a"), this.graph.nextAutoLabel("a")];
 
     return this.commit(
       outputLabels,
-      outputLabels.map(() => "audio"),
+      outputLabels.map(() => "audio") as readonly "audio"[],
       serializeFilter({ name: "asplit", named: { outputs: outputLabels.length } }),
-    );
+    ) as readonly [
+      FilterGraphStream<string, "audio">,
+      FilterGraphStream<string, "audio">,
+      ...FilterGraphStream<string, "audio">[],
+    ];
   }
 
-  label(label: string): FilterGraphStream {
-    return this.commit([label], [this.outputMediaTypes[0] ?? "unknown"])[0];
-  }
-
-  labels(...labels: string[]): FilterGraphStream[] {
-    const outputLabels = labels.length > 0 ? labels : [this.graph.nextAutoLabel("out")];
+  label<TLabel extends string>(
+    label: TLabel,
+  ): FilterGraphStream<TLabel, FirstMediaType<TOutputMediaTypes>> {
     return this.commit(
-      outputLabels,
-      outputLabels.map(
-        (_, index) => this.outputMediaTypes[index] ?? this.outputMediaTypes[0] ?? "unknown",
-      ),
-    );
+      [label],
+      [this.outputMediaTypes[0] ?? "unknown"],
+      undefined,
+    )[0] as FilterGraphStream<TLabel, FirstMediaType<TOutputMediaTypes>>;
   }
 
-  autoLabel(prefix?: string): FilterGraphStream {
+  labels(
+    ...labels: string[]
+  ): readonly FilterGraphStream<string, FirstMediaType<TOutputMediaTypes>>[] {
+    return this.commit(
+      labels,
+      labels.map(
+        (_, index) => this.outputMediaTypes[index] ?? this.outputMediaTypes[0] ?? "unknown",
+      ) as unknown as TOutputMediaTypes,
+    ) as readonly FilterGraphStream<string, FirstMediaType<TOutputMediaTypes>>[];
+  }
+
+  autoLabel(prefix?: string): FilterGraphStream<string, FirstMediaType<TOutputMediaTypes>> {
     const mediaType = this.outputMediaTypes[0] ?? "unknown";
     const fallbackPrefix =
       prefix ?? (mediaType === "audio" ? "a" : mediaType === "video" ? "v" : "out");
@@ -364,7 +404,7 @@ class FilterGraphChain {
     labels: readonly string[],
     outputMediaTypes: readonly FilterGraphMediaType[],
     terminalFilter?: string,
-  ): FilterGraphStream[] {
+  ): readonly FilterGraphStream[] {
     const chain = [...this.filters];
     if (terminalFilter) {
       chain.push(terminalFilter);
@@ -418,7 +458,11 @@ export class FilterGraph {
     return [...this.outputLabels];
   }
 
-  input(index: number, streamType?: StreamType, streamIndex?: number): FilterGraphStream {
+  input(
+    index: number,
+    streamType?: StreamType,
+    streamIndex?: number,
+  ): FilterGraphStream<string, FilterGraphMediaType> {
     const label =
       streamType === undefined
         ? String(index)
@@ -432,25 +476,27 @@ export class FilterGraph {
     return new FilterGraphStream(label, mediaType);
   }
 
-  videoInput(index: number, streamIndex?: number): FilterGraphChain {
-    return new FilterGraphChain(this, [this.input(index, "v", streamIndex)], ["video"]);
+  videoInput(index: number, streamIndex?: number): FilterGraphChain<readonly ["video"]> {
+    return new FilterGraphChain(this, [this.input(index, "v", streamIndex)], ["video"] as const);
   }
 
-  audioInput(index: number, streamIndex?: number): FilterGraphChain {
-    return new FilterGraphChain(this, [this.input(index, "a", streamIndex)], ["audio"]);
+  audioInput(index: number, streamIndex?: number): FilterGraphChain<readonly ["audio"]> {
+    return new FilterGraphChain(this, [this.input(index, "a", streamIndex)], ["audio"] as const);
   }
 
-  from(...streams: readonly FilterGraphStream[]): FilterGraphChain {
-    const mediaType = streams[0]?.mediaType ?? "unknown";
-    return new FilterGraphChain(this, streams, [mediaType]);
+  from<const TStreams extends readonly [FilterGraphStream, ...FilterGraphStream[]]>(
+    ...streams: TStreams
+  ): FilterGraphChain<readonly [TStreams[0]["mediaType"]]> {
+    const mediaType = streams[0].mediaType;
+    return new FilterGraphChain(this, streams, [mediaType] as const);
   }
 
   overlay(
-    main: FilterGraphStream,
-    overlay: FilterGraphStream,
+    main: FilterGraphStream<string, "video">,
+    overlay: FilterGraphStream<string, "video">,
     options: OverlayOptions = {},
-  ): FilterGraphChain {
-    return new FilterGraphChain(this, [main, overlay], ["video"]).filter("overlay", [], {
+  ): FilterGraphChain<readonly ["video"]> {
+    return new FilterGraphChain(this, [main, overlay], ["video"] as const).filter("overlay", [], {
       x: options.x,
       y: options.y,
       eof_action: options.eofAction,
@@ -459,14 +505,27 @@ export class FilterGraph {
     });
   }
 
-  amerge(...streams: readonly FilterGraphStream[]): FilterGraphChain {
-    return new FilterGraphChain(this, streams, ["audio"]).filter("amerge", [], {
+  amerge(
+    ...streams: readonly [
+      FilterGraphStream<string, "audio">,
+      FilterGraphStream<string, "audio">,
+      ...FilterGraphStream<string, "audio">[],
+    ]
+  ): FilterGraphChain<readonly ["audio"]> {
+    return new FilterGraphChain(this, streams, ["audio"] as const).filter("amerge", [], {
       inputs: streams.length,
     });
   }
 
-  amix(streams: readonly FilterGraphStream[], options: AmixOptions = {}): FilterGraphChain {
-    return new FilterGraphChain(this, streams, ["audio"]).filter("amix", [], {
+  amix(
+    streams: readonly [
+      FilterGraphStream<string, "audio">,
+      FilterGraphStream<string, "audio">,
+      ...FilterGraphStream<string, "audio">[],
+    ],
+    options: AmixOptions = {},
+  ): FilterGraphChain<readonly ["audio"]> {
+    return new FilterGraphChain(this, streams, ["audio"] as const).filter("amix", [], {
       inputs: options.inputs ?? streams.length,
       duration: options.duration,
       dropout_transition: options.dropoutTransition,
@@ -474,7 +533,10 @@ export class FilterGraph {
     });
   }
 
-  concat(streams: readonly FilterGraphStream[], options: ConcatOptions): FilterGraphChain {
+  concat(
+    streams: readonly FilterGraphStream[],
+    options: ConcatOptions,
+  ): FilterGraphChain<readonly FilterGraphMediaType[]> {
     const outputMediaTypes: FilterGraphMediaType[] = [];
 
     const videoStreams = options.videoStreams ?? 1;
@@ -491,7 +553,9 @@ export class FilterGraph {
     return new FilterGraphChain(
       this,
       streams,
-      outputMediaTypes.length > 0 ? outputMediaTypes : ["unknown"],
+      (outputMediaTypes.length > 0
+        ? outputMediaTypes
+        : ["unknown"]) as readonly FilterGraphMediaType[],
     ).filter("concat", [], {
       n: options.segments,
       v: videoStreams,

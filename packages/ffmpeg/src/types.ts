@@ -22,10 +22,17 @@ export type {
   Duration,
   Bitrate,
   FrameSize,
+  Timestamp,
+  FrameRate,
+  Timecode,
   LogLevel,
   Vsync,
   Target,
   AspectRatio,
+  PixelFormat,
+  SampleFormat,
+  ChannelLayout,
+  SwsFlag,
   RawOptionBag,
   SerializedOptionScalar,
   SerializedOptionValue,
@@ -35,6 +42,7 @@ export type {
   MetadataSpecifier,
   MetadataOptionBag,
 } from "./generated/options.ts";
+export type { OneOrMany, UnsafeValue } from "./structured.ts";
 
 type StructuredOutputMetadataOptions = Omit<
   GeneratedOutputMetadataOptions,

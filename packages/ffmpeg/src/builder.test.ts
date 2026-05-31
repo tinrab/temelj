@@ -1,6 +1,8 @@
 import { assert, describe, it } from "vitest";
 
-import { ffmpeg } from "./builder.ts";
+import { ffmpeg, FFmpegBuilder, type FFmpegOutputBuilder } from "./builder.ts";
+import { FilterGraphStream } from "./filter-graph.ts";
+import { unsafe } from "./structured.ts";
 
 describe("FFmpegBuilder", () => {
   it("builds a minimal command", () => {
@@ -278,8 +280,8 @@ describe("FFmpegBuilder", () => {
       .input("in.mp4")
       .output("out.mp4", {
         metadataScopes: {
-          "s:v:0": { metadata: "title=Main Video" },
-          "c:0": { mapMetadata: "0:s:0" },
+          "s:v:0": { metadata: { key: "title", value: "Main Video" } },
+          "c:0": { mapMetadata: unsafe("0:s:0") },
         },
       })
       .build();
@@ -309,31 +311,31 @@ describe("FFmpegBuilder", () => {
 
   it("rejects build when inputs exist but no output is defined", () => {
     assert.throws(() => {
-      ffmpeg().input("in.mp4").build();
+      (ffmpeg().input("in.mp4") as unknown as FFmpegBuilder).build();
     }, /No output defined/);
   });
 
   it("rejects input-scoped fluent methods before an input exists", () => {
     assert.throws(() => {
-      ffmpeg().seekInput("00:00:05");
+      (ffmpeg() as unknown as FFmpegBuilder).seekInput("00:00:05");
     }, /No input defined/);
 
     assert.throws(() => {
-      ffmpeg().inputOptions({ ss: "00:00:05" });
+      (ffmpeg() as unknown as FFmpegBuilder).inputOptions({ ss: "00:00:05" });
     }, /No input defined/);
   });
 
   it("rejects output-scoped fluent methods before an output exists", () => {
     assert.throws(() => {
-      ffmpeg().videoCodec("libx264");
+      (ffmpeg() as unknown as FFmpegBuilder).videoCodec("libx264");
     }, /No output defined/);
 
     assert.throws(() => {
-      ffmpeg().mapLabel("outv");
+      (ffmpeg() as unknown as FFmpegOutputBuilder).mapLabel(new FilterGraphStream("outv", "video"));
     }, /No output defined/);
 
     assert.throws(() => {
-      ffmpeg().outputOptions({ videoCodec: "libx264" });
+      (ffmpeg() as unknown as FFmpegBuilder).outputOptions({ videoCodec: "libx264" });
     }, /No output defined/);
   });
 

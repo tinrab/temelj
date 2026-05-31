@@ -4,6 +4,12 @@ import type {
   OutputOptions as GeneratedOutputOptions,
 } from "./generated/options.ts";
 
+export type OneOrMany<T> = T | readonly T[];
+
+export interface UnsafeValue<TValue extends string = string> {
+  raw: TValue;
+}
+
 export interface MetadataAssignment {
   key: string;
   value: string | number | boolean;
@@ -18,7 +24,7 @@ export interface MetadataMap {
 export interface ProgramDefinition {
   title?: string;
   programNum?: number;
-  streams: Array<number | string>;
+  streams: readonly (number | string)[];
 }
 
 export interface StreamGroupDefinition {
@@ -26,8 +32,8 @@ export interface StreamGroupDefinition {
   inputGroupId?: number;
   type?: string;
   id?: number | string;
-  streams?: Array<number | string>;
-  streamGroups?: Array<number | string>;
+  streams?: readonly (number | string)[];
+  streamGroups?: readonly (number | string)[];
   options?: Record<string, string | number | boolean>;
 }
 
@@ -36,29 +42,35 @@ export interface StreamIdDefinition {
   newValue: number | string;
 }
 
-export interface DispositionDefinition {
-  clear?: boolean;
-  set?: string[];
-  add?: string[];
-  remove?: string[];
-}
+export type DispositionDefinition =
+  | { clear: true }
+  | { set: readonly [string, ...string[]] }
+  | {
+      add?: readonly string[];
+      remove?: readonly string[];
+    };
 
 export type ForceKeyFramesDefinition =
-  | { mode: "times"; times: Array<string | number> }
+  | { mode: "times"; times: readonly [string | number, ...(string | number)[]] }
   | { mode: "expr"; expr: string }
   | { mode: "source" }
   | { mode: "scd_metadata" };
 
-export type MetadataValue = string | string[] | MetadataAssignment | MetadataAssignment[];
-export type MetadataMapValue = string | string[] | MetadataMap | MetadataMap[];
-export type ProgramValue = string | string[] | ProgramDefinition | ProgramDefinition[];
-export type StreamGroupValue = string | string[] | StreamGroupDefinition | StreamGroupDefinition[];
-export type StreamIdValue = string | string[] | StreamIdDefinition | StreamIdDefinition[];
-export type DispositionValue = string | string[] | DispositionDefinition | DispositionDefinition[];
-export type ForceKeyFramesValue = string | ForceKeyFramesDefinition;
+export type MetadataValue = OneOrMany<MetadataAssignment | UnsafeValue>;
+export type MetadataMapValue = OneOrMany<MetadataMap | UnsafeValue>;
+export type ProgramValue = OneOrMany<ProgramDefinition | UnsafeValue>;
+export type StreamGroupValue = OneOrMany<StreamGroupDefinition | UnsafeValue>;
+export type StreamIdValue = OneOrMany<StreamIdDefinition | UnsafeValue>;
+export type DispositionValue = OneOrMany<DispositionDefinition | UnsafeValue>;
+export type ForceKeyFramesValue = ForceKeyFramesDefinition | UnsafeValue;
 
-function isStringArray(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every((item) => typeof item === "string");
+function isUnsafeValue(value: unknown): value is UnsafeValue {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "raw" in value &&
+    typeof (value as { raw: unknown }).raw === "string"
+  );
 }
 
 function ensureNonEmpty(value: string, label: string): string {
@@ -68,35 +80,42 @@ function ensureNonEmpty(value: string, label: string): string {
   return value;
 }
 
-export function serializeMetadataAssignments(
-  value: MetadataValue | undefined,
+function toArray<T>(value: OneOrMany<T>): readonly T[] {
+  return Array.isArray(value) ? value : ([value] as readonly T[]);
+}
+
+function serializeOneOrMany<T>(
+  value: OneOrMany<T> | undefined,
+  serialize: (item: Exclude<T, UnsafeValue>) => string,
 ): string | string[] | undefined {
   if (value === undefined) {
     return undefined;
   }
-  if (typeof value === "string" || isStringArray(value)) {
-    return value as string | string[];
-  }
 
-  const items = (Array.isArray(value) ? value : [value]) as MetadataAssignment[];
-  const serialized = items.map(
+  const serialized = toArray(value).map((item) =>
+    isUnsafeValue(item) ? item.raw : serialize(item as Exclude<T, UnsafeValue>),
+  );
+
+  return serialized.length === 1 ? serialized[0] : serialized;
+}
+
+export function unsafe<TValue extends string>(raw: TValue): UnsafeValue<TValue> {
+  return { raw };
+}
+
+export function serializeMetadataAssignments(
+  value: MetadataValue | undefined,
+): string | string[] | undefined {
+  return serializeOneOrMany(
+    value,
     (item) => `${ensureNonEmpty(item.key, "Metadata key")}=${String(item.value)}`,
   );
-  return serialized.length === 1 ? serialized[0] : serialized;
 }
 
 export function serializeMetadataMaps(
   value: MetadataMapValue | undefined,
 ): string | string[] | undefined {
-  if (value === undefined) {
-    return undefined;
-  }
-  if (typeof value === "string" || isStringArray(value)) {
-    return value as string | string[];
-  }
-
-  const items = (Array.isArray(value) ? value : [value]) as MetadataMap[];
-  const serialized = items.map((item) => {
+  return serializeOneOrMany(value, (item) => {
     const parts = [String(item.inputFileIndex)];
     if (item.inputScope) {
       parts.push(item.inputScope);
@@ -104,21 +123,12 @@ export function serializeMetadataMaps(
     const source = parts.join(":");
     return item.outputScope ? `${source}:${item.outputScope}` : source;
   });
-  return serialized.length === 1 ? serialized[0] : serialized;
 }
 
 export function serializeProgramDefinitions(
   value: ProgramValue | undefined,
 ): string | string[] | undefined {
-  if (value === undefined) {
-    return undefined;
-  }
-  if (typeof value === "string" || isStringArray(value)) {
-    return value as string | string[];
-  }
-
-  const items = (Array.isArray(value) ? value : [value]) as ProgramDefinition[];
-  const serialized = items.map((item) => {
+  return serializeOneOrMany(value, (item) => {
     if (item.streams.length === 0) {
       throw new Error("Program definition must include at least one stream");
     }
@@ -131,21 +141,12 @@ export function serializeProgramDefinitions(
     }
     return parts.join(":");
   });
-  return serialized.length === 1 ? serialized[0] : serialized;
 }
 
 export function serializeStreamGroupDefinitions(
   value: StreamGroupValue | undefined,
 ): string | string[] | undefined {
-  if (value === undefined) {
-    return undefined;
-  }
-  if (typeof value === "string" || isStringArray(value)) {
-    return value as string | string[];
-  }
-
-  const items = (Array.isArray(value) ? value : [value]) as StreamGroupDefinition[];
-  const serialized = items.map((item) => {
+  return serializeOneOrMany(value, (item) => {
     const parts: string[] = [];
 
     if (item.inputFileId !== undefined || item.inputGroupId !== undefined) {
@@ -176,55 +177,23 @@ export function serializeStreamGroupDefinitions(
 
     return parts.join(":");
   });
-  return serialized.length === 1 ? serialized[0] : serialized;
 }
 
 export function serializeStreamIds(
   value: StreamIdValue | undefined,
 ): string | string[] | undefined {
-  if (value === undefined) {
-    return undefined;
-  }
-  if (typeof value === "string" || isStringArray(value)) {
-    return value as string | string[];
-  }
-
-  const items = (Array.isArray(value) ? value : [value]) as StreamIdDefinition[];
-  const serialized = items.map((item) => `${item.outputStreamIndex}:${item.newValue}`);
-  return serialized.length === 1 ? serialized[0] : serialized;
+  return serializeOneOrMany(value, (item) => `${item.outputStreamIndex}:${item.newValue}`);
 }
 
 export function serializeDispositions(
   value: DispositionValue | undefined,
 ): string | string[] | undefined {
-  if (value === undefined) {
-    return undefined;
-  }
-  if (typeof value === "string" || isStringArray(value)) {
-    return value as string | string[];
-  }
-
-  const items = (Array.isArray(value) ? value : [value]) as DispositionDefinition[];
-  const serialized = items.map((item) => {
-    if (item.clear) {
-      if (
-        (item.set?.length ?? 0) > 0 ||
-        (item.add?.length ?? 0) > 0 ||
-        (item.remove?.length ?? 0) > 0
-      ) {
-        throw new Error("Disposition definition cannot combine clear with set/add/remove");
-      }
+  return serializeOneOrMany(value, (item) => {
+    if ("clear" in item) {
       return "0";
     }
 
-    if (
-      (item.set?.length ?? 0) > 0 &&
-      ((item.add?.length ?? 0) > 0 || (item.remove?.length ?? 0) > 0)
-    ) {
-      throw new Error("Disposition definition cannot combine set with add/remove");
-    }
-
-    if (item.set && item.set.length > 0) {
+    if ("set" in item) {
       return item.set.join("+");
     }
 
@@ -239,22 +208,21 @@ export function serializeDispositions(
 
     return parts.join("");
   });
-
-  return serialized.length === 1 ? serialized[0] : serialized;
 }
 
 export function serializeForceKeyFrames(
   value: ForceKeyFramesValue | undefined,
 ): string | undefined {
-  if (value === undefined || typeof value === "string") {
-    return value;
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (isUnsafeValue(value)) {
+    return value.raw;
   }
 
   switch (value.mode) {
     case "times":
-      if (value.times.length === 0) {
-        throw new Error("forceKeyFrames times mode requires at least one time");
-      }
       return value.times.map(String).join(",");
     case "expr":
       return `expr:${value.expr}`;

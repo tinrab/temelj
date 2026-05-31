@@ -12,7 +12,11 @@ export interface InputMapSpecifier {
   disabled?: boolean;
 }
 
-export type MapTarget = InputMapSpecifier | string;
+export type MapTarget = InputMapSpecifier | FilterGraphStream | UnsafeMapTarget;
+
+export interface UnsafeMapTarget {
+  raw: string;
+}
 
 export interface StreamMetadataTarget {
   streamType: Exclude<MapStreamType, "V">;
@@ -65,9 +69,12 @@ export function mapAllStreams(fileIndex: number): string {
   return serializeInputMap({ fileIndex });
 }
 
-export function mapLabel(label: FilterGraphStream | string): string {
-  const raw = typeof label === "string" ? label : label.label;
-  return normalizeLabel(raw);
+export function mapLabel(label: FilterGraphStream): string {
+  return normalizeLabel(label.label);
+}
+
+export function unsafeMapLabel(label: string): UnsafeMapTarget {
+  return { raw: normalizeLabel(label) };
 }
 
 export function disableMap(target: InputMapSpecifier | string): string {

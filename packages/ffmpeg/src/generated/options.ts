@@ -23,6 +23,32 @@ export type MetadataOptionBag<T> = Partial<Record<MetadataSpecifier, T>>;
 
 export type Bitrate = `${number}k` | `${number}M` | `${number}G`;
 export type FrameSize = `${number}x${number}`;
+export type Timestamp =
+  | number
+  | `${number}`
+  | `${number}ms`
+  | `${number}us`
+  | `${number}s`
+  | `${number}m`
+  | `${number}h`
+  | `${number}:${number}`
+  | `${number}:${number}:${number}`
+  | `${number}:${number}:${number}.${number}`;
+export type FrameRate =
+  | number
+  | `${number}`
+  | `${number}/${number}`
+  | "ntsc"
+  | "pal"
+  | "qntsc"
+  | "qpal"
+  | "sntsc"
+  | "spal"
+  | "film"
+  | "ntsc-film";
+export type Timecode =
+  | `${number}:${number}:${number}:${number}`
+  | `${number}:${number}:${number};${number}`;
 export type LogLevel =
   | "quiet"
   | "panic"
@@ -58,6 +84,58 @@ export type Preset =
   | "slower"
   | "veryslow"
   | "placebo";
+export type PixelFormat =
+  | "yuv420p"
+  | "yuvj420p"
+  | "yuv422p"
+  | "yuv444p"
+  | "nv12"
+  | "nv21"
+  | "rgb24"
+  | "bgr24"
+  | "rgba"
+  | "bgra"
+  | "gray"
+  | (string & Record<never, never>);
+export type SampleFormat =
+  | "u8"
+  | "s16"
+  | "s32"
+  | "s64"
+  | "flt"
+  | "dbl"
+  | "u8p"
+  | "s16p"
+  | "s32p"
+  | "s64p"
+  | "fltp"
+  | "dblp"
+  | (string & Record<never, never>);
+export type ChannelLayout =
+  | "mono"
+  | "stereo"
+  | "2.1"
+  | "3.0"
+  | "3.0(back)"
+  | "3.1"
+  | "4.0"
+  | "quad"
+  | "quad(side)"
+  | "4.1"
+  | "5.0"
+  | "5.0(side)"
+  | "5.1"
+  | "5.1(side)"
+  | "6.1"
+  | "6.1(back)"
+  | "7.0"
+  | "7.0(front)"
+  | "7.1"
+  | "7.1(wide)"
+  | "7.1(wide-side)"
+  | "octagonal"
+  | "hexagonal"
+  | (string & Record<never, never>);
 export type MovFlag =
   | "cmaf"
   | "dash"
@@ -121,6 +199,25 @@ export type DefaultMode =
   | "infer"
   | "infer_no_subs"
   | "passthrough"
+  | (string & Record<never, never>);
+export type SwsFlag =
+  | "fast_bilinear"
+  | "bilinear"
+  | "bicubic"
+  | "experimental"
+  | "neighbor"
+  | "area"
+  | "bicublin"
+  | "gauss"
+  | "sinc"
+  | "lanczos"
+  | "spline"
+  | "print_info"
+  | "accurate_rnd"
+  | "full_chroma_int"
+  | "full_chroma_inp"
+  | "bitexact"
+  | "unstable"
   | (string & Record<never, never>);
 
 export interface InputOptions {
@@ -193,7 +290,7 @@ export interface InputOptions {
   /** Assign an input as a sync source. */
   isync?: number;
   /** Set the input time offset. */
-  itsoffset?: Duration;
+  itsoffset?: Timestamp;
   /** Rescale input timestamps. scale should be a floating point number. */
   itsscale?: number;
   /** Loop input (0=infinite) */
@@ -201,17 +298,17 @@ export interface InputOptions {
   /** Set video mastering display metadata. */
   masteringDisplay?: string;
   /** Set pixel format. Use -pix_fmts to show all the supported */
-  pixFmt?: string;
+  pixFmt?: PixelFormat;
   /** Set frame rate (Hz value, fraction or abbreviation). */
-  r?: Duration;
+  r?: FrameRate;
   /** Read input at native frame rate. This is equivalent to setting -readrate 1 . */
   re?: boolean;
   /** Limit input read speed. */
-  readrate?: Duration;
+  readrate?: Timestamp;
   /** If either the input or output is blocked leading to actual read speed falling behind the */
-  readrateCatchup?: Duration;
+  readrateCatchup?: Timestamp;
   /** Set an initial read burst time, in seconds, after which -re/-readrate will be enforced. */
-  readrateInitialBurst?: Duration;
+  readrateInitialBurst?: Timestamp;
   /** This boolean option determines if the filtergraph(s) to which this stream is fed gets */
   reinitFilter?: boolean;
   /** Set frame size. */
@@ -221,25 +318,25 @@ export interface InputOptions {
   /** As an input option, blocks all subtitle streams of a file from being filtered or */
   sn?: boolean;
   /** When used as an input option (before -i ), seeks in this input file to position . Note that in most formats it is not po */
-  ss?: Duration;
+  ss?: Timestamp;
   /** Like the -ss option but relative to the "end of file". That is negative */
-  sseof?: Duration;
+  sseof?: Timestamp;
   /** When used with copyts , shift input timestamps so they start at zero. */
   startAtZero?: boolean;
   /** Set number of times input stream shall be looped. Loop 0 means no loop, */
   streamLoop?: number;
   /** Set default flags for the libswscale library. These flags are used by */
-  swsFlags?: string;
+  swsFlags?: SwsFlag;
   /** When used as an input option (before -i ), limit the duration of */
-  t?: Duration;
+  t?: Timestamp;
   /** Force a tag/fourcc for matching streams. */
   tag?: string;
   /** For input, this option sets the maximum number of queued packets when reading */
   threadQueueSize?: number;
   /** Specify Timecode for writing. SEP is ’:’ for non drop timecode and ’;’ */
-  timecode?: Duration;
+  timecode?: Timecode;
   /** Stop writing the output or reading the input at position . position must be a time duration specification, */
-  to?: Duration;
+  to?: Timestamp;
   /** As an input option, blocks all video streams of a file from being filtered or */
   vn?: boolean;
   /** Stream-specifier scoped input options, serialized as flags like -r:v:0 or -hwaccel:a. */
@@ -288,9 +385,9 @@ export interface OutputOptions {
   /** Set the size of the canvas used to render subtitles. */
   canvasSize?: FrameSize;
   /** Set the audio channel layout. For output streams it is set by default to the */
-  channelLayout?: string;
+  channelLayout?: ChannelLayout;
   /** Alias for -channel_layout . */
-  chLayout?: string;
+  chLayout?: ChannelLayout;
   /** Select codec for stream */
   codec?: string;
   /** When doing stream copy, copy also non-key frames found at the */
@@ -340,17 +437,17 @@ export interface OutputOptions {
   /** Set mov/mp4 writing flags */
   movflags?: MovFlag;
   /** Set the maximum demux-decode delay. */
-  muxdelay?: Duration;
+  muxdelay?: Timestamp;
   /** This is a minimum threshold until which the muxing queue size is not taken into */
   muxingQueueDataThreshold?: number;
   /** Set the initial demux-decode delay. */
-  muxpreload?: Duration;
+  muxpreload?: Timestamp;
   /** Select the pass number (1 or 2). It is used to do two-pass */
   pass?: number;
   /** Set two-pass log file name prefix to prefix , the default file name */
   passLogfile?: string;
   /** Set pixel format. Use -pix_fmts to show all the supported */
-  pixFmt?: string;
+  pixFmt?: PixelFormat;
   /** Specify the preset for matching stream(s). */
   pre?: string;
   /** Set codec preset */
@@ -364,23 +461,23 @@ export interface OutputOptions {
   /** Use fixed quality scale (VBR) */
   qscale?: number;
   /** Set frame rate (Hz value, fraction or abbreviation). */
-  r?: Duration;
+  r?: FrameRate;
   /** Rate control override for specific intervals, formatted as "int,int,int" */
   rcOverride?: string;
   /** Set frame size. */
   s?: FrameSize;
   /** Set the audio sample format. Use -sample_fmts to get a list */
-  sampleFmt?: string;
+  sampleFmt?: SampleFormat;
   /** Set the subtitle codec. This is an alias for -codec:s . */
   scodec?: string;
   /** Finish encoding when the shortest output stream ends. */
   shortest?: boolean;
   /** The -shortest option may require buffering potentially large amounts */
-  shortestBufDuration?: Duration;
+  shortestBufDuration?: Timestamp;
   /** As an input option, blocks all subtitle streams of a file from being filtered or */
   sn?: boolean;
   /** When used as an input option (before -i ), seeks in this input file to position . Note that in most formats it is not po */
-  ss?: Duration;
+  ss?: Timestamp;
   /** Write per-frame encoding info post-encode */
   statsEncPost?: number;
   /** Format for stats_enc_post */
@@ -400,9 +497,9 @@ export interface OutputOptions {
   /** Subtitle codec (-c:s) */
   subtitleCodec?: string;
   /** Set default flags for the libswscale library. These flags are used by */
-  swsFlags?: string;
+  swsFlags?: SwsFlag;
   /** When used as an input option (before -i ), limit the duration of */
-  t?: Duration;
+  t?: Timestamp;
   /** Force a tag/fourcc for matching streams. */
   tag?: string;
   /** Specify target file type ( vcd , svcd , dvd , dv , dv50 ). type may be prefixed with pal- , ntsc- or film- to use the co */
@@ -412,7 +509,7 @@ export interface OutputOptions {
   /** Set the recording timestamp in the container. */
   timestamp?: string;
   /** Stop writing the output or reading the input at position . position must be a time duration specification, */
-  to?: Duration;
+  to?: Timestamp;
   /** Set codec tuning */
   tune?: string;
   /** Set the video codec. This is an alias for -codec:v . */
@@ -515,11 +612,11 @@ export interface GlobalOptions {
   /** Log encoding progress/statistics as "info"-level log (see -loglevel ). */
   stats?: boolean;
   /** Set period at which encoding progress/statistics are updated. Default is 0.5 seconds. */
-  statsPeriod?: Duration;
+  statsPeriod?: Timestamp;
   /** Enable interaction on standard input. On by default unless standard input is */
   stdin?: boolean;
   /** Exit after ffmpeg has been running for duration seconds in CPU user time. */
-  timelimit?: Duration;
+  timelimit?: Timestamp;
   /** Set video sync method / framerate mode. vsync is applied to all output video streams */
   vsync?: Vsync;
   /** Stop and exit on error */
@@ -547,8 +644,8 @@ export interface InputStreamOptions {
   hwaccelDevice?: string;
   itsscale?: number;
   masteringDisplay?: string;
-  pixFmt?: string;
-  r?: Duration;
+  pixFmt?: PixelFormat;
+  r?: FrameRate;
   reinitFilter?: boolean;
   s?: FrameSize;
   tag?: string;
@@ -566,8 +663,8 @@ export interface OutputStreamOptions {
   bsf?: string;
   bufsize?: Bitrate;
   c?: string;
-  channelLayout?: string;
-  chLayout?: string;
+  channelLayout?: ChannelLayout;
+  chLayout?: ChannelLayout;
   codec?: string;
   copyinkf?: boolean;
   crf?: number;
@@ -585,16 +682,16 @@ export interface OutputStreamOptions {
   muxingQueueDataThreshold?: number;
   pass?: number;
   passLogfile?: string;
-  pixFmt?: string;
+  pixFmt?: PixelFormat;
   pre?: string;
   preset?: Preset;
   profile?: string;
   q?: number;
   qscale?: number;
-  r?: Duration;
+  r?: FrameRate;
   rcOverride?: string;
   s?: FrameSize;
-  sampleFmt?: string;
+  sampleFmt?: SampleFormat;
   statsEncPost?: number;
   statsEncPostFmt?: string;
   statsEncPre?: number;

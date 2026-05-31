@@ -1,24 +1,14 @@
-export { ffmpeg, FFmpegBuilder } from "./builder.ts";
+export { ffmpeg } from "./builder.ts";
 export { filterGraph, FilterGraph, FilterGraphStream } from "./filter-graph.ts";
-export {
-  mapInputStream,
-  mapAllStreams,
-  mapLabel,
-  disableMap,
-  serializeInputMap,
-  streamMetadataKey,
-  streamDispositionKey,
-} from "./mapping.ts";
-export {
-  serializeMetadataAssignments,
-  serializeMetadataMaps,
-  serializeProgramDefinitions,
-  serializeStreamGroupDefinitions,
-  serializeStreamIds,
-  serializeDispositions,
-  serializeForceKeyFrames,
-} from "./structured.ts";
-export type { BuildResult } from "./builder.ts";
+export { mapInputStream, mapAllStreams, mapLabel, unsafeMapLabel, disableMap } from "./mapping.ts";
+export { unsafe } from "./structured.ts";
+export type {
+  BuildResult,
+  FFmpegStartBuilder,
+  FFmpegInputBuilder,
+  FFmpegOutputBuilder,
+  FFmpegReadyBuilder,
+} from "./builder.ts";
 export type {
   GlobalOptions,
   InputOptions,
@@ -29,10 +19,17 @@ export type {
   Duration,
   Bitrate,
   FrameSize,
+  Timestamp,
+  FrameRate,
+  Timecode,
   LogLevel,
   Vsync,
   Target,
   AspectRatio,
+  PixelFormat,
+  SampleFormat,
+  ChannelLayout,
+  SwsFlag,
   RawOptionBag,
   SerializedOptionScalar,
   SerializedOptionValue,
@@ -41,6 +38,8 @@ export type {
   StreamOptionBag,
   MetadataSpecifier,
   MetadataOptionBag,
+  OneOrMany,
+  UnsafeValue,
 } from "./types.ts";
 export type {
   FilterGraphMediaType,
@@ -64,6 +63,7 @@ export type {
   MapStreamType,
   MapTarget,
   StreamMetadataTarget,
+  UnsafeMapTarget,
 } from "./mapping.ts";
 export type {
   MetadataAssignment,

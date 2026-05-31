@@ -47,6 +47,11 @@ const FLAG_OVERRIDES: Record<string, string> = {
 const CUSTOM_TYPES: Record<string, string> = {
   Bitrate: "`${number}k` | `${number}M` | `${number}G`",
   FrameSize: "`${number}x${number}`",
+  Timestamp:
+    "number | `${number}` | `${number}ms` | `${number}us` | `${number}s` | `${number}m` | `${number}h` | `${number}:${number}` | `${number}:${number}:${number}` | `${number}:${number}:${number}.${number}`",
+  FrameRate:
+    'number | `${number}` | `${number}/${number}` | "ntsc" | "pal" | "qntsc" | "qpal" | "sntsc" | "spal" | "film" | "ntsc-film"',
+  Timecode: "`${number}:${number}:${number}:${number}` | `${number}:${number}:${number};${number}`",
   LogLevel:
     '"quiet" | "panic" | "fatal" | "error" | "warning" | "info" | "verbose" | "debug" | "trace"',
   Vsync: '"passthrough" | "cfr" | "vfr" | "drop" | "auto" | number',
@@ -56,6 +61,12 @@ const CUSTOM_TYPES: Record<string, string> = {
   /** Encoder preset (not from scraped JSON — -preset is an encoder AVOption, not a CLI option with documented possible_values) */
   Preset:
     '"ultrafast" | "superfast" | "veryfast" | "faster" | "fast" | "medium" | "slow" | "slower" | "veryslow" | "placebo"',
+  PixelFormat:
+    '"yuv420p" | "yuvj420p" | "yuv422p" | "yuv444p" | "nv12" | "nv21" | "rgb24" | "bgr24" | "rgba" | "bgra" | "gray" | (string & Record<never, never>)',
+  SampleFormat:
+    '"u8" | "s16" | "s32" | "s64" | "flt" | "dbl" | "u8p" | "s16p" | "s32p" | "s64p" | "fltp" | "dblp" | (string & Record<never, never>)',
+  ChannelLayout:
+    '"mono" | "stereo" | "2.1" | "3.0" | "3.0(back)" | "3.1" | "4.0" | "quad" | "quad(side)" | "4.1" | "5.0" | "5.0(side)" | "5.1" | "5.1(side)" | "6.1" | "6.1(back)" | "7.0" | "7.0(front)" | "7.1" | "7.1(wide)" | "7.1(wide-side)" | "octagonal" | "hexagonal" | (string & Record<never, never>)',
 };
 
 // Maps property names to custom type aliases above
@@ -68,11 +79,31 @@ const TYPE_ALIASES: Record<string, string> = {
   bufsize: "Bitrate",
   s: "FrameSize",
   canvasSize: "FrameSize",
+  ss: "Timestamp",
+  to: "Timestamp",
+  t: "Timestamp",
+  itsoffset: "Timestamp",
+  sseof: "Timestamp",
+  muxdelay: "Timestamp",
+  muxpreload: "Timestamp",
+  shortestBufDuration: "Timestamp",
+  readrate: "Timestamp",
+  readrateCatchup: "Timestamp",
+  readrateInitialBurst: "Timestamp",
+  timelimit: "Timestamp",
+  statsPeriod: "Timestamp",
   loglevel: "LogLevel",
+  timecode: "Timecode",
+  r: "FrameRate",
   vsync: "Vsync",
   target: "Target",
   aspect: "AspectRatio",
   preset: "Preset",
+  pixFmt: "PixelFormat",
+  sampleFmt: "SampleFormat",
+  channelLayout: "ChannelLayout",
+  chLayout: "ChannelLayout",
+  swsFlags: "SwsFlag",
   movflags: "MovFlag",
   strict: "Strict",
   avoidNegativeTs: "AvoidNegativeTs",
@@ -91,6 +122,7 @@ const EXTRA_ENUM_TYPES: Record<string, string> = {
   err_detect: "ErrDetect",
   fflags: "FFlags",
   default_mode: "DefaultMode",
+  sws_flags: "SwsFlag",
 };
 
 // Flag names whose possible_values from the scraped JSON can generate union types.
