@@ -46,6 +46,7 @@ jobs:
       - name: Publish JSR packages
         run: |
           (cd "packages/value" && npx jsr publish)
+          (cd "packages/async" && npx jsr publish)
           (cd "packages/string" && npx jsr publish)
           (cd "packages/color" && npx jsr publish)
           (cd "packages/ffmpeg" && npx jsr publish)

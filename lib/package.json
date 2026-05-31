@@ -7,13 +7,7 @@
     "url": "https://github.com/tinrab/temelj"
   },
   "type": "module",
-  "main": "./dist/mod.mjs",
-  "types": "./dist/mod.d.mts",
   "exports": {
-    ".": {
-      "types": "./dist/mod.d.mts",
-      "import": "./dist/mod.mjs"
-    },
     "./async": {
       "types": "./dist/async/mod.d.mts",
       "import": "./dist/async/mod.mjs"

@@ -1,7 +1,20 @@
 {
   "name": "@tinrab/temelj",
   "version": "0.18.2",
-  "exports": "./src/mod.ts",
+  "exports": {
+    "./async": "./src/async/mod.ts",
+    "./color": "./src/color/mod.ts",
+    "./handlebars": "./src/handlebars/mod.ts",
+    "./id": "./src/id/mod.ts",
+    "./iterator": "./src/iterator/mod.ts",
+    "./math": "./src/math/mod.ts",
+    "./mdx": "./src/mdx/mod.ts",
+    "./mdx-react": "./src/mdx-react/mod.ts",
+    "./request": "./src/request/mod.ts",
+    "./result": "./src/result/mod.ts",
+    "./string": "./src/string/mod.ts",
+    "./value": "./src/value/mod.ts"
+  },
   "license": "MIT",
   "nodeModulesDir": "auto",
   "imports": {
