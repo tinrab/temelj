@@ -1,6 +1,6 @@
 {
   "name": "@temelj/ffmpeg",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Type-safe fluent builder for ffmpeg.",
   "license": "MIT",
   "repository": {
@@ -27,11 +27,11 @@
     "clean": "shx rm -rf dist"
   },
   "devDependencies": {
-    "@types/node": "25.9.1",
+    "@types/node": "25.9.2",
     "cheerio": "^1.2.0",
     "shx": "^0.4.0",
-    "tsdown": "^0.22.1",
+    "tsdown": "^0.22.2",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.7"
+    "vitest": "^4.1.8"
   }
 }

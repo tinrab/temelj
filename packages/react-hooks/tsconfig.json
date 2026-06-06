@@ -1,0 +1,7 @@
+{
+  "extends": "../../scripts/tsconfig.json",
+  "compilerOptions": {
+    "allowImportingTsExtensions": true,
+    "types": ["node", "vitest/globals"]
+  }
+}

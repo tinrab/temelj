@@ -1,5 +1,6 @@
 import type { Plugin } from "unified";
 
+import { StandardSchemaValidationError } from "@temelj/standard-schema";
 import rehypeKatex from "rehype-katex";
 import remarkMath from "remark-math";
 import { expect, test } from "vitest";
@@ -13,6 +14,12 @@ import { syntaxHighlightPlugin } from "./plugins/syntax-highlight/plugin";
 import { treeProcessorPlugin } from "./plugins/tree-processor/plugin";
 
 const rehypeKatexPlugin = rehypeKatex as unknown as Plugin;
+
+const frontmatterSchema = z.object({
+  title: z.string(),
+  x: z.number().optional(),
+  b: z.boolean().optional().default(true),
+});
 
 async function getCompileError(compiler: MdxCompiler, source: string): Promise<MdxCompileError> {
   try {
@@ -49,12 +56,6 @@ test("mdx - compile", async () => {
       lineNumbers: {},
     });
 
-  const frontmatterSchema = z.object({
-    title: z.string(),
-    x: z.optional(z.number()),
-    b: z.optional(z.boolean()).default(true),
-  });
-
   const artifact = await compiler.compile(
     `
 ---
@@ -81,7 +82,9 @@ const x1 = 1;
   expect(artifact.frontmatter.x).toStrictEqual(42);
   expect(artifact.frontmatter.b).toStrictEqual(true);
 
-  await expect(() => compiler.compile("", {}, frontmatterSchema)).rejects.toThrow(z.ZodError);
+  await expect(() => compiler.compile("", {}, frontmatterSchema)).rejects.toThrow(
+    StandardSchemaValidationError,
+  );
 
   const value = artifact.compiled;
   expect(typeof value === "string").toStrictEqual(true);
@@ -114,7 +117,7 @@ ${JSON.stringify(frontmatter)}
       {},
       schema,
     );
-    return artifact.frontmatter;
+    return artifact.frontmatter as z.output<TFrontmatterSchema>;
   }
 
   const fm1 = await compile(

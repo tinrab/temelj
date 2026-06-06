@@ -1,26 +1,26 @@
 import type { JsonValue } from "@temelj/value";
 
+import { ss } from "@temelj/standard-schema";
 import { deepEquals } from "@temelj/value";
-import * as z from "zod";
 
 import type { Registry } from "../registry";
 import type { HelperDeclareSpec } from "../types";
 
-import { createHelperZod } from "../zod_helper_builder";
+import { createHelper } from "../helper_builder";
 
 export function getArrayHelpers(registry: Registry): HelperDeclareSpec {
   return {
     array: (...args: unknown[]): unknown[] => args.slice(0, -1),
-    arrayItemAt: createHelperZod()
-      .params(z.array(z.any()), z.number())
+    arrayItemAt: createHelper()
+      .params(ss.array(), ss.number())
       .handle(([array, index]) => array[index]),
     arrayContains: (array: unknown[], item: unknown): boolean =>
       array.findIndex((value) => deepEquals(value, item)) !== -1,
     arrayJoin: (array: unknown[], separator: string): string =>
       array.map((item) => String(item)).join(separator),
 
-    arrayFilter: createHelperZod()
-      .params(z.any(), z.string())
+    arrayFilter: createHelper()
+      .params(ss.unknown(), ss.string())
       .handle(([inputArray, predicateTemplateString], ctx) => {
         if (!inputArray || !Array.isArray(inputArray)) {
           return [];

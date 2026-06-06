@@ -1,19 +1,13 @@
 {
   "name": "@tinrab/temelj",
-  "version": "0.18.2",
+  "version": "0.19.0",
   "description": "A core library for TypeScript.",
   "license": "MIT",
   "repository": {
     "url": "https://github.com/tinrab/temelj"
   },
   "type": "module",
-  "main": "./dist/mod.mjs",
-  "types": "./dist/mod.d.mts",
   "exports": {
-    ".": {
-      "types": "./dist/mod.d.mts",
-      "import": "./dist/mod.mjs"
-    },
     "./async": {
       "types": "./dist/async/mod.d.mts",
       "import": "./dist/async/mod.mjs"
@@ -21,6 +15,14 @@
     "./color": {
       "types": "./dist/color/mod.d.mts",
       "import": "./dist/color/mod.mjs"
+    },
+    "./event": {
+      "types": "./dist/event/mod.d.mts",
+      "import": "./dist/event/mod.mjs"
+    },
+    "./env": {
+      "types": "./dist/env/mod.d.mts",
+      "import": "./dist/env/mod.mjs"
     },
     "./handlebars": {
       "types": "./dist/handlebars/mod.d.mts",
@@ -71,6 +73,8 @@
   "dependencies": {
     "@temelj/async": "workspace:*",
     "@temelj/color": "workspace:*",
+    "@temelj/env": "workspace:*",
+    "@temelj/event": "workspace:*",
     "@temelj/handlebars": "workspace:*",
     "@temelj/id": "workspace:*",
     "@temelj/iterator": "workspace:*",
@@ -83,9 +87,9 @@
     "@temelj/value": "workspace:*"
   },
   "devDependencies": {
-    "@types/node": "25.9.1",
+    "@types/node": "25.9.2",
     "shx": "^0.4.0",
-    "tsdown": "^0.22.1",
+    "tsdown": "^0.22.2",
     "typescript": "^6.0.3"
   }
 }

@@ -1,0 +1,40 @@
+{
+  "name": "@temelj/env",
+  "version": "0.1.0",
+  "description": "Type-safe environment variable parsing.",
+  "license": "MIT",
+  "repository": {
+    "url": "https://github.com/tinrab/temelj"
+  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "main": "./dist/mod.mjs",
+  "types": "./dist/mod.d.mts",
+  "exports": {
+    ".": {
+      "types": "./dist/mod.d.mts",
+      "import": "./dist/mod.mjs"
+    }
+  },
+  "scripts": {
+    "build": "tsdown",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "clean": "shx rm -rf dist"
+  },
+  "dependencies": {
+    "@standard-schema/spec": "^1.1.0",
+    "@temelj/result": "workspace:*",
+    "@temelj/standard-schema": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "25.9.2",
+    "shx": "^0.4.0",
+    "tsdown": "^0.22.2",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.8",
+    "zod": "^4.4.3"
+  }
+}

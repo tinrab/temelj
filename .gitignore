@@ -3,3 +3,4 @@
 **/.turbo
 **/dist
 pnpm-lock.yaml
+thirdparty

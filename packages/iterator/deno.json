@@ -1,12 +1,12 @@
 {
   "name": "@temelj/iterator",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "exports": "./src/mod.ts",
   "license": "MIT",
   "nodeModulesDir": "auto",
   "imports": {
-    "@temelj/value": "jsr:@temelj/value@^0.11.0",
-    "@temelj/result": "jsr:@temelj/result@^0.11.0"
+    "@temelj/value": "jsr:@temelj/value@^0.12.0",
+    "@temelj/result": "jsr:@temelj/result@^0.12.0"
   },
   "publish": {
     "include": ["src/**/*.ts", "README.md"],

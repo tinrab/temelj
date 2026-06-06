@@ -1,5 +1,5 @@
 import { type NumericRange, parseNumericRange } from "@temelj/iterator";
-import * as z from "zod";
+import { ss, validateStandardSchemaSync } from "@temelj/standard-schema";
 
 import type { HastElement } from "../../types";
 
@@ -27,12 +27,20 @@ export function extractCodeMeta(node: HastElement): MdxCodeMeta {
   return parseMetaString(meta as string);
 }
 
-const metaSchema = z.object({
-  highlight: z.optional(z.string()),
-  showLineNumbers: z.optional(z.union([z.boolean(), z.string()])),
-  commandLine: z.optional(z.union([z.boolean(), z.string()])),
-  fileName: z.optional(z.string()),
-});
+const stringOrBoolean = ss.union(
+  [ss.string("Expected string or boolean"), ss.boolean("Expected string or boolean")],
+  "Expected string or boolean",
+);
+
+const metaSchema = ss.object(
+  {
+    highlight: ss.optional(ss.string("Expected string")),
+    showLineNumbers: ss.optional(stringOrBoolean),
+    commandLine: ss.optional(stringOrBoolean),
+    fileName: ss.optional(ss.string("Expected string")),
+  },
+  "Expected object",
+);
 
 function parseMetaString(meta: string): MdxCodeMeta {
   let raw: unknown;
@@ -41,7 +49,7 @@ function parseMetaString(meta: string): MdxCodeMeta {
   } catch {
     return {};
   }
-  const parsed = metaSchema.parse(raw);
+  const parsed = validateStandardSchemaSync(metaSchema, raw, "Code metadata validation failed");
   const options: MdxCodeMeta = {};
 
   if (parsed.highlight !== undefined) {

@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
-import * as z from "zod";
 
+import { StandardSchemaValidationError } from "../helper_builder";
 import { Registry } from "../registry";
 import { getStringHelpers } from "./string";
 
@@ -16,5 +16,5 @@ test("Handlebars string helpers", () => {
 
   expect(r.render(`{{join (pascalCase "hello") ", World" "!"}}`)).toStrictEqual("Hello, World!");
 
-  expect(() => r.render("{{camelCase 42}}")).toThrow(z.ZodError);
+  expect(() => r.render("{{camelCase 42}}")).toThrow(StandardSchemaValidationError);
 });

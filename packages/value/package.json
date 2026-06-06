@@ -1,6 +1,6 @@
 {
   "name": "@temelj/value",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "description": "Value checking and manipulation utilities.",
   "license": "MIT",
   "repository": {
@@ -29,10 +29,10 @@
     "react-fast-compare": "^3.2.2"
   },
   "devDependencies": {
-    "@types/node": "25.9.1",
+    "@types/node": "25.9.2",
     "shx": "^0.4.0",
-    "tsdown": "^0.22.1",
+    "tsdown": "^0.22.2",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.7"
+    "vitest": "^4.1.8"
   }
 }

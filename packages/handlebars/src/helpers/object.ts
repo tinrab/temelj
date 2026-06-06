@@ -1,14 +1,14 @@
+import { ss } from "@temelj/standard-schema";
 import { isObjectPrimitive } from "@temelj/value";
-import * as z from "zod";
 
 import type { HelperDeclareSpec, HelperDelegate } from "../types";
 
-import { createHelperZod } from "../zod_helper_builder";
+import { createHelper } from "../helper_builder";
 
 export function getObjectHelpers(): HelperDeclareSpec {
   return {
-    object: createHelperZod()
-      .hash(z.record(z.string(), z.any()))
+    object: createHelper()
+      .hash(ss.record(ss.unknown()))
       .handle((hash) => hash),
     objectPick: ((obj: unknown, ...keys: string[]) => {
       if (!isObjectPrimitive(obj)) {
