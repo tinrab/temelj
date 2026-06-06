@@ -60,3 +60,5 @@ Foundational packages are also available in a singe dependency `@tinrab/temelj`,
 - [@temelj/value](./packages/value) - Utilities for working with plain
   TypeScript values.
 - [@temelj/ffmpeg](./packages/ffmpeg) - Type-safe fluent builder for ffmpeg.
+- [@temelj/event](./packages/event) - Strictly typed publish/subscribe utilities.
+- [@temelj/react-hooks](./packages/react-hooks) - A collection of React hooks.

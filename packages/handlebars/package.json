@@ -1,6 +1,6 @@
 {
   "name": "@temelj/handlebars",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "description": "Handlebars helpers and utilities.",
   "license": "MIT",
   "repository": {
@@ -25,16 +25,17 @@
     "clean": "shx rm -rf dist"
   },
   "dependencies": {
+    "@standard-schema/spec": "^1.1.0",
     "@temelj/string": "workspace:*",
     "@temelj/value": "workspace:*",
-    "handlebars": "^4.7.9",
-    "zod": "^4.4.3"
+    "handlebars": "^4.7.9"
   },
   "devDependencies": {
-    "@types/node": "25.9.1",
+    "@types/node": "25.9.2",
     "shx": "^0.4.0",
-    "tsdown": "^0.22.1",
+    "tsdown": "^0.22.2",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.7"
+    "vitest": "^4.1.8",
+    "zod": "^4.4.3"
   }
 }

@@ -1,5 +1,5 @@
+import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { Pluggable, PluggableList, Plugin } from "unified";
-import type { z } from "zod";
 
 import { compile as compileMdxJs, type CompileOptions as MdxJsCompileOptions } from "@mdx-js/mdx";
 import remarkFrontmatterPlugin from "remark-frontmatter";
@@ -8,6 +8,8 @@ import { VFile } from "vfile";
 import { matter } from "vfile-matter";
 
 import type { HastNode } from "./types";
+
+import { validateStandardSchema } from "./standard-schema";
 
 export { remarkFrontmatterPlugin, remarkGfmPlugin };
 
@@ -169,11 +171,26 @@ export class MdxCompiler {
     return this;
   }
 
-  public async compile<TFrontmatterSchema extends z.ZodSchema>(
+  public async compile(
+    source: MdxSource,
+    options?: MdxCompileOptions,
+  ): Promise<MdxArtifact<Record<string, unknown>>>;
+  public async compile<TFrontmatterSchema extends StandardSchemaV1>(
+    source: MdxSource,
+    options: MdxCompileOptions | undefined,
+    frontmatterSchema: TFrontmatterSchema,
+  ): Promise<MdxArtifact<StandardSchemaV1.InferOutput<TFrontmatterSchema>>>;
+  public async compile<TFrontmatterSchema extends StandardSchemaV1>(
     source: MdxSource,
     { frontmatterOnly = false, mdxOptions }: MdxCompileOptions = {},
     frontmatterSchema?: TFrontmatterSchema,
-  ): Promise<MdxArtifact<z.output<TFrontmatterSchema>>> {
+  ): Promise<
+    MdxArtifact<
+      TFrontmatterSchema extends StandardSchemaV1
+        ? StandardSchemaV1.InferOutput<TFrontmatterSchema>
+        : Record<string, unknown>
+    >
+  > {
     const sourceText = toSourceText(source);
     const vfile = new VFile({
       value: source,
@@ -215,11 +232,17 @@ export class MdxCompiler {
     const frontmatter =
       frontmatterSchema === undefined
         ? (vfile.data.matter ?? {})
-        : (frontmatterSchema as z.ZodSchema).parse(vfile.data.matter ?? {});
+        : await validateStandardSchema(
+            frontmatterSchema,
+            vfile.data.matter ?? {},
+            "Frontmatter validation failed",
+          );
 
     return {
       compiled,
-      frontmatter: frontmatter as z.output<TFrontmatterSchema>,
+      frontmatter: frontmatter as TFrontmatterSchema extends StandardSchemaV1
+        ? StandardSchemaV1.InferOutput<TFrontmatterSchema>
+        : Record<string, unknown>,
       messages: normalizeMessages(vfile.messages, sourceContext),
     };
   }

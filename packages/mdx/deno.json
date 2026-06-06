@@ -1,11 +1,12 @@
 {
   "name": "@temelj/mdx",
-  "version": "0.11.2",
+  "version": "0.12.0",
   "exports": "./src/mod.ts",
   "license": "MIT",
   "nodeModulesDir": "auto",
   "imports": {
-    "@temelj/iterator": "jsr:@temelj/iterator@^0.11.0"
+    "@standard-schema/spec": "jsr:@standard-schema/spec@^1.1.0",
+    "@temelj/iterator": "jsr:@temelj/iterator@^0.12.0"
   },
   "publish": {
     "include": ["src/**/*.ts", "README.md"],

@@ -1,6 +1,6 @@
 {
   "name": "@temelj/result",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "description": "Result type utilities for error handling.",
   "license": "MIT",
   "repository": {
@@ -25,10 +25,10 @@
     "clean": "shx rm -rf dist"
   },
   "devDependencies": {
-    "@types/node": "25.9.1",
+    "@types/node": "25.9.2",
     "shx": "^0.4.0",
-    "tsdown": "^0.22.1",
+    "tsdown": "^0.22.2",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.7"
+    "vitest": "^4.1.8"
   }
 }

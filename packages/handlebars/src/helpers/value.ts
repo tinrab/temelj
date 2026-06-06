@@ -1,8 +1,7 @@
 import { deepEquals, isObjectPrimitive, type PrimitiveValue } from "@temelj/value";
-import * as z from "zod";
 
+import { createHelper, helperSchema as s } from "../helper_builder";
 import { type HelperDeclareSpec, SafeString } from "../types";
-import { createHelperZod } from "../zod_helper_builder";
 
 export function getValueHelpers(): HelperDeclareSpec {
   return {
@@ -18,8 +17,8 @@ export function getValueHelpers(): HelperDeclareSpec {
 
     orElse: (value: unknown, defaultValue: unknown) => value || defaultValue,
 
-    json: createHelperZod()
-      .params(z.any(), z.optional(z.boolean()).default(false))
+    json: createHelper()
+      .params(s.unknown(), s.defaulted(s.boolean(), false))
       .handle(([value, pretty]) => {
         return pretty ? JSON.stringify(value, undefined, 2) : JSON.stringify(value);
       }),

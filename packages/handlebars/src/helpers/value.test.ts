@@ -1,10 +1,20 @@
 import { expect, test } from "vitest";
 import * as z from "zod";
 
+import { createHelper, helperSchema as s } from "../helper_builder";
 import { Registry } from "../registry";
-import { createHelperZod } from "../zod_helper_builder";
 import { getArrayHelpers } from "./array";
 import { getValueHelpers } from "./value";
+
+const userSchema = z.object({
+  firstName: z.string(),
+  lastName: z.string(),
+  age: z.number().optional(),
+});
+
+const namedSchema = z.object({
+  name: z.string(),
+});
 
 test("Handlebars value isEmpty helper", () => {
   const r = new Registry();
@@ -23,14 +33,8 @@ test("Handlebars value isEmpty helper", () => {
 
   r.registerHelper(
     "displayName",
-    createHelperZod()
-      .params(
-        z.object({
-          firstName: z.string(),
-          lastName: z.string(),
-          age: z.optional(z.number()),
-        }),
-      )
+    createHelper()
+      .params(userSchema)
       .handle(([user]) => {
         // @ts-expect-error user is typed
         const _user: number = user;
@@ -40,13 +44,8 @@ test("Handlebars value isEmpty helper", () => {
   );
   r.registerHelper(
     "displayName",
-    createHelperZod()
-      .params(
-        z.object({
-          name: z.string(),
-        }),
-        z.boolean().optional(),
-      )
+    createHelper()
+      .params(namedSchema, s.optional(s.boolean()))
       .handle((params) => {
         const _name: string = params[0].name;
         const _isShort: boolean = params[1] ?? false;

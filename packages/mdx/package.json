@@ -1,6 +1,6 @@
 {
   "name": "@temelj/mdx",
-  "version": "0.11.2",
+  "version": "0.12.0",
   "description": "MDX processing utilities.",
   "license": "MIT",
   "repository": {
@@ -26,7 +26,8 @@
   },
   "dependencies": {
     "@mdx-js/mdx": "^3.1.1",
-    "@shikijs/transformers": "^4.1.0",
+    "@shikijs/transformers": "^4.2.0",
+    "@standard-schema/spec": "^1.1.0",
     "@temelj/iterator": "workspace:*",
     "@types/hast": "^3.0.4",
     "github-slugger": "^2.0.0",
@@ -37,20 +38,20 @@
     "remark-gfm": "^4.0.1",
     "remark-math": "^6.0.0",
     "remark-parse": "^11.0.0",
-    "shiki": "^4.1.0",
+    "shiki": "^4.2.0",
     "unified": "^11.0.5",
     "unist-util-remove": "^4.0.0",
     "unist-util-visit": "^5.1.0",
     "vfile": "^6.0.3",
-    "vfile-matter": "^5.0.1",
-    "zod": "^4.4.3"
+    "vfile-matter": "^5.0.1"
   },
   "devDependencies": {
     "@types/mdast": "^4.0.4",
-    "@types/node": "25.9.1",
+    "@types/node": "25.9.2",
     "shx": "^0.4.0",
-    "tsdown": "^0.22.1",
+    "tsdown": "^0.22.2",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.7"
+    "vitest": "^4.1.8",
+    "zod": "^4.4.3"
   }
 }

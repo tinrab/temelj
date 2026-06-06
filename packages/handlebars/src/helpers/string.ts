@@ -6,51 +6,50 @@ import {
   toSnakeCase,
   toTitleCase,
 } from "@temelj/string";
-import * as z from "zod";
 
 import type { HelperDeclareSpec } from "../types";
 
-import { createHelperZod } from "../zod_helper_builder";
+import { createHelper, helperSchema as s } from "../helper_builder";
 
 export function getStringHelpers(): HelperDeclareSpec {
   return {
-    camelCase: createHelperZod()
-      .params(z.string())
+    camelCase: createHelper()
+      .params(s.string())
       .handle(([s]) => toCamelCase(s)),
-    snakeCase: createHelperZod()
-      .params(z.string())
+    snakeCase: createHelper()
+      .params(s.string())
       .handle(([s]) => toSnakeCase(s)),
-    pascalCase: createHelperZod()
-      .params(z.string())
+    pascalCase: createHelper()
+      .params(s.string())
       .handle(([s]) => toPascalCase(s)),
-    titleCase: createHelperZod()
-      .params(z.string())
+    titleCase: createHelper()
+      .params(s.string())
       .handle(([s]) => toTitleCase(s)),
-    kebabCase: createHelperZod()
-      .params(z.string())
+    kebabCase: createHelper()
+      .params(s.string())
       .handle(([s]) => toKebabCase(s)),
 
-    capitalize: createHelperZod()
-      .params(z.string())
+    capitalize: createHelper()
+      .params(s.string())
       .handle(([s]) => capitalize(s)),
-    upperCase: createHelperZod()
-      .params(z.string())
+    upperCase: createHelper()
+      .params(s.string())
       .handle(([s]) => s.toUpperCase()),
-    lowerCase: createHelperZod()
-      .params(z.string())
+    lowerCase: createHelper()
+      .params(s.string())
       .handle(([s]) => s.toLowerCase()),
 
-    split: createHelperZod()
-      .params(z.string(), z.optional(z.string()).default("/"))
+    split: createHelper()
+      .params(s.string(), s.defaulted(s.string(), "/"))
       .handle(([s, separator]) => s.split(separator)),
-    splitPart: createHelperZod()
-      .params(z.string(), z.number(), z.optional(z.string()).default("/"))
+    splitPart: createHelper()
+      .params(s.string(), s.number(), s.defaulted(s.string(), "/"))
       .handle(([path, index]) => {
         const parts = path.split("/");
         return parts[index];
       }),
-    splitPartSegment: createHelperZod()
-      .params(z.string(), z.number(), z.number(), z.optional(z.string()).default("/"))
+    splitPartSegment: createHelper()
+      .params(s.string(), s.number(), s.number(), s.defaulted(s.string(), "/"))
       .handle(([path, from, to, separator]) => {
         const parts = path.split(separator);
         let result = "";
