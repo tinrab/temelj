@@ -4,6 +4,7 @@
   "exports": {
     "./async": "./src/async/mod.ts",
     "./color": "./src/color/mod.ts",
+    "./event": "./src/event/mod.ts",
     "./handlebars": "./src/handlebars/mod.ts",
     "./id": "./src/id/mod.ts",
     "./iterator": "./src/iterator/mod.ts",
@@ -20,6 +21,7 @@
   "imports": {
     "@temelj/async": "jsr:@temelj/async@^0.11.0",
     "@temelj/color": "jsr:@temelj/color@^0.11.0",
+    "@temelj/event": "jsr:@temelj/event@^0.1.0",
     "@temelj/handlebars": "jsr:@temelj/handlebars@^0.11.0",
     "@temelj/id": "jsr:@temelj/id@^0.11.0",
     "@temelj/iterator": "jsr:@temelj/iterator@^0.11.0",

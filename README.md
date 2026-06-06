@@ -42,6 +42,8 @@ Foundational packages are also available in a singe dependency `@tinrab/temelj`,
 
 - [@temelj/async](./packages/async) - Utilities for working with async.
 - [@temelj/color](./packages/color) - Utilities for working with colors.
+- [@temelj/event](./packages/event) - Strictly typed publish/subscribe
+  utilities.
 - [@temelj/handlebars](./packages/handlebars) - Utilities for working with
   handlebars templates.
 - [@temelj/id](./packages/id) - Utilities for working with ids.
