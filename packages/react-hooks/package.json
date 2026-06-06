@@ -1,0 +1,50 @@
+{
+  "name": "@temelj/react-hooks",
+  "version": "0.1.0",
+  "description": "A collection of React hooks.",
+  "license": "MIT",
+  "repository": {
+    "url": "https://github.com/tinrab/temelj"
+  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "main": "./dist/mod.mjs",
+  "types": "./dist/mod.d.mts",
+  "exports": {
+    ".": {
+      "types": "./dist/mod.d.mts",
+      "import": "./dist/mod.mjs"
+    }
+  },
+  "scripts": {
+    "build": "tsdown",
+    "test": "vitest run --config ./vitest.config.ts",
+    "typecheck": "tsc --noEmit",
+    "clean": "shx rm -rf dist"
+  },
+  "dependencies": {
+    "@temelj/async": "workspace:*",
+    "@temelj/math": "workspace:*",
+    "@temelj/result": "workspace:*",
+    "@temelj/value": "workspace:*"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@types/node": "25.9.1",
+    "@types/react": "^19.2.15",
+    "@types/react-dom": "^19.2.3",
+    "jsdom": "^29.1.1",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.7",
+    "shx": "^0.4.0",
+    "tsdown": "^0.22.1",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.8"
+  },
+  "peerDependencies": {
+    "react": "^19.0.0"
+  }
+}
