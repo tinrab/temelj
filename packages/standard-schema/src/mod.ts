@@ -59,7 +59,7 @@ export class StandardSchemaValidationError extends Error {
 export async function validateStandardSchema<TSchema extends Schema>(
   inputSchema: TSchema,
   value: unknown,
-  message = "Schema validation failed",
+  message: string = "Schema validation failed",
 ): Promise<SchemaOutput<TSchema>> {
   const result = await inputSchema["~standard"].validate(value);
   if (!result.issues) {
@@ -71,7 +71,7 @@ export async function validateStandardSchema<TSchema extends Schema>(
 export function validateStandardSchemaSync<TSchema extends Schema>(
   inputSchema: TSchema,
   value: unknown,
-  message = "Schema validation failed",
+  message: string = "Schema validation failed",
 ): SchemaOutput<TSchema> {
   const result = inputSchema["~standard"].validate(value);
   ensureSynchronous(result);
@@ -85,28 +85,28 @@ export function unknown(): Schema<unknown> {
   return schema((value) => success(value));
 }
 
-export function string(message = "Expected a string"): Schema<unknown, string> {
+export function string(message: string = "Expected a string"): Schema<unknown, string> {
   return schema((value) => (typeof value === "string" ? success(value) : failure(message)));
 }
 
-export function number(message = "Expected a number"): Schema<unknown, number> {
+export function number(message: string = "Expected a number"): Schema<unknown, number> {
   return schema((value) => (typeof value === "number" ? success(value) : failure(message)));
 }
 
-export function boolean(message = "Expected a boolean"): Schema<unknown, boolean> {
+export function boolean(message: string = "Expected a boolean"): Schema<unknown, boolean> {
   return schema((value) => (typeof value === "boolean" ? success(value) : failure(message)));
 }
 
 export function literal<const TValue extends string | number | boolean | null | undefined>(
   expected: TValue,
-  message = `Expected ${String(expected)}`,
+  message: string = `Expected ${String(expected)}`,
 ): Schema<unknown, TValue> {
   return schema((value) => (Object.is(value, expected) ? success(expected) : failure(message)));
 }
 
 export function picklist<const TValues extends readonly [unknown, ...unknown[]]>(
   values: TValues,
-  message = `Expected one of ${values.map(String).join(", ")}`,
+  message: string = `Expected one of ${values.map(String).join(", ")}`,
 ): Schema<unknown, TValues[number]> {
   return schema((value) =>
     values.some((item) => Object.is(item, value))
@@ -117,7 +117,7 @@ export function picklist<const TValues extends readonly [unknown, ...unknown[]]>
 
 export function union<const TSchemas extends readonly [Schema, ...Schema[]]>(
   schemas: TSchemas,
-  message = "Expected a union match",
+  message: string = "Expected a union match",
 ): Schema<unknown, SchemaOutput<TSchemas[number]>> {
   return schema((value) => {
     const issues: SchemaIssue[] = [];
@@ -140,7 +140,7 @@ export function union<const TSchemas extends readonly [Schema, ...Schema[]]>(
 
 export function array<TItem extends Schema = Schema<unknown>>(
   itemSchema?: TItem,
-  message = "Expected an array",
+  message: string = "Expected an array",
 ): Schema<unknown, SchemaOutput<TItem>[]> {
   return schema((value) => {
     if (!Array.isArray(value)) {
@@ -170,7 +170,7 @@ export function array<TItem extends Schema = Schema<unknown>>(
 
 export function object<TShape extends SchemaShape>(
   shape: TShape,
-  message = "Expected an object",
+  message: string = "Expected an object",
 ): Schema<unknown, ObjectOutput<TShape>> {
   return schema((value) => {
     if (value === null || typeof value !== "object" || Array.isArray(value)) {
@@ -201,7 +201,7 @@ export function object<TShape extends SchemaShape>(
 
 export function record<TValue extends Schema>(
   valueSchema: TValue,
-  message = "Expected an object",
+  message: string = "Expected an object",
 ): Schema<unknown, Record<string, SchemaOutput<TValue>>> {
   return schema((value) => {
     if (value === null || typeof value !== "object" || Array.isArray(value)) {

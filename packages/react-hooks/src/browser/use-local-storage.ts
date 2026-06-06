@@ -4,7 +4,12 @@ import * as React from "react";
 
 import { dispatchStorageEvent, isBrowser, parseJson } from "../internal/mod.ts";
 
-function createStorageHook(storageName: "localStorage" | "sessionStorage") {
+type StorageHook = <T>(
+  key: string,
+  initialValue: T,
+) => [T, ReactTypes.Dispatch<ReactTypes.SetStateAction<T | null | undefined>>];
+
+function createStorageHook(storageName: "localStorage" | "sessionStorage"): StorageHook {
   return function useStorage<T>(
     key: string,
     initialValue: T,
@@ -56,4 +61,4 @@ function createStorageHook(storageName: "localStorage" | "sessionStorage") {
 /**
  * Stores state in localStorage and subscribes to storage events for the key.
  */
-export const useLocalStorage = createStorageHook("localStorage");
+export const useLocalStorage: StorageHook = createStorageHook("localStorage");
