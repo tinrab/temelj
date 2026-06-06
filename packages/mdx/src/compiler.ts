@@ -2,14 +2,13 @@ import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { Pluggable, PluggableList, Plugin } from "unified";
 
 import { compile as compileMdxJs, type CompileOptions as MdxJsCompileOptions } from "@mdx-js/mdx";
+import { validateStandardSchema } from "@temelj/standard-schema";
 import remarkFrontmatterPlugin from "remark-frontmatter";
 import remarkGfmPlugin from "remark-gfm";
 import { VFile } from "vfile";
 import { matter } from "vfile-matter";
 
 import type { HastNode } from "./types";
-
-import { validateStandardSchema } from "./standard-schema";
 
 export { remarkFrontmatterPlugin, remarkGfmPlugin };
 

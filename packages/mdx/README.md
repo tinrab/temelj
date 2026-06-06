@@ -37,8 +37,7 @@ $ deno add jsr:@temelj/mdx # or jsr add @temelj/mdx
 
 ## Compile
 
-```ts
-import { expect, test } from "vitest";
+```ts ignore
 import {
   type HastElement,
   headingIdPlugin,
@@ -46,7 +45,7 @@ import {
   syntaxHighlightPlugin,
   treeProcessorPlugin,
 } from "@temelj/mdx";
-import type { StandardSchemaV1 } from "@standard-schema/spec";
+import { z } from "zod";
 
 const compiler = new MdxCompiler()
   .withRehypePlugin(headingIdPlugin, {
@@ -88,22 +87,10 @@ whoamai
 @temelj/mdx
 \`\`\`
 `.trim();
-const frontmatterSchema: StandardSchemaV1<unknown, { title: string }> = {
-  "~standard": {
-    version: 1,
-    vendor: "example",
-    validate(value) {
-      if (
-        value !== null &&
-        typeof value === "object" &&
-        typeof (value as { title?: unknown }).title === "string"
-      ) {
-        return { value: { title: (value as { title: string }).title } };
-      }
-      return { issues: [{ message: "Expected frontmatter title" }] };
-    },
-  },
-};
+
+const frontmatterSchema = z.object({
+  title: z.string(),
+});
 
 const artifact = await compiler.compile(
   source,

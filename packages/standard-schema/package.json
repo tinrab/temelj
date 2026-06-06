@@ -1,7 +1,7 @@
 {
-  "name": "@temelj/handlebars",
-  "version": "0.12.0",
-  "description": "Handlebars helpers and utilities.",
+  "name": "@temelj/standard-schema",
+  "version": "0.1.0",
+  "description": "Standard Schema construction utilities.",
   "license": "MIT",
   "repository": {
     "url": "https://github.com/tinrab/temelj"
@@ -25,18 +25,13 @@
     "clean": "shx rm -rf dist"
   },
   "dependencies": {
-    "@standard-schema/spec": "^1.1.0",
-    "@temelj/standard-schema": "workspace:*",
-    "@temelj/string": "workspace:*",
-    "@temelj/value": "workspace:*",
-    "handlebars": "^4.7.9"
+    "@standard-schema/spec": "^1.1.0"
   },
   "devDependencies": {
     "@types/node": "25.9.2",
     "shx": "^0.4.0",
     "tsdown": "^0.22.2",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.8",
-    "zod": "^4.4.3"
+    "vitest": "^4.1.8"
   }
 }

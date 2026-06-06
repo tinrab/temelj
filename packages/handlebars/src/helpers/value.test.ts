@@ -1,7 +1,8 @@
+import { ss } from "@temelj/standard-schema";
 import { expect, test } from "vitest";
 import * as z from "zod";
 
-import { createHelper, helperSchema as s } from "../helper_builder";
+import { createHelper } from "../helper_builder";
 import { Registry } from "../registry";
 import { getArrayHelpers } from "./array";
 import { getValueHelpers } from "./value";
@@ -45,7 +46,7 @@ test("Handlebars value isEmpty helper", () => {
   r.registerHelper(
     "displayName",
     createHelper()
-      .params(namedSchema, s.optional(s.boolean()))
+      .params(namedSchema, ss.optional(ss.boolean()))
       .handle((params) => {
         const _name: string = params[0].name;
         const _isShort: boolean = params[1] ?? false;

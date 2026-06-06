@@ -1,13 +1,14 @@
+import { ss } from "@temelj/standard-schema";
 import { isObjectPrimitive } from "@temelj/value";
 
 import type { HelperDeclareSpec, HelperDelegate } from "../types";
 
-import { createHelper, helperSchema as s } from "../helper_builder";
+import { createHelper } from "../helper_builder";
 
 export function getObjectHelpers(): HelperDeclareSpec {
   return {
     object: createHelper()
-      .hash(s.record(s.unknown()))
+      .hash(ss.record(ss.unknown()))
       .handle((hash) => hash),
     objectPick: ((obj: unknown, ...keys: string[]) => {
       if (!isObjectPrimitive(obj)) {

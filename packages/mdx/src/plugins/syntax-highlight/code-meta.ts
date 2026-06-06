@@ -1,10 +1,7 @@
-import type { StandardSchemaV1 } from "@standard-schema/spec";
-
 import { type NumericRange, parseNumericRange } from "@temelj/iterator";
+import { ss, validateStandardSchemaSync } from "@temelj/standard-schema";
 
 import type { HastElement } from "../../types";
-
-import { validateStandardSchemaSync } from "../../standard-schema";
 
 export interface MdxCodeMeta {
   highlight?: MdxCodeMetaHighlightLine;
@@ -30,43 +27,20 @@ export function extractCodeMeta(node: HastElement): MdxCodeMeta {
   return parseMetaString(meta as string);
 }
 
-interface RawMdxCodeMeta {
-  highlight?: string | undefined;
-  showLineNumbers?: boolean | string | undefined;
-  commandLine?: boolean | string | undefined;
-  fileName?: string | undefined;
-}
+const stringOrBoolean = ss.union(
+  [ss.string("Expected string or boolean"), ss.boolean("Expected string or boolean")],
+  "Expected string or boolean",
+);
 
-const metaSchema: StandardSchemaV1<unknown, RawMdxCodeMeta> = {
-  "~standard": {
-    version: 1,
-    vendor: "@temelj/mdx",
-    validate(value) {
-      if (value === null || typeof value !== "object" || Array.isArray(value)) {
-        return { issues: [{ message: "Expected object" }] };
-      }
-
-      const raw = value as Record<string, unknown>;
-      const issues: StandardSchemaV1.Issue[] = [];
-      validateOptionalString(raw.highlight, "highlight", issues);
-      validateOptionalStringOrBoolean(raw.showLineNumbers, "showLineNumbers", issues);
-      validateOptionalStringOrBoolean(raw.commandLine, "commandLine", issues);
-      validateOptionalString(raw.fileName, "fileName", issues);
-      if (issues.length > 0) {
-        return { issues };
-      }
-
-      return {
-        value: {
-          highlight: raw.highlight as string | undefined,
-          showLineNumbers: raw.showLineNumbers as boolean | string | undefined,
-          commandLine: raw.commandLine as boolean | string | undefined,
-          fileName: raw.fileName as string | undefined,
-        },
-      };
-    },
+const metaSchema = ss.object(
+  {
+    highlight: ss.optional(ss.string("Expected string")),
+    showLineNumbers: ss.optional(stringOrBoolean),
+    commandLine: ss.optional(stringOrBoolean),
+    fileName: ss.optional(ss.string("Expected string")),
   },
-};
+  "Expected object",
+);
 
 function parseMetaString(meta: string): MdxCodeMeta {
   let raw: unknown;
@@ -107,24 +81,4 @@ function parseMetaString(meta: string): MdxCodeMeta {
   }
 
   return options;
-}
-
-function validateOptionalString(
-  value: unknown,
-  key: string,
-  issues: StandardSchemaV1.Issue[],
-): void {
-  if (value !== undefined && typeof value !== "string") {
-    issues.push({ message: "Expected string", path: [key] });
-  }
-}
-
-function validateOptionalStringOrBoolean(
-  value: unknown,
-  key: string,
-  issues: StandardSchemaV1.Issue[],
-): void {
-  if (value !== undefined && typeof value !== "string" && typeof value !== "boolean") {
-    issues.push({ message: "Expected string or boolean", path: [key] });
-  }
 }

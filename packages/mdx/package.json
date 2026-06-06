@@ -29,6 +29,7 @@
     "@shikijs/transformers": "^4.2.0",
     "@standard-schema/spec": "^1.1.0",
     "@temelj/iterator": "workspace:*",
+    "@temelj/standard-schema": "workspace:*",
     "@types/hast": "^3.0.4",
     "github-slugger": "^2.0.0",
     "hast": "^1.0.0",

@@ -5,7 +5,7 @@
   "license": "MIT",
   "nodeModulesDir": "auto",
   "imports": {
-    "@standard-schema/spec": "jsr:@standard-schema/spec@^1.1.0",
+    "@temelj/standard-schema": "jsr:@temelj/standard-schema@^0.1.0",
     "@temelj/value": "jsr:@temelj/value@^0.12.0",
     "@temelj/string": "jsr:@temelj/string@^0.12.0"
   },

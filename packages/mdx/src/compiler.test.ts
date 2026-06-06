@@ -1,5 +1,6 @@
 import type { Plugin } from "unified";
 
+import { StandardSchemaValidationError } from "@temelj/standard-schema";
 import rehypeKatex from "rehype-katex";
 import remarkMath from "remark-math";
 import { expect, test } from "vitest";
@@ -11,7 +12,6 @@ import { MdxCompileError, MdxCompiler } from "./compiler";
 import { headingIdPlugin } from "./plugins/heading-id/plugin";
 import { syntaxHighlightPlugin } from "./plugins/syntax-highlight/plugin";
 import { treeProcessorPlugin } from "./plugins/tree-processor/plugin";
-import { StandardSchemaValidationError } from "./standard-schema";
 
 const rehypeKatexPlugin = rehypeKatex as unknown as Plugin;
 

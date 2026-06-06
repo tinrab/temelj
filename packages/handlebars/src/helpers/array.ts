@@ -1,17 +1,18 @@
 import type { JsonValue } from "@temelj/value";
 
+import { ss } from "@temelj/standard-schema";
 import { deepEquals } from "@temelj/value";
 
 import type { Registry } from "../registry";
 import type { HelperDeclareSpec } from "../types";
 
-import { createHelper, helperSchema as s } from "../helper_builder";
+import { createHelper } from "../helper_builder";
 
 export function getArrayHelpers(registry: Registry): HelperDeclareSpec {
   return {
     array: (...args: unknown[]): unknown[] => args.slice(0, -1),
     arrayItemAt: createHelper()
-      .params(s.array(), s.number())
+      .params(ss.array(), ss.number())
       .handle(([array, index]) => array[index]),
     arrayContains: (array: unknown[], item: unknown): boolean =>
       array.findIndex((value) => deepEquals(value, item)) !== -1,
@@ -19,7 +20,7 @@ export function getArrayHelpers(registry: Registry): HelperDeclareSpec {
       array.map((item) => String(item)).join(separator),
 
     arrayFilter: createHelper()
-      .params(s.unknown(), s.string())
+      .params(ss.unknown(), ss.string())
       .handle(([inputArray, predicateTemplateString], ctx) => {
         if (!inputArray || !Array.isArray(inputArray)) {
           return [];

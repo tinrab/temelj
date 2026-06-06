@@ -1,7 +1,7 @@
 {
-  "name": "@temelj/handlebars",
-  "version": "0.12.0",
-  "description": "Handlebars helpers and utilities.",
+  "name": "@temelj/env",
+  "version": "0.1.0",
+  "description": "Type-safe environment variable parsing.",
   "license": "MIT",
   "repository": {
     "url": "https://github.com/tinrab/temelj"
@@ -26,10 +26,8 @@
   },
   "dependencies": {
     "@standard-schema/spec": "^1.1.0",
-    "@temelj/standard-schema": "workspace:*",
-    "@temelj/string": "workspace:*",
-    "@temelj/value": "workspace:*",
-    "handlebars": "^4.7.9"
+    "@temelj/result": "workspace:*",
+    "@temelj/standard-schema": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "25.9.2",

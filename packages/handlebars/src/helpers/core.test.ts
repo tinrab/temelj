@@ -3,7 +3,7 @@ import { expect, test } from "vitest";
 import { Registry } from "../registry";
 import { getCoreHelpers } from "./core";
 
-test("Handlebars string helpers", () => {
+test("Handlebars core helpers", () => {
   const r = new Registry();
   r.registerHelpers(getCoreHelpers(r));
 

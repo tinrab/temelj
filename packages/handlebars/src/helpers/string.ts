@@ -1,3 +1,4 @@
+import { ss } from "@temelj/standard-schema";
 import {
   capitalize,
   toCamelCase,
@@ -9,47 +10,47 @@ import {
 
 import type { HelperDeclareSpec } from "../types";
 
-import { createHelper, helperSchema as s } from "../helper_builder";
+import { createHelper } from "../helper_builder";
 
 export function getStringHelpers(): HelperDeclareSpec {
   return {
     camelCase: createHelper()
-      .params(s.string())
+      .params(ss.string())
       .handle(([s]) => toCamelCase(s)),
     snakeCase: createHelper()
-      .params(s.string())
+      .params(ss.string())
       .handle(([s]) => toSnakeCase(s)),
     pascalCase: createHelper()
-      .params(s.string())
+      .params(ss.string())
       .handle(([s]) => toPascalCase(s)),
     titleCase: createHelper()
-      .params(s.string())
+      .params(ss.string())
       .handle(([s]) => toTitleCase(s)),
     kebabCase: createHelper()
-      .params(s.string())
+      .params(ss.string())
       .handle(([s]) => toKebabCase(s)),
 
     capitalize: createHelper()
-      .params(s.string())
+      .params(ss.string())
       .handle(([s]) => capitalize(s)),
     upperCase: createHelper()
-      .params(s.string())
+      .params(ss.string())
       .handle(([s]) => s.toUpperCase()),
     lowerCase: createHelper()
-      .params(s.string())
+      .params(ss.string())
       .handle(([s]) => s.toLowerCase()),
 
     split: createHelper()
-      .params(s.string(), s.defaulted(s.string(), "/"))
+      .params(ss.string(), ss.defaulted(ss.string(), "/"))
       .handle(([s, separator]) => s.split(separator)),
     splitPart: createHelper()
-      .params(s.string(), s.number(), s.defaulted(s.string(), "/"))
+      .params(ss.string(), ss.number(), ss.defaulted(ss.string(), "/"))
       .handle(([path, index]) => {
         const parts = path.split("/");
         return parts[index];
       }),
     splitPartSegment: createHelper()
-      .params(s.string(), s.number(), s.number(), s.defaulted(s.string(), "/"))
+      .params(ss.string(), ss.number(), ss.number(), ss.defaulted(ss.string(), "/"))
       .handle(([path, from, to, separator]) => {
         const parts = path.split(separator);
         let result = "";

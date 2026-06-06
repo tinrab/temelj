@@ -1,6 +1,7 @@
+import { ss } from "@temelj/standard-schema";
 import { deepEquals, isObjectPrimitive, type PrimitiveValue } from "@temelj/value";
 
-import { createHelper, helperSchema as s } from "../helper_builder";
+import { createHelper } from "../helper_builder";
 import { type HelperDeclareSpec, SafeString } from "../types";
 
 export function getValueHelpers(): HelperDeclareSpec {
@@ -18,7 +19,7 @@ export function getValueHelpers(): HelperDeclareSpec {
     orElse: (value: unknown, defaultValue: unknown) => value || defaultValue,
 
     json: createHelper()
-      .params(s.unknown(), s.defaulted(s.boolean(), false))
+      .params(ss.unknown(), ss.defaulted(ss.boolean(), false))
       .handle(([value, pretty]) => {
         return pretty ? JSON.stringify(value, undefined, 2) : JSON.stringify(value);
       }),
