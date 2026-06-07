@@ -177,7 +177,13 @@ const storage = createStorage({
 
 ### File System Storage
 
-File system storage stores one encoded value per file and supports literal storage keys, prefixes, and TTL metadata.
+File system storage supports literal storage keys, prefixes, and TTL metadata.
+
+The default `file-per-key` strategy stores one encoded value per file.
+Use the `bucket` strategy when values should be grouped into a fixed number of JSON bucket files.
+Bucket mode chooses a bucket with `hashCyrb53(key) % bucketCount`.
+File names can be customized with `bucketFileNameFormat`, which must include `{bucket}`.
+File-per-key extensions can be customized with `valueExtension` and `metadataExtension`.
 
 ```ts
 import { createStorage } from "@temelj/storage";
@@ -191,6 +197,17 @@ const storage = createStorage({
 });
 
 await storage.set("users:1", { name: "Verso" });
+```
+
+```ts
+const storage = createStorage({
+  engine: createFileSystemEngine({
+    bucketCount: 256,
+    bucketFileNameFormat: "bucket-{bucket}.json",
+    directory: "./.storage",
+    strategy: "bucket",
+  }),
+});
 ```
 
 ### Redis Storage

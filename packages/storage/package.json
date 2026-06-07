@@ -60,6 +60,7 @@
   "dependencies": {
     "@temelj/event": "workspace:*",
     "@temelj/result": "workspace:*",
+    "@temelj/string": "workspace:*",
     "@temelj/value": "workspace:*",
     "superjson": "^2.2.6"
   },
