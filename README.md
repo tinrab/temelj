@@ -56,6 +56,8 @@ Foundational packages are also available in a singe dependency `@tinrab/temelj`,
 - [@temelj/request](./packages/request) - Utilities for working with HTTP
   requests.
 - [@temelj/result](./packages/result) - A result value type for TypeScript.
+- [@temelj/storage](./packages/storage) - Typed storage interface with
+  in-memory and Redis engines.
 - [@temelj/string](./packages/string) - Utilities for working with strings.
 - [@temelj/value](./packages/value) - Utilities for working with plain
   TypeScript values.

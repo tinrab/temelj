@@ -13,14 +13,14 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
         with:
-          node-version: 24
+          node-version: 26
           registry-url: "https://registry.npmjs.org"
 
       - name: Install pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
         with:
           run_install: false
 
@@ -62,5 +62,6 @@ jobs:
           (cd "packages/handlebars" && npx jsr publish)
           (cd "packages/mdx" && npx jsr publish)
           (cd "packages/mdx-react" && npx jsr publish)
+          (cd "packages/storage" && npx jsr publish)
 
           (cd lib && npx jsr publish)

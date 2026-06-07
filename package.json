@@ -12,8 +12,9 @@
     "format:check": "oxfmt --check",
     "lint": "oxlint --type-aware",
     "lint:fix": "oxlint --type-aware --fix-dangerously",
-    "test": "vitest run",
-    "test:watch": "vitest"
+    "test": "turbo run test",
+    "docker:up": "docker compose -f ./infrastructure/docker-compose.yaml up -d --build",
+    "docker:down": "docker compose -f ./infrastructure/docker-compose.yaml down"
   },
   "devDependencies": {
     "@types/node": "25.9.2",

@@ -23,8 +23,9 @@
     "strictNullChecks": true,
     "noFallthroughCasesInSwitch": true,
     "allowSyntheticDefaultImports": true,
+    "allowImportingTsExtensions": true,
     "outDir": "${configDir}/dist",
-    "types": ["node"]
+    "types": ["node", "vitest/globals"]
   },
   "include": ["${configDir}/src", "${configDir}/tests"],
   "exclude": ["${configDir}/node_modules", "${configDir}/dist"]
