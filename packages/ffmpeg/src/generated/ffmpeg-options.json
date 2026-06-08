@@ -89107,7 +89107,7 @@
       "categories": [],
       "arguments": "",
       "description": "Set frequency scale.\nIt accepts the following values:\nDefault is lin .",
-      "default": "lin",
+      "default": "Renoir",
       "range": null,
       "possible_values": [
         {
@@ -90604,7 +90604,7 @@
       "categories": [],
       "arguments": "",
       "description": "Set display scale, can be linear: lin or log: log ,\ndefault is lin .",
-      "default": "lin",
+      "default": "Renoir",
       "range": null,
       "possible_values": null,
       "page": "ffmpeg-filters",

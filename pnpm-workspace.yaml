@@ -3,7 +3,10 @@ packages:
   - packages/*
   - examples/**
 allowBuilds:
+  cpu-features: false
   esbuild: true
+  protobufjs: false
+  ssh2: false
 minimumReleaseAgeExclude:
   - "@types/node@25.9.2"
   - "@types/react@19.2.17"

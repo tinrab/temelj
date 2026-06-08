@@ -1,0 +1,107 @@
+{
+  "name": "@temelj/storage",
+  "version": "0.1.0",
+  "description": "Standard key-value storage interface.",
+  "license": "MIT",
+  "repository": {
+    "url": "https://github.com/tinrab/temelj"
+  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "main": "./dist/mod.mjs",
+  "types": "./dist/mod.d.mts",
+  "exports": {
+    ".": {
+      "types": "./dist/mod.d.mts",
+      "import": "./dist/mod.mjs"
+    },
+    "./redis": {
+      "types": "./dist/engine/redis.d.mts",
+      "import": "./dist/engine/redis.mjs"
+    },
+    "./cloudflare": {
+      "types": "./dist/engine/cloudflare.d.mts",
+      "import": "./dist/engine/cloudflare.mjs"
+    },
+    "./filesystem": {
+      "types": "./dist/engine/file-system.d.mts",
+      "import": "./dist/engine/file-system.mjs"
+    },
+    "./libsql": {
+      "types": "./dist/engine/libsql.d.mts",
+      "import": "./dist/engine/libsql.mjs"
+    },
+    "./postgres": {
+      "types": "./dist/engine/postgres.d.mts",
+      "import": "./dist/engine/postgres.mjs"
+    },
+    "./mysql": {
+      "types": "./dist/engine/mysql.d.mts",
+      "import": "./dist/engine/mysql.mjs"
+    },
+    "./localstorage": {
+      "types": "./dist/engine/local-storage.d.mts",
+      "import": "./dist/engine/local-storage.mjs"
+    },
+    "./indexeddb": {
+      "types": "./dist/engine/indexed-db.d.mts",
+      "import": "./dist/engine/indexed-db.mjs"
+    }
+  },
+  "scripts": {
+    "build": "tsdown",
+    "test": "vitest run --tags-filter '!container'",
+    "test:container": "vitest run --tags-filter 'container'",
+    "typecheck": "tsc --noEmit",
+    "clean": "shx rm -rf dist"
+  },
+  "dependencies": {
+    "@temelj/event": "workspace:*",
+    "@temelj/result": "workspace:*",
+    "@temelj/string": "workspace:*",
+    "@temelj/value": "workspace:*",
+    "superjson": "^2.2.6"
+  },
+  "devDependencies": {
+    "@testcontainers/mysql": "^12.0.1",
+    "@testcontainers/postgresql": "^12.0.1",
+    "@testcontainers/redis": "^12.0.1",
+    "@types/node": "25.9.2",
+    "cloudflare": "^6.3.0",
+    "ioredis": "^5.11.1",
+    "libsql": "^0.5.29",
+    "mysql2": "^3.22.5",
+    "postgres": "^3.4.9",
+    "shx": "^0.4.0",
+    "testcontainers": "^12.0.1",
+    "tsdown": "^0.22.2",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.8"
+  },
+  "peerDependencies": {
+    "cloudflare": "^6.3.0",
+    "ioredis": "^5.10.1",
+    "libsql": "^0.5.29",
+    "mysql2": "^3.22.4",
+    "postgres": "^3.4.9"
+  },
+  "peerDependenciesMeta": {
+    "ioredis": {
+      "optional": true
+    },
+    "libsql": {
+      "optional": true
+    },
+    "mysql2": {
+      "optional": true
+    },
+    "postgres": {
+      "optional": true
+    },
+    "cloudflare": {
+      "optional": true
+    }
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "name": "@temelj/storage",
+  "version": "0.1.0",
+  "exports": {
+    ".": "./src/mod.ts",
+    "./cloudflare": "./src/engine/cloudflare.ts",
+    "./filesystem": "./src/engine/file-system.ts",
+    "./indexeddb": "./src/engine/indexed-db.ts",
+    "./libsql": "./src/engine/libsql.ts",
+    "./localstorage": "./src/engine/local-storage.ts",
+    "./mysql": "./src/engine/mysql.ts",
+    "./postgres": "./src/engine/postgres.ts",
+    "./redis": "./src/engine/redis.ts"
+  },
+  "license": "MIT",
+  "nodeModulesDir": "auto",
+  "imports": {
+    "@temelj/event": "jsr:@temelj/event@^0.1.0",
+    "@temelj/result": "jsr:@temelj/result@^0.12.0",
+    "@temelj/string": "jsr:@temelj/string@^0.13.0",
+    "@temelj/value": "jsr:@temelj/value@^0.13.0"
+  },
+  "publish": {
+    "include": ["src/**/*.ts", "README.md"],
+    "exclude": ["src/**/*.test.ts"]
+  }
+}

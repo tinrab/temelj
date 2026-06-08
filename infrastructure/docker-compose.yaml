@@ -1,0 +1,124 @@
+services:
+  mysql:
+    image: mysql:9.6
+    container_name: mysql
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: abc123456
+      MYSQL_USER: temelj
+      MYSQL_PASSWORD: abc123456
+      MYSQL_DATABASE: temelj
+    ports:
+      - "3306:3306"
+    networks:
+      - temelj
+
+  # postgres:
+  #   image: postgres:18.3
+  #   container_name: postgres
+  #   restart: always
+  #   environment:
+  #     POSTGRES_PASSWORD: abc123456
+  #     POSTGRES_USER: temelj
+  #     POSTGRES_DB: temelj
+  #   ports:
+  #     - "5432:5432"
+  #   networks:
+  #     - temelj
+
+  #  dragonfly:
+  #    image: "docker.dragonflydb.io/dragonflydb/dragonfly"
+  #    container_name: dragonfly
+  #    ulimits:
+  #      memlock: -1
+  #    ports:
+  #      - 6379:6379
+  #    networks:
+  #      - temelj
+
+  redis:
+    image: redis:8.4
+    container_name: redis
+    ports:
+      - 6379:6379
+    networks:
+      - temelj
+
+  # RustFS server
+  rustfs:
+    image: rustfs/rustfs:1.0.0-beta.6
+    container_name: rustfs-server
+    security_opt:
+      - "no-new-privileges:true"
+    ports:
+      - "9000:9000" # S3 API port
+      - "9001:9001" # Console port
+    environment:
+      - RUSTFS_VOLUMES=/data/rustfs{0...3}
+      - RUSTFS_ADDRESS=0.0.0.0:9000
+      - RUSTFS_CONSOLE_ADDRESS=0.0.0.0:9001
+      - RUSTFS_CONSOLE_ENABLE=true
+      - RUSTFS_CORS_ALLOWED_ORIGINS=*
+      - RUSTFS_CONSOLE_CORS_ALLOWED_ORIGINS=*
+      - RUSTFS_ACCESS_KEY=temelj
+      - RUSTFS_SECRET_KEY=abc123456
+      - RUSTFS_OBS_LOGGER_LEVEL=info
+      # Local Docker named volumes usually live on the same physical disk.
+      - RUSTFS_UNSAFE_BYPASS_DISK_CHECK=${RUSTFS_UNSAFE_BYPASS_DISK_CHECK:-true}
+
+    volumes:
+      - rustfs_data_0:/data/rustfs0
+      - rustfs_data_1:/data/rustfs1
+      - rustfs_data_2:/data/rustfs2
+      - rustfs_data_3:/data/rustfs3
+      - logs:/app/logs
+    networks:
+      - temelj
+    restart: unless-stopped
+    healthcheck:
+      # Production strict TLS example (SAN/FQDN aligned, no `-k`):
+      # curl -f --cacert /opt/tls/ca.crt --resolve rustfs-a.example.com:9000:127.0.0.1 https://rustfs-a.example.com:9000/health
+      # curl -f --cacert /opt/tls/ca.crt --resolve rustfs-a.example.com:9001:127.0.0.1 https://rustfs-a.example.com:9001/rustfs/console/health
+      test:
+        [
+          "CMD",
+          "sh",
+          "-c",
+          "curl -f http://127.0.0.1:9000/health && curl -f http://127.0.0.1:9001/rustfs/console/health",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # RustFS volume permissions fixer service
+  volume-permission-helper:
+    image: alpine
+    volumes:
+      - rustfs_data_0:/data0
+      - rustfs_data_1:/data1
+      - rustfs_data_2:/data2
+      - rustfs_data_3:/data3
+      - logs:/logs
+    command: >
+      sh -c "
+        chown -R 10001:10001 /data0 /data1 /data2 /data3 /logs &&
+        echo 'Volume Permissions fixed' &&
+        exit 0
+      "
+    # Permission baseline:
+    # - default RustFS runtime user is 10001:10001
+    # - alternatively, run rustfs service with host-matched `user: \"<uid>:<gid>\"`
+    restart: "no"
+
+networks:
+  temelj:
+    driver: bridge
+    name: temelj
+
+volumes:
+  rustfs_data_0:
+  rustfs_data_1:
+  rustfs_data_2:
+  rustfs_data_3:
+  logs:

@@ -22,7 +22,7 @@
     "script:scrape": "node --import tsx/esm ./scripts/scrape.ts",
     "script:generate": "node --import tsx/esm ./scripts/generate.ts",
     "build": "tsdown",
-    "test": "vitest run --config ./vitest.config.ts",
+    "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "clean": "shx rm -rf dist"
   },

@@ -1,0 +1,16 @@
+{
+  "name": "@temelj/cache",
+  "version": "0.1.0",
+  "exports": "./src/mod.ts",
+  "license": "MIT",
+  "nodeModulesDir": "auto",
+  "imports": {
+    "@temelj/async": "jsr:@temelj/async@^0.12.0",
+    "@temelj/event": "jsr:@temelj/event@^0.1.0",
+    "@temelj/value": "jsr:@temelj/value@^0.13.0"
+  },
+  "publish": {
+    "include": ["src/**/*.ts", "README.md"],
+    "exclude": ["src/**/*.test.ts"]
+  }
+}
