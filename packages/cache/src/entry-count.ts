@@ -1,4 +1,4 @@
-import { createPubSub } from "@temelj/event";
+import { createPubSub, PubSub } from "@temelj/event";
 
 import type {
   Cache,
@@ -25,7 +25,7 @@ export interface EntryRecord<V> {
 }
 
 export abstract class EntryCountCache<K, V> implements Cache<K, V> {
-  protected readonly pubsub = createPubSub<CacheEventMap<K, V>>();
+  protected readonly pubsub: PubSub<CacheEventMap<K, V>> = createPubSub<CacheEventMap<K, V>>();
   protected readonly onEvict: ((eviction: CacheEviction<K, V>) => void) | undefined;
   protected maxEntriesValue: number;
   protected entryCount = 0;

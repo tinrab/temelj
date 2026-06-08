@@ -62,6 +62,7 @@ jobs:
           (cd "packages/handlebars" && npx jsr publish)
           (cd "packages/mdx" && npx jsr publish)
           (cd "packages/mdx-react" && npx jsr publish)
+          (cd "packages/cache" && npx jsr publish)
           (cd "packages/storage" && npx jsr publish)
 
           (cd lib && npx jsr publish)
