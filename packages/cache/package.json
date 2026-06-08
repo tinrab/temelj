@@ -1,0 +1,50 @@
+{
+  "name": "@temelj/cache",
+  "version": "0.1.0",
+  "description": "A fast in-memory cache. Includes LRU, MRU, SLRU, LFU, FIFO and RR.",
+  "keywords": [
+    "cache",
+    "lru"
+  ],
+  "license": "MIT",
+  "repository": {
+    "url": "https://github.com/tinrab/temelj"
+  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "main": "./dist/mod.mjs",
+  "types": "./dist/mod.d.mts",
+  "exports": {
+    ".": {
+      "types": "./dist/mod.d.mts",
+      "import": "./dist/mod.mjs"
+    }
+  },
+  "scripts": {
+    "build": "tsdown",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "clean": "shx rm -rf dist",
+    "bench": "tsx bench/lru-5k.bench.ts && tsx bench/lru-50k.bench.ts",
+    "bench:5k": "tsx bench/lru-5k.bench.ts",
+    "bench:50k": "tsx bench/lru-50k.bench.ts"
+  },
+  "dependencies": {
+    "@temelj/async": "workspace:*",
+    "@temelj/event": "workspace:*",
+    "@temelj/value": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "25.9.2",
+    "lru-cache": "^11.5.1",
+    "mnemonist": "^0.40.4",
+    "quick-lru": "^7.3.0",
+    "shx": "^0.4.0",
+    "tinybench": "^6.0.2",
+    "tsdown": "^0.22.2",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.8"
+  }
+}
