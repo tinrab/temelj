@@ -3,7 +3,7 @@ import { describe, expect, test, vi } from "vitest";
 import { createStorage } from "../storage.ts";
 import { StorageOperationError } from "../types.ts";
 import {
-  createCloudflareKvEngine,
+  CloudflareKvStorageEngine,
   type CloudflareKvBinding,
   type CloudflareKvClient,
   type CloudflareKvKey,
@@ -33,7 +33,7 @@ describe("Cloudflare KV engine", () => {
   test("uses Worker KV bindings for storage operations", async () => {
     const { binding, put } = createMockBinding();
     const storage = createStorage({
-      engine: createCloudflareKvEngine({
+      engine: new CloudflareKvStorageEngine({
         binding,
         minTtl: 60_000,
         prefix: "app",
@@ -62,7 +62,7 @@ describe("Cloudflare KV engine", () => {
   test("resolves Worker KV bindings from an env-like bindings object", async () => {
     const { binding } = createMockBinding();
     const storage = createStorage({
-      engine: createCloudflareKvEngine({
+      engine: new CloudflareKvStorageEngine({
         binding: "STORAGE",
         bindings: { STORAGE: binding },
       }),
@@ -75,7 +75,7 @@ describe("Cloudflare KV engine", () => {
 
   test("rejects missing named Worker KV bindings", async () => {
     const storage = createStorage({
-      engine: createCloudflareKvEngine({
+      engine: new CloudflareKvStorageEngine({
         binding: "STORAGE",
         bindings: {},
       }),
@@ -97,7 +97,7 @@ describe("Cloudflare KV engine", () => {
   test("uses the Cloudflare API client when a client is provided", async () => {
     const { client, deleteValue, update } = createMockClient();
     const storage = createStorage({
-      engine: createCloudflareKvEngine({
+      engine: new CloudflareKvStorageEngine({
         accountId: "account",
         client,
         namespaceId: "namespace",
@@ -127,7 +127,7 @@ describe("Cloudflare KV engine", () => {
   test("creates the Cloudflare package client lazily", async () => {
     const { client } = createMockClient();
     cloudflareMock.instance = client;
-    const engine = createCloudflareKvEngine({
+    const engine = new CloudflareKvStorageEngine({
       accountId: "account",
       apiToken: "token",
       namespaceId: "namespace",

@@ -1,20 +1,76 @@
 import type { PoolOptions } from "mysql2/promise";
 
-import type { StorageEngine, StorageEngineSetManyItem, StorageEngineSetOptions } from "../types.ts";
+import type {
+  StorageEngine,
+  StorageEngineCompareAndSetManyItem,
+  StorageEngineKeyOptions,
+  StorageEngineSetManyItem,
+  StorageEngineSetOptions,
+} from "../types.ts";
 
+import { isExpired, resolveExpiresAt, toBuffer, toUint8Array } from "../utility.ts";
+
+/**
+ * Minimal mysql2 client or pool interface used by {@link MySqlStorageEngine}.
+ */
 export interface MySqlEngineClient {
+  beginTransaction?(): Promise<void>;
+  commit?(): Promise<void>;
   end?(): Promise<void>;
   execute(query: string, parameters?: unknown[]): Promise<readonly [unknown, unknown]>;
+  getConnection?(): Promise<MySqlEngineConnection>;
+  rollback?(): Promise<void>;
 }
 
+/**
+ * Minimal mysql2 connection interface used for transaction-scoped operations.
+ */
+export interface MySqlEngineConnection extends MySqlEngineClient {
+  release?(): void;
+}
+
+/**
+ * Options for {@link MySqlStorageEngine}.
+ */
 export interface MySqlEngineOptions {
+  /**
+   * Existing mysql2-compatible client or pool.
+   */
   readonly client?: MySqlEngineClient;
+
+  /**
+   * MySQL connection URL used when constructing a pool.
+   */
   readonly url?: string;
+
+  /**
+   * Pool options forwarded to mysql2.
+   */
   readonly connection?: PoolOptions;
+
+  /**
+   * Table name used for storage records. Defaults to `"temelj_storage"`.
+   */
   readonly tableName?: string;
+
+  /**
+   * Prefix namespace applied to all engine keys.
+   */
   readonly prefix?: string;
+
+  /**
+   * Separator between prefix and key. Defaults to `":"`.
+   */
   readonly separator?: string;
+
+  /**
+   * Whether to create the storage table lazily. Defaults to `true`.
+   */
   readonly initialize?: boolean;
+
+  /**
+   * Whether `dispose` closes the client. Defaults to `true` for internally created clients.
+   */
   readonly dispose?: boolean;
 }
 
@@ -23,203 +79,392 @@ interface MySqlValueRow {
   readonly expires_at: number | string | bigint | null;
 }
 
-export function createMySqlEngine(options: MySqlEngineOptions = {}): StorageEngine {
-  let client: MySqlEngineClient | undefined = options.client;
-  let initialized = false;
-  const tableName = quoteIdentifier(options.tableName ?? "temelj_storage");
-  const prefix = options.prefix ?? "";
-  const separator = options.separator ?? ":";
-  const shouldInitialize = options.initialize ?? true;
-  const shouldDispose = options.dispose ?? options.client === undefined;
+/**
+ * Storage engine backed by a MySQL table.
+ */
+export class MySqlStorageEngine implements StorageEngine {
+  readonly name = "mysql";
 
-  const prefixKey = (key: string): string =>
-    prefix.length === 0 ? key : `${prefix}${separator}${key}`;
-  const unprefixKey = (key: string): string => {
-    if (prefix.length === 0) {
-      return key;
+  #client: MySqlEngineClient | undefined;
+  #initialized = false;
+  readonly #options: MySqlEngineOptions;
+  readonly #tableName: string;
+  readonly #prefix: string;
+  readonly #separator: string;
+  readonly #shouldInitialize: boolean;
+  readonly #shouldDispose: boolean;
+
+  constructor(options: MySqlEngineOptions = {}) {
+    this.#options = options;
+    this.#client = options.client;
+    this.#tableName = quoteIdentifier(options.tableName ?? "temelj_storage");
+    this.#prefix = options.prefix ?? "";
+    this.#separator = options.separator ?? ":";
+    this.#shouldInitialize = options.initialize ?? true;
+    this.#shouldDispose = options.dispose ?? options.client === undefined;
+  }
+
+  async get(key: string): Promise<Uint8Array | undefined> {
+    const mysqlClient = await this.#getClient();
+    const storageKey = this.#prefixKey(key);
+    const rows = await queryRows<MySqlValueRow>(
+      mysqlClient,
+      `SELECT \`value\`, \`expires_at\` FROM ${this.#tableName} WHERE \`key\` = ?`,
+      [storageKey],
+    );
+    const row = rows[0];
+    if (row === undefined) {
+      return undefined;
     }
-    const expectedPrefix = `${prefix}${separator}`;
-    return key.startsWith(expectedPrefix) ? key.slice(expectedPrefix.length) : key;
-  };
+    if (isExpired(row.expires_at)) {
+      await this.#deleteRecord(mysqlClient, storageKey);
+      return undefined;
+    }
+    return toUint8Array(row.value);
+  }
 
-  const getClient = async (): Promise<MySqlEngineClient> => {
-    if (client === undefined) {
+  async getMany(keys: readonly string[]): Promise<ReadonlyMap<string, Uint8Array>> {
+    if (keys.length === 0) {
+      return new Map();
+    }
+    const mysqlClient = await this.#getClient();
+    await this.#deleteExpired(mysqlClient);
+    const storageKeys = keys.map((key) => this.#prefixKey(key));
+    const rows = await queryRows<MySqlValueRow & { readonly key: string }>(
+      mysqlClient,
+      `SELECT \`key\`, \`value\` FROM ${this.#tableName} WHERE \`key\` IN (${placeholders(storageKeys.length)})`,
+      storageKeys,
+    );
+    const result = new Map<string, Uint8Array>();
+    for (const row of rows) {
+      result.set(this.#unprefixKey(row.key), toUint8Array(row.value));
+    }
+    return result;
+  }
+
+  async set(key: string, value: Uint8Array, setOptions?: StorageEngineSetOptions): Promise<void> {
+    const mysqlClient = await this.#getClient();
+    const storageKey = this.#prefixKey(key);
+    const expiresAt = resolveExpiresAt(setOptions);
+    if (expiresAt !== undefined && expiresAt <= Date.now()) {
+      await this.#deleteRecord(mysqlClient, storageKey);
+      return;
+    }
+    await mysqlClient.execute(
+      `
+        INSERT INTO ${this.#tableName} (\`key\`, \`value\`, \`expires_at\`)
+        VALUES (?, ?, ?)
+        ON DUPLICATE KEY UPDATE
+          \`value\` = VALUES(\`value\`),
+          \`expires_at\` = VALUES(\`expires_at\`)
+      `,
+      [storageKey, value, expiresAt ?? null],
+    );
+  }
+
+  async compareAndSet(
+    key: string,
+    expected: Uint8Array | undefined,
+    value: Uint8Array | undefined,
+    setOptions?: StorageEngineSetOptions,
+  ): Promise<boolean> {
+    const mysqlClient = await this.#getClient();
+    const storageKey = this.#prefixKey(key);
+    await this.#deleteExpired(mysqlClient);
+
+    if (expected === undefined) {
+      const rows = await queryRows<{ readonly exists: number }>(
+        mysqlClient,
+        `SELECT 1 AS \`exists\` FROM ${this.#tableName} WHERE \`key\` = ?`,
+        [storageKey],
+      );
+      if (rows.length > 0) {
+        return false;
+      }
+
+      if (value === undefined) {
+        return true;
+      }
+
+      const expiresAt = resolveExpiresAt(setOptions);
+      if (expiresAt !== undefined && expiresAt <= Date.now()) {
+        return true;
+      }
+
+      const result = await executeResult(
+        mysqlClient,
+        `
+          INSERT IGNORE INTO ${this.#tableName} (\`key\`, \`value\`, \`expires_at\`)
+          VALUES (?, ?, ?)
+        `,
+        [storageKey, value, expiresAt ?? null],
+      );
+      return result.affectedRows > 0;
+    }
+
+    if (value === undefined) {
+      const result = await executeResult(
+        mysqlClient,
+        `
+          DELETE FROM ${this.#tableName}
+          WHERE \`key\` = ? AND \`value\` = ?
+            AND (\`expires_at\` IS NULL OR \`expires_at\` > ?)
+        `,
+        [storageKey, expected, Date.now()],
+      );
+      return result.affectedRows > 0;
+    }
+
+    const expiresAt = resolveExpiresAt(setOptions);
+    if (expiresAt !== undefined && expiresAt <= Date.now()) {
+      const result = await executeResult(
+        mysqlClient,
+        `
+          DELETE FROM ${this.#tableName}
+          WHERE \`key\` = ? AND \`value\` = ?
+            AND (\`expires_at\` IS NULL OR \`expires_at\` > ?)
+        `,
+        [storageKey, expected, Date.now()],
+      );
+      return result.affectedRows > 0;
+    }
+
+    const result = await executeResult(
+      mysqlClient,
+      `
+        UPDATE ${this.#tableName}
+        SET \`value\` = ?, \`expires_at\` = ?
+        WHERE \`key\` = ? AND \`value\` = ?
+          AND (\`expires_at\` IS NULL OR \`expires_at\` > ?)
+      `,
+      [value, expiresAt ?? null, storageKey, expected, Date.now()],
+    );
+    return result.affectedRows > 0;
+  }
+
+  async compareAndSetMany(items: readonly StorageEngineCompareAndSetManyItem[]): Promise<boolean> {
+    if (items.length === 0) {
+      return true;
+    }
+
+    const now = Date.now();
+    const storageKeys = items.map((item) => this.#prefixKey(item.key));
+
+    const runTransaction = async (mysqlClient: MySqlEngineClient) => {
+      await mysqlClient.execute(
+        `DELETE FROM ${this.#tableName} WHERE \`expires_at\` IS NOT NULL AND \`expires_at\` <= ?`,
+        [now],
+      );
+
+      const rows = await queryRows<MySqlValueRow & { readonly key: string }>(
+        mysqlClient,
+        `
+          SELECT \`key\`, \`value\`
+          FROM ${this.#tableName}
+          WHERE \`key\` IN (${placeholders(storageKeys.length)})
+          ORDER BY \`key\`
+          FOR UPDATE
+        `,
+        storageKeys,
+      );
+      const current = new Map(rows.map((row) => [row.key, row.value] as const));
+      for (let index = 0; index < items.length; index++) {
+        const item = items[index]!;
+        const existing = current.get(storageKeys[index]!);
+        if (item.expected === undefined) {
+          if (existing !== undefined) {
+            return false;
+          }
+          continue;
+        }
+        if (existing === undefined || !toBuffer(existing).equals(toBuffer(item.expected))) {
+          return false;
+        }
+      }
+
+      for (let index = 0; index < items.length; index++) {
+        const item = items[index]!;
+        const storageKey = storageKeys[index]!;
+        const expiresAt = resolveExpiresAt(item.options, now);
+        if (item.value === undefined || (expiresAt !== undefined && expiresAt <= now)) {
+          await mysqlClient.execute(`DELETE FROM ${this.#tableName} WHERE \`key\` = ?`, [
+            storageKey,
+          ]);
+          continue;
+        }
+
+        if (item.expected === undefined) {
+          const result = await executeResult(
+            mysqlClient,
+            `
+              INSERT IGNORE INTO ${this.#tableName} (\`key\`, \`value\`, \`expires_at\`)
+              VALUES (?, ?, ?)
+            `,
+            [storageKey, item.value, expiresAt ?? null],
+          );
+          if (result.affectedRows === 0) {
+            return false;
+          }
+          continue;
+        }
+
+        await mysqlClient.execute(
+          `
+            INSERT INTO ${this.#tableName} (\`key\`, \`value\`, \`expires_at\`)
+            VALUES (?, ?, ?)
+            ON DUPLICATE KEY UPDATE
+              \`value\` = VALUES(\`value\`),
+              \`expires_at\` = VALUES(\`expires_at\`)
+          `,
+          [storageKey, item.value, expiresAt ?? null],
+        );
+      }
+
+      return true;
+    };
+
+    const mysqlClient = await this.#getClient();
+    const transactionClient = await mysqlClient.getConnection?.();
+    const activeClient = transactionClient ?? mysqlClient;
+    let transactionStarted = false;
+    try {
+      await startTransaction(activeClient);
+      transactionStarted = true;
+
+      const updated = await runTransaction(activeClient);
+      if (!updated) {
+        await rollbackTransaction(activeClient);
+        transactionStarted = false;
+        return false;
+      }
+
+      await commitTransaction(activeClient);
+      transactionStarted = false;
+      return true;
+    } catch (error) {
+      if (transactionStarted) {
+        await rollbackTransaction(activeClient);
+      }
+      throw error;
+    } finally {
+      transactionClient?.release?.();
+    }
+  }
+
+  async setMany(items: readonly StorageEngineSetManyItem[]): Promise<void> {
+    for (const item of items) {
+      await this.set(item.key, item.value, item.options);
+    }
+  }
+
+  async delete(key: string): Promise<boolean> {
+    const result = await executeResult(
+      await this.#getClient(),
+      `
+        DELETE FROM ${this.#tableName}
+        WHERE \`key\` = ? AND (\`expires_at\` IS NULL OR \`expires_at\` > ?)
+      `,
+      [this.#prefixKey(key), Date.now()],
+    );
+    return result.affectedRows > 0;
+  }
+
+  async deleteMany(keys: readonly string[]): Promise<number> {
+    if (keys.length === 0) {
+      return 0;
+    }
+    const result = await executeResult(
+      await this.#getClient(),
+      `
+        DELETE FROM ${this.#tableName}
+        WHERE \`key\` IN (${placeholders(keys.length)})
+          AND (\`expires_at\` IS NULL OR \`expires_at\` > ?)
+      `,
+      [...keys.map((key) => this.#prefixKey(key)), Date.now()],
+    );
+    return result.affectedRows;
+  }
+
+  async has(key: string): Promise<boolean> {
+    return (await this.get(key)) !== undefined;
+  }
+
+  async keys(keyOptions?: StorageEngineKeyOptions): Promise<readonly string[]> {
+    const mysqlClient = await this.#getClient();
+    await this.#deleteExpired(mysqlClient);
+    const rows = await queryRows<{ readonly key: string }>(
+      mysqlClient,
+      `SELECT \`key\` FROM ${this.#tableName} WHERE \`key\` LIKE ? ESCAPE '\\\\'`,
+      [likePattern(this.#prefixKey(keyOptions?.prefix ?? ""))],
+    );
+    return rows.map((row) => this.#unprefixKey(row.key));
+  }
+
+  async clear(keyOptions?: StorageEngineKeyOptions): Promise<void> {
+    await (
+      await this.#getClient()
+    ).execute(`DELETE FROM ${this.#tableName} WHERE \`key\` LIKE ? ESCAPE '\\\\'`, [
+      likePattern(this.#prefixKey(keyOptions?.prefix ?? "")),
+    ]);
+  }
+
+  async dispose(): Promise<void> {
+    if (this.#shouldDispose) {
+      await this.#client?.end?.();
+    }
+    this.#client = undefined;
+    this.#initialized = false;
+  }
+
+  async #getClient(): Promise<MySqlEngineClient> {
+    if (this.#client === undefined) {
       const mysql = await import("mysql2/promise");
       const createdClient =
-        options.url === undefined
-          ? mysql.createPool(options.connection ?? {})
-          : mysql.createPool(options.url);
-      client = createdClient as MySqlEngineClient;
+        this.#options.url === undefined
+          ? mysql.createPool(this.#options.connection ?? {})
+          : mysql.createPool(this.#options.url);
+      this.#client = createdClient as MySqlEngineClient;
     }
 
-    if (shouldInitialize && !initialized) {
-      await initializeTable(client);
-      initialized = true;
+    if (this.#shouldInitialize && !this.#initialized) {
+      await this.#initializeTable(this.#client);
+      this.#initialized = true;
     }
-    return client;
-  };
+    return this.#client;
+  }
 
-  const initializeTable = async (mysqlClient: MySqlEngineClient): Promise<void> => {
+  async #initializeTable(mysqlClient: MySqlEngineClient): Promise<void> {
     await mysqlClient.execute(`
-      CREATE TABLE IF NOT EXISTS ${tableName} (
+      CREATE TABLE IF NOT EXISTS ${this.#tableName} (
         \`key\` VARCHAR(768) PRIMARY KEY,
         \`value\` LONGBLOB NOT NULL,
         \`expires_at\` BIGINT NULL
       )
     `);
-  };
+  }
 
-  const deleteExpired = async (mysqlClient: MySqlEngineClient): Promise<void> => {
+  async #deleteExpired(mysqlClient: MySqlEngineClient): Promise<void> {
     await mysqlClient.execute(
-      `DELETE FROM ${tableName} WHERE \`expires_at\` IS NOT NULL AND \`expires_at\` <= ?`,
+      `DELETE FROM ${this.#tableName} WHERE \`expires_at\` IS NOT NULL AND \`expires_at\` <= ?`,
       [Date.now()],
     );
-  };
+  }
 
-  const deleteRecord = async (
-    mysqlClient: MySqlEngineClient,
-    storageKey: string,
-  ): Promise<void> => {
-    await mysqlClient.execute(`DELETE FROM ${tableName} WHERE \`key\` = ?`, [storageKey]);
-  };
+  async #deleteRecord(mysqlClient: MySqlEngineClient, storageKey: string): Promise<void> {
+    await mysqlClient.execute(`DELETE FROM ${this.#tableName} WHERE \`key\` = ?`, [storageKey]);
+  }
 
-  return {
-    name: "mysql",
+  #prefixKey(key: string): string {
+    return this.#prefix.length === 0 ? key : `${this.#prefix}${this.#separator}${key}`;
+  }
 
-    async get(key) {
-      const mysqlClient = await getClient();
-      const rows = await queryRows<MySqlValueRow>(
-        mysqlClient,
-        `SELECT \`value\`, \`expires_at\` FROM ${tableName} WHERE \`key\` = ?`,
-        [prefixKey(key)],
-      );
-      const row = rows[0];
-      if (row === undefined) {
-        return undefined;
-      }
-      if (isExpired(row.expires_at)) {
-        await deleteRecord(mysqlClient, prefixKey(key));
-        return undefined;
-      }
-      return toUint8Array(row.value);
-    },
-
-    async getMany(keys) {
-      if (keys.length === 0) {
-        return new Map();
-      }
-      const mysqlClient = await getClient();
-      await deleteExpired(mysqlClient);
-      const storageKeys = keys.map((key) => prefixKey(key));
-      const rows = await queryRows<MySqlValueRow & { readonly key: string }>(
-        mysqlClient,
-        `SELECT \`key\`, \`value\` FROM ${tableName} WHERE \`key\` IN (${placeholders(storageKeys.length)})`,
-        storageKeys,
-      );
-      const result = new Map<string, Uint8Array>();
-      for (const row of rows) {
-        result.set(unprefixKey(row.key), toUint8Array(row.value));
-      }
-      return result;
-    },
-
-    async set(key, value, setOptions) {
-      const mysqlClient = await getClient();
-      const storageKey = prefixKey(key);
-      const expiresAt = resolveExpiresAt(setOptions);
-      if (expiresAt !== undefined && expiresAt <= Date.now()) {
-        await deleteRecord(mysqlClient, storageKey);
-        return;
-      }
-      await mysqlClient.execute(
-        `
-          INSERT INTO ${tableName} (\`key\`, \`value\`, \`expires_at\`)
-          VALUES (?, ?, ?)
-          ON DUPLICATE KEY UPDATE
-            \`value\` = VALUES(\`value\`),
-            \`expires_at\` = VALUES(\`expires_at\`)
-        `,
-        [storageKey, value, expiresAt ?? null],
-      );
-    },
-
-    async setMany(items) {
-      for (const item of items) {
-        await this.set(item.key, item.value, item.options);
-      }
-    },
-
-    async delete(key) {
-      const result = await executeResult(
-        await getClient(),
-        `
-          DELETE FROM ${tableName}
-          WHERE \`key\` = ? AND (\`expires_at\` IS NULL OR \`expires_at\` > ?)
-        `,
-        [prefixKey(key), Date.now()],
-      );
-      return result.affectedRows > 0;
-    },
-
-    async deleteMany(keys) {
-      if (keys.length === 0) {
-        return 0;
-      }
-      const result = await executeResult(
-        await getClient(),
-        `
-          DELETE FROM ${tableName}
-          WHERE \`key\` IN (${placeholders(keys.length)})
-            AND (\`expires_at\` IS NULL OR \`expires_at\` > ?)
-        `,
-        [...keys.map((key) => prefixKey(key)), Date.now()],
-      );
-      return result.affectedRows;
-    },
-
-    async has(key) {
-      return (await this.get(key)) !== undefined;
-    },
-
-    async keys(keyOptions) {
-      const mysqlClient = await getClient();
-      await deleteExpired(mysqlClient);
-      const rows = await queryRows<{ readonly key: string }>(
-        mysqlClient,
-        `SELECT \`key\` FROM ${tableName} WHERE \`key\` LIKE ? ESCAPE '\\\\'`,
-        [likePattern(prefixKey(keyOptions?.prefix ?? ""))],
-      );
-      return rows.map((row) => unprefixKey(row.key));
-    },
-
-    async clear(keyOptions) {
-      await (
-        await getClient()
-      ).execute(`DELETE FROM ${tableName} WHERE \`key\` LIKE ? ESCAPE '\\\\'`, [
-        likePattern(prefixKey(keyOptions?.prefix ?? "")),
-      ]);
-    },
-
-    async dispose() {
-      if (shouldDispose) {
-        await client?.end?.();
-      }
-      client = undefined;
-      initialized = false;
-    },
-  };
-}
-
-function resolveExpiresAt(options: StorageEngineSetOptions | undefined): number | undefined {
-  return options?.ttl === undefined ? undefined : Date.now() + options.ttl;
-}
-
-function isExpired(value: number | string | bigint | null): boolean {
-  return value !== null && Number(value) <= Date.now();
-}
-
-function toUint8Array(value: Uint8Array): Uint8Array {
-  return value.slice();
+  #unprefixKey(key: string): string {
+    if (this.#prefix.length === 0) {
+      return key;
+    }
+    const expectedPrefix = `${this.#prefix}${this.#separator}`;
+    return key.startsWith(expectedPrefix) ? key.slice(expectedPrefix.length) : key;
+  }
 }
 
 function quoteIdentifier(value: string): string {
@@ -260,4 +505,31 @@ async function executeResult(
     : { affectedRows: 0 };
 }
 
-export type { StorageEngineSetManyItem };
+async function startTransaction(client: MySqlEngineClient): Promise<void> {
+  if (client.beginTransaction !== undefined) {
+    await client.beginTransaction();
+    return;
+  }
+  await client.execute("START TRANSACTION");
+}
+
+async function commitTransaction(client: MySqlEngineClient): Promise<void> {
+  if (client.commit !== undefined) {
+    await client.commit();
+    return;
+  }
+  await client.execute("COMMIT");
+}
+
+async function rollbackTransaction(client: MySqlEngineClient): Promise<void> {
+  if (client.rollback !== undefined) {
+    await client.rollback();
+    return;
+  }
+  await client.execute("ROLLBACK");
+}
+
+/**
+ * Engine batch item types accepted by MySQL storage operations.
+ */
+export type { StorageEngineCompareAndSetManyItem, StorageEngineSetManyItem };

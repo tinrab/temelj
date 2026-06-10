@@ -2,7 +2,7 @@
   <h1 align="center" style="text-decoration:none;">@temelj/storage</h1>
   <br/>
   <p align="center">
-    Standard key-value storage interface.
+    A unified key-value storage interface.
   </p>
 </p>
 
@@ -49,7 +49,7 @@ const storage = createStorage();
 await storage.setMany([
   { key: "users:1", value: { name: "Verso" } },
   { key: "users:2", value: { name: "Maelle" } },
-  { key: "posts:1", value: { title: "Drafts" } },
+  { key: "drafts:1", value: { title: "Lumière" } },
 ]);
 
 const user = await storage.get("users:1");
@@ -168,10 +168,10 @@ await storage.set("sessions:1", "active", { ttl: 60_000 });
 You can also create the engine explicitly.
 
 ```ts
-import { createInMemoryEngine, createStorage } from "@temelj/storage";
+import { InMemoryStorageEngine, createStorage } from "@temelj/storage";
 
 const storage = createStorage({
-  engine: createInMemoryEngine(),
+  engine: new InMemoryStorageEngine(),
 });
 ```
 
@@ -179,18 +179,17 @@ const storage = createStorage({
 
 File system storage supports literal storage keys, prefixes, and TTL metadata.
 
-The default `file-per-key` strategy stores one encoded value per file.
-Use the `bucket` strategy when values should be grouped into a fixed number of JSON bucket files.
-Bucket mode chooses a bucket with `hashCyrb53(key) % bucketCount`.
-File names can be customized with `bucketFileNameFormat`, which must include `{bucket}`.
-File-per-key extensions can be customized with `valueExtension` and `metadataExtension`.
+The engine stores one encoded value file per key and, when a value expires,
+one metadata file with the expiration timestamp. File extensions can be
+customized with `valueExtension` and `metadataExtension`; defaults are exported
+as `DEFAULT_VALUE_EXTENSION` and `DEFAULT_METADATA_EXTENSION`.
 
 ```ts
 import { createStorage } from "@temelj/storage";
-import { createFileSystemEngine } from "@temelj/storage/filesystem";
+import { FileSystemStorageEngine } from "@temelj/storage/filesystem";
 
 const storage = createStorage({
-  engine: createFileSystemEngine({
+  engine: new FileSystemStorageEngine({
     directory: "./.storage",
     prefix: "app",
   }),
@@ -200,12 +199,13 @@ await storage.set("users:1", { name: "Verso" });
 ```
 
 ```ts
+import { FileSystemStorageEngine } from "@temelj/storage/filesystem";
+
 const storage = createStorage({
-  engine: createFileSystemEngine({
-    bucketCount: 256,
-    bucketFileNameFormat: "bucket-{bucket}.json",
+  engine: new FileSystemStorageEngine({
     directory: "./.storage",
-    strategy: "bucket",
+    metadataExtension: ".ttl.json",
+    valueExtension: ".value",
   }),
 });
 ```
@@ -216,10 +216,10 @@ Redis storage uses `ioredis`. Install the optional peer dependency when using th
 
 ```ts
 import { createStorage } from "@temelj/storage";
-import { createRedisEngine } from "@temelj/storage/redis";
+import { RedisStorageEngine } from "@temelj/storage/redis";
 
 const storage = createStorage({
-  engine: createRedisEngine({
+  engine: new RedisStorageEngine({
     url: process.env.REDIS_URL,
     prefix: "app",
     scanCount: 100,
@@ -236,7 +236,7 @@ Install the optional peer dependency (`cloudflare`) when using client mode.
 
 ```ts
 import { createStorage } from "@temelj/storage";
-import { createCloudflareKvEngine, type CloudflareKvBinding } from "@temelj/storage/cloudflare";
+import { CloudflareKvStorageEngine, type CloudflareKvBinding } from "@temelj/storage/cloudflare";
 
 export default {
   async fetch(
@@ -244,7 +244,7 @@ export default {
     env: { readonly STORAGE: CloudflareKvBinding },
   ): Promise<Response> {
     const storage = createStorage({
-      engine: createCloudflareKvEngine({
+      engine: new CloudflareKvStorageEngine({
         binding: env.STORAGE,
         prefix: "app",
       }),
@@ -260,7 +260,7 @@ Client mode uses `accountId`, `namespaceId`, and Cloudflare client options.
 
 ```ts
 const storage = createStorage({
-  engine: createCloudflareKvEngine({
+  engine: new CloudflareKvStorageEngine({
     accountId: process.env.CLOUDFLARE_ACCOUNT_ID,
     apiToken: process.env.CLOUDFLARE_API_TOKEN,
     namespaceId: process.env.CLOUDFLARE_KV_NAMESPACE_ID,
@@ -275,10 +275,10 @@ Without a path or URL, it creates an in-memory database.
 
 ```ts
 import { createStorage } from "@temelj/storage";
-import { createLibSqlEngine } from "@temelj/storage/libsql";
+import { LibSqlStorageEngine } from "@temelj/storage/libsql";
 
 const storage = createStorage({
-  engine: createLibSqlEngine({
+  engine: new LibSqlStorageEngine({
     path: "storage.db",
     prefix: "app",
   }),
@@ -294,10 +294,10 @@ Postgres storage uses the `postgres` package and lazily creates the storage tabl
 
 ```ts
 import { createStorage } from "@temelj/storage";
-import { createPostgresEngine } from "@temelj/storage/postgres";
+import { PostgresStorageEngine } from "@temelj/storage/postgres";
 
 const storage = createStorage({
-  engine: createPostgresEngine({
+  engine: new PostgresStorageEngine({
     url: process.env.DATABASE_URL,
     prefix: "app",
   }),
@@ -313,10 +313,10 @@ MySQL storage uses `mysql2/promise` and lazily creates the storage table by defa
 
 ```ts
 import { createStorage } from "@temelj/storage";
-import { createMySqlEngine } from "@temelj/storage/mysql";
+import { MySqlStorageEngine } from "@temelj/storage/mysql";
 
 const storage = createStorage({
-  engine: createMySqlEngine({
+  engine: new MySqlStorageEngine({
     url: process.env.DATABASE_URL,
     prefix: "app",
   }),
@@ -333,16 +333,16 @@ Use these engines in browser environments or pass a compatible storage object ex
 
 ```ts
 import { createStorage } from "@temelj/storage";
-import { createLocalStorageEngine, createSessionStorageEngine } from "@temelj/storage/localstorage";
+import { LocalStorageEngine, SessionStorageEngine } from "@temelj/storage/localstorage";
 
 const localStorageStore = createStorage({
-  engine: createLocalStorageEngine({
+  engine: new LocalStorageEngine({
     namespace: "app",
   }),
 });
 
 const sessionStorageStore = createStorage({
-  engine: createSessionStorageEngine({
+  engine: new SessionStorageEngine({
     namespace: "app",
   }),
 });
@@ -357,10 +357,10 @@ IndexedDB storage is for browser environments where values should be stored asyn
 
 ```ts
 import { createStorage } from "@temelj/storage";
-import { createIndexedDbEngine } from "@temelj/storage/indexeddb";
+import { IndexedDbStorageEngine } from "@temelj/storage/indexeddb";
 
 const storage = createStorage({
-  engine: createIndexedDbEngine({
+  engine: new IndexedDbStorageEngine({
     databaseName: "app-storage",
     namespace: "app",
     storeName: "entries",
@@ -379,43 +379,40 @@ Custom engines implement the `StorageEngine` interface and store encoded `Uint8A
 ```ts
 import { createStorage, type StorageEngine } from "@temelj/storage";
 
-export function createMapStorageEngine(): StorageEngine {
-  const values = new Map<string, Uint8Array>();
+export class MapStorageEngine implements StorageEngine {
+  readonly name = "map";
+  readonly #values = new Map<string, Uint8Array>();
 
-  return {
-    name: "map",
+  async get(key: string): Promise<Uint8Array | undefined> {
+    return this.#values.get(key)?.slice();
+  }
 
-    async get(key) {
-      return values.get(key)?.slice();
-    },
+  async set(key: string, value: Uint8Array): Promise<void> {
+    this.#values.set(key, value.slice());
+  }
 
-    async set(key, value) {
-      values.set(key, value.slice());
-    },
+  async delete(key: string): Promise<boolean> {
+    return this.#values.delete(key);
+  }
 
-    async delete(key) {
-      return values.delete(key);
-    },
+  async keys(options?: { readonly prefix?: string }): Promise<readonly string[]> {
+    return [...this.#values.keys()].filter(
+      (key) => options?.prefix === undefined || key.startsWith(options.prefix),
+    );
+  }
 
-    async keys(options) {
-      return [...values.keys()].filter(
-        (key) => options?.prefix === undefined || key.startsWith(options.prefix),
-      );
-    },
-
-    async clear(options) {
-      for (const key of await this.keys(options)) {
-        values.delete(key);
-      }
-    },
-  };
+  async clear(options?: { readonly prefix?: string }): Promise<void> {
+    for (const key of await this.keys(options)) {
+      this.#values.delete(key);
+    }
+  }
 }
 
 const storage = createStorage({
-  engine: createMapStorageEngine(),
+  engine: new MapStorageEngine(),
 });
 
-await storage.set("users:1", { name: "Ada" });
+await storage.set("users:1", { name: "Verso" });
 ```
 
 Engines must implement `get`, `set`, `delete`, `keys`, and `clear`.

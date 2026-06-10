@@ -3,6 +3,9 @@ import { primitivize } from "@temelj/value";
 import { StorageSerializationError, type StorageCodec, type StorageValue } from "../types.ts";
 import { textDecoder, textEncoder } from "./shared.ts";
 
+/**
+ * Creates a codec that primitivizes rich values before JSON serialization.
+ */
 export function createPrimitivizedJsonStorageCodec(): StorageCodec<StorageValue> {
   return {
     encode(value) {

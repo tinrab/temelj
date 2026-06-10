@@ -1,7 +1,7 @@
 {
   "name": "@temelj/storage",
-  "version": "0.1.0",
-  "description": "Standard key-value storage interface.",
+  "version": "0.2.0",
+  "description": "A unified key-value storage interface.",
   "license": "MIT",
   "repository": {
     "url": "https://github.com/tinrab/temelj"
@@ -20,6 +20,10 @@
     "./redis": {
       "types": "./dist/engine/redis.d.mts",
       "import": "./dist/engine/redis.mjs"
+    },
+    "./s3": {
+      "types": "./dist/engine/s3.d.mts",
+      "import": "./dist/engine/s3.mjs"
     },
     "./cloudflare": {
       "types": "./dist/engine/cloudflare.d.mts",
@@ -60,11 +64,11 @@
   "dependencies": {
     "@temelj/event": "workspace:*",
     "@temelj/result": "workspace:*",
-    "@temelj/string": "workspace:*",
     "@temelj/value": "workspace:*",
     "superjson": "^2.2.6"
   },
   "devDependencies": {
+    "@aws-sdk/client-s3": "^3.1063.0",
     "@testcontainers/mysql": "^12.0.1",
     "@testcontainers/postgresql": "^12.0.1",
     "@testcontainers/redis": "^12.0.1",
@@ -77,10 +81,12 @@
     "shx": "^0.4.0",
     "testcontainers": "^12.0.1",
     "tsdown": "^0.22.2",
+    "tslib": "^2.8.1",
     "typescript": "^6.0.3",
     "vitest": "^4.1.8"
   },
   "peerDependencies": {
+    "@aws-sdk/client-s3": "^3.1063.0",
     "cloudflare": "^6.3.0",
     "ioredis": "^5.10.1",
     "libsql": "^0.5.29",
@@ -88,6 +94,9 @@
     "postgres": "^3.4.9"
   },
   "peerDependenciesMeta": {
+    "@aws-sdk/client-s3": {
+      "optional": true
+    },
     "ioredis": {
       "optional": true
     },

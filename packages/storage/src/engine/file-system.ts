@@ -1,459 +1,303 @@
-import { hashCyrb53 } from "@temelj/string";
 import { Buffer } from "node:buffer";
 import { mkdir, readdir, readFile, rm, unlink, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
 import type {
   StorageEngine,
+  StorageEngineCompareAndSetManyItem,
   StorageEngineKeyOptions,
   StorageEngineSetManyItem,
   StorageEngineSetOptions,
 } from "../types.ts";
 
-export type FileSystemEngineStrategy = "file-per-key" | "bucket";
+import { bytesEqual, resolveExpiresAt } from "../utility.ts";
 
 /**
- * Options for the Node.js file system storage engine.
+ * Options for {@link FileSystemStorageEngine}.
  */
 export interface FileSystemEngineOptions {
   /**
-   * Directory where storage files are read and written.
-   *
-   * The path is resolved with `path.resolve`. Storage keys are encoded before
-   * they are used in file names, so path-like keys are treated as literal keys.
+   * Directory where encoded value and metadata files are stored.
    */
   readonly directory: string;
 
   /**
-   * Namespace prefix added to every key before it is stored.
-   *
-   * The prefix is also applied before hashing in bucket mode.
+   * Extension used for TTL metadata files. Defaults to `.meta.json`.
+   */
+  readonly metadataExtension?: string;
+
+  /**
+   * Prefix namespace applied to all engine keys.
    */
   readonly prefix?: string;
 
   /**
-   * Separator inserted between `prefix` and the user key.
-   *
-   * @default ":"
+   * Separator between prefix and key. Defaults to `":"`.
    */
   readonly separator?: string;
 
   /**
-   * On-disk storage layout.
-   *
-   * - `"file-per-key"` stores each encoded value in its own file.
-   * - `"bucket"` stores values in a fixed number of JSON bucket files selected
-   *   by `hashCyrb53(storageKey) % bucketCount`.
-   *
-   * @default "file-per-key"
-   */
-  readonly strategy?: FileSystemEngineStrategy;
-
-  /**
-   * Number of fixed bucket files used by the `"bucket"` strategy.
-   *
-   * Changing this value changes key placement for existing data.
-   *
-   * @default 256
-   */
-  readonly bucketCount?: number;
-
-  /**
-   * File name format used by the `"bucket"` strategy.
-   *
-   * The format must include `{bucket}`, which is replaced with the numeric
-   * bucket id.
-   *
-   * @default "bucket-{bucket}.json"
-   */
-  readonly bucketFileNameFormat?: string;
-
-  /**
-   * File extension for value files created by the `"file-per-key"` strategy.
-   *
-   * @default ".bin"
+   * Extension used for encoded value files. Defaults to `.bin`.
    */
   readonly valueExtension?: string;
-
-  /**
-   * File extension for TTL metadata files created by the `"file-per-key"` strategy.
-   *
-   * @default ".meta.json"
-   */
-  readonly metadataExtension?: string;
-}
-
-interface FileSystemEngineConfig {
-  readonly directory: string;
-  readonly prefix: string;
-  readonly separator: string;
-  readonly strategy: FileSystemEngineStrategy;
-  readonly bucketCount: number;
-  readonly bucketFileNameFormat: string;
-  readonly valueExtension: string;
-  readonly metadataExtension: string;
 }
 
 interface FileSystemRecordMetadata {
   readonly expiresAt?: number;
 }
 
-interface FileSystemBucketRecord extends FileSystemRecordMetadata {
-  readonly value: string;
-}
-
-interface FileSystemBucket {
-  readonly records: Record<string, FileSystemBucketRecord>;
-}
-
 const DEFAULT_VALUE_EXTENSION = ".bin";
 const DEFAULT_METADATA_EXTENSION = ".meta.json";
-const DEFAULT_BUCKET_COUNT = 256;
-const DEFAULT_BUCKET_FILE_NAME_FORMAT = "bucket-{bucket}.json";
 
-export function createFileSystemEngine(options: FileSystemEngineOptions): StorageEngine {
-  const config = resolveFileSystemEngineConfig(options);
-  return config.strategy === "file-per-key"
-    ? createFilePerKeyEngine(config)
-    : createBucketEngine(config);
-}
+/**
+ * Storage engine that stores each encoded value as a file on disk.
+ */
+export class FileSystemStorageEngine implements StorageEngine {
+  readonly name = "file-system";
 
-function createFilePerKeyEngine(config: FileSystemEngineConfig): StorageEngine {
-  const valuePath = (key: string): string =>
-    join(config.directory, `${encodeKey(key)}${config.valueExtension}`);
-  const metadataPath = (key: string): string =>
-    join(config.directory, `${encodeKey(key)}${config.metadataExtension}`);
+  readonly #directory: string;
+  readonly #metadataExtension: string;
+  readonly #prefix: string;
+  readonly #separator: string;
+  readonly #valueExtension: string;
+  readonly #locks = new Map<string, Promise<void>>();
 
-  const readMetadata = async (key: string): Promise<FileSystemRecordMetadata> => {
-    const metadata = await readOptionalFile(metadataPath(key));
+  constructor(options: FileSystemEngineOptions) {
+    this.#directory = resolve(options.directory);
+    this.#metadataExtension = options.metadataExtension ?? DEFAULT_METADATA_EXTENSION;
+    this.#prefix = options.prefix ?? "";
+    this.#separator = options.separator ?? ":";
+    this.#valueExtension = options.valueExtension ?? DEFAULT_VALUE_EXTENSION;
+  }
+
+  async get(key: string): Promise<Uint8Array | undefined> {
+    return await this.#readRecord(this.#prefixKey(key));
+  }
+
+  async getMany(keys: readonly string[]): Promise<ReadonlyMap<string, Uint8Array>> {
+    const values = new Map<string, Uint8Array>();
+    for (const key of keys) {
+      const value = await this.get(key);
+      if (value !== undefined) {
+        values.set(key, value);
+      }
+    }
+    return values;
+  }
+
+  async set(key: string, value: Uint8Array, options?: StorageEngineSetOptions): Promise<void> {
+    const storageKey = this.#prefixKey(key);
+    await this.#withKeyLock(storageKey, async () => {
+      await this.#writeRecord(storageKey, value, resolveExpiresAt(options));
+    });
+  }
+
+  async compareAndSet(
+    key: string,
+    expected: Uint8Array | undefined,
+    value: Uint8Array | undefined,
+    options?: StorageEngineSetOptions,
+  ): Promise<boolean> {
+    const storageKey = this.#prefixKey(key);
+    return await this.#withKeyLock(storageKey, async () => {
+      const current = await this.#readRecord(storageKey);
+      if (!bytesEqual(current, expected)) {
+        return false;
+      }
+
+      if (value === undefined) {
+        await this.#removeRecord(storageKey);
+        return true;
+      }
+
+      await this.#writeRecord(storageKey, value, resolveExpiresAt(options));
+      return true;
+    });
+  }
+
+  async compareAndSetMany(items: readonly StorageEngineCompareAndSetManyItem[]): Promise<boolean> {
+    const storageItems = items.map((item) => ({
+      key: this.#prefixKey(item.key),
+      expected: item.expected,
+      value: item.value,
+      options: item.options,
+    }));
+    return await this.#withKeyLocks(
+      storageItems.map((item) => item.key),
+      async () => {
+        for (const item of storageItems) {
+          const current = await this.#readRecord(item.key);
+          if (!bytesEqual(current, item.expected)) {
+            return false;
+          }
+        }
+
+        for (const item of storageItems) {
+          if (item.value === undefined) {
+            await this.#removeRecord(item.key);
+            continue;
+          }
+          await this.#writeRecord(item.key, item.value, resolveExpiresAt(item.options));
+        }
+        return true;
+      },
+    );
+  }
+
+  async setMany(items: readonly StorageEngineSetManyItem[]): Promise<void> {
+    for (const item of items) {
+      await this.set(item.key, item.value, item.options);
+    }
+  }
+
+  async delete(key: string): Promise<boolean> {
+    const storageKey = this.#prefixKey(key);
+    return await this.#withKeyLock(storageKey, async () => {
+      const exists = (await this.#readRecord(storageKey)) !== undefined;
+      await this.#removeRecord(storageKey);
+      return exists;
+    });
+  }
+
+  async deleteMany(keys: readonly string[]): Promise<number> {
+    let deleted = 0;
+    for (const key of keys) {
+      if (await this.delete(key)) {
+        deleted++;
+      }
+    }
+    return deleted;
+  }
+
+  async has(key: string): Promise<boolean> {
+    return (await this.#readRecord(this.#prefixKey(key))) !== undefined;
+  }
+
+  async keys(options?: StorageEngineKeyOptions): Promise<readonly string[]> {
+    const result: string[] = [];
+    for (const key of await this.#matchingKeys(options)) {
+      if ((await this.#readRecord(key)) !== undefined) {
+        result.push(this.#unprefixKey(key));
+      }
+    }
+    return result;
+  }
+
+  async clear(options?: StorageEngineKeyOptions): Promise<void> {
+    if (options?.prefix === undefined && this.#prefix.length === 0) {
+      await rm(this.#directory, { force: true, recursive: true });
+      return;
+    }
+
+    for (const key of await this.#matchingKeys(options)) {
+      await this.#removeRecord(key);
+    }
+  }
+
+  #prefixKey(key: string): string {
+    return this.#prefix.length === 0 ? key : `${this.#prefix}${this.#separator}${key}`;
+  }
+
+  #unprefixKey(key: string): string {
+    return this.#prefix.length === 0 ? key : key.slice(`${this.#prefix}${this.#separator}`.length);
+  }
+
+  #valuePath(key: string): string {
+    return join(this.#directory, `${encodeKey(key)}${this.#valueExtension}`);
+  }
+
+  #metadataPath(key: string): string {
+    return join(this.#directory, `${encodeKey(key)}${this.#metadataExtension}`);
+  }
+
+  async #readMetadata(key: string): Promise<FileSystemRecordMetadata> {
+    const metadata = await readOptionalFile(this.#metadataPath(key));
     if (metadata === undefined) {
       return {};
     }
     return JSON.parse(new TextDecoder().decode(metadata)) as FileSystemRecordMetadata;
-  };
+  }
 
-  const removeRecord = async (key: string): Promise<void> => {
-    await Promise.all([removeFile(valuePath(key)), removeFile(metadataPath(key))]);
-  };
+  async #removeRecord(key: string): Promise<void> {
+    await Promise.all([removeFile(this.#valuePath(key)), removeFile(this.#metadataPath(key))]);
+  }
 
-  const readRecord = async (key: string): Promise<Uint8Array | undefined> => {
-    if (await isFileRecordExpired(key, readMetadata)) {
-      await removeRecord(key);
+  async #writeRecord(key: string, value: Uint8Array, expiresAt: number | undefined): Promise<void> {
+    if (expiresAt !== undefined && expiresAt <= Date.now()) {
+      await this.#removeRecord(key);
+      return;
+    }
+
+    await mkdir(this.#directory, { recursive: true });
+    await writeFile(this.#valuePath(key), value);
+    if (expiresAt === undefined) {
+      await removeFile(this.#metadataPath(key));
+      return;
+    }
+    await writeFile(this.#metadataPath(key), JSON.stringify({ expiresAt }));
+  }
+
+  async #withKeyLock<T>(key: string, callback: () => Promise<T>): Promise<T> {
+    const previous = this.#locks.get(key) ?? Promise.resolve();
+    let release!: () => void;
+    const current = new Promise<void>((resolveLock) => {
+      release = resolveLock;
+    });
+    const next = previous.then(
+      () => current,
+      () => current,
+    );
+    this.#locks.set(key, next);
+
+    await previous;
+    try {
+      return await callback();
+    } finally {
+      release();
+      if (this.#locks.get(key) === next) {
+        this.#locks.delete(key);
+      }
+    }
+  }
+
+  async #withKeyLocks<T>(keys: readonly string[], callback: () => Promise<T>): Promise<T> {
+    const [key, ...rest] = [...new Set(keys)].sort();
+    if (key === undefined) {
+      return await callback();
+    }
+    return await this.#withKeyLock(key, async () => await this.#withKeyLocks(rest, callback));
+  }
+
+  async #isExpired(key: string): Promise<boolean> {
+    const metadata = await this.#readMetadata(key);
+    return metadata.expiresAt !== undefined && metadata.expiresAt <= Date.now();
+  }
+
+  async #readRecord(key: string): Promise<Uint8Array | undefined> {
+    if (await this.#isExpired(key)) {
+      await this.#removeRecord(key);
       return undefined;
     }
 
-    const value = await readOptionalFile(valuePath(key));
+    const value = await readOptionalFile(this.#valuePath(key));
     if (value === undefined) {
-      await removeFile(metadataPath(key));
+      await removeFile(this.#metadataPath(key));
       return undefined;
     }
     return value;
-  };
-
-  const allKeys = async (): Promise<readonly string[]> =>
-    (await readDirectory(config.directory))
-      .filter((entry) => entry.endsWith(config.valueExtension))
-      .map((entry) => decodeKey(entry.slice(0, -config.valueExtension.length)));
-
-  const matchingKeys = async (
-    keyOptions: StorageEngineKeyOptions | undefined,
-  ): Promise<readonly string[]> =>
-    (await allKeys()).filter((key) => key.startsWith(prefixKey(config, keyOptions?.prefix ?? "")));
-
-  return {
-    name: "file-system",
-
-    async get(key) {
-      return readRecord(prefixKey(config, key));
-    },
-
-    async getMany(keys) {
-      return getManyWith(this, keys);
-    },
-
-    async set(key, value, setOptions) {
-      const storageKey = prefixKey(config, key);
-      const expiresAt = resolveExpiresAt(setOptions);
-      if (expiresAt !== undefined && expiresAt <= Date.now()) {
-        await removeRecord(storageKey);
-        return;
-      }
-
-      await mkdir(config.directory, { recursive: true });
-      await writeFile(valuePath(storageKey), value);
-      if (expiresAt === undefined) {
-        await removeFile(metadataPath(storageKey));
-        return;
-      }
-      await writeFile(metadataPath(storageKey), JSON.stringify({ expiresAt }));
-    },
-
-    async setMany(items) {
-      for (const item of items) {
-        await this.set(item.key, item.value, item.options);
-      }
-    },
-
-    async delete(key) {
-      const storageKey = prefixKey(config, key);
-      const exists = (await readRecord(storageKey)) !== undefined;
-      await removeRecord(storageKey);
-      return exists;
-    },
-
-    async deleteMany(keys) {
-      return deleteManyWith(this, keys);
-    },
-
-    async has(key) {
-      return (await readRecord(prefixKey(config, key))) !== undefined;
-    },
-
-    async keys(keyOptions) {
-      const result: string[] = [];
-      for (const key of await matchingKeys(keyOptions)) {
-        if ((await readRecord(key)) !== undefined) {
-          result.push(unprefixKey(config, key));
-        }
-      }
-      return result;
-    },
-
-    async clear(keyOptions) {
-      if (keyOptions?.prefix === undefined && config.prefix.length === 0) {
-        await rm(config.directory, { force: true, recursive: true });
-        return;
-      }
-
-      for (const key of await matchingKeys(keyOptions)) {
-        await removeRecord(key);
-      }
-    },
-  };
-}
-
-function createBucketEngine(config: FileSystemEngineConfig): StorageEngine {
-  const bucketPath = (bucketId: number): string =>
-    join(config.directory, formatBucketFileName(config.bucketFileNameFormat, bucketId));
-
-  const readBucket = async (bucketId: number): Promise<FileSystemBucket> => {
-    const bytes = await readOptionalFile(bucketPath(bucketId));
-    if (bytes === undefined) {
-      return { records: {} };
-    }
-    return JSON.parse(new TextDecoder().decode(bytes)) as FileSystemBucket;
-  };
-
-  const writeBucket = async (bucketId: number, bucket: FileSystemBucket): Promise<void> => {
-    await mkdir(config.directory, { recursive: true });
-    await writeFile(bucketPath(bucketId), JSON.stringify(bucket));
-  };
-
-  const removeBucket = async (bucketId: number): Promise<void> => {
-    await removeFile(bucketPath(bucketId));
-  };
-
-  const writeOrRemoveBucket = async (bucketId: number, bucket: FileSystemBucket): Promise<void> => {
-    if (Object.keys(bucket.records).length === 0) {
-      await removeBucket(bucketId);
-      return;
-    }
-    await writeBucket(bucketId, bucket);
-  };
-
-  const readPrunedBucket = async (bucketId: number): Promise<FileSystemBucket> => {
-    const bucket = await readBucket(bucketId);
-    const prunedBucket = pruneBucket(bucket);
-    if (Object.keys(prunedBucket.records).length !== Object.keys(bucket.records).length) {
-      await writeOrRemoveBucket(bucketId, prunedBucket);
-    }
-    return prunedBucket;
-  };
-
-  const bucketIdForKey = (storageKey: string): number =>
-    hashCyrb53(storageKey) % config.bucketCount;
-
-  const readRecord = async (storageKey: string): Promise<Uint8Array | undefined> => {
-    const bucket = await readPrunedBucket(bucketIdForKey(storageKey));
-    const record = bucket.records[storageKey];
-    return record === undefined ? undefined : decodeBytes(record.value);
-  };
-
-  const removeRecord = async (storageKey: string): Promise<boolean> => {
-    const bucketId = bucketIdForKey(storageKey);
-    const bucket = await readPrunedBucket(bucketId);
-    if (bucket.records[storageKey] === undefined) {
-      return false;
-    }
-
-    const records = { ...bucket.records };
-    delete records[storageKey];
-    await writeOrRemoveBucket(bucketId, { records });
-    return true;
-  };
-
-  const allKeys = async (): Promise<readonly string[]> => {
-    const keys: string[] = [];
-    for (let bucketId = 0; bucketId < config.bucketCount; bucketId++) {
-      keys.push(...Object.keys((await readPrunedBucket(bucketId)).records));
-    }
-    return keys;
-  };
-
-  const matchingKeys = async (
-    keyOptions: StorageEngineKeyOptions | undefined,
-  ): Promise<readonly string[]> =>
-    (await allKeys()).filter((key) => key.startsWith(prefixKey(config, keyOptions?.prefix ?? "")));
-
-  return {
-    name: "file-system",
-
-    async get(key) {
-      return readRecord(prefixKey(config, key));
-    },
-
-    async getMany(keys) {
-      return getManyWith(this, keys);
-    },
-
-    async set(key, value, setOptions) {
-      const storageKey = prefixKey(config, key);
-      const expiresAt = resolveExpiresAt(setOptions);
-      if (expiresAt !== undefined && expiresAt <= Date.now()) {
-        await removeRecord(storageKey);
-        return;
-      }
-
-      const bucketId = bucketIdForKey(storageKey);
-      const bucket = await readPrunedBucket(bucketId);
-      await writeBucket(bucketId, {
-        records: {
-          ...bucket.records,
-          [storageKey]: createBucketRecord(value, expiresAt),
-        },
-      });
-    },
-
-    async setMany(items) {
-      for (const item of items) {
-        await this.set(item.key, item.value, item.options);
-      }
-    },
-
-    async delete(key) {
-      return removeRecord(prefixKey(config, key));
-    },
-
-    async deleteMany(keys) {
-      return deleteManyWith(this, keys);
-    },
-
-    async has(key) {
-      return (await readRecord(prefixKey(config, key))) !== undefined;
-    },
-
-    async keys(keyOptions) {
-      return (await matchingKeys(keyOptions)).map((key) => unprefixKey(config, key));
-    },
-
-    async clear(keyOptions) {
-      if (keyOptions?.prefix === undefined && config.prefix.length === 0) {
-        await rm(config.directory, { force: true, recursive: true });
-        return;
-      }
-
-      for (const key of await matchingKeys(keyOptions)) {
-        await removeRecord(key);
-      }
-    },
-  };
-}
-
-function resolveFileSystemEngineConfig(options: FileSystemEngineOptions): FileSystemEngineConfig {
-  const config = {
-    directory: resolve(options.directory),
-    prefix: options.prefix ?? "",
-    separator: options.separator ?? ":",
-    strategy: options.strategy ?? "file-per-key",
-    bucketCount: options.bucketCount ?? DEFAULT_BUCKET_COUNT,
-    bucketFileNameFormat: options.bucketFileNameFormat ?? DEFAULT_BUCKET_FILE_NAME_FORMAT,
-    valueExtension: options.valueExtension ?? DEFAULT_VALUE_EXTENSION,
-    metadataExtension: options.metadataExtension ?? DEFAULT_METADATA_EXTENSION,
-  };
-
-  assertFileExtension(config.valueExtension, "valueExtension");
-  assertFileExtension(config.metadataExtension, "metadataExtension");
-  assertBucketCount(config.bucketCount);
-  assertBucketFileNameFormat(config.bucketFileNameFormat);
-
-  return config;
-}
-
-async function getManyWith(
-  engine: StorageEngine,
-  keys: readonly string[],
-): Promise<ReadonlyMap<string, Uint8Array>> {
-  const values = new Map<string, Uint8Array>();
-  for (const key of keys) {
-    const value = await engine.get(key);
-    if (value !== undefined) {
-      values.set(key, value);
-    }
   }
-  return values;
-}
 
-async function deleteManyWith(engine: StorageEngine, keys: readonly string[]): Promise<number> {
-  let deleted = 0;
-  for (const key of keys) {
-    if (await engine.delete(key)) {
-      deleted++;
-    }
+  async #allKeys(): Promise<readonly string[]> {
+    const entries = await readDirectory(this.#directory);
+    return entries
+      .filter((entry) => entry.endsWith(this.#valueExtension))
+      .map((entry) => decodeKey(entry.slice(0, -this.#valueExtension.length)));
   }
-  return deleted;
-}
 
-function createBucketRecord(
-  value: Uint8Array,
-  expiresAt: number | undefined,
-): FileSystemBucketRecord {
-  return expiresAt === undefined
-    ? { value: encodeBytes(value) }
-    : { value: encodeBytes(value), expiresAt };
-}
-
-function pruneBucket(bucket: FileSystemBucket): FileSystemBucket {
-  const records: Record<string, FileSystemBucketRecord> = {};
-  for (const [key, record] of Object.entries(bucket.records)) {
-    if (!isBucketRecordExpired(record)) {
-      records[key] = record;
-    }
+  async #matchingKeys(options: StorageEngineKeyOptions | undefined): Promise<readonly string[]> {
+    const matchPrefix = this.#prefixKey(options?.prefix ?? "");
+    return (await this.#allKeys()).filter((key) => key.startsWith(matchPrefix));
   }
-  return { records };
-}
-
-function isBucketRecordExpired(record: FileSystemBucketRecord): boolean {
-  return record.expiresAt !== undefined && record.expiresAt <= Date.now();
-}
-
-async function isFileRecordExpired(
-  key: string,
-  readMetadata: (key: string) => Promise<FileSystemRecordMetadata>,
-): Promise<boolean> {
-  const metadata = await readMetadata(key);
-  return metadata.expiresAt !== undefined && metadata.expiresAt <= Date.now();
-}
-
-function prefixKey(config: FileSystemEngineConfig, key: string): string {
-  return config.prefix.length === 0 ? key : `${config.prefix}${config.separator}${key}`;
-}
-
-function unprefixKey(config: FileSystemEngineConfig, key: string): string {
-  return config.prefix.length === 0 ? key : key.slice(`${config.prefix}${config.separator}`.length);
-}
-
-function formatBucketFileName(format: string, bucketId: number): string {
-  return format.replaceAll("{bucket}", String(bucketId));
 }
 
 async function readOptionalFile(path: string): Promise<Uint8Array | undefined> {
@@ -488,42 +332,12 @@ async function removeFile(path: string): Promise<void> {
   }
 }
 
-function resolveExpiresAt(options: StorageEngineSetOptions | undefined): number | undefined {
-  return options?.ttl === undefined ? undefined : Date.now() + options.ttl;
-}
-
 function encodeKey(key: string): string {
   return Buffer.from(key, "utf8").toString("base64url");
 }
 
 function decodeKey(value: string): string {
   return Buffer.from(value, "base64url").toString("utf8");
-}
-
-function encodeBytes(value: Uint8Array): string {
-  return Buffer.from(value).toString("base64url");
-}
-
-function decodeBytes(value: string): Uint8Array {
-  return Buffer.from(value, "base64url");
-}
-
-function assertFileExtension(value: string, optionName: string): void {
-  if (value.length === 0) {
-    throw new RangeError(`File system storage ${optionName} must not be empty.`);
-  }
-}
-
-function assertBucketCount(value: number): void {
-  if (value < 1 || !Number.isInteger(value)) {
-    throw new RangeError("File system storage bucketCount must be a positive integer.");
-  }
-}
-
-function assertBucketFileNameFormat(value: string): void {
-  if (!value.includes("{bucket}")) {
-    throw new RangeError('File system storage bucketFileNameFormat must include "{bucket}".');
-  }
 }
 
 function isNotFoundError(error: unknown): boolean {
@@ -536,4 +350,7 @@ function isNotFoundError(error: unknown): boolean {
   );
 }
 
-export type { StorageEngineSetManyItem };
+/**
+ * Engine batch item types accepted by file-system storage operations.
+ */
+export type { StorageEngineCompareAndSetManyItem, StorageEngineSetManyItem };

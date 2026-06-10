@@ -7,6 +7,9 @@ import type {
   StorageEngineSetOptions,
 } from "../types.ts";
 
+/**
+ * Minimal Cloudflare Workers KV binding interface used by {@link CloudflareKvStorageEngine}.
+ */
 export interface CloudflareKvBinding {
   delete(key: string): Promise<void>;
   get(key: string, options: { readonly type: "arrayBuffer" }): Promise<ArrayBuffer | null>;
@@ -18,18 +21,30 @@ export interface CloudflareKvBinding {
   put(key: string, value: Uint8Array, options?: { readonly expirationTtl?: number }): Promise<void>;
 }
 
+/**
+ * Result returned by Cloudflare KV binding list calls.
+ */
 export interface CloudflareKvBindingListResult {
   readonly keys: readonly CloudflareKvKey[];
   readonly list_complete: boolean;
   readonly cursor?: string;
 }
 
+/**
+ * Cloudflare KV key descriptor.
+ */
 export interface CloudflareKvKey {
   readonly name: string;
 }
 
+/**
+ * Cloudflare Worker environment bindings map.
+ */
 export type CloudflareBindings = { readonly [name: string]: unknown };
 
+/**
+ * Minimal Cloudflare API client interface used by {@link CloudflareKvStorageEngine}.
+ */
 export interface CloudflareKvClient {
   readonly kv: {
     readonly namespaces: {
@@ -68,74 +83,234 @@ export interface CloudflareKvClient {
   };
 }
 
+/**
+ * Options for {@link CloudflareKvStorageEngine}.
+ */
 export interface CloudflareKvEngineOptions extends ClientOptions {
+  /**
+   * KV binding object or binding name. Binding mode is preferred in Cloudflare Workers.
+   */
   readonly binding?: CloudflareKvBinding | string;
+
+  /**
+   * Worker environment bindings map used when `binding` is a string.
+   */
   readonly bindings?: CloudflareBindings;
+
+  /**
+   * Existing Cloudflare API client for client mode.
+   */
   readonly client?: CloudflareKvClient;
+
+  /**
+   * Cloudflare account ID for API client mode.
+   */
   readonly accountId?: string;
+
+  /**
+   * Cloudflare KV namespace ID for API client mode.
+   */
   readonly namespaceId?: string;
+
+  /**
+   * Prefix namespace applied to all KV keys.
+   */
   readonly prefix?: string;
+
+  /**
+   * Separator between prefix and key. Defaults to `":"`.
+   */
   readonly separator?: string;
+
+  /**
+   * Maximum number of keys requested per binding list page.
+   */
   readonly listLimit?: number;
+
+  /**
+   * Default TTL in milliseconds when a write does not provide one.
+   */
   readonly defaultTtl?: number;
+
+  /**
+   * Minimum TTL accepted by Cloudflare KV in milliseconds. Defaults to 60 seconds.
+   */
   readonly minTtl?: number;
 }
 
-export function createCloudflareKvEngine(options: CloudflareKvEngineOptions): StorageEngine {
-  const prefix = options.prefix ?? "";
-  const separator = options.separator ?? ":";
-  const keyPrefix = prefix.length === 0 ? "" : `${prefix}${separator}`;
-  const minTtl = options.minTtl ?? 60_000;
-  let client: CloudflareKvClient | undefined = options.client;
-  const getBinding = (): CloudflareKvBinding | undefined => resolveCloudflareBinding(options);
+/**
+ * Storage engine backed by Cloudflare KV.
+ */
+export class CloudflareKvStorageEngine implements StorageEngine {
+  readonly name = "cloudflare-kv";
 
-  const prefixedKey = (key: string): string => `${keyPrefix}${key}`;
-  const unprefixKey = (key: string): string =>
-    keyPrefix.length === 0 ? key : key.slice(keyPrefix.length);
-  const listPrefix = (keyOptions: StorageEngineKeyOptions | undefined): string =>
-    prefixedKey(keyOptions?.prefix ?? "");
+  #client: CloudflareKvClient | undefined;
+  readonly #options: CloudflareKvEngineOptions;
+  readonly #keyPrefix: string;
+  readonly #minTtl: number;
 
-  const getClient = async (): Promise<CloudflareKvClient> => {
-    if (client !== undefined) {
-      return client;
+  constructor(options: CloudflareKvEngineOptions) {
+    const prefix = options.prefix ?? "";
+    const separator = options.separator ?? ":";
+
+    this.#options = options;
+    this.#client = options.client;
+    this.#keyPrefix = prefix.length === 0 ? "" : `${prefix}${separator}`;
+    this.#minTtl = options.minTtl ?? 60_000;
+  }
+
+  async get(key: string): Promise<Uint8Array | undefined> {
+    const storageKey = this.#prefixedKey(key);
+    const binding = this.#getBinding();
+    if (binding !== undefined) {
+      const value = await binding.get(storageKey, { type: "arrayBuffer" });
+      return value === null ? undefined : new Uint8Array(value).slice();
     }
-    if (options.accountId === undefined || options.namespaceId === undefined) {
+
+    try {
+      const value = await (
+        await this.#getClient()
+      ).kv.namespaces.values.get(this.#getNamespaceId(), storageKey, this.#getNamespaceParams());
+      return new Uint8Array(await value.arrayBuffer()).slice();
+    } catch (error) {
+      if (isNotFoundError(error)) {
+        return undefined;
+      }
+      throw error;
+    }
+  }
+
+  async getMany(keys: readonly string[]): Promise<ReadonlyMap<string, Uint8Array>> {
+    const values = new Map<string, Uint8Array>();
+    await Promise.all(
+      keys.map(async (key) => {
+        const value = await this.get(key);
+        if (value !== undefined) {
+          values.set(key, value);
+        }
+      }),
+    );
+    return values;
+  }
+
+  async set(key: string, value: Uint8Array, setOptions?: StorageEngineSetOptions): Promise<void> {
+    const storageKey = this.#prefixedKey(key);
+    const ttl = resolveCloudflareTtl(setOptions, this.#options, this.#minTtl);
+    if (ttl !== undefined && ttl <= 0) {
+      await this.#remove(storageKey);
+      return;
+    }
+
+    const binding = this.#getBinding();
+    if (binding !== undefined) {
+      await binding.put(storageKey, value.slice(), cloudflareBindingSetOptions(ttl));
+      return;
+    }
+
+    const { toFile } = await import("cloudflare");
+    await (
+      await this.#getClient()
+    ).kv.namespaces.values.update(this.#getNamespaceId(), storageKey, {
+      ...this.#getNamespaceParams(),
+      ...cloudflareApiSetOptions(ttl),
+      value: await toFile(value, "value"),
+    });
+  }
+
+  async setMany(items: readonly StorageEngineSetManyItem[]): Promise<void> {
+    await Promise.all(items.map((item) => this.set(item.key, item.value, item.options)));
+  }
+
+  async delete(key: string): Promise<boolean> {
+    const storageKey = this.#prefixedKey(key);
+    const exists = (await this.get(key)) !== undefined;
+    if (!exists) {
+      return false;
+    }
+    await this.#remove(storageKey);
+    return true;
+  }
+
+  async deleteMany(keys: readonly string[]): Promise<number> {
+    let deleted = 0;
+    await Promise.all(
+      keys.map(async (key) => {
+        if (await this.delete(key)) {
+          deleted++;
+        }
+      }),
+    );
+    return deleted;
+  }
+
+  async has(key: string): Promise<boolean> {
+    return (await this.get(key)) !== undefined;
+  }
+
+  async keys(keyOptions?: StorageEngineKeyOptions): Promise<readonly string[]> {
+    return (await this.#listKeys(keyOptions)).map((key) => this.#unprefixKey(key));
+  }
+
+  async clear(keyOptions?: StorageEngineKeyOptions): Promise<void> {
+    const keys = await this.#listKeys(keyOptions);
+    await Promise.all(keys.map((key) => this.#remove(key)));
+  }
+
+  async #getClient(): Promise<CloudflareKvClient> {
+    if (this.#client !== undefined) {
+      return this.#client;
+    }
+    if (this.#options.accountId === undefined || this.#options.namespaceId === undefined) {
       throw new TypeError(
         "Cloudflare KV client mode requires accountId and namespaceId when no client is provided",
       );
     }
 
     const { default: Cloudflare } = await import("cloudflare");
-    client = new Cloudflare(cloudflareClientOptions(options));
-    return client;
-  };
+    this.#client = new Cloudflare(cloudflareClientOptions(this.#options));
+    return this.#client;
+  }
 
-  const getNamespaceParams = (): { readonly account_id: string } => {
-    if (options.accountId === undefined) {
+  #getNamespaceParams(): { readonly account_id: string } {
+    if (this.#options.accountId === undefined) {
       throw new TypeError("Cloudflare KV client mode requires accountId");
     }
-    return { account_id: options.accountId };
-  };
+    return { account_id: this.#options.accountId };
+  }
 
-  const getNamespaceId = (): string => {
-    if (options.namespaceId === undefined) {
+  #getNamespaceId(): string {
+    if (this.#options.namespaceId === undefined) {
       throw new TypeError("Cloudflare KV client mode requires namespaceId");
     }
-    return options.namespaceId;
-  };
+    return this.#options.namespaceId;
+  }
 
-  const listKeys = async (
-    keyOptions: StorageEngineKeyOptions | undefined,
-  ): Promise<readonly string[]> => {
-    const matchPrefix = listPrefix(keyOptions);
-    const binding = getBinding();
+  #getBinding(): CloudflareKvBinding | undefined {
+    return resolveCloudflareBinding(this.#options);
+  }
+
+  #prefixedKey(key: string): string {
+    return `${this.#keyPrefix}${key}`;
+  }
+
+  #unprefixKey(key: string): string {
+    return this.#keyPrefix.length === 0 ? key : key.slice(this.#keyPrefix.length);
+  }
+
+  #listPrefix(keyOptions: StorageEngineKeyOptions | undefined): string {
+    return this.#prefixedKey(keyOptions?.prefix ?? "");
+  }
+
+  async #listKeys(keyOptions: StorageEngineKeyOptions | undefined): Promise<readonly string[]> {
+    const matchPrefix = this.#listPrefix(keyOptions);
+    const binding = this.#getBinding();
     if (binding !== undefined) {
       const keys: string[] = [];
       let cursor: string | undefined;
       do {
         const result = await binding.list({
           cursor,
-          limit: options.listLimit,
+          limit: this.#options.listLimit,
           prefix: matchPrefix.length === 0 ? undefined : matchPrefix,
         });
         keys.push(...result.keys.map((key) => key.name));
@@ -144,137 +319,28 @@ export function createCloudflareKvEngine(options: CloudflareKvEngineOptions): St
       return keys;
     }
 
-    const cloudflare = await getClient();
+    const cloudflare = await this.#getClient();
     const keys: string[] = [];
-    for await (const key of cloudflare.kv.namespaces.keys.list(getNamespaceId(), {
-      ...getNamespaceParams(),
-      limit: options.listLimit,
+    for await (const key of cloudflare.kv.namespaces.keys.list(this.#getNamespaceId(), {
+      ...this.#getNamespaceParams(),
+      limit: this.#options.listLimit,
       prefix: matchPrefix.length === 0 ? undefined : matchPrefix,
     })) {
       keys.push(key.name);
     }
     return keys;
-  };
+  }
 
-  const get = async (key: string): Promise<Uint8Array | undefined> => {
-    const storageKey = prefixedKey(key);
-    const binding = getBinding();
-    if (binding !== undefined) {
-      const value = await binding.get(storageKey, { type: "arrayBuffer" });
-      return value === null ? undefined : new Uint8Array(value).slice();
-    }
-
-    try {
-      const value = await (
-        await getClient()
-      ).kv.namespaces.values.get(getNamespaceId(), storageKey, getNamespaceParams());
-      return new Uint8Array(await value.arrayBuffer()).slice();
-    } catch (error) {
-      if (isNotFoundError(error)) {
-        return undefined;
-      }
-      throw error;
-    }
-  };
-
-  const set = async (
-    key: string,
-    value: Uint8Array,
-    setOptions: StorageEngineSetOptions | undefined,
-  ): Promise<void> => {
-    const storageKey = prefixedKey(key);
-    const ttl = resolveCloudflareTtl(setOptions, options, minTtl);
-    if (ttl !== undefined && ttl <= 0) {
-      await remove(storageKey);
-      return;
-    }
-
-    const binding = getBinding();
-    if (binding !== undefined) {
-      await binding.put(storageKey, value.slice(), cloudflareBindingSetOptions(ttl));
-      return;
-    }
-
-    const { toFile } = await import("cloudflare");
-    await (
-      await getClient()
-    ).kv.namespaces.values.update(getNamespaceId(), storageKey, {
-      ...getNamespaceParams(),
-      ...cloudflareApiSetOptions(ttl),
-      value: await toFile(value, "value"),
-    });
-  };
-
-  const remove = async (storageKey: string): Promise<void> => {
-    const binding = getBinding();
+  async #remove(storageKey: string): Promise<void> {
+    const binding = this.#getBinding();
     if (binding !== undefined) {
       await binding.delete(storageKey);
       return;
     }
     await (
-      await getClient()
-    ).kv.namespaces.values.delete(getNamespaceId(), storageKey, getNamespaceParams());
-  };
-
-  return {
-    name: "cloudflare-kv",
-
-    get,
-
-    async getMany(keys) {
-      const values = new Map<string, Uint8Array>();
-      await Promise.all(
-        keys.map(async (key) => {
-          const value = await get(key);
-          if (value !== undefined) {
-            values.set(key, value);
-          }
-        }),
-      );
-      return values;
-    },
-
-    set,
-
-    async setMany(items) {
-      await Promise.all(items.map((item) => set(item.key, item.value, item.options)));
-    },
-
-    async delete(key) {
-      const storageKey = prefixedKey(key);
-      const exists = (await get(key)) !== undefined;
-      if (!exists) {
-        return false;
-      }
-      await remove(storageKey);
-      return true;
-    },
-
-    async deleteMany(keys) {
-      let deleted = 0;
-      await Promise.all(
-        keys.map(async (key) => {
-          if (await this.delete(key)) {
-            deleted++;
-          }
-        }),
-      );
-      return deleted;
-    },
-
-    async has(key) {
-      return (await get(key)) !== undefined;
-    },
-
-    async keys(keyOptions) {
-      return (await listKeys(keyOptions)).map((key) => unprefixKey(key));
-    },
-
-    async clear(keyOptions) {
-      const keys = await listKeys(keyOptions);
-      await Promise.all(keys.map((key) => remove(key)));
-    },
-  };
+      await this.#getClient()
+    ).kv.namespaces.values.delete(this.#getNamespaceId(), storageKey, this.#getNamespaceParams());
+  }
 }
 
 function cloudflareBindingSetOptions(

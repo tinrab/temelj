@@ -3,6 +3,9 @@ import { parse as parseSuperJson, stringify as stringifySuperJson } from "superj
 import { StorageSerializationError, type StorageCodec, type StorageValue } from "../types.ts";
 import { textDecoder, textEncoder } from "./shared.ts";
 
+/**
+ * Creates a codec for rich JavaScript values using SuperJSON.
+ */
 export function createSuperJsonStorageCodec<TValue = StorageValue>(): StorageCodec<TValue> {
   return {
     encode(value) {

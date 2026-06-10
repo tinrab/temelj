@@ -1,6 +1,9 @@
 import { StorageSerializationError, type JsonStorageValue, type StorageCodec } from "../types.ts";
 import { textDecoder, textEncoder } from "./shared.ts";
 
+/**
+ * Creates a codec that serializes JSON-compatible values with `JSON.stringify`.
+ */
 export function createJsonStorageCodec<
   TValue extends JsonStorageValue = JsonStorageValue,
 >(): StorageCodec<TValue> {
