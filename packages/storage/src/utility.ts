@@ -34,3 +34,14 @@ export function toUint8Array(value: ArrayBuffer | Uint8Array | Buffer): Uint8Arr
 export function toBuffer(value: Uint8Array): Buffer {
   return Buffer.from(value.buffer, value.byteOffset, value.byteLength);
 }
+
+export function chunkArray<TItem>(
+  items: readonly TItem[],
+  size: number,
+): readonly (readonly TItem[])[] {
+  const chunks: TItem[][] = [];
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size));
+  }
+  return chunks;
+}

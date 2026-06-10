@@ -1,4 +1,11 @@
+import type Cloudflare from "cloudflare";
 import type { ClientOptions } from "cloudflare";
+import type {
+  NamespaceBulkDeleteResponse,
+  NamespaceBulkGetResponse,
+  NamespaceBulkUpdateParams,
+  NamespaceBulkUpdateResponse,
+} from "cloudflare/resources/kv/namespaces/namespaces";
 
 import type {
   StorageEngine,
@@ -6,6 +13,11 @@ import type {
   StorageEngineSetManyItem,
   StorageEngineSetOptions,
 } from "../types.ts";
+
+import { chunkArray } from "../utility.ts";
+
+const CLOUDFLARE_KV_BULK_GET_LIMIT = 100;
+const CLOUDFLARE_KV_BULK_MUTATION_LIMIT = 10_000;
 
 /**
  * Minimal Cloudflare Workers KV binding interface used by {@link CloudflareKvStorageEngine}.
@@ -43,47 +55,6 @@ export interface CloudflareKvKey {
 export type CloudflareBindings = { readonly [name: string]: unknown };
 
 /**
- * Minimal Cloudflare API client interface used by {@link CloudflareKvStorageEngine}.
- */
-export interface CloudflareKvClient {
-  readonly kv: {
-    readonly namespaces: {
-      readonly keys: {
-        list(
-          namespaceId: string,
-          params: {
-            readonly account_id: string;
-            readonly prefix?: string;
-            readonly limit?: number;
-          },
-        ): AsyncIterable<CloudflareKvKey>;
-      };
-      readonly values: {
-        delete(
-          namespaceId: string,
-          key: string,
-          params: { readonly account_id: string },
-        ): Promise<unknown>;
-        get(
-          namespaceId: string,
-          key: string,
-          params: { readonly account_id: string },
-        ): Promise<{ arrayBuffer(): Promise<ArrayBuffer> }>;
-        update(
-          namespaceId: string,
-          key: string,
-          params: {
-            readonly account_id: string;
-            readonly value: unknown;
-            readonly expiration_ttl?: number;
-          },
-        ): Promise<unknown>;
-      };
-    };
-  };
-}
-
-/**
  * Options for {@link CloudflareKvStorageEngine}.
  */
 export interface CloudflareKvEngineOptions extends ClientOptions {
@@ -100,7 +71,7 @@ export interface CloudflareKvEngineOptions extends ClientOptions {
   /**
    * Existing Cloudflare API client for client mode.
    */
-  readonly client?: CloudflareKvClient;
+  readonly client?: Cloudflare;
 
   /**
    * Cloudflare account ID for API client mode.
@@ -144,7 +115,7 @@ export interface CloudflareKvEngineOptions extends ClientOptions {
 export class CloudflareKvStorageEngine implements StorageEngine {
   readonly name = "cloudflare-kv";
 
-  #client: CloudflareKvClient | undefined;
+  #client: Cloudflare | undefined;
   readonly #options: CloudflareKvEngineOptions;
   readonly #keyPrefix: string;
   readonly #minTtl: number;
@@ -181,15 +152,40 @@ export class CloudflareKvStorageEngine implements StorageEngine {
   }
 
   async getMany(keys: readonly string[]): Promise<ReadonlyMap<string, Uint8Array>> {
+    if (keys.length === 0) {
+      return new Map();
+    }
+
+    const binding = this.#getBinding();
+    if (binding !== undefined) {
+      const values = new Map<string, Uint8Array>();
+      await Promise.all(
+        keys.map(async (key) => {
+          const value = await this.get(key);
+          if (value !== undefined) {
+            values.set(key, value);
+          }
+        }),
+      );
+      return values;
+    }
+
     const values = new Map<string, Uint8Array>();
-    await Promise.all(
-      keys.map(async (key) => {
-        const value = await this.get(key);
-        if (value !== undefined) {
-          values.set(key, value);
+    const cloudflare = await this.#getClient();
+    for (const keyBatch of chunkArray(keys, CLOUDFLARE_KV_BULK_GET_LIMIT)) {
+      const storageKeys = keyBatch.map((key) => this.#prefixedKey(key));
+      const result = await cloudflare.kv.namespaces.bulkGet(this.#getNamespaceId(), {
+        ...this.#getNamespaceParams(),
+        keys: storageKeys,
+        type: "text",
+      });
+
+      for (const [storageKey, value] of Object.entries(result?.values ?? {})) {
+        if (value !== null && value !== undefined) {
+          values.set(this.#unprefixKey(storageKey), decodeCloudflareBulkValue(value));
         }
-      }),
-    );
+      }
+    }
     return values;
   }
 
@@ -218,7 +214,49 @@ export class CloudflareKvStorageEngine implements StorageEngine {
   }
 
   async setMany(items: readonly StorageEngineSetManyItem[]): Promise<void> {
-    await Promise.all(items.map((item) => this.set(item.key, item.value, item.options)));
+    if (items.length === 0) {
+      return;
+    }
+
+    const binding = this.#getBinding();
+    if (binding !== undefined) {
+      await Promise.all(items.map((item) => this.set(item.key, item.value, item.options)));
+      return;
+    }
+
+    const writes: NamespaceBulkUpdateParams.Body[] = [];
+    const deletes: string[] = [];
+    for (const item of items) {
+      const storageKey = this.#prefixedKey(item.key);
+      const ttl = resolveCloudflareTtl(item.options, this.#options, this.#minTtl);
+      if (ttl !== undefined && ttl <= 0) {
+        deletes.push(storageKey);
+        continue;
+      }
+
+      writes.push({
+        key: storageKey,
+        value: encodeCloudflareBulkValue(item.value),
+        base64: true,
+        ...cloudflareApiSetOptions(ttl),
+      });
+    }
+
+    const cloudflare = await this.#getClient();
+    for (const deleteBatch of chunkArray(deletes, CLOUDFLARE_KV_BULK_MUTATION_LIMIT)) {
+      const result = await cloudflare.kv.namespaces.bulkDelete(this.#getNamespaceId(), {
+        ...this.#getNamespaceParams(),
+        body: [...deleteBatch],
+      });
+      checkCloudflareBulkOperation("delete", deleteBatch.length, result);
+    }
+    for (const writeBatch of chunkArray(writes, CLOUDFLARE_KV_BULK_MUTATION_LIMIT)) {
+      const result = await cloudflare.kv.namespaces.bulkUpdate(this.#getNamespaceId(), {
+        ...this.#getNamespaceParams(),
+        body: [...writeBatch],
+      });
+      checkCloudflareBulkOperation("write", writeBatch.length, result);
+    }
   }
 
   async delete(key: string): Promise<boolean> {
@@ -232,15 +270,24 @@ export class CloudflareKvStorageEngine implements StorageEngine {
   }
 
   async deleteMany(keys: readonly string[]): Promise<number> {
-    let deleted = 0;
-    await Promise.all(
-      keys.map(async (key) => {
-        if (await this.delete(key)) {
-          deleted++;
-        }
-      }),
-    );
-    return deleted;
+    if (keys.length === 0) {
+      return 0;
+    }
+
+    const binding = this.#getBinding();
+    if (binding !== undefined) {
+      let deleted = 0;
+      await Promise.all(
+        keys.map(async (key) => {
+          if (await this.delete(key)) {
+            deleted++;
+          }
+        }),
+      );
+      return deleted;
+    }
+
+    return await this.#removeMany(keys.map((key) => this.#prefixedKey(key)));
   }
 
   async has(key: string): Promise<boolean> {
@@ -253,10 +300,10 @@ export class CloudflareKvStorageEngine implements StorageEngine {
 
   async clear(keyOptions?: StorageEngineKeyOptions): Promise<void> {
     const keys = await this.#listKeys(keyOptions);
-    await Promise.all(keys.map((key) => this.#remove(key)));
+    await this.#removeMany(keys);
   }
 
-  async #getClient(): Promise<CloudflareKvClient> {
+  async #getClient(): Promise<Cloudflare> {
     if (this.#client !== undefined) {
       return this.#client;
     }
@@ -266,8 +313,9 @@ export class CloudflareKvStorageEngine implements StorageEngine {
       );
     }
 
-    const { default: Cloudflare } = await import("cloudflare");
-    this.#client = new Cloudflare(cloudflareClientOptions(this.#options));
+    const { default: CloudflareClient } = await import("cloudflare");
+    this.#client = new CloudflareClient(cloudflareClientOptions(this.#options));
+
     return this.#client;
   }
 
@@ -341,6 +389,30 @@ export class CloudflareKvStorageEngine implements StorageEngine {
       await this.#getClient()
     ).kv.namespaces.values.delete(this.#getNamespaceId(), storageKey, this.#getNamespaceParams());
   }
+
+  async #removeMany(storageKeys: readonly string[]): Promise<number> {
+    if (storageKeys.length === 0) {
+      return 0;
+    }
+
+    const binding = this.#getBinding();
+    if (binding !== undefined) {
+      await Promise.all(storageKeys.map((key) => binding.delete(key)));
+      return storageKeys.length;
+    }
+
+    const cloudflare = await this.#getClient();
+    let deleted = 0;
+    for (const keyBatch of chunkArray(storageKeys, CLOUDFLARE_KV_BULK_MUTATION_LIMIT)) {
+      const result = await cloudflare.kv.namespaces.bulkDelete(this.#getNamespaceId(), {
+        ...this.#getNamespaceParams(),
+        body: [...keyBatch],
+      });
+      checkCloudflareBulkOperation("delete", keyBatch.length, result);
+      deleted += result?.successful_key_count ?? keyBatch.length;
+    }
+    return deleted;
+  }
 }
 
 function cloudflareBindingSetOptions(
@@ -359,6 +431,46 @@ function cloudflareApiSetOptions(
     return undefined;
   }
   return { expiration_ttl: Math.ceil(ttl / 1000) };
+}
+
+function encodeCloudflareBulkValue(value: Uint8Array): string {
+  if (typeof Buffer !== "undefined") {
+    return Buffer.from(value).toString("base64");
+  }
+
+  let binary = "";
+  for (const byte of value) {
+    binary += String.fromCharCode(byte);
+  }
+  return btoa(binary);
+}
+
+function decodeCloudflareBulkValue(value: CloudflareBulkGetValue): Uint8Array {
+  const text =
+    typeof value === "string"
+      ? value
+      : typeof value === "object" && value !== null
+        ? JSON.stringify(value)
+        : String(value);
+  return new TextEncoder().encode(text);
+}
+
+function checkCloudflareBulkOperation(
+  operation: string,
+  expectedCount: number,
+  result: NamespaceBulkDeleteResponse | NamespaceBulkUpdateResponse | null,
+): void {
+  const unsuccessfulKeys = result?.unsuccessful_keys ?? [];
+  if (unsuccessfulKeys.length > 0) {
+    throw new Error(
+      `Cloudflare KV bulk ${operation} failed for keys: ${unsuccessfulKeys.join(", ")}`,
+    );
+  }
+  if (result?.successful_key_count !== undefined && result.successful_key_count !== expectedCount) {
+    throw new Error(
+      `Cloudflare KV bulk ${operation} succeeded for ${result.successful_key_count} of ${expectedCount} keys`,
+    );
+  }
 }
 
 function cloudflareClientOptions(options: CloudflareKvEngineOptions): ClientOptions {
@@ -432,5 +544,12 @@ function isNotFoundError(error: unknown): boolean {
     (error as { readonly status?: unknown }).status === 404
   );
 }
+
+type CloudflareBulkGetValue =
+  NonNullable<NonNullable<NamespaceBulkGetResponse["values"]>[string]> extends infer TValue
+    ? TValue extends { readonly value: infer TMetadataValue }
+      ? TMetadataValue
+      : TValue
+    : never;
 
 export type { StorageEngineSetManyItem };
