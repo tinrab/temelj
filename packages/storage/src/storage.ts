@@ -2,10 +2,11 @@ import { createPubSub } from "@temelj/event";
 import { err, ok, type Result } from "@temelj/result";
 
 import { createSuperJsonStorageCodec } from "./codec/mod.ts";
-import { createInMemoryEngine } from "./engine/memory.ts";
+import { InMemoryStorageEngine } from "./engine/memory.ts";
 import { normalizeStorageKey, normalizeStoragePrefix, resolveTtl } from "./key.ts";
 import {
   StorageError,
+  StorageKeyError,
   StorageOperationError,
   type CreateStorageOptions,
   type EmptyStorageItemMap,
@@ -21,18 +22,52 @@ import {
   type StorageItemMap,
   type StorageItemValue,
   type StorageKeyOptions,
+  type StorageCompareAndSetManyItem,
   type StorageSetManyItem,
   type StorageSetOptions,
   type StorageWatchCallback,
   type StorageWatchUnsubscribe,
 } from "./types.ts";
 
+/**
+ * Creates a high-level storage instance over a byte engine and value codec.
+ *
+ * The default engine is {@link InMemoryStorageEngine}; the default codec is {@link createSuperJsonStorageCodec}.
+ * Keys are validated before reaching the engine,
+ * values are encoded and decoded through the codec, and engine failures are wrapped in storage error types.
+ */
 export function createStorage<
   TItems extends StorageItemMap = EmptyStorageItemMap,
   TValue = StorageItemValue<TItems>,
 >(options: CreateStorageOptions<TValue> = {}): Storage<TItems, TValue> {
-  const engine = options.engine ?? createInMemoryEngine();
+  const engine = options.engine ?? new InMemoryStorageEngine();
   const codec = (options.codec ?? createSuperJsonStorageCodec()) as StorageCodec<TValue>;
+  const capabilities = {
+    get compareAndSet() {
+      return engine.compareAndSet !== undefined;
+    },
+    get compareAndSetMany() {
+      return engine.compareAndSetMany !== undefined;
+    },
+    get getMany() {
+      return engine.getMany !== undefined;
+    },
+    get setMany() {
+      return engine.setMany !== undefined;
+    },
+    get deleteMany() {
+      return engine.deleteMany !== undefined;
+    },
+    get has() {
+      return engine.has !== undefined;
+    },
+    get watch() {
+      return engine.watch !== undefined;
+    },
+    get dispose() {
+      return engine.dispose !== undefined;
+    },
+  };
 
   const events = createPubSub<StorageEventMap>();
   const watchCallbacks = new Set<StorageWatchCallback>();
@@ -150,6 +185,7 @@ export function createStorage<
 
   const storage = {
     engine,
+    capabilities,
 
     on(pattern: StorageEventPattern, handler: StorageEventHandler) {
       return events.on(pattern, handler);
@@ -241,6 +277,119 @@ export function createStorage<
         return ok(undefined);
       } catch (error) {
         return err(toStorageError("set", error, key));
+      }
+    },
+
+    async compareAndSet(
+      key: string,
+      expected: TValue | undefined,
+      value: TValue | undefined,
+      options?: StorageSetOptions,
+    ): Promise<boolean> {
+      try {
+        if (engine.compareAndSet === undefined) {
+          throw StorageOperationError.unsupportedOperation(engine.name, "compareAndSet");
+        }
+
+        const normalizedKey = normalizeStorageKey(key);
+        const updated = await engine.compareAndSet(
+          normalizedKey,
+          expected === undefined ? undefined : codec.encode(expected),
+          value === undefined ? undefined : codec.encode(value),
+          { ttl: resolveTtl(options) },
+        );
+        if (updated) {
+          emitChange(
+            value === undefined
+              ? {
+                  type: "delete",
+                  key: normalizedKey,
+                  deleted: true,
+                  source: "storage",
+                }
+              : {
+                  type: "set",
+                  key: normalizedKey,
+                  source: "storage",
+                },
+          );
+        }
+        return updated;
+      } catch (error) {
+        throw toStorageError("compareAndSet", error, key);
+      }
+    },
+
+    async tryCompareAndSet(
+      key: string,
+      expected: TValue | undefined,
+      value: TValue | undefined,
+      options?: StorageSetOptions,
+    ): Promise<Result<boolean, StorageError>> {
+      try {
+        return ok(await storage.compareAndSet(key, expected, value, options));
+      } catch (error) {
+        return err(toStorageError("compareAndSet", error, key));
+      }
+    },
+
+    async compareAndSetMany(
+      items: readonly StorageCompareAndSetManyItem<TValue>[],
+    ): Promise<boolean> {
+      try {
+        if (engine.compareAndSetMany === undefined) {
+          throw StorageOperationError.unsupportedOperation(engine.name, "compareAndSetMany");
+        }
+
+        const normalizedItems = items.map((item) => ({
+          key: normalizeStorageKey(item.key),
+          expected: item.expected,
+          value: item.value,
+          options: item.options,
+        }));
+        assertUniqueStorageKeys(
+          "compareAndSetMany",
+          normalizedItems.map((item) => item.key),
+        );
+        const updated = await engine.compareAndSetMany(
+          normalizedItems.map((item) => ({
+            key: item.key,
+            expected: item.expected === undefined ? undefined : codec.encode(item.expected),
+            value: item.value === undefined ? undefined : codec.encode(item.value),
+            options: { ttl: resolveTtl(item.options) },
+          })),
+        );
+        if (updated) {
+          for (const item of normalizedItems) {
+            emitChange(
+              item.value === undefined
+                ? {
+                    type: "delete",
+                    key: item.key,
+                    deleted: true,
+                    source: "storage",
+                  }
+                : {
+                    type: "set",
+                    key: item.key,
+                    source: "storage",
+                  },
+            );
+          }
+        }
+        return updated;
+      } catch (error) {
+        throw toStorageError("compareAndSetMany", error);
+      }
+    },
+
+    async tryCompareAndSetMany(
+      items: readonly StorageCompareAndSetManyItem<TValue>[],
+    ): Promise<Result<boolean, StorageError>> {
+      try {
+        return ok(await storage.compareAndSetMany(items));
+      } catch (error) {
+        return err(toStorageError("compareAndSetMany", error));
       }
     },
 
@@ -480,4 +629,17 @@ export function createStorage<
   return storage as Storage<TItems, TValue>;
 }
 
+function assertUniqueStorageKeys(operation: string, keys: readonly string[]): void {
+  const seen = new Set<string>();
+  for (const key of keys) {
+    if (seen.has(key)) {
+      throw StorageKeyError.unique(operation, key);
+    }
+    seen.add(key);
+  }
+}
+
+/**
+ * Common high-level storage option and batch item types.
+ */
 export type { StorageKeyOptions, StorageSetManyItem, StorageSetOptions };

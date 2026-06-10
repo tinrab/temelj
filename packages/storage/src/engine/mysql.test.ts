@@ -2,12 +2,10 @@ import { MySqlContainer } from "@testcontainers/mysql";
 import { describe, expect, test, vi } from "vitest";
 
 import { createStorage } from "../storage.ts";
-import { createMySqlEngine, type MySqlEngineClient } from "./mysql.ts";
+import { MySqlStorageEngine, type MySqlEngineClient, type MySqlEngineConnection } from "./mysql.ts";
 
 describe("mysql engine", () => {
   test("stores values, scans prefixes, and expires records", { tags: ["container"] }, async () => {
-    process.exit(42);
-
     await using container = await new MySqlContainer("mysql:9.7")
       .withDatabase("temelj")
       .withUsername("temelj")
@@ -15,7 +13,7 @@ describe("mysql engine", () => {
       .withRootPassword("root")
       .start();
     const storage = createStorage({
-      engine: createMySqlEngine({
+      engine: new MySqlStorageEngine({
         connection: {
           database: container.getDatabase(),
           host: container.getHost(),
@@ -55,6 +53,53 @@ describe("mysql engine", () => {
     }
   });
 
+  test("compares and sets many records atomically", { tags: ["container"] }, async () => {
+    await using container = await new MySqlContainer("mysql:9.7")
+      .withDatabase("temelj")
+      .withUsername("temelj")
+      .withUserPassword("temelj")
+      .withRootPassword("root")
+      .start();
+    const storage = createStorage({
+      engine: new MySqlStorageEngine({
+        connection: {
+          database: container.getDatabase(),
+          host: container.getHost(),
+          password: container.getUserPassword(),
+          port: container.getPort(),
+          user: container.getUsername(),
+        },
+        prefix: `temelj-storage-cas-${Date.now()}`,
+      }),
+    });
+
+    try {
+      await storage.set("cas:1", "one");
+
+      await expect(
+        storage.compareAndSetMany([
+          { key: "cas:1", expected: "one", value: "two" },
+          { key: "cas:2", expected: undefined, value: "created" },
+        ]),
+      ).resolves.toBe(true);
+      await expect(storage.getMany(["cas:1", "cas:2"])).resolves.toEqual(["two", "created"]);
+
+      await expect(
+        storage.compareAndSetMany([
+          { key: "cas:1", expected: "one", value: "failed" },
+          { key: "cas:3", expected: undefined, value: "should-not-exist" },
+        ]),
+      ).resolves.toBe(false);
+      await expect(storage.getMany(["cas:1", "cas:2", "cas:3"])).resolves.toEqual([
+        "two",
+        "created",
+        undefined,
+      ]);
+    } finally {
+      await storage.dispose();
+    }
+  });
+
   test("removes expired rows during get and zero-ttl set", async () => {
     const execute = vi
       .fn<MySqlEngineClient["execute"]>()
@@ -64,7 +109,7 @@ describe("mysql engine", () => {
       ])
       .mockResolvedValueOnce([{ affectedRows: 1 }, undefined])
       .mockResolvedValueOnce([{ affectedRows: 1 }, undefined]);
-    const engine = createMySqlEngine({
+    const engine = new MySqlStorageEngine({
       client: { execute },
       initialize: false,
     });
@@ -82,5 +127,34 @@ describe("mysql engine", () => {
       expect.stringContaining("DELETE FROM `temelj_storage` WHERE `key` = ?"),
       ["sessions:2"],
     );
+  });
+
+  test("releases transaction connection when transaction start fails", async () => {
+    const startError = new Error("start failed");
+    const release = vi.fn<NonNullable<MySqlEngineConnection["release"]>>();
+    const rollback = vi.fn<NonNullable<MySqlEngineConnection["rollback"]>>();
+    const connection: MySqlEngineConnection = {
+      beginTransaction: vi
+        .fn<NonNullable<MySqlEngineConnection["beginTransaction"]>>()
+        .mockRejectedValue(startError),
+      execute: vi.fn<MySqlEngineConnection["execute"]>(),
+      release,
+      rollback,
+    };
+    const engine = new MySqlStorageEngine({
+      client: {
+        execute: vi.fn<MySqlEngineClient["execute"]>(),
+        getConnection: async () => connection,
+      },
+      initialize: false,
+    });
+
+    await expect(
+      engine.compareAndSetMany?.([
+        { key: "users:1", expected: undefined, value: new Uint8Array([1]) },
+      ]),
+    ).rejects.toBe(startError);
+    expect(release).toHaveBeenCalledOnce();
+    expect(rollback).not.toHaveBeenCalled();
   });
 });

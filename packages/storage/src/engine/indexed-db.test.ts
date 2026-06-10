@@ -2,7 +2,7 @@ import { describe, expect, test, vi } from "vitest";
 
 import { createStorage } from "../storage.ts";
 import {
-  createIndexedDbEngine,
+  IndexedDbStorageEngine,
   type IndexedDbDatabase,
   type IndexedDbFactory,
   type IndexedDbObjectStore,
@@ -13,7 +13,7 @@ import {
 describe("indexedDB engine", () => {
   test("stores bytes, scans prefixes, and deletes records", async () => {
     const storage = createStorage({
-      engine: createIndexedDbEngine({
+      engine: new IndexedDbStorageEngine({
         indexedDB: createMockIndexedDbFactory(),
         namespace: "app",
       }),

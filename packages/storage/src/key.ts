@@ -2,11 +2,11 @@ import { StorageKeyError } from "./types.ts";
 
 export function normalizeStorageKey(key: string): string {
   if (key.length === 0) {
-    throw new StorageKeyError(key);
+    throw StorageKeyError.invalidFormat(key);
   }
 
   if (key.includes("\0")) {
-    throw new StorageKeyError(key, "Storage key must not contain null bytes");
+    throw StorageKeyError.nullBytes(key);
   }
 
   return key;
@@ -18,7 +18,7 @@ export function normalizeStoragePrefix(prefix: string | undefined): string | und
   }
 
   if (prefix.includes("\0")) {
-    throw new StorageKeyError(prefix, "Storage key prefix must not contain null bytes");
+    throw StorageKeyError.nullBytes(prefix);
   }
 
   return prefix;
@@ -29,7 +29,7 @@ export function resolveTtl(
 ): number | undefined {
   if (options?.ttl !== undefined) {
     if (!Number.isFinite(options.ttl) || options.ttl < 0) {
-      throw new StorageKeyError("", "Storage ttl must be a finite non-negative number");
+      throw StorageKeyError.invalidTtl();
     }
     return options.ttl;
   }
@@ -40,7 +40,7 @@ export function resolveTtl(
 
   const expiresAt = options.expiresAt.getTime();
   if (!Number.isFinite(expiresAt)) {
-    throw new StorageKeyError("", "Storage expiresAt must be a valid date");
+    throw StorageKeyError.invalidExpiresAt();
   }
 
   const ttl = expiresAt - Date.now();

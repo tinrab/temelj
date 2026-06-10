@@ -2,7 +2,7 @@ import { RedisContainer } from "@testcontainers/redis";
 import { expect, test } from "vitest";
 
 import { createStorage } from "../storage.ts";
-import { createRedisEngine } from "./redis.ts";
+import { RedisStorageEngine } from "./redis.ts";
 
 test(
   "redis engine stores values, scans prefixes, and expires keys",
@@ -10,7 +10,7 @@ test(
   async () => {
     await using container = await new RedisContainer("redis:8.6-alpine").start();
     const storage = createStorage({
-      engine: createRedisEngine({
+      engine: new RedisStorageEngine({
         url: container.getConnectionUrl(),
         prefix: `temelj-storage-${Date.now()}`,
         scanCount: 10,
@@ -44,14 +44,14 @@ test("redis engine treats scan prefixes as literal strings", { tags: ["container
   await using container = await new RedisContainer("redis:8.6-alpine").start();
   const namespace = `temelj-storage-[literal]*?-${Date.now()}`;
   const storage = createStorage({
-    engine: createRedisEngine({
+    engine: new RedisStorageEngine({
       url: container.getConnectionUrl(),
       prefix: namespace,
       scanCount: 10,
     }),
   });
   const adjacentStorage = createStorage({
-    engine: createRedisEngine({
+    engine: new RedisStorageEngine({
       url: container.getConnectionUrl(),
       prefix: namespace.replace("[literal]*?", "X"),
       scanCount: 10,

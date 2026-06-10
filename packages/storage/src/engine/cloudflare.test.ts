@@ -1,11 +1,19 @@
+import type Cloudflare from "cloudflare";
+import type {
+  NamespaceBulkDeleteResponse,
+  NamespaceBulkGetParams,
+  NamespaceBulkGetResponse,
+  NamespaceBulkUpdateParams,
+  NamespaceBulkUpdateResponse,
+} from "cloudflare/resources/kv/namespaces/namespaces";
+
 import { describe, expect, test, vi } from "vitest";
 
 import { createStorage } from "../storage.ts";
 import { StorageOperationError } from "../types.ts";
 import {
-  createCloudflareKvEngine,
+  CloudflareKvStorageEngine,
   type CloudflareKvBinding,
-  type CloudflareKvClient,
   type CloudflareKvKey,
 } from "./cloudflare.ts";
 
@@ -23,7 +31,7 @@ vi.mock("cloudflare", () => ({
 
     constructor(options: unknown) {
       cloudflareMock.constructor(options);
-      this.kv = (cloudflareMock.instance as CloudflareKvClient).kv;
+      this.kv = (cloudflareMock.instance as Cloudflare).kv;
     }
   },
   toFile: cloudflareMock.toFile,
@@ -33,7 +41,7 @@ describe("Cloudflare KV engine", () => {
   test("uses Worker KV bindings for storage operations", async () => {
     const { binding, put } = createMockBinding();
     const storage = createStorage({
-      engine: createCloudflareKvEngine({
+      engine: new CloudflareKvStorageEngine({
         binding,
         minTtl: 60_000,
         prefix: "app",
@@ -62,7 +70,7 @@ describe("Cloudflare KV engine", () => {
   test("resolves Worker KV bindings from an env-like bindings object", async () => {
     const { binding } = createMockBinding();
     const storage = createStorage({
-      engine: createCloudflareKvEngine({
+      engine: new CloudflareKvStorageEngine({
         binding: "STORAGE",
         bindings: { STORAGE: binding },
       }),
@@ -75,7 +83,7 @@ describe("Cloudflare KV engine", () => {
 
   test("rejects missing named Worker KV bindings", async () => {
     const storage = createStorage({
-      engine: createCloudflareKvEngine({
+      engine: new CloudflareKvStorageEngine({
         binding: "STORAGE",
         bindings: {},
       }),
@@ -95,9 +103,10 @@ describe("Cloudflare KV engine", () => {
   });
 
   test("uses the Cloudflare API client when a client is provided", async () => {
-    const { client, deleteValue, update } = createMockClient();
+    const { bulkDelete, bulkGet, bulkUpdate, client, deleteValue, listKeys, update } =
+      createMockClient();
     const storage = createStorage({
-      engine: createCloudflareKvEngine({
+      engine: new CloudflareKvStorageEngine({
         accountId: "account",
         client,
         namespaceId: "namespace",
@@ -117,17 +126,74 @@ describe("Cloudflare KV engine", () => {
     );
 
     expect(await storage.get("users:1")).toEqual({ name: "Verso" });
+    await storage.setMany([
+      { key: "users:2", value: { name: "Maelle" } },
+      { key: "sessions:1", value: "active", options: { ttl: 100 } },
+      { key: "expired:1", value: "expired", options: { ttl: 0 } },
+    ]);
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(bulkDelete).toHaveBeenCalledWith("namespace", {
+      account_id: "account",
+      body: ["app:expired:1"],
+    });
+    expect(bulkUpdate).toHaveBeenCalledWith("namespace", {
+      account_id: "account",
+      body: [
+        expect.objectContaining({
+          base64: true,
+          key: "app:users:2",
+          value: expect.any(String),
+        }),
+        expect.objectContaining({
+          base64: true,
+          expiration_ttl: 60,
+          key: "app:sessions:1",
+          value: expect.any(String),
+        }),
+      ],
+    });
+    expect(await storage.get("users:2")).toEqual({ name: "Maelle" });
+    expect(await storage.get("sessions:1")).toBe("active");
+    expect(await storage.get("expired:1")).toBeUndefined();
+    expect(await storage.getMany(["users:1", "users:2", "users:missing"])).toEqual([
+      { name: "Verso" },
+      { name: "Maelle" },
+      undefined,
+    ]);
+    expect(bulkGet).toHaveBeenCalledWith("namespace", {
+      account_id: "account",
+      keys: ["app:users:1", "app:users:2", "app:users:missing"],
+      type: "text",
+    });
+    expect(await storage.keys({ prefix: "users:" })).toEqual(["users:1", "users:2"]);
+    expect(listKeys).toHaveBeenCalledWith("namespace", {
+      account_id: "account",
+      prefix: "app:users:",
+    });
+    expect(await storage.deleteMany(["users:2", "sessions:1"])).toBe(2);
+    expect(bulkDelete).toHaveBeenLastCalledWith("namespace", {
+      account_id: "account",
+      body: ["app:users:2", "app:sessions:1"],
+    });
+
     expect(await storage.delete("users:missing")).toBe(false);
     expect(await storage.delete("users:1")).toBe(true);
     expect(deleteValue).toHaveBeenCalledWith("namespace", "app:users:1", {
       account_id: "account",
+    });
+
+    await storage.set("cache:1", "cached");
+    await storage.clear({ prefix: "cache:" });
+    expect(bulkDelete).toHaveBeenLastCalledWith("namespace", {
+      account_id: "account",
+      body: ["app:cache:1"],
     });
   });
 
   test("creates the Cloudflare package client lazily", async () => {
     const { client } = createMockClient();
     cloudflareMock.instance = client;
-    const engine = createCloudflareKvEngine({
+    const engine = new CloudflareKvStorageEngine({
       accountId: "account",
       apiToken: "token",
       namespaceId: "namespace",
@@ -188,12 +254,35 @@ function createMockBinding(): {
 }
 
 function createMockClient(): {
-  readonly client: CloudflareKvClient;
+  readonly bulkDelete: (
+    namespaceId: string,
+    params: { readonly account_id: string; readonly body: readonly string[] },
+  ) => Promise<NamespaceBulkDeleteResponse | null>;
+  readonly bulkGet: (
+    namespaceId: string,
+    params: NamespaceBulkGetParams,
+  ) => Promise<NamespaceBulkGetResponse | null>;
+  readonly bulkUpdate: (
+    namespaceId: string,
+    params: {
+      readonly account_id: string;
+      readonly body: readonly NamespaceBulkUpdateParams.Body[];
+    },
+  ) => Promise<NamespaceBulkUpdateResponse | null>;
+  readonly client: Cloudflare;
   readonly deleteValue: (
     namespaceId: string,
     key: string,
     params: { readonly account_id: string },
   ) => Promise<unknown>;
+  readonly listKeys: (
+    namespaceId: string,
+    params: {
+      readonly account_id: string;
+      readonly prefix?: string;
+      readonly limit?: number;
+    },
+  ) => AsyncIterable<CloudflareKvKey>;
   readonly update: (
     namespaceId: string,
     key: string,
@@ -205,11 +294,67 @@ function createMockClient(): {
   ) => Promise<unknown>;
 } {
   const items = new Map<string, Uint8Array>();
+  const bulkDelete = vi.fn<
+    (
+      namespaceId: string,
+      params: { readonly account_id: string; readonly body: readonly string[] },
+    ) => Promise<NamespaceBulkDeleteResponse | null>
+  >(async (_namespaceId, params) => {
+    for (const key of params.body) {
+      items.delete(key);
+    }
+    return { successful_key_count: params.body.length };
+  });
+  const bulkGet = vi.fn<
+    (
+      namespaceId: string,
+      params: NamespaceBulkGetParams,
+    ) => Promise<NamespaceBulkGetResponse | null>
+  >(async (_namespaceId, params) => {
+    const values: Record<string, string> = {};
+    for (const key of params.keys) {
+      const value = items.get(key);
+      if (value !== undefined) {
+        values[key] = new TextDecoder().decode(value);
+      }
+    }
+    return { values };
+  });
+  const bulkUpdate = vi.fn<
+    (
+      namespaceId: string,
+      params: {
+        readonly account_id: string;
+        readonly body: readonly NamespaceBulkUpdateParams.Body[];
+      },
+    ) => Promise<NamespaceBulkUpdateResponse | null>
+  >(async (_namespaceId, params) => {
+    for (const item of params.body) {
+      items.set(item.key, decodeMockBulkValue(item));
+    }
+    return { successful_key_count: params.body.length };
+  });
   const deleteValue = vi.fn<
     (namespaceId: string, key: string, params: { readonly account_id: string }) => Promise<unknown>
   >(async (_namespaceId, key) => {
     items.delete(key);
   });
+  const listKeys = vi.fn<
+    (
+      namespaceId: string,
+      params: {
+        readonly account_id: string;
+        readonly prefix?: string;
+        readonly limit?: number;
+      },
+    ) => AsyncIterable<CloudflareKvKey>
+  >((_namespaceId, params) =>
+    asyncIterable(
+      [...items.keys()]
+        .filter((key) => params.prefix === undefined || key.startsWith(params.prefix))
+        .map((name) => ({ name })),
+    ),
+  );
   const update = vi.fn<
     (
       namespaceId: string,
@@ -231,23 +376,11 @@ function createMockClient(): {
     client: {
       kv: {
         namespaces: {
+          bulkDelete,
+          bulkGet,
+          bulkUpdate,
           keys: {
-            list: vi.fn<
-              (
-                namespaceId: string,
-                params: {
-                  readonly account_id: string;
-                  readonly prefix?: string;
-                  readonly limit?: number;
-                },
-              ) => AsyncIterable<CloudflareKvKey>
-            >((_namespaceId, params) =>
-              asyncIterable(
-                [...items.keys()]
-                  .filter((key) => params.prefix === undefined || key.startsWith(params.prefix))
-                  .map((name) => ({ name })),
-              ),
-            ),
+            list: listKeys,
           },
           values: {
             delete: deleteValue,
@@ -272,10 +405,21 @@ function createMockClient(): {
           },
         },
       },
-    },
+    } as unknown as Cloudflare,
+    bulkDelete,
+    bulkGet,
+    bulkUpdate,
     deleteValue,
+    listKeys,
     update,
   };
+}
+
+function decodeMockBulkValue(item: NamespaceBulkUpdateParams.Body): Uint8Array {
+  if (item.base64 === true) {
+    return new Uint8Array(Buffer.from(item.value, "base64"));
+  }
+  return new TextEncoder().encode(item.value);
 }
 
 function copyArrayBuffer(value: Uint8Array): ArrayBuffer {

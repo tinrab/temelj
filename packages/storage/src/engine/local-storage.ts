@@ -1,10 +1,16 @@
 import type {
   StorageEngine,
+  StorageEngineCompareAndSetManyItem,
   StorageEngineKeyOptions,
   StorageEngineSetManyItem,
   StorageEngineSetOptions,
 } from "../types.ts";
 
+import { bytesEqual, resolveExpiresAt } from "../utility.ts";
+
+/**
+ * Minimal Web Storage-compatible interface used by browser storage engines.
+ */
 export interface WebStorageLike {
   readonly length: number;
   clear(): void;
@@ -14,9 +20,23 @@ export interface WebStorageLike {
   setItem(key: string, value: string): void;
 }
 
+/**
+ * Options shared by localStorage and sessionStorage engines.
+ */
 export interface WebStorageEngineOptions {
+  /**
+   * Explicit storage object. Defaults to `globalThis.localStorage` or `globalThis.sessionStorage`.
+   */
   readonly storage?: WebStorageLike;
+
+  /**
+   * Prefix namespace applied to all engine keys.
+   */
   readonly namespace?: string;
+
+  /**
+   * Separator between namespace and key. Defaults to `":"`.
+   */
   readonly separator?: string;
 }
 
@@ -25,129 +45,181 @@ interface WebStorageRecord {
   readonly expiresAt?: number;
 }
 
-export function createLocalStorageEngine(options: WebStorageEngineOptions = {}): StorageEngine {
-  return createWebStorageEngine(
-    "localStorage",
-    options.storage ?? globalThis.localStorage,
-    options,
-  );
-}
+class WebStorageEngine implements StorageEngine {
+  readonly name: string;
 
-export function createSessionStorageEngine(options: WebStorageEngineOptions = {}): StorageEngine {
-  return createWebStorageEngine(
-    "sessionStorage",
-    options.storage ?? globalThis.sessionStorage,
-    options,
-  );
-}
+  readonly #storage: WebStorageLike;
+  readonly #prefix: string;
 
-function createWebStorageEngine(
-  name: string,
-  storage: WebStorageLike | undefined,
-  options: WebStorageEngineOptions,
-): StorageEngine {
-  if (storage === undefined) {
-    throw new TypeError(`${name} is not available`);
+  constructor(name: string, storage: WebStorageLike | undefined, options: WebStorageEngineOptions) {
+    if (storage === undefined) {
+      throw new TypeError(`${name} is not available`);
+    }
+
+    const namespace = options.namespace ?? "";
+    const separator = options.separator ?? ":";
+
+    this.name = name;
+    this.#storage = storage;
+    this.#prefix = namespace.length === 0 ? "" : `${namespace}${separator}`;
   }
 
-  const namespace = options.namespace ?? "";
-  const separator = options.separator ?? ":";
-  const prefix = namespace.length === 0 ? "" : `${namespace}${separator}`;
-  const prefixedKey = (key: string): string => `${prefix}${key}`;
-  const unprefixKey = (key: string): string =>
-    prefix.length === 0 ? key : key.slice(prefix.length);
+  async get(key: string): Promise<Uint8Array | undefined> {
+    const record = this.#readRecord(this.#prefixedKey(key));
+    return record === undefined ? undefined : decodeBase64(record.value);
+  }
 
-  const readRecord = (key: string): WebStorageRecord | undefined => {
-    const item = storage.getItem(key);
+  async set(key: string, value: Uint8Array, options?: StorageEngineSetOptions): Promise<void> {
+    this.#writeRecord(this.#prefixedKey(key), value, resolveExpiresAt(options));
+  }
+
+  async compareAndSet(
+    key: string,
+    expected: Uint8Array | undefined,
+    value: Uint8Array | undefined,
+    options?: StorageEngineSetOptions,
+  ): Promise<boolean> {
+    const storageKey = this.#prefixedKey(key);
+    const current = this.#readRecord(storageKey);
+    if (!bytesEqual(current === undefined ? undefined : decodeBase64(current.value), expected)) {
+      return false;
+    }
+
+    if (value === undefined) {
+      this.#storage.removeItem(storageKey);
+      return true;
+    }
+
+    this.#writeRecord(storageKey, value, resolveExpiresAt(options));
+    return true;
+  }
+
+  async compareAndSetMany(items: readonly StorageEngineCompareAndSetManyItem[]): Promise<boolean> {
+    const records = items.map((item) => ({
+      ...item,
+      storageKey: this.#prefixedKey(item.key),
+    }));
+    for (const item of records) {
+      const current = this.#readRecord(item.storageKey);
+      if (
+        !bytesEqual(current === undefined ? undefined : decodeBase64(current.value), item.expected)
+      ) {
+        return false;
+      }
+    }
+
+    for (const item of records) {
+      if (item.value === undefined) {
+        this.#storage.removeItem(item.storageKey);
+      } else {
+        this.#writeRecord(item.storageKey, item.value, resolveExpiresAt(item.options));
+      }
+    }
+    return true;
+  }
+
+  async setMany(items: readonly StorageEngineSetManyItem[]): Promise<void> {
+    for (const item of items) {
+      await this.set(item.key, item.value, item.options);
+    }
+  }
+
+  async delete(key: string): Promise<boolean> {
+    const storageKey = this.#prefixedKey(key);
+    const exists = this.#readRecord(storageKey) !== undefined;
+    this.#storage.removeItem(storageKey);
+    return exists;
+  }
+
+  async deleteMany(keys: readonly string[]): Promise<number> {
+    let deleted = 0;
+    for (const key of keys) {
+      if (await this.delete(key)) {
+        deleted++;
+      }
+    }
+    return deleted;
+  }
+
+  async has(key: string): Promise<boolean> {
+    return this.#readRecord(this.#prefixedKey(key)) !== undefined;
+  }
+
+  async keys(options?: StorageEngineKeyOptions): Promise<readonly string[]> {
+    return this.#matchingKeys(options)
+      .filter((key) => this.#readRecord(key) !== undefined)
+      .map((key) => this.#unprefixKey(key));
+  }
+
+  async clear(options?: StorageEngineKeyOptions): Promise<void> {
+    for (const key of this.#matchingKeys(options)) {
+      this.#storage.removeItem(key);
+    }
+  }
+
+  #prefixedKey(key: string): string {
+    return `${this.#prefix}${key}`;
+  }
+
+  #unprefixKey(key: string): string {
+    return this.#prefix.length === 0 ? key : key.slice(this.#prefix.length);
+  }
+
+  #readRecord(key: string): WebStorageRecord | undefined {
+    const item = this.#storage.getItem(key);
     if (item === null) {
       return undefined;
     }
 
     const record = JSON.parse(item) as WebStorageRecord;
     if (record.expiresAt !== undefined && record.expiresAt <= Date.now()) {
-      storage.removeItem(key);
+      this.#storage.removeItem(key);
       return undefined;
     }
     return record;
-  };
+  }
 
-  const allStorageKeys = (): string[] => {
+  #writeRecord(key: string, value: Uint8Array, expiresAt: number | undefined): void {
+    if (expiresAt !== undefined && expiresAt <= Date.now()) {
+      this.#storage.removeItem(key);
+      return;
+    }
+    this.#storage.setItem(key, JSON.stringify({ value: encodeBase64(value), expiresAt }));
+  }
+
+  #allStorageKeys(): string[] {
     const keys: string[] = [];
-    for (let index = 0; index < storage.length; index++) {
-      const key = storage.key(index);
-      if (key !== null && key.startsWith(prefix)) {
+    for (let index = 0; index < this.#storage.length; index++) {
+      const key = this.#storage.key(index);
+      if (key !== null && key.startsWith(this.#prefix)) {
         keys.push(key);
       }
     }
     return keys;
-  };
+  }
 
-  const matchingKeys = (keyOptions: StorageEngineKeyOptions | undefined): string[] => {
-    const matchPrefix = prefixedKey(keyOptions?.prefix ?? "");
-    return allStorageKeys().filter((key) => key.startsWith(matchPrefix));
-  };
-
-  return {
-    name,
-
-    async get(key) {
-      const record = readRecord(prefixedKey(key));
-      return record === undefined ? undefined : decodeBase64(record.value);
-    },
-
-    async set(key, value, setOptions) {
-      const storageKey = prefixedKey(key);
-      const expiresAt = resolveExpiresAt(setOptions);
-      if (expiresAt !== undefined && expiresAt <= Date.now()) {
-        storage.removeItem(storageKey);
-        return;
-      }
-      storage.setItem(storageKey, JSON.stringify({ value: encodeBase64(value), expiresAt }));
-    },
-
-    async setMany(items) {
-      for (const item of items) {
-        await this.set(item.key, item.value, item.options);
-      }
-    },
-
-    async delete(key) {
-      const storageKey = prefixedKey(key);
-      const exists = readRecord(storageKey) !== undefined;
-      storage.removeItem(storageKey);
-      return exists;
-    },
-
-    async deleteMany(keys) {
-      let deleted = 0;
-      for (const key of keys) {
-        if (await this.delete(key)) {
-          deleted++;
-        }
-      }
-      return deleted;
-    },
-
-    async has(key) {
-      return readRecord(prefixedKey(key)) !== undefined;
-    },
-
-    async keys(keyOptions) {
-      return matchingKeys(keyOptions)
-        .filter((key) => readRecord(key) !== undefined)
-        .map((key) => unprefixKey(key));
-    },
-
-    async clear(keyOptions) {
-      for (const key of matchingKeys(keyOptions)) {
-        storage.removeItem(key);
-      }
-    },
-  };
+  #matchingKeys(options: StorageEngineKeyOptions | undefined): string[] {
+    const matchPrefix = this.#prefixedKey(options?.prefix ?? "");
+    return this.#allStorageKeys().filter((key) => key.startsWith(matchPrefix));
+  }
 }
 
-function resolveExpiresAt(options: StorageEngineSetOptions | undefined): number | undefined {
-  return options?.ttl === undefined ? undefined : Date.now() + options.ttl;
+/**
+ * Storage engine backed by the browser `localStorage` API.
+ */
+export class LocalStorageEngine extends WebStorageEngine {
+  constructor(options: WebStorageEngineOptions = {}) {
+    super("localStorage", options.storage ?? globalThis.localStorage, options);
+  }
+}
+
+/**
+ * Storage engine backed by the browser `sessionStorage` API.
+ */
+export class SessionStorageEngine extends WebStorageEngine {
+  constructor(options: WebStorageEngineOptions = {}) {
+    super("sessionStorage", options.storage ?? globalThis.sessionStorage, options);
+  }
 }
 
 function encodeBase64(value: Uint8Array): string {
@@ -167,4 +239,7 @@ function decodeBase64(value: string): Uint8Array {
   return bytes;
 }
 
-export type { StorageEngineSetManyItem };
+/**
+ * Engine batch item types accepted by Web Storage operations.
+ */
+export type { StorageEngineCompareAndSetManyItem, StorageEngineSetManyItem };

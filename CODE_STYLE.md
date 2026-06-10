@@ -40,11 +40,14 @@ Generated files are governed by their generators.
 - Do not add default exports in package source. Default exports are acceptable in
   tool config files such as `tsdown.config.ts` and `vitest.config.ts`.
 - Public modules are exported from `src/mod.ts` with `export *`.
+- Don't write `index.ts` barrel modules, only write `mod.ts`.
 - The aggregate package in `lib/` should only re-export packages that are part of
   `@tinrab/temelj`.
 - Use `import type` or inline `type` imports for types that are erased at runtime.
 - Keep imports grouped as external packages, workspace packages, then relative
   imports, with blank lines between groups when the file has multiple groups.
+- Use `.ts` extension for relative imports within the same package.
+  `allowImportingTsExtensions` is already enabled in common `tsconfig.json`.
 - Do not rewrite import specifiers just for style. Match the local package's
   existing relative import suffix convention.
 - Avoid deep imports across package boundaries. Import from `@temelj/<name>`
@@ -144,7 +147,7 @@ Generated files are governed by their generators.
 - Prefer existing package utilities over adding new dependencies.
 - Add runtime dependencies only to the package that imports them.
 - Use `workspace:*` for internal package dependencies in `package.json`.
-- Keep JSR import mappings in `deno.json` aligned with package dependencies.
+- Keep JSR import mappings in `deno.json` aligned with package dependencies only for workspace packages.
 
 ## Documentation
 
