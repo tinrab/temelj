@@ -26,8 +26,8 @@
       "import": "./dist/engine/s3.mjs"
     },
     "./cloudflare": {
-      "types": "./dist/engine/cloudflare.d.mts",
-      "import": "./dist/engine/cloudflare.mjs"
+      "types": "./dist/engine/cloudflare/mod.d.mts",
+      "import": "./dist/engine/cloudflare/mod.mjs"
     },
     "./filesystem": {
       "types": "./dist/engine/file-system.d.mts",

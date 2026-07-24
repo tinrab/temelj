@@ -229,10 +229,15 @@ const storage = createStorage({
 await storage.set("sessions:1", "active", { ttl: 60_000 });
 ```
 
-### Cloudflare KV Storage
+### Cloudflare Storage
 
-Cloudflare KV storage can use a Worker KV binding or the Cloudflare API client.
-Install the optional peer dependency (`cloudflare`) when using client mode.
+Cloudflare KV, D1, and R2 are separate engines.
+Each engine accepts a Worker binding directly, or a binding name together with the Worker's `env` object.
+They also support remote HTTP APIs.
+
+#### Workers KV
+
+KV HTTP mode uses the optional `cloudflare` peer dependency.
 
 ```ts
 import { createStorage } from "@temelj/storage";
@@ -256,14 +261,89 @@ export default {
 };
 ```
 
-Client mode uses `accountId`, `namespaceId`, and Cloudflare client options.
+KV HTTP mode uses `accountId`, `namespaceId`, and Cloudflare client options.
 
 ```ts
+import { createStorage } from "@temelj/storage";
+import { CloudflareKvStorageEngine } from "@temelj/storage/cloudflare";
+
 const storage = createStorage({
   engine: new CloudflareKvStorageEngine({
     accountId: process.env.CLOUDFLARE_ACCOUNT_ID,
     apiToken: process.env.CLOUDFLARE_API_TOKEN,
     namespaceId: process.env.CLOUDFLARE_KV_NAMESPACE_ID,
+  }),
+});
+```
+
+D1 stores encoded values in a SQLite table named `temelj_storage` by default.
+The table is created lazily.
+
+```ts
+import { createStorage } from "@temelj/storage";
+import { CloudflareD1StorageEngine, type CloudflareD1Binding } from "@temelj/storage/cloudflare";
+
+export default {
+  async fetch(
+    _request: Request,
+    env: { readonly DATABASE: CloudflareD1Binding },
+  ): Promise<Response> {
+    const storage = createStorage({
+      engine: new CloudflareD1StorageEngine({
+        binding: env.DATABASE,
+        prefix: "app",
+      }),
+    });
+
+    await storage.set("users:1", { name: "Verso" });
+    return Response.json(await storage.get("users:1"));
+  },
+};
+```
+
+```ts
+import { createStorage } from "@temelj/storage";
+import { CloudflareD1StorageEngine } from "@temelj/storage/cloudflare";
+
+const storage = createStorage({
+  engine: new CloudflareD1StorageEngine({
+    accountId: process.env.CLOUDFLARE_ACCOUNT_ID,
+    apiToken: process.env.CLOUDFLARE_API_TOKEN,
+    databaseId: process.env.CLOUDFLARE_D1_DATABASE_ID,
+  }),
+});
+```
+
+R2 binding mode uses the native Workers bucket API.
+
+```ts
+import { createStorage } from "@temelj/storage";
+import { CloudflareR2StorageEngine, type CloudflareR2Binding } from "@temelj/storage/cloudflare";
+
+export default {
+  async fetch(_request: Request, env: { readonly BUCKET: CloudflareR2Binding }): Promise<Response> {
+    const storage = createStorage({
+      engine: new CloudflareR2StorageEngine({
+        binding: env.BUCKET,
+        prefix: "app",
+      }),
+    });
+
+    await storage.set("users:1", { name: "Verso" });
+    return Response.json(await storage.get("users:1"));
+  },
+};
+```
+
+```ts
+import { createStorage } from "@temelj/storage";
+import { CloudflareR2StorageEngine } from "@temelj/storage/cloudflare";
+
+const storage = createStorage({
+  engine: new CloudflareR2StorageEngine({
+    accountId: process.env.CLOUDFLARE_ACCOUNT_ID,
+    apiToken: process.env.CLOUDFLARE_API_TOKEN,
+    bucketName: "app-storage",
   }),
 });
 ```

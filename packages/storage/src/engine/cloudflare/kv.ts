@@ -7,7 +7,7 @@ import type {
   NamespaceBulkUpdateResponse,
 } from "cloudflare/resources/kv/namespaces/namespaces";
 
-import { encodeBase64 } from "@temelj/string";
+import { decodeBase64, encodeBase64 } from "@temelj/string";
 
 import {
   StorageEngineError,
@@ -15,8 +15,14 @@ import {
   type StorageEngineKeyOptions,
   type StorageEngineSetManyItem,
   type StorageEngineSetOptions,
-} from "../types.ts";
-import { chunkArray } from "../utility.ts";
+} from "../../types.ts";
+import { chunkArray } from "../../utility.ts";
+import {
+  cloudflareClientOptions,
+  isCloudflareNotFoundError,
+  resolveCloudflareBinding as resolveBinding,
+  type CloudflareBindings,
+} from "./utility.ts";
 
 const CLOUDFLARE_KV_BULK_GET_LIMIT = 100;
 const CLOUDFLARE_KV_BULK_MUTATION_LIMIT = 10_000;
@@ -26,13 +32,13 @@ const CLOUDFLARE_KV_BULK_MUTATION_LIMIT = 10_000;
  */
 export interface CloudflareKvBinding {
   delete(key: string): Promise<void>;
-  get(key: string, options: { readonly type: "arrayBuffer" }): Promise<ArrayBuffer | null>;
+  get(key: string, options: { readonly type: "text" }): Promise<string | null>;
   list(options?: {
     readonly prefix?: string;
     readonly cursor?: string;
     readonly limit?: number;
   }): Promise<CloudflareKvBindingListResult>;
-  put(key: string, value: Uint8Array, options?: { readonly expirationTtl?: number }): Promise<void>;
+  put(key: string, value: string, options?: { readonly expirationTtl?: number }): Promise<void>;
 }
 
 /**
@@ -50,11 +56,6 @@ export interface CloudflareKvBindingListResult {
 export interface CloudflareKvKey {
   readonly name: string;
 }
-
-/**
- * Cloudflare Worker environment bindings map.
- */
-export type CloudflareBindings = { readonly [name: string]: unknown };
 
 /**
  * Options for {@link CloudflareKvStorageEngine}.
@@ -136,8 +137,8 @@ export class CloudflareKvStorageEngine implements StorageEngine {
     const storageKey = this.#prefixedKey(key);
     const binding = this.#getBinding();
     if (binding !== undefined) {
-      const value = await binding.get(storageKey, { type: "arrayBuffer" });
-      return value === null ? undefined : new Uint8Array(value).slice();
+      const value = await binding.get(storageKey, { type: "text" });
+      return value === null ? undefined : decodeBase64(value);
     }
 
     try {
@@ -147,9 +148,9 @@ export class CloudflareKvStorageEngine implements StorageEngine {
         ...this.#getNamespaceParams(),
         namespace_id: this.#getNamespaceId(),
       });
-      return new Uint8Array(await value.arrayBuffer()).slice();
+      return decodeBase64(new TextDecoder().decode(await value.arrayBuffer()));
     } catch (error) {
-      if (isNotFoundError(error)) {
+      if (isCloudflareNotFoundError(error)) {
         return undefined;
       }
       throw error;
@@ -204,7 +205,7 @@ export class CloudflareKvStorageEngine implements StorageEngine {
 
     const binding = this.#getBinding();
     if (binding !== undefined) {
-      await binding.put(storageKey, value.slice(), cloudflareBindingSetOptions(ttl));
+      await binding.put(storageKey, encodeBase64(value), cloudflareBindingSetOptions(ttl));
       return;
     }
 
@@ -215,7 +216,7 @@ export class CloudflareKvStorageEngine implements StorageEngine {
       ...this.#getNamespaceParams(),
       ...cloudflareApiSetOptions(ttl),
       namespace_id: this.#getNamespaceId(),
-      value: await toFile(value, "value"),
+      value: await toFile(new TextEncoder().encode(encodeBase64(value)), "value"),
     });
   }
 
@@ -243,7 +244,6 @@ export class CloudflareKvStorageEngine implements StorageEngine {
       writes.push({
         key: storageKey,
         value: encodeCloudflareBulkValue(item.value),
-        base64: true,
         ...cloudflareApiSetOptions(ttl),
       });
     }
@@ -445,13 +445,10 @@ function encodeCloudflareBulkValue(value: Uint8Array): string {
 }
 
 function decodeCloudflareBulkValue(value: CloudflareBulkGetValue): Uint8Array {
-  const text =
-    typeof value === "string"
-      ? value
-      : typeof value === "object" && value !== null
-        ? JSON.stringify(value)
-        : String(value);
-  return new TextEncoder().encode(text);
+  if (typeof value !== "string") {
+    throw new TypeError("Cloudflare KV storage value is not encoded text");
+  }
+  return decodeBase64(value);
 }
 
 function checkCloudflareBulkOperation(
@@ -472,39 +469,10 @@ function checkCloudflareBulkOperation(
   }
 }
 
-function cloudflareClientOptions(options: CloudflareKvEngineOptions): ClientOptions {
-  return {
-    apiEmail: options.apiEmail,
-    apiKey: options.apiKey,
-    apiToken: options.apiToken,
-    apiVersion: options.apiVersion,
-    baseURL: options.baseURL,
-    defaultHeaders: options.defaultHeaders,
-    defaultQuery: options.defaultQuery,
-    fetch: options.fetch,
-    maxRetries: options.maxRetries,
-    timeout: options.timeout,
-    userServiceKey: options.userServiceKey,
-  };
-}
-
 function resolveCloudflareBinding(
   options: CloudflareKvEngineOptions,
 ): CloudflareKvBinding | undefined {
-  if (options.binding === undefined) {
-    return undefined;
-  }
-  if (typeof options.binding !== "string") {
-    return options.binding;
-  }
-  const binding = options.bindings?.[options.binding];
-  if (binding === undefined) {
-    StorageEngineError.cloudflareBindingNotFound(options.binding);
-  }
-  if (!isCloudflareKvBinding(binding)) {
-    StorageEngineError.cloudflareBindingInvalid(options.binding);
-  }
-  return binding;
+  return resolveBinding(options.binding, options.bindings, "KV", isCloudflareKvBinding);
 }
 
 function isCloudflareKvBinding(value: unknown): value is CloudflareKvBinding {
@@ -532,15 +500,6 @@ function resolveCloudflareTtl(
     return ttl;
   }
   return Math.max(ttl, minTtl);
-}
-
-function isNotFoundError(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "status" in error &&
-    (error as { readonly status?: unknown }).status === 404
-  );
 }
 
 type CloudflareBulkGetValue =

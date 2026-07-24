@@ -3,7 +3,7 @@
   "version": "0.4.0",
   "exports": {
     ".": "./src/mod.ts",
-    "./cloudflare": "./src/engine/cloudflare.ts",
+    "./cloudflare": "./src/engine/cloudflare/mod.ts",
     "./filesystem": "./src/engine/file-system.ts",
     "./indexeddb": "./src/engine/indexed-db.ts",
     "./libsql": "./src/engine/libsql.ts",
