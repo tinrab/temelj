@@ -1,3 +1,4 @@
+export * from "./errors.ts";
 export * from "./use-battery.ts";
 export * from "./use-click-away.ts";
 export * from "./use-copy-to-clipboard.ts";

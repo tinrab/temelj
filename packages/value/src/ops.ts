@@ -1,19 +1,7 @@
-import fastEquals from "react-fast-compare";
-
 import type { PrimitiveValue } from "./types";
 
 import { isPrimitiveValue } from "./check";
-
-/**
- * Compares two values for deep equality.
- *
- * @param a The first value to compare.
- * @param b The second value to compare.
- * @returns `true` if the values are deeply equal, `false` otherwise.
- */
-export function deepEquals(a: unknown, b: unknown): boolean {
-  return fastEquals(a, b);
-}
+import { ValueConversionError } from "./errors";
 
 /**
  * Converts a value to a primitive value.
@@ -50,7 +38,7 @@ export function primitivize(value: unknown): PrimitiveValue {
     return newObj;
   }
   if (!isPrimitiveValue(value)) {
-    throw new Error(`Cannot convert value to primitive: ${JSON.stringify(value)}`);
+    ValueConversionError.notPrimitive(value);
   }
   return value;
 }

@@ -1,3 +1,5 @@
+import { IteratorOptionsError } from "./errors";
+
 /**
  * Generates the cartesian product of two iterables.
  * Returns every possible pair from the two iterables.
@@ -64,7 +66,7 @@ export function combinations<T>(iterable: Iterable<T>, n: number): T[][] {
   const arr = Array.from(iterable);
 
   if (n < 0) {
-    throw new Error("Combination size must be non-negative");
+    IteratorOptionsError.combinationSizeNonNegative();
   }
 
   if (n === 0) {

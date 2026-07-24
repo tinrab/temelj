@@ -1,6 +1,6 @@
 {
   "name": "@temelj/env",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Type-safe environment variable parsing.",
   "license": "MIT",
   "repository": {
@@ -30,11 +30,11 @@
     "@temelj/standard-schema": "workspace:*"
   },
   "devDependencies": {
-    "@types/node": "25.9.2",
+    "@types/node": "26.1.1",
     "shx": "^0.4.0",
-    "tsdown": "^0.22.2",
-    "typescript": "^6.0.3",
-    "vitest": "^4.1.8",
+    "tsdown": "^0.22.14",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10",
     "zod": "^4.4.3"
   }
 }

@@ -9,11 +9,12 @@ import {
   type S3ClientConfig,
 } from "@aws-sdk/client-s3";
 
-import type {
-  StorageEngine,
-  StorageEngineKeyOptions,
-  StorageEngineSetManyItem,
-  StorageEngineSetOptions,
+import {
+  StorageEngineError,
+  type StorageEngine,
+  type StorageEngineKeyOptions,
+  type StorageEngineSetManyItem,
+  type StorageEngineSetOptions,
 } from "../types.ts";
 
 /**
@@ -330,7 +331,7 @@ async function bodyToUint8Array(body: unknown): Promise<Uint8Array> {
     }
     return concatenate(chunks);
   }
-  throw new TypeError("S3 object body cannot be converted to Uint8Array.");
+  StorageEngineError.objectBodyInvalid("S3");
 }
 
 function isTransformableBody(

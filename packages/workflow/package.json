@@ -1,0 +1,144 @@
+{
+  "name": "@temelj/workflow",
+  "version": "0.0.0-alpha.1",
+  "description": "Durable, vendor-agnostic, extendible workflows.",
+  "license": "MIT",
+  "repository": {
+    "url": "https://github.com/tinrab/temelj"
+  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "main": "./dist/mod.mjs",
+  "types": "./dist/mod.d.mts",
+  "exports": {
+    ".": {
+      "types": "./dist/mod.d.mts",
+      "import": "./dist/mod.mjs"
+    },
+    "./engine": {
+      "types": "./dist/engine/mod.d.mts",
+      "import": "./dist/engine/mod.mjs"
+    },
+    "./esbuild": {
+      "types": "./dist/esbuild.d.mts",
+      "import": "./dist/esbuild.mjs"
+    },
+    "./events": {
+      "types": "./dist/events/mod.d.mts",
+      "import": "./dist/events/mod.mjs"
+    },
+    "./inspection": {
+      "types": "./dist/inspection/mod.d.mts",
+      "import": "./dist/inspection/mod.mjs"
+    },
+    "./otel": {
+      "types": "./dist/otel.d.mts",
+      "import": "./dist/otel.mjs"
+    },
+    "./registry": {
+      "types": "./dist/registry.d.mts",
+      "import": "./dist/registry.mjs"
+    },
+    "./rolldown": {
+      "types": "./dist/rolldown.d.mts",
+      "import": "./dist/rolldown.mjs"
+    },
+    "./rollup": {
+      "types": "./dist/rollup.d.mts",
+      "import": "./dist/rollup.mjs"
+    },
+    "./rspack": {
+      "types": "./dist/rspack.d.mts",
+      "import": "./dist/rspack.mjs"
+    },
+    "./telemetry": {
+      "types": "./dist/telemetry.d.mts",
+      "import": "./dist/telemetry.mjs"
+    },
+    "./store": {
+      "types": "./dist/store/mod.d.mts",
+      "import": "./dist/store/mod.mjs"
+    },
+    "./vite": {
+      "types": "./dist/vite.d.mts",
+      "import": "./dist/vite.mjs"
+    },
+    "./webpack": {
+      "types": "./dist/webpack.d.mts",
+      "import": "./dist/webpack.mjs"
+    },
+    "./worker": {
+      "types": "./dist/worker.d.mts",
+      "import": "./dist/worker.mjs"
+    }
+  },
+  "scripts": {
+    "build": "tsdown",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "clean": "shx rm -rf dist",
+    "docs": "shx rm -rf docs && typedoc"
+  },
+  "dependencies": {
+    "@opentelemetry/api": "^1.9.1",
+    "@temelj/event": "workspace:*",
+    "@temelj/log": "workspace:*",
+    "@temelj/standard-schema": "workspace:*",
+    "@temelj/storage": "workspace:*",
+    "@temelj/string": "workspace:*",
+    "@temelj/value": "workspace:*",
+    "oxc-parser": "0.141.0",
+    "unplugin": "^3.3.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@opentelemetry/sdk-metrics": "^2.10.0",
+    "@opentelemetry/sdk-trace-base": "^2.10.0",
+    "@rspack/core": "^2.1.5",
+    "@types/node": "26.1.1",
+    "esbuild": "^0.28.1",
+    "rolldown": "^1.2.0",
+    "rollup": "^4.62.2",
+    "shx": "^0.4.0",
+    "tsdown": "^0.22.14",
+    "typedoc": "^0.28.20",
+    "typescript": "^7.0.2",
+    "vite": "^8.1.5",
+    "vitest": "^4.1.10",
+    "webpack": "^5.109.0"
+  },
+  "peerDependencies": {
+    "@rspack/core": "^2.0.0",
+    "esbuild": "^0.28.0",
+    "rolldown": "^1.0.0",
+    "rollup": "^4.0.0",
+    "typescript": "^6.0.0",
+    "vite": "^8.0.0",
+    "webpack": "^5.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@rspack/core": {
+      "optional": true
+    },
+    "esbuild": {
+      "optional": true
+    },
+    "rolldown": {
+      "optional": true
+    },
+    "rollup": {
+      "optional": true
+    },
+    "typescript": {
+      "optional": true
+    },
+    "vite": {
+      "optional": true
+    },
+    "webpack": {
+      "optional": true
+    }
+  }
+}

@@ -9,7 +9,7 @@ export function createBytesStorageCodec(): StorageCodec<Uint8Array> {
       try {
         return value.slice();
       } catch (error) {
-        throw new StorageSerializationError("encode", error);
+        StorageSerializationError.encode(error);
       }
     },
 
@@ -17,7 +17,7 @@ export function createBytesStorageCodec(): StorageCodec<Uint8Array> {
       try {
         return bytes.slice();
       } catch (error) {
-        throw new StorageSerializationError("decode", error);
+        StorageSerializationError.decode(error);
       }
     },
   };

@@ -6,7 +6,6 @@ Generated files are governed by their generators.
 
 ## Source of Truth
 
-- `pnpm format` is the formatting authority.
 - `pnpm lint` is the lint authority.
 - `pnpm typecheck` is the type authority.
 - Code style that is not mechanically enforced is still required for review.
@@ -26,11 +25,8 @@ Generated files are governed by their generators.
 
 ## Formatting
 
-- Let `oxfmt` decide whitespace, wrapping, semicolons, and trailing commas.
 - Use double quotes for strings.
 - Use semicolons.
-- Keep one logical statement per line.
-- Do not manually align declarations with padding spaces.
 - Keep comments concise and useful. Do not comment obvious assignments or
   self-explanatory control flow.
 
@@ -75,6 +71,27 @@ Generated files are governed by their generators.
   recoverable validation or operation failures when the surrounding package uses
   that style.
 
+## Simplicity and Abstraction
+
+- Prefer direct code over abstraction until the abstraction removes real
+  duplication, names a domain concept, or protects a non-obvious invariant.
+- Do not add pass-through helpers that only call another function, rename another
+  predicate, or wrap a single `if` statement. Inline the check at the call site
+  unless the helper has a stable domain meaning used in several places.
+- Do not create local aliases such as `isX()` when an existing `isX()` already
+  expresses the same predicate. Import and use the existing function directly.
+- Do not add "manager", "service", "engine", "api", "impl", or "utils" layers
+  just to move code around. A layer should own state, isolate an external
+  dependency, or define a real boundary.
+- Use ordinary classes for stateful runtime implementations. If a public
+  interface has an implementation, prefer `export class FooImpl implements Foo`
+  with methods and public readonly properties over object-literal `api` shells
+  or empty `interface FooImpl extends Foo {}` declarations.
+- Do not keep old overloads, duck-typed input shapes, aliases, or forwarding
+  wrappers after a cleaner API exists. Remove the old shape and update callers.
+- If a function exists only to satisfy a past refactor and its body is still
+  obvious at every call site, delete it.
+
 ## Types
 
 - Prefer `unknown` over `any`.
@@ -95,6 +112,29 @@ Generated files are governed by their generators.
   same-line or adjacent comment explaining the expected error.
 - Do not use `@ts-ignore`.
 
+## Validation and Parsing
+
+- TypeScript is the source of truth for values that are already typed inside the
+  package. Do not parse, validate, or schema-check internal option objects merely
+  to recover type safety that TypeScript already provides.
+- Use runtime schemas for data that crosses an untyped boundary: user-provided
+  unknown values, persisted storage records, serialized payloads, environment
+  variables, wire formats, and plugin/compiler input.
+- When a schema is the runtime source of truth, colocate it with the type and
+  infer the type from the schema when that keeps the contract clearer.
+- Keep public validator interoperability through `@temelj/standard-schema` when
+  accepting user schemas. Package internals may use the package's established
+  runtime validator for its own persisted or external records.
+- Reserve `parse*` names for functions that truly parse unknown, string,
+  serialized, or external input and can reject malformed data. Do not name typed
+  option normalization `parse*`; use `resolve*`, `normalize*`, or direct code.
+- Avoid `assert*`, `validate*`, and `require*` helpers for one-off checks. Inline
+  the condition and throw a named error. Keep these helpers only when they encode
+  a reusable invariant or make a larger algorithm easier to read.
+- Prefer existing structured helpers over custom equality and matching code. For
+  example, use package utilities such as `deepEquals` when structural equality is
+  the point, instead of writing local field-by-field matchers.
+
 ## Runtime Code
 
 - Prefer small pure functions for transformations and stateless utilities.
@@ -108,6 +148,22 @@ Generated files are governed by their generators.
 - For async APIs, support `AbortSignal` when cancellation is part of the expected
   workflow.
 - Do not hide global state behind module initialization. Make state explicit.
+
+## Errors
+
+- Custom error classes should expose named static constructors for common failure
+  cases, following the `StorageKeyError.invalidFormat(...)` style. Call sites
+  should read as the failure being reported, not as string formatting.
+- Do not add generic error factories such as `WorkflowStepError.message(...)` or
+  `OptionsError.fromMessage(...)`. If a failure is common enough for a factory,
+  name the factory after the failure.
+- Keep error messages specific and stable, but keep message construction inside
+  the error class when the same failure can occur in multiple modules.
+- Preserve structured details on errors when callers, logs, or serialized records
+  need to inspect the failure programmatically.
+- Construct base error classes directly only for record rehydration, tests, or
+  truly open-ended user-supplied errors. Normal package code should throw the
+  most specific error or named factory available.
 
 ## React Hooks
 

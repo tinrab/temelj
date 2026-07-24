@@ -44,6 +44,16 @@ services:
     networks:
       - temelj
 
+  grafana-otel:
+    image: grafana/otel-lgtm:0.28.0
+    container_name: grafana-otel
+    ports:
+      - "4000:3000"
+      - "4317:4317"
+      - "4318:4318"
+    networks:
+      - temelj
+
   # RustFS server
   rustfs:
     image: rustfs/rustfs:1.0.0-beta.6

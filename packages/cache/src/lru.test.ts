@@ -1,6 +1,6 @@
 import { describe, expect, expectTypeOf, test, vi } from "vitest";
 
-import { AsyncLruCache, LruCache, memoizeLru, type Cache } from "./mod.ts";
+import { AsyncLruCache, CacheOptionsError, LruCache, memoizeLru, type Cache } from "./mod.ts";
 
 describe("LruCache", () => {
   test("stores and reads values", () => {
@@ -198,12 +198,12 @@ describe("LruCache", () => {
   });
 
   test("validates limits and size hooks", () => {
-    expect(() => new LruCache({ maxEntries: 0 })).toThrow(RangeError);
-    expect(() => new LruCache({ maxSize: 0 })).toThrow(RangeError);
-    expect(() => new LruCache({ ttl: -1 })).toThrow(RangeError);
+    expect(() => new LruCache({ maxEntries: 0 })).toThrow(CacheOptionsError);
+    expect(() => new LruCache({ maxSize: 0 })).toThrow(CacheOptionsError);
+    expect(() => new LruCache({ ttl: -1 })).toThrow(CacheOptionsError);
 
     const cache = new LruCache<string, number>({ sizeOf: () => Number.NaN });
-    expect(() => cache.set("a", 1)).toThrow(RangeError);
+    expect(() => cache.set("a", 1)).toThrow(CacheOptionsError);
   });
 });
 

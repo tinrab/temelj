@@ -19,17 +19,41 @@ export type EnvIssue = StandardSchemaV1.Issue & {
 export class EnvValidationError extends Error {
   public readonly issues: ReadonlyArray<EnvIssue>;
 
-  constructor(issues: ReadonlyArray<EnvIssue>, message = "Invalid environment variables") {
+  constructor(
+    issues: ReadonlyArray<EnvIssue>,
+    message = "Invalid environment variables",
+    context?: Function,
+  ) {
     super(message);
     this.name = "EnvValidationError";
     this.issues = issues;
+
+    if (Error.captureStackTrace !== undefined) {
+      Error.captureStackTrace(this, context ?? this.constructor);
+    }
+  }
+
+  static create(
+    this: void,
+    issues: ReadonlyArray<EnvIssue>,
+    message = "Invalid environment variables",
+  ): EnvValidationError {
+    return new EnvValidationError(issues, message, EnvValidationError.create);
   }
 }
 
 export class EnvConfigurationError extends Error {
-  constructor(message: string) {
+  constructor(message: string, context?: Function) {
     super(message);
     this.name = "EnvConfigurationError";
+
+    if (Error.captureStackTrace !== undefined) {
+      Error.captureStackTrace(this, context ?? this.constructor);
+    }
+  }
+
+  static create(this: void, message: string): EnvConfigurationError {
+    return new EnvConfigurationError(message, EnvConfigurationError.create);
   }
 }
 

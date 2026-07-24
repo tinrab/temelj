@@ -1,5 +1,7 @@
 import type { StreamType } from "./generated/options.ts";
 
+import { FFmpegDefinitionError } from "./errors.ts";
+
 export type FilterGraphMediaType = "video" | "audio" | "unknown";
 
 export type FilterScalar = string | number | boolean;
@@ -411,7 +413,7 @@ export class FilterGraphChain<
     }
 
     if (chain.length === 0) {
-      throw new Error("Cannot label an empty filter graph chain");
+      FFmpegDefinitionError.emptyFilterGraphChain();
     }
 
     this.graph.addSegment(
@@ -443,7 +445,7 @@ export class FilterGraph {
   addSegment(segment: string, labels: readonly string[]): void {
     for (const label of labels) {
       if (this.outputLabels.has(label)) {
-        throw new Error(`Duplicate filter graph output label "${label}"`);
+        FFmpegDefinitionError.duplicateFilterGraphOutputLabel(label);
       }
       this.outputLabels.add(label);
     }

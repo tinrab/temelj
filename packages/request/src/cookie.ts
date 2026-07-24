@@ -2,6 +2,24 @@ import { Buffer } from "node:buffer";
 import { timingSafeEqual } from "node:crypto";
 import * as cookieUtility from "tough-cookie";
 
+export class CookieEncryptionError extends Error {
+  constructor(message: string, context?: Function) {
+    super(message);
+    this.name = "CookieEncryptionError";
+
+    if (Error.captureStackTrace !== undefined) {
+      Error.captureStackTrace(this, context ?? this.constructor);
+    }
+  }
+
+  static passwordTooShort(this: void): never {
+    throw new CookieEncryptionError(
+      "Password must be at least 32 characters long",
+      CookieEncryptionError.passwordTooShort,
+    );
+  }
+}
+
 /**
  * A HTTP cookie.
  */
@@ -271,7 +289,7 @@ export async function encryptCookieValue(
   options: CookieEncryptionOptions,
 ): Promise<string> {
   if (options.password.length < 32) {
-    throw new Error("Password must be at least 32 characters long");
+    CookieEncryptionError.passwordTooShort();
   }
 
   const keyOptions: GenerateKeyOptions = {

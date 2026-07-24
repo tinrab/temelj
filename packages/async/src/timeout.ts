@@ -17,7 +17,7 @@ export function timeout<T>(
 
   return new Promise<T>((resolve, reject) => {
     if (options?.signal?.aborted) {
-      reject(new AbortError());
+      reject(AbortError.create());
       return;
     }
 
@@ -30,7 +30,7 @@ export function timeout<T>(
       if (options && "fallback" in options) {
         resolve(options.fallback as T);
       } else {
-        reject(new TimeoutError());
+        reject(TimeoutError.create());
       }
     }, ms);
 
@@ -39,7 +39,7 @@ export function timeout<T>(
       settled = true;
       clearTimeout(timer);
       cleanup();
-      reject(new AbortError());
+      reject(AbortError.create());
     }
 
     function cleanup() {

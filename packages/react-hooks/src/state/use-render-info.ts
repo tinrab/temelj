@@ -14,7 +14,7 @@ export interface RenderInfo {
   name: string;
   /** Number of renders observed. */
   renders: number;
-  /** Milliseconds since the previous render. */
+  /** Elapsed time since the previous render. */
   sinceLastRender: number;
   /** Timestamp for the reported value. */
   timestamp: number;

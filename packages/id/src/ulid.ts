@@ -1,5 +1,7 @@
 import id128 from "id128";
 
+import { IdOptionsError } from "./errors";
+
 /**
  * Options for generating ULIDs.
  * Used in {@linkcode generateUlid} and {@linkcode generateUlidList}.
@@ -24,7 +26,7 @@ export interface UlidOptions {
 export function generateUlid(options: UlidOptions = {}): string {
   if (options.random !== undefined) {
     if (options.random.length !== 10) {
-      throw new Error("Invalid random bytes");
+      IdOptionsError.invalidUlidRandomBytes();
     }
 
     const buffer = new Uint8Array(16);
@@ -67,7 +69,7 @@ export function generateUlid(options: UlidOptions = {}): string {
  */
 export function generateUlidList(count: number, options: UlidOptions = {}): string[] {
   if (options.random !== undefined) {
-    throw new Error("Cannot generate multiple ULIDs with the same random bytes");
+    IdOptionsError.ulidListRandomBytesUnsupported();
   }
 
   const ids = [];

@@ -1,5 +1,6 @@
 export * from "./array";
 export * from "./combinatorics";
+export * from "./errors";
 export * from "./filter";
 export * from "./iter";
 export * from "./random";

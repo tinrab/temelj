@@ -2,6 +2,7 @@ import type { FilterGraphStream } from "./filter-graph.ts";
 import type { GlobalOptions, InputOptions, OutputOptions } from "./types.ts";
 
 import { serializeGlobal, serializeInput, serializeOutput } from "./args.ts";
+import { FFmpegDefinitionError } from "./errors.ts";
 import { FilterGraph } from "./filter-graph.ts";
 import {
   mapInputStream as serializeMapInputStream,
@@ -126,7 +127,7 @@ export class FFmpegBuilder {
   private currentInput(): InputEntry {
     const entry = this._inputs.at(-1);
     if (!entry) {
-      throw new Error("No input defined. Call .input(...) before mutating input options.");
+      FFmpegDefinitionError.inputMissing();
     }
     return entry;
   }
@@ -134,7 +135,7 @@ export class FFmpegBuilder {
   private currentOutput(): OutputEntry {
     const entry = this._outputs.at(-1);
     if (!entry) {
-      throw new Error("No output defined. Call .output(...) before mutating output options.");
+      FFmpegDefinitionError.outputMissing();
     }
     return entry;
   }
@@ -310,7 +311,7 @@ export class FFmpegBuilder {
 
   private validate(): void {
     if (this._outputs.length === 0 && this._inputs.length > 0) {
-      throw new Error("No output defined. Call .output(...) before build().");
+      FFmpegDefinitionError.buildOutputMissing();
     }
 
     if (!this._filterGraph) {
@@ -324,9 +325,7 @@ export class FFmpegBuilder {
         if (!value.startsWith("[") || !value.endsWith("]")) continue;
         const label = value.slice(1, -1);
         if (!this._filterGraph.hasOutputLabel(label)) {
-          throw new Error(
-            `Mapped filter label "${label}" is not defined in the current filter graph`,
-          );
+          FFmpegDefinitionError.mappedFilterLabelMissing(label);
         }
       }
     }

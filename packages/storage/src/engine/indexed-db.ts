@@ -1,11 +1,11 @@
-import type {
-  StorageEngine,
-  StorageEngineCompareAndSetManyItem,
-  StorageEngineKeyOptions,
-  StorageEngineSetManyItem,
-  StorageEngineSetOptions,
+import {
+  StorageEngineError,
+  type StorageEngine,
+  type StorageEngineCompareAndSetManyItem,
+  type StorageEngineKeyOptions,
+  type StorageEngineSetManyItem,
+  type StorageEngineSetOptions,
 } from "../types.ts";
-
 import { bytesEqual, resolveExpiresAt } from "../utility.ts";
 
 /**
@@ -111,7 +111,7 @@ export class IndexedDbStorageEngine implements StorageEngine {
       options.indexedDB ??
       (globalThis as typeof globalThis & { readonly indexedDB?: IndexedDbFactory }).indexedDB;
     if (factory === undefined) {
-      throw new TypeError("indexedDB is not available");
+      StorageEngineError.unavailable("indexedDB");
     }
 
     const namespace = options.namespace ?? "";

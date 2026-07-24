@@ -5,6 +5,7 @@ import {
   type EntryRecord,
   type PolicyCacheOptions,
 } from "./entry-count.ts";
+import { CacheOptionsError } from "./types.ts";
 
 export interface SlruCacheOptions<K, V> extends PolicyCacheOptions<K, V> {
   /**
@@ -237,7 +238,7 @@ export class SlruCache<K, V> extends EntryCountCache<K, V> {
 
 function validateProtectedEntries(value: number, maxEntries: number): number {
   if (!Number.isSafeInteger(value) || value < 1 || value > maxEntries) {
-    throw new RangeError("Cache protectedEntries must be between 1 and maxEntries");
+    CacheOptionsError.protectedEntriesOutOfRange();
   }
 
   return value;

@@ -23,7 +23,6 @@ These instructions apply to the whole repository.
 - Runtime/module format: ESM only. Every package uses `"type": "module"`.
 - Build tool: `tsdown` with `unbundle: true`, `target: false`, and no source
   maps. This emits one output file per source file.
-- Formatting: `oxfmt`.
 - Linting: `oxlint --type-aware` with eslint, TypeScript, unicorn, react,
   react-perf, oxc, import, jsdoc, node, promise, and vitest plugins.
 - Tests: Vitest. The root config runs `packages/**/*.test.ts` in the Node
@@ -136,18 +135,6 @@ important constraints are:
   contracts that runtime tests cannot prove.
 - Tests should exercise public behavior through the package's normal API surface
   unless testing an intentionally internal helper.
-
-## Publishing Notes
-
-- NPM publish command from the root after CI passes:
-
-```sh
-pnpm publish -r --access public --no-git-checks
-```
-
-- JSR packages are published individually from package directories with
-  `npx jsr publish`. See `.github/workflows/publish.yaml` for the authoritative
-  publish list.
 
 ## Agent Workflow
 

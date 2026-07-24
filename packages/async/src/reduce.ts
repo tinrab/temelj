@@ -16,7 +16,7 @@ export async function reduce<T, R>(
   const signal = options?.signal;
 
   if (signal?.aborted) {
-    throw new AbortError();
+    AbortError.aborted();
   }
 
   let accumulator = initialValue;
@@ -25,14 +25,14 @@ export async function reduce<T, R>(
   if (Symbol.asyncIterator in Object(input)) {
     for await (const item of input as AsyncIterable<T>) {
       if (signal?.aborted) {
-        throw new AbortError();
+        AbortError.aborted();
       }
       accumulator = await reducer(accumulator, item, index++);
     }
   } else {
     for (const item of input as Iterable<T>) {
       if (signal?.aborted) {
-        throw new AbortError();
+        AbortError.aborted();
       }
       accumulator = await reducer(accumulator, item, index++);
     }

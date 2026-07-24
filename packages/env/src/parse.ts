@@ -234,7 +234,7 @@ function parseSchemaSync<TSchema extends EnvSchema>(
     const result = schema[key]["~standard"].validate(input[key]);
     if (result instanceof Promise) {
       return err(
-        new EnvConfigurationError(
+        EnvConfigurationError.create(
           `Environment variable ${key} uses an async schema. Use tryParseEnvAsync or parseEnvAsync instead.`,
         ),
       );
@@ -242,7 +242,9 @@ function parseSchemaSync<TSchema extends EnvSchema>(
     collectResult(key, result, value, issues);
   }
 
-  return issues.length > 0 ? err(new EnvValidationError(issues)) : ok(value as InferEnv<TSchema>);
+  return issues.length > 0
+    ? err(EnvValidationError.create(issues))
+    : ok(value as InferEnv<TSchema>);
 }
 
 async function parseSchemaAsync<TSchema extends EnvSchema>(
@@ -259,7 +261,9 @@ async function parseSchemaAsync<TSchema extends EnvSchema>(
     }),
   );
 
-  return issues.length > 0 ? err(new EnvValidationError(issues)) : ok(value as InferEnv<TSchema>);
+  return issues.length > 0
+    ? err(EnvValidationError.create(issues))
+    : ok(value as InferEnv<TSchema>);
 }
 
 function collectResult(
@@ -331,7 +335,7 @@ function validateEnvConfig(
   clientPrefix: string | undefined,
 ): EnvConfigurationError | undefined {
   if (!clientPrefix && Object.keys(client).length > 0) {
-    return new EnvConfigurationError(
+    return EnvConfigurationError.create(
       "clientPrefix is required when client environment variables are configured.",
     );
   }
@@ -342,7 +346,7 @@ function validateEnvConfig(
 
   for (const key of Object.keys(client)) {
     if (!key.startsWith(clientPrefix)) {
-      return new EnvConfigurationError(
+      return EnvConfigurationError.create(
         `Client environment variable '${key}' must start with '${clientPrefix}'.`,
       );
     }
@@ -350,7 +354,7 @@ function validateEnvConfig(
 
   for (const key of Object.keys(server)) {
     if (key.startsWith(clientPrefix)) {
-      return new EnvConfigurationError(
+      return EnvConfigurationError.create(
         `Server environment variable '${key}' must not start with '${clientPrefix}'.`,
       );
     }
@@ -378,7 +382,7 @@ function resolveEnv(env: EnvSource | undefined): Result<EnvSource, EnvConfigurat
   }
 
   return err(
-    new EnvConfigurationError(
+    EnvConfigurationError.create(
       "No environment source was provided and 'process.env'/'import.meta.env' are unavailable.",
     ),
   );

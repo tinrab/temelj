@@ -100,7 +100,7 @@ export class AsyncLruCache<K, V> {
       return undefined;
     }
     if (setOptions.signal?.aborted) {
-      throw new AbortError();
+      AbortError.aborted();
     }
 
     const pending = this.#pending.get(key) ?? this.#load(key, loader, setOptions);
@@ -189,12 +189,12 @@ function abortablePromise<T>(promise: Promise<T>, signal: AbortSignal | undefine
   }
 
   if (signal.aborted) {
-    return Promise.reject(new AbortError());
+    return Promise.reject(AbortError.create());
   }
 
   return new Promise<T>((resolve, reject) => {
     const onAbort = () => {
-      reject(new AbortError());
+      reject(AbortError.create());
     };
 
     signal.addEventListener("abort", onAbort, { once: true });

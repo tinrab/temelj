@@ -1,6 +1,8 @@
 import type { Registry } from "../registry";
 import type { HelperDeclareSpec } from "../types";
 
+import { HandlebarsHelperError } from "../helper_builder";
+
 export function getCoreHelpers(registry: Registry): HelperDeclareSpec {
   return {
     set: (context) => {
@@ -28,7 +30,7 @@ export function getCoreHelpers(registry: Registry): HelperDeclareSpec {
         partial = registry.compile(partial) as (options: unknown) => string;
       }
       if (typeof partial !== "function") {
-        throw new Error(`Partial "${path}" not found`);
+        HandlebarsHelperError.partialNotFound(path);
       }
       return partial(options.hash);
     },

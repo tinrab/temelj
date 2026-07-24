@@ -39,7 +39,7 @@ $ deno add jsr:@temelj/storage # or jsr add @temelj/storage
 
 `@temelj/storage` provides a common async storage API over different backing data stores.
 
-Values use the SuperJSON codec by default, so JSON-compatible data, `Date`, `bigint`, `Map`, `Set`, `RegExp`, and `Uint8Array` values can be stored without choosing a codec.
+Values use the SuperJSON codec by default, so JSON-compatible data, `Date`, `bigint`, `Map`, `Set`, `RegExp`, `Uint8Array`, and `Temporal.*` values can be stored without choosing a codec.
 
 ```ts
 import { createStorage } from "@temelj/storage";

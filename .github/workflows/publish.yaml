@@ -53,6 +53,7 @@ jobs:
           (cd "packages/result" && npx jsr publish)
           (cd "packages/standard-schema" && npx jsr publish)
           (cd "packages/event" && npx jsr publish)
+          (cd "packages/log" && npx jsr publish)
           (cd "packages/iterator" && npx jsr publish)
           (cd "packages/math" && npx jsr publish)
           (cd "packages/react-hooks" && npx jsr publish)

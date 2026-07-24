@@ -1,3 +1,4 @@
+export { FFmpegDefinitionError } from "./errors.ts";
 export { ffmpeg } from "./builder.ts";
 export { filterGraph, FilterGraph, FilterGraphStream } from "./filter-graph.ts";
 export { mapInputStream, mapAllStreams, mapLabel, unsafeMapLabel, disableMap } from "./mapping.ts";

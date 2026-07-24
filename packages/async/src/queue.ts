@@ -42,7 +42,7 @@ export class Queue {
     return new Promise<T>((resolve, reject) => {
       const signal = options?.signal;
       if (signal?.aborted) {
-        reject(new AbortError());
+        reject(AbortError.create());
         return;
       }
 
@@ -60,7 +60,7 @@ export class Queue {
           if (index !== -1) {
             this.#pending.splice(index, 1);
           }
-          reject(new AbortError());
+          reject(AbortError.create());
         };
         signal.addEventListener("abort", onAbort, { once: true });
 
@@ -160,7 +160,7 @@ export class Queue {
       if (!task) break;
 
       if (task.signal?.aborted) {
-        task.reject(new AbortError());
+        task.reject(AbortError.create());
         continue;
       }
 
@@ -183,7 +183,7 @@ export class Queue {
         task.signal?.removeEventListener("abort", onAbort);
         this.#activeCount--;
         if (aborted) {
-          task.reject(new AbortError());
+          task.reject(AbortError.create());
         } else {
           task.resolve(value);
         }

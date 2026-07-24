@@ -1,11 +1,13 @@
-import type {
-  StorageEngine,
-  StorageEngineCompareAndSetManyItem,
-  StorageEngineKeyOptions,
-  StorageEngineSetManyItem,
-  StorageEngineSetOptions,
-} from "../types.ts";
+import { decodeBase64, encodeBase64 } from "@temelj/string";
 
+import {
+  StorageEngineError,
+  type StorageEngine,
+  type StorageEngineCompareAndSetManyItem,
+  type StorageEngineKeyOptions,
+  type StorageEngineSetManyItem,
+  type StorageEngineSetOptions,
+} from "../types.ts";
 import { bytesEqual, resolveExpiresAt } from "../utility.ts";
 
 /**
@@ -53,7 +55,7 @@ class WebStorageEngine implements StorageEngine {
 
   constructor(name: string, storage: WebStorageLike | undefined, options: WebStorageEngineOptions) {
     if (storage === undefined) {
-      throw new TypeError(`${name} is not available`);
+      StorageEngineError.unavailable(name);
     }
 
     const namespace = options.namespace ?? "";
@@ -220,23 +222,6 @@ export class SessionStorageEngine extends WebStorageEngine {
   constructor(options: WebStorageEngineOptions = {}) {
     super("sessionStorage", options.storage ?? globalThis.sessionStorage, options);
   }
-}
-
-function encodeBase64(value: Uint8Array): string {
-  let binary = "";
-  for (const byte of value) {
-    binary += String.fromCharCode(byte);
-  }
-  return btoa(binary);
-}
-
-function decodeBase64(value: string): Uint8Array {
-  const binary = atob(value);
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index++) {
-    bytes[index] = binary.charCodeAt(index);
-  }
-  return bytes;
 }
 
 /**

@@ -4,6 +4,8 @@ import type {
   OutputOptions as GeneratedOutputOptions,
 } from "./generated/options.ts";
 
+import { FFmpegDefinitionError } from "./errors.ts";
+
 export type OneOrMany<T> = T | readonly T[];
 
 export interface UnsafeValue<TValue extends string = string> {
@@ -75,7 +77,7 @@ function isUnsafeValue(value: unknown): value is UnsafeValue {
 
 function ensureNonEmpty(value: string, label: string): string {
   if (value.length === 0) {
-    throw new Error(`${label} cannot be empty`);
+    FFmpegDefinitionError.nonEmpty(label);
   }
   return value;
 }
@@ -130,7 +132,7 @@ export function serializeProgramDefinitions(
 ): string | string[] | undefined {
   return serializeOneOrMany(value, (item) => {
     if (item.streams.length === 0) {
-      throw new Error("Program definition must include at least one stream");
+      FFmpegDefinitionError.programStreamsRequired();
     }
 
     const parts: string[] = [];
@@ -151,7 +153,7 @@ export function serializeStreamGroupDefinitions(
 
     if (item.inputFileId !== undefined || item.inputGroupId !== undefined) {
       if (item.inputFileId === undefined || item.inputGroupId === undefined) {
-        throw new Error("Stream group input mapping requires both inputFileId and inputGroupId");
+        FFmpegDefinitionError.streamGroupInputMappingIncomplete();
       }
       parts.push(`map=${item.inputFileId}=${item.inputGroupId}`);
     }
@@ -203,7 +205,7 @@ export function serializeDispositions(
     ];
 
     if (parts.length === 0) {
-      throw new Error("Disposition definition must include clear, set, add, or remove");
+      FFmpegDefinitionError.dispositionDefinitionEmpty();
     }
 
     return parts.join("");

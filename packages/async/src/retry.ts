@@ -33,7 +33,7 @@ export async function retry<T>(
 
   for (let attempt = 0; attempt < times; attempt++) {
     if (signal?.aborted) {
-      throw new AbortError();
+      AbortError.aborted();
     }
 
     try {

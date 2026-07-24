@@ -1,5 +1,7 @@
 import type { Result, ResultErr, ResultOk } from "./types";
 
+import { ResultUnwrapError } from "./errors";
+
 export function ok<T>(value: T): ResultOk<T> {
   return { kind: "ok", value };
 }
@@ -27,7 +29,7 @@ export function unwrapErr<T, E>(result: Result<T, E>): E {
   if (isErr(result)) {
     return result.error;
   }
-  throw new Error(`Result is Ok: ${String(result.value)}`);
+  ResultUnwrapError.expectedErr(result.value);
 }
 
 export function unwrapOr<T, E>(result: Result<T, E>, defaultValue: T | (() => T)): T {

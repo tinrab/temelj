@@ -1,4 +1,4 @@
-import { AbortError } from "./errors";
+import { AbortError, AsyncOptionsError } from "./errors";
 
 /**
  * A synchronization barrier that waits until a specified number of tasks have called `wait`.
@@ -14,7 +14,7 @@ export class Barrier {
 
   constructor(capacity: number) {
     if (capacity < 1) {
-      throw new RangeError("Barrier capacity must be at least 1");
+      AsyncOptionsError.barrierCapacity();
     }
     this.#capacity = capacity;
   }
@@ -27,7 +27,7 @@ export class Barrier {
    */
   wait(signal?: AbortSignal): Promise<void> {
     if (signal?.aborted) {
-      return Promise.reject(new AbortError());
+      return Promise.reject(AbortError.create());
     }
 
     this.#count++;
@@ -51,7 +51,7 @@ export class Barrier {
             this.#waiters.splice(index, 1);
             this.#count--;
           }
-          reject(new AbortError());
+          reject(AbortError.create());
         };
         signal.addEventListener("abort", onAbort, { once: true });
 

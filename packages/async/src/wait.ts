@@ -17,21 +17,21 @@ export async function wait(
 ): Promise<void> {
   const signal = options?.signal;
   const interval = options?.interval ?? 100;
-  const timeoutMs = options?.timeout;
+  const timeout = options?.timeout;
 
   if (signal?.aborted) {
-    throw new AbortError();
+    AbortError.aborted();
   }
 
   const start = Date.now();
 
   while (true) {
     if (signal?.aborted) {
-      throw new AbortError();
+      AbortError.aborted();
     }
 
-    if (timeoutMs !== undefined && Date.now() - start >= timeoutMs) {
-      throw new TimeoutError("Wait timed out");
+    if (timeout !== undefined && Date.now() - start >= timeout) {
+      TimeoutError.timedOut("Wait timed out");
     }
 
     const result = await predicate();
@@ -41,7 +41,7 @@ export async function wait(
 
     await new Promise<void>((resolve, reject) => {
       if (signal?.aborted) {
-        reject(new AbortError());
+        reject(AbortError.create());
         return;
       }
 
@@ -53,7 +53,7 @@ export async function wait(
       function onAbort() {
         clearTimeout(timer);
         cleanupSignal();
-        reject(new AbortError());
+        reject(AbortError.create());
       }
 
       function cleanupSignal() {

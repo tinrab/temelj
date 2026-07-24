@@ -1,6 +1,6 @@
 import deepmerge from "deepmerge";
 
-import { deepEquals } from "./ops";
+import { deepEquals } from "./equal";
 
 /**
  * Compares two records for equality, optionally using a custom comparison function.

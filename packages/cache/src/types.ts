@@ -69,6 +69,52 @@ export type CacheEventHandler<
 
 export type CacheSizeOf<K, V> = (entry: CacheEntry<K, V>) => number;
 
+export class CacheOptionsError extends Error {
+  constructor(message: string, context?: Function) {
+    super(message);
+    this.name = "CacheOptionsError";
+
+    if (Error.captureStackTrace !== undefined) {
+      Error.captureStackTrace(this, context ?? this.constructor);
+    }
+  }
+
+  static positiveSafeInteger(this: void, name: string): never {
+    throw new CacheOptionsError(
+      `Cache ${name} must be a positive safe integer`,
+      CacheOptionsError.positiveSafeInteger,
+    );
+  }
+
+  static positiveSafeIntegerOrInfinity(this: void, name: string): never {
+    throw new CacheOptionsError(
+      `Cache ${name} must be a positive safe integer or Infinity`,
+      CacheOptionsError.positiveSafeIntegerOrInfinity,
+    );
+  }
+
+  static finiteNonNegativeNumber(this: void, name: string): never {
+    throw new CacheOptionsError(
+      `Cache ${name} must be a finite non-negative number`,
+      CacheOptionsError.finiteNonNegativeNumber,
+    );
+  }
+
+  static entrySizeFiniteNonNegative(this: void): never {
+    throw new CacheOptionsError(
+      "Cache entry size must be a finite non-negative number",
+      CacheOptionsError.entrySizeFiniteNonNegative,
+    );
+  }
+
+  static protectedEntriesOutOfRange(this: void): never {
+    throw new CacheOptionsError(
+      "Cache protectedEntries must be between 1 and maxEntries",
+      CacheOptionsError.protectedEntriesOutOfRange,
+    );
+  }
+}
+
 export interface CacheSetOptions {
   /**
    * Time to live in milliseconds for this entry.

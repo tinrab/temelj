@@ -49,6 +49,7 @@ Foundational packages are also available in a singe dependency `@tinrab/temelj`,
 - [@temelj/id](./packages/id) - Utilities for working with ids.
 - [@temelj/iterator](./packages/iterator) - Utilities for working with
   iterables.
+- [@temelj/log](./packages/log) - Structured logging primitives.
 - [@temelj/math](./packages/math) - A collection of math utilities.
 - [@temelj/mdx](./packages/mdx) - Utilities for working with MDX.
 - [@temelj/mdx-react](./packages/mdx-react) - Helpers for rendering MDX with

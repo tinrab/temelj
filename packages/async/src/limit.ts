@@ -21,7 +21,7 @@ export function limit<Args extends unknown[], R>(
 
   return (...args: Args): Promise<R> => {
     if (signal?.aborted) {
-      return Promise.reject(new AbortError());
+      return Promise.reject(AbortError.create());
     }
 
     const deferred = defer<R>() as {
@@ -60,7 +60,7 @@ export function limit<Args extends unknown[], R>(
           if (index !== -1) {
             waiting.splice(index, 1);
           }
-          deferred.reject(new AbortError());
+          deferred.reject(AbortError.create());
         };
         signal.addEventListener("abort", onAbort, { once: true });
 

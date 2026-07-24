@@ -1,14 +1,6 @@
 import { expect, test } from "vitest";
 
-import { deepEquals, primitivize } from "./ops";
-
-test("deepEquals() works", () => {
-  const obj1 = { x: 1, y: 2, a: [1, 2] };
-  const obj2 = { x: 1, y: 2, a: [1, 2] };
-  const obj3 = { x: 1, y: 2, a: [3, 45] };
-  expect(deepEquals(obj1, obj2)).toBe(true);
-  expect(deepEquals(obj1, obj3)).toBe(false);
-});
+import { primitivize } from "./ops";
 
 test("primitivize() works", () => {
   expect(

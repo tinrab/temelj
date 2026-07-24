@@ -1,19 +1,20 @@
 import { createPubSub } from "@temelj/event";
 import { sizeOf } from "@temelj/value";
 
-import type {
-  Cache,
-  CacheClearEvent,
-  CacheDeleteReason,
-  CacheEntry,
-  CacheEventHandler,
-  CacheEventMap,
-  CacheEventPattern,
-  CacheEviction,
-  CacheResizeEvent,
-  CacheSetEvent,
-  CacheSetOptions,
-  CacheSizeOf,
+import {
+  CacheOptionsError,
+  type Cache,
+  type CacheClearEvent,
+  type CacheDeleteReason,
+  type CacheEntry,
+  type CacheEventHandler,
+  type CacheEventMap,
+  type CacheEventPattern,
+  type CacheEviction,
+  type CacheResizeEvent,
+  type CacheSetEvent,
+  type CacheSetOptions,
+  type CacheSizeOf,
 } from "./types.ts";
 
 type AnyCacheEventHandler<K, V> = (
@@ -236,7 +237,7 @@ export class LruCache<K, V> implements Cache<K, V> {
     const nextSize = this.sizeOf === undefined ? 1 : this.sizeOf({ key, value });
 
     if (!Number.isFinite(nextSize) || nextSize < 0) {
-      throw new RangeError("Cache entry size must be a finite non-negative number");
+      CacheOptionsError.entrySizeFiniteNonNegative();
     }
 
     const existing = this.records.get(key);
@@ -773,7 +774,7 @@ function validateLimit(value: number, name: string): number {
   }
 
   if (!Number.isSafeInteger(value) || value < 1) {
-    throw new RangeError(`Cache ${name} must be a positive safe integer or Infinity`);
+    CacheOptionsError.positiveSafeIntegerOrInfinity(name);
   }
 
   return value;
@@ -785,7 +786,7 @@ function validateTtl(value: number | undefined, name: string): number | undefine
   }
 
   if (!Number.isFinite(value) || value < 0) {
-    throw new RangeError(`Cache ${name} must be a finite non-negative number`);
+    CacheOptionsError.finiteNonNegativeNumber(name);
   }
 
   return value;

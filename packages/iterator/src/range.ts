@@ -1,3 +1,5 @@
+import { IteratorOptionsError } from "./errors";
+
 /**
  * A numeric range.
  */
@@ -28,7 +30,11 @@ interface NumericRangeErrorOptions {
 export class NumericRangeError extends Error implements NumericRangeErrorOptions {
   public readonly invalidInteger?: string;
 
-  constructor(options: NumericRangeErrorOptions = {}, errorOptions?: ErrorOptions) {
+  constructor(
+    options: NumericRangeErrorOptions = {},
+    errorOptions?: ErrorOptions,
+    context?: Function,
+  ) {
     let message: string | undefined;
     if (options.invalidInteger !== undefined) {
       message = `Invalid integer '${options.invalidInteger}'`;
@@ -37,6 +43,22 @@ export class NumericRangeError extends Error implements NumericRangeErrorOptions
     }
     super(message ?? "Invalid numeric range", errorOptions);
     Object.assign(this, options);
+
+    if (Error.captureStackTrace !== undefined) {
+      Error.captureStackTrace(this, context ?? this.constructor);
+    }
+  }
+
+  static invalidInteger(this: void, value: string): never {
+    throw new NumericRangeError(
+      { invalidInteger: value },
+      undefined,
+      NumericRangeError.invalidInteger,
+    );
+  }
+
+  static invalidRange(this: void, value: string): never {
+    throw new NumericRangeError({ invalidRange: value }, undefined, NumericRangeError.invalidRange);
   }
 }
 
@@ -64,15 +86,15 @@ export function parseNumericRange(s: string): NumericRange {
     if (match) {
       const from = Number.parseInt(match[1], 10);
       if (!Number.isInteger(from)) {
-        throw new NumericRangeError({ invalidRange: part });
+        NumericRangeError.invalidRange(part);
       }
       const to = Number.parseInt(match[3], 10);
       if (!Number.isInteger(to)) {
-        throw new NumericRangeError({ invalidRange: part });
+        NumericRangeError.invalidRange(part);
       }
 
       if (from === to) {
-        throw new NumericRangeError({ invalidRange: part });
+        NumericRangeError.invalidRange(part);
       }
 
       range.push({
@@ -84,7 +106,7 @@ export function parseNumericRange(s: string): NumericRange {
 
     const value = Number.parseInt(part, 10);
     if (!Number.isInteger(value) || value.toString() !== part) {
-      throw new NumericRangeError({ invalidInteger: part });
+      NumericRangeError.invalidInteger(part);
     }
     range.push(value);
   }
@@ -342,7 +364,7 @@ export class NumericRangeIterator implements Iterator<number, number> {
  */
 export function* range(start: number, end: number, step: number = 1): Generator<number> {
   if (step === 0) {
-    throw new Error("Step cannot be zero");
+    IteratorOptionsError.stepNonZero();
   }
 
   if (step > 0) {

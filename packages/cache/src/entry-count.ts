@@ -1,17 +1,18 @@
 import { createPubSub, PubSub } from "@temelj/event";
 
-import type {
-  Cache,
-  CacheClearEvent,
-  CacheDeleteReason,
-  CacheEntry,
-  CacheEventHandler,
-  CacheEventMap,
-  CacheEventPattern,
-  CacheEviction,
-  CacheResizeEvent,
-  CacheSetEvent,
-  CacheSetOptions,
+import {
+  CacheOptionsError,
+  type Cache,
+  type CacheClearEvent,
+  type CacheDeleteReason,
+  type CacheEntry,
+  type CacheEventHandler,
+  type CacheEventMap,
+  type CacheEventPattern,
+  type CacheEviction,
+  type CacheResizeEvent,
+  type CacheSetEvent,
+  type CacheSetOptions,
 } from "./types.ts";
 
 export interface PolicyCacheOptions<K, V> {
@@ -172,7 +173,7 @@ export function lastKey<K>(values: Map<K, unknown>): K | undefined {
 
 export function validateLimit(value: number, name: string): number {
   if (!Number.isSafeInteger(value) || value < 1) {
-    throw new RangeError(`Cache ${name} must be a positive safe integer`);
+    CacheOptionsError.positiveSafeInteger(name);
   }
 
   return value;

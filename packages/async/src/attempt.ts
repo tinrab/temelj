@@ -12,12 +12,12 @@ export function attempt<T, Args extends unknown[]>(
   options?: StandardOptions,
 ): Promise<T> {
   if (options?.signal?.aborted) {
-    return Promise.reject(new AbortError());
+    return Promise.reject(AbortError.create());
   }
 
   return Promise.try(fn, ...args).then((result) => {
     if (options?.signal?.aborted) {
-      throw new AbortError();
+      AbortError.aborted();
     }
     return result;
   });

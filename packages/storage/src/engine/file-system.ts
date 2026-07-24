@@ -1,4 +1,4 @@
-import { Buffer } from "node:buffer";
+import { decodeBase64UrlString, encodeBase64UrlString } from "@temelj/string";
 import { mkdir, readdir, readFile, rm, unlink, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
@@ -203,11 +203,11 @@ export class FileSystemStorageEngine implements StorageEngine {
   }
 
   #valuePath(key: string): string {
-    return join(this.#directory, `${encodeKey(key)}${this.#valueExtension}`);
+    return join(this.#directory, `${encodeBase64UrlString(key)}${this.#valueExtension}`);
   }
 
   #metadataPath(key: string): string {
-    return join(this.#directory, `${encodeKey(key)}${this.#metadataExtension}`);
+    return join(this.#directory, `${encodeBase64UrlString(key)}${this.#metadataExtension}`);
   }
 
   async #readMetadata(key: string): Promise<FileSystemRecordMetadata> {
@@ -291,7 +291,7 @@ export class FileSystemStorageEngine implements StorageEngine {
     const entries = await readDirectory(this.#directory);
     return entries
       .filter((entry) => entry.endsWith(this.#valueExtension))
-      .map((entry) => decodeKey(entry.slice(0, -this.#valueExtension.length)));
+      .map((entry) => decodeBase64UrlString(entry.slice(0, -this.#valueExtension.length)));
   }
 
   async #matchingKeys(options: StorageEngineKeyOptions | undefined): Promise<readonly string[]> {
@@ -330,14 +330,6 @@ async function removeFile(path: string): Promise<void> {
       throw error;
     }
   }
-}
-
-function encodeKey(key: string): string {
-  return Buffer.from(key, "utf8").toString("base64url");
-}
-
-function decodeKey(value: string): string {
-  return Buffer.from(value, "base64url").toString("utf8");
 }
 
 function isNotFoundError(error: unknown): boolean {

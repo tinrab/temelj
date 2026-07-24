@@ -14,14 +14,47 @@ type ParamOutputs<TParams extends ParamSchemas> = TParams extends []
 export class StandardSchemaValidationError extends Error {
   public readonly issues: ReadonlyArray<StandardSchemaV1.Issue>;
 
-  constructor(message: string, issues: ReadonlyArray<StandardSchemaV1.Issue>) {
+  constructor(message: string, issues: ReadonlyArray<StandardSchemaV1.Issue>, context?: Function) {
     super(message);
     this.name = "StandardSchemaValidationError";
     this.issues = issues;
+
+    if (Error.captureStackTrace !== undefined) {
+      Error.captureStackTrace(this, context ?? this.constructor);
+    }
+  }
+
+  static failed(this: void, message: string, issues: ReadonlyArray<StandardSchemaV1.Issue>): never {
+    throw new StandardSchemaValidationError(message, issues, StandardSchemaValidationError.failed);
   }
 }
 
-interface HelperBuilder {
+export class HandlebarsHelperError extends Error {
+  constructor(message: string, context?: Function) {
+    super(message);
+    this.name = "HandlebarsHelperError";
+
+    if (Error.captureStackTrace !== undefined) {
+      Error.captureStackTrace(this, context ?? this.constructor);
+    }
+  }
+
+  static asyncSchemaUnsupported(this: void, helperName: string): never {
+    throw new HandlebarsHelperError(
+      `Async schema validation is not supported in Handlebars helper '${helperName}'`,
+      HandlebarsHelperError.asyncSchemaUnsupported,
+    );
+  }
+
+  static partialNotFound(this: void, path: string): never {
+    throw new HandlebarsHelperError(
+      `Partial "${path}" not found`,
+      HandlebarsHelperError.partialNotFound,
+    );
+  }
+}
+
+interface HelperBuilderContract {
   params: <TParams extends ParamSchemas>(...schemas: TParams) => HelperBuilderWithParams<TParams>;
   hash: <THash extends Schema>(schema: THash) => HelperBuilderWithHash<THash>;
   handle: (handler: (context: HelperContext) => HelperResult) => HelperDelegate;
@@ -53,7 +86,7 @@ interface HelperBuilderWithParamsAndHash<TParams extends ParamSchemas, THash ext
   ) => HelperDelegate;
 }
 
-class HelperBuilderImpl implements HelperBuilder {
+class HelperBuilder implements HelperBuilderContract {
   private _paramsSchemas?: readonly Schema[];
   private _hashSchema?: Schema;
 
@@ -63,14 +96,14 @@ class HelperBuilderImpl implements HelperBuilder {
   }
 
   params<TParams extends ParamSchemas>(...schemas: TParams): HelperBuilderWithParams<TParams> {
-    return new HelperBuilderImpl(
+    return new HelperBuilder(
       schemas,
       this._hashSchema,
     ) as unknown as HelperBuilderWithParams<TParams>;
   }
 
   hash<THash extends Schema>(schema: THash): HelperBuilderWithHash<THash> {
-    return new HelperBuilderImpl(
+    return new HelperBuilder(
       this._paramsSchemas,
       schema,
     ) as unknown as HelperBuilderWithHash<THash>;
@@ -121,15 +154,13 @@ function validateSchema(
 ): unknown {
   const result = schema["~standard"].validate(value);
   if (result instanceof Promise) {
-    throw new Error(
-      `Async schema validation is not supported in Handlebars helper '${context.name}'`,
-    );
+    HandlebarsHelperError.asyncSchemaUnsupported(context.name);
   }
   if (!result.issues) {
     return result.value;
   }
 
-  throw new StandardSchemaValidationError(
+  StandardSchemaValidationError.failed(
     `Input validation error in Handlebars helper '${context.name}'`,
     [
       ...result.issues.map((issue) => ({
@@ -144,6 +175,6 @@ function validateSchema(
   );
 }
 
-export function createHelper(): HelperBuilder {
-  return new HelperBuilderImpl();
+export function createHelper(): HelperBuilderContract {
+  return new HelperBuilder();
 }

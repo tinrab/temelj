@@ -9,6 +9,25 @@ type TagNode = {
   tagName: string;
 };
 
+class FFmpegScrapeError extends Error {
+  constructor(message: string, context?: Function) {
+    super(message);
+    this.name = "FFmpegScrapeError";
+
+    if (Error.captureStackTrace !== undefined) {
+      Error.captureStackTrace(this, context ?? this.constructor);
+    }
+  }
+
+  static fetchFailed(this: void, url: string, status: number): never {
+    throw new FFmpegScrapeError(`HTTP ${status} fetching ${url}`, FFmpegScrapeError.fetchFailed);
+  }
+
+  static createFetchError(this: void, url: string): FFmpegScrapeError {
+    return new FFmpegScrapeError(`Error fetching ${url}`, FFmpegScrapeError.createFetchError);
+  }
+}
+
 const BASE_URL = "https://ffmpeg.org";
 const DOCS_DIR = join(import.meta.dirname, "../src/generated");
 
@@ -65,7 +84,7 @@ async function fetchHTML(url: string): Promise<string> {
   for (let attempt = 0; attempt < 4; attempt++) {
     try {
       const resp = await fetch(url, { signal: AbortSignal.timeout(30000), headers });
-      if (!resp.ok) throw new Error(`HTTP ${resp.status} fetching ${url}`);
+      if (!resp.ok) FFmpegScrapeError.fetchFailed(url, resp.status);
       return await resp.text();
     } catch (err) {
       lastError = err;
@@ -74,7 +93,7 @@ async function fetchHTML(url: string): Promise<string> {
     }
   }
 
-  throw lastError instanceof Error ? lastError : new Error(`Error fetching ${url}`);
+  throw lastError instanceof Error ? lastError : FFmpegScrapeError.createFetchError(url);
 }
 
 function collectTextWithSeparator($: CheerioAPI, node: TagNode): string {

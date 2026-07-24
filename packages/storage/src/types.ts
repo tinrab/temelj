@@ -1,6 +1,8 @@
 import type { EventHandler, EventPattern, Unsubscribe } from "@temelj/event";
 import type { Result } from "@temelj/result";
 
+import type { StorageTemporalValue } from "./codec/temporal.ts";
+
 /**
  * Primitive value that can be represented directly in JSON.
  */
@@ -22,6 +24,7 @@ export type StorageValue =
   | bigint
   | Date
   | RegExp
+  | StorageTemporalValue
   | Uint8Array
   | ReadonlyMap<StorageValue, StorageValue>
   | ReadonlySet<StorageValue>
@@ -742,8 +745,12 @@ export interface Storage<
  * Base class for high-level storage errors.
  */
 export abstract class StorageError extends Error {
-  protected constructor(message: string) {
+  protected constructor(message: string, context?: Function) {
     super(message);
+
+    if (Error.captureStackTrace !== undefined) {
+      Error.captureStackTrace(this, context ?? this.constructor);
+    }
   }
 }
 
@@ -757,16 +764,12 @@ export class StorageKeyError extends StorageError {
   public readonly key: string;
 
   constructor(key: string, message: string, context?: Function) {
-    super(message);
+    super(message, context);
     this.name = "StorageKeyError";
     this.key = key;
-
-    if (Error.captureStackTrace) {
-      Error.captureStackTrace(this, context ?? this.constructor);
-    }
   }
 
-  static invalidFormat(key: string): never {
+  static invalidFormat(this: void, key: string): never {
     throw new StorageKeyError(
       key,
       "Storage key must be a non-empty string",
@@ -775,7 +778,7 @@ export class StorageKeyError extends StorageError {
     );
   }
 
-  static unique(operation: string, key: string): never {
+  static unique(this: void, operation: string, key: string): never {
     throw new StorageKeyError(
       key,
       `Storage ${operation} key must be unique: ${key}`,
@@ -784,7 +787,7 @@ export class StorageKeyError extends StorageError {
     );
   }
 
-  static nullBytes(key: string): never {
+  static nullBytes(this: void, key: string): never {
     throw new StorageKeyError(
       key,
       "Storage key must not contain null bytes",
@@ -793,7 +796,7 @@ export class StorageKeyError extends StorageError {
     );
   }
 
-  static invalidTtl(): never {
+  static invalidTtl(this: void): never {
     throw new StorageKeyError(
       "",
       "Storage ttl must be a finite non-negative number",
@@ -802,7 +805,7 @@ export class StorageKeyError extends StorageError {
     );
   }
 
-  static invalidExpiresAt(): never {
+  static invalidExpiresAt(this: void): never {
     throw new StorageKeyError(
       "",
       "Storage expiresAt must be a valid date",
@@ -826,11 +829,19 @@ export class StorageSerializationError extends StorageError {
    */
   public override readonly cause: unknown;
 
-  constructor(operation: "encode" | "decode", cause: unknown) {
-    super(`Storage value could not be ${operation}d`);
+  constructor(operation: "encode" | "decode", cause: unknown, context?: Function) {
+    super(`Storage value could not be ${operation}d`, context);
     this.name = "StorageSerializationError";
     this.operation = operation;
     this.cause = cause;
+  }
+
+  static encode(this: void, cause: unknown): never {
+    throw new StorageSerializationError("encode", cause, StorageSerializationError.encode);
+  }
+
+  static decode(this: void, cause: unknown): never {
+    throw new StorageSerializationError("decode", cause, StorageSerializationError.decode);
   }
 }
 
@@ -871,28 +882,128 @@ export class StorageOperationError extends StorageError {
       options.key === undefined
         ? `Storage engine ${options.engine} failed during ${options.operation}`
         : `Storage engine ${options.engine} failed during ${options.operation} for key ${options.key}`,
+      context,
     );
     this.name = "StorageOperationError";
     this.engine = options.engine;
     this.operation = options.operation;
     this.key = options.key;
     this.cause = options.cause;
-
-    if (Error.captureStackTrace) {
-      Error.captureStackTrace(this, context ?? this.constructor);
-    }
   }
 
-  static unsupportedOperation(engine: string, operation: string): never {
+  static create(
+    this: void,
+    options: {
+      readonly engine: string;
+      readonly operation: string;
+      readonly key?: string;
+      readonly cause?: unknown;
+    },
+  ): StorageOperationError {
+    return new StorageOperationError(options, StorageOperationError.create);
+  }
+
+  static unsupportedOperation(this: void, engine: string, operation: string): never {
     throw new StorageOperationError(
       {
         engine,
         operation,
         key: "",
-        cause: new Error(`Storage engine does not support '${operation}': ${engine}`),
+        cause: StorageEngineError.unsupportedOperationCause(engine, operation),
       },
       // eslint-disable-next-line unbound-method
       StorageOperationError.unsupportedOperation,
+    );
+  }
+}
+
+export class StorageEngineError extends TypeError {
+  constructor(message: string, context?: Function) {
+    super(message);
+    this.name = "StorageEngineError";
+
+    if (Error.captureStackTrace !== undefined) {
+      Error.captureStackTrace(this, context ?? this.constructor);
+    }
+  }
+
+  static unavailable(this: void, name: string): never {
+    throw new StorageEngineError(`${name} is not available`, StorageEngineError.unavailable);
+  }
+
+  static objectBodyInvalid(this: void, engine: string): never {
+    throw new StorageEngineError(
+      `${engine} object body cannot be converted to Uint8Array.`,
+      StorageEngineError.objectBodyInvalid,
+    );
+  }
+
+  static cloudflareClientConfigurationMissing(this: void): never {
+    throw new StorageEngineError(
+      "Cloudflare KV client mode requires accountId and namespaceId when no client is provided",
+      StorageEngineError.cloudflareClientConfigurationMissing,
+    );
+  }
+
+  static cloudflareAccountIdMissing(this: void): never {
+    throw new StorageEngineError(
+      "Cloudflare KV client mode requires accountId",
+      StorageEngineError.cloudflareAccountIdMissing,
+    );
+  }
+
+  static cloudflareNamespaceIdMissing(this: void): never {
+    throw new StorageEngineError(
+      "Cloudflare KV client mode requires namespaceId",
+      StorageEngineError.cloudflareNamespaceIdMissing,
+    );
+  }
+
+  static cloudflareBindingNotFound(this: void, binding: string): never {
+    throw new StorageEngineError(
+      `Cloudflare binding ${binding} was not found`,
+      StorageEngineError.cloudflareBindingNotFound,
+    );
+  }
+
+  static cloudflareBindingInvalid(this: void, binding: string): never {
+    throw new StorageEngineError(
+      `Cloudflare binding ${binding} is not a KV binding`,
+      StorageEngineError.cloudflareBindingInvalid,
+    );
+  }
+
+  static unsupportedOperationCause(
+    this: void,
+    engine: string,
+    operation: string,
+  ): StorageEngineError {
+    return new StorageEngineError(
+      `Storage engine does not support '${operation}': ${engine}`,
+      StorageEngineError.unsupportedOperationCause,
+    );
+  }
+
+  static cloudflareBulkOperationFailed(
+    this: void,
+    operation: string,
+    unsuccessfulKeys: readonly string[],
+  ): never {
+    throw new StorageEngineError(
+      `Cloudflare KV bulk ${operation} failed for keys: ${unsuccessfulKeys.join(", ")}`,
+      StorageEngineError.cloudflareBulkOperationFailed,
+    );
+  }
+
+  static cloudflareBulkOperationCountMismatch(
+    this: void,
+    operation: string,
+    successfulCount: number,
+    expectedCount: number,
+  ): never {
+    throw new StorageEngineError(
+      `Cloudflare KV bulk ${operation} succeeded for ${successfulCount} of ${expectedCount} keys`,
+      StorageEngineError.cloudflareBulkOperationCountMismatch,
     );
   }
 }

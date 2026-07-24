@@ -1,0 +1,14 @@
+{
+  "name": "@temelj/log",
+  "version": "0.1.0",
+  "exports": {
+    ".": "./src/mod.ts",
+    "./otel": "./src/otel.ts"
+  },
+  "license": "MIT",
+  "nodeModulesDir": "auto",
+  "publish": {
+    "include": ["src/**/*.ts", "src/**/*.tsx", "README.md", "LICENSE"],
+    "exclude": ["src/**/*.test.ts"]
+  }
+}

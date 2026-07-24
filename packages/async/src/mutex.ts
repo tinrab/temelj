@@ -18,7 +18,7 @@ export class Mutex {
    */
   acquire(signal?: AbortSignal): Promise<() => void> {
     if (signal?.aborted) {
-      return Promise.reject(new AbortError());
+      return Promise.reject(AbortError.create());
     }
 
     if (!this.#locked) {
@@ -35,7 +35,7 @@ export class Mutex {
           if (index !== -1) {
             this.#waiting.splice(index, 1);
           }
-          reject(new AbortError());
+          reject(AbortError.create());
         };
         signal.addEventListener("abort", onAbort, { once: true });
 

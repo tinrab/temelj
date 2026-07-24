@@ -4,6 +4,7 @@ import { err, ok } from "@temelj/result";
 import * as React from "react";
 
 import { isBrowser } from "../internal/mod.ts";
+import { BrowserHookError } from "./errors.ts";
 
 function fallbackCopy(text: string) {
   const textarea = document.createElement("textarea");
@@ -53,7 +54,7 @@ export function useClipboardResult<E = unknown>(
       setState((current) => ({ ...current, copying: true, error: null }));
       try {
         if (!isBrowser) {
-          throw new Error("Clipboard is not available outside the browser");
+          BrowserHookError.clipboardUnavailable();
         }
         if (navigator.clipboard?.writeText) {
           await navigator.clipboard.writeText(value);

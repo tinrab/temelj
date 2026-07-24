@@ -9,22 +9,23 @@ export function createJsonStorageCodec<
 >(): StorageCodec<TValue> {
   return {
     encode(value) {
+      let serialized: string | undefined;
       try {
-        const serialized = JSON.stringify(value);
-        if (serialized === undefined) {
-          throw new TypeError("Storage values must be JSON serializable");
-        }
-        return textEncoder.encode(serialized);
+        serialized = JSON.stringify(value);
       } catch (error) {
-        throw new StorageSerializationError("encode", error);
+        StorageSerializationError.encode(error);
       }
+      if (serialized === undefined) {
+        StorageSerializationError.encode("Storage values must be JSON serializable");
+      }
+      return textEncoder.encode(serialized);
     },
 
     decode(bytes) {
       try {
         return JSON.parse(textDecoder.decode(bytes)) as TValue;
       } catch (error) {
-        throw new StorageSerializationError("decode", error);
+        StorageSerializationError.decode(error);
       }
     },
   };

@@ -9,7 +9,7 @@ import { AbortError } from "./errors";
 export function delay(ms: number, options?: StandardOptions): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     if (options?.signal?.aborted) {
-      reject(new AbortError());
+      reject(AbortError.create());
       return;
     }
 
@@ -21,7 +21,7 @@ export function delay(ms: number, options?: StandardOptions): Promise<void> {
     function onAbort() {
       clearTimeout(timer);
       cleanup();
-      reject(new AbortError());
+      reject(AbortError.create());
     }
 
     function cleanup() {

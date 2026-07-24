@@ -1,6 +1,6 @@
 import type { ConcurrencyOptions, ResilienceOptions, SkipSymbol } from "./types";
 
-import { AbortError } from "./errors";
+import { AbortError, AsyncAggregateError } from "./errors";
 import { Skip } from "./types";
 
 type AsyncInput<T> = AsyncIterable<T> | Iterable<T> | Promise<Iterable<T>>;
@@ -22,7 +22,7 @@ export async function map<T, R>(
   const stopOnError = options?.stopOnError ?? true;
 
   if (signal?.aborted) {
-    throw new AbortError();
+    AbortError.aborted();
   }
 
   const results: Map<number, R> = new Map();
@@ -45,7 +45,7 @@ export async function map<T, R>(
     if (settled) return;
     settled = true;
     cleanup();
-    rejectPromise(new AbortError());
+    rejectPromise(AbortError.create());
   }
 
   function cleanup() {
@@ -60,7 +60,7 @@ export async function map<T, R>(
       settled = true;
       cleanup();
       if (errors.length > 0) {
-        rejectPromise(new AggregateError(errors, "Some operations failed"));
+        rejectPromise(AsyncAggregateError.create(errors));
       } else {
         const output: R[] = [];
         for (let i = 0; i <= maxIndex; i++) {

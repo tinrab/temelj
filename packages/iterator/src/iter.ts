@@ -1,3 +1,5 @@
+import { IteratorOptionsError } from "./errors";
+
 /**
  * Collects the values from an iterable into a record, using the result of
  * `getKey` as the key and the result of `map` as the value.
@@ -72,7 +74,7 @@ export function maxBy<T>(iterable: Iterable<T>, selector: (item: T) => number): 
  */
 export function chunk<T>(iterable: Iterable<T>, size: number): T[][] {
   if (size <= 0) {
-    throw new Error("Chunk size must be greater than 0");
+    IteratorOptionsError.chunkSizePositive();
   }
 
   const result: T[][] = [];
@@ -102,7 +104,7 @@ export function chunk<T>(iterable: Iterable<T>, size: number): T[][] {
  */
 export function window<T>(iterable: Iterable<T>, size: number): T[][] {
   if (size <= 0) {
-    throw new Error("Window size must be greater than 0");
+    IteratorOptionsError.windowSizePositive();
   }
 
   const result: T[][] = [];

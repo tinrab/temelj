@@ -10,7 +10,7 @@ export function createTextStorageCodec(): StorageCodec<string> {
       try {
         return textEncoder.encode(value);
       } catch (error) {
-        throw new StorageSerializationError("encode", error);
+        StorageSerializationError.encode(error);
       }
     },
 
@@ -18,7 +18,7 @@ export function createTextStorageCodec(): StorageCodec<string> {
       try {
         return textDecoder.decode(bytes);
       } catch (error) {
-        throw new StorageSerializationError("decode", error);
+        StorageSerializationError.decode(error);
       }
     },
   };

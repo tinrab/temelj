@@ -2,9 +2,12 @@ import { parse as parseSuperJson, stringify as stringifySuperJson } from "superj
 
 import { StorageSerializationError, type StorageCodec, type StorageValue } from "../types.ts";
 import { textDecoder, textEncoder } from "./shared.ts";
+import { registerTemporalStorageSerialization } from "./temporal.ts";
+
+registerTemporalStorageSerialization();
 
 /**
- * Creates a codec for rich JavaScript values using SuperJSON.
+ * Creates a codec for rich JavaScript and Temporal values using SuperJSON.
  */
 export function createSuperJsonStorageCodec<TValue = StorageValue>(): StorageCodec<TValue> {
   return {
@@ -12,7 +15,7 @@ export function createSuperJsonStorageCodec<TValue = StorageValue>(): StorageCod
       try {
         return textEncoder.encode(stringifySuperJson(value));
       } catch (error) {
-        throw new StorageSerializationError("encode", error);
+        StorageSerializationError.encode(error);
       }
     },
 
@@ -20,7 +23,7 @@ export function createSuperJsonStorageCodec<TValue = StorageValue>(): StorageCod
       try {
         return parseSuperJson<TValue>(textDecoder.decode(bytes));
       } catch (error) {
-        throw new StorageSerializationError("decode", error);
+        StorageSerializationError.decode(error);
       }
     },
   };

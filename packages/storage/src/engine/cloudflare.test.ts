@@ -116,11 +116,11 @@ describe("Cloudflare KV engine", () => {
 
     await storage.set("users:1", { name: "Verso" }, { ttl: 100 });
     expect(update).toHaveBeenCalledWith(
-      "namespace",
       "app:users:1",
       expect.objectContaining({
         account_id: "account",
         expiration_ttl: 60,
+        namespace_id: "namespace",
         value: expect.any(Uint8Array),
       }),
     );
@@ -178,8 +178,9 @@ describe("Cloudflare KV engine", () => {
 
     expect(await storage.delete("users:missing")).toBe(false);
     expect(await storage.delete("users:1")).toBe(true);
-    expect(deleteValue).toHaveBeenCalledWith("namespace", "app:users:1", {
+    expect(deleteValue).toHaveBeenCalledWith("app:users:1", {
       account_id: "account",
+      namespace_id: "namespace",
     });
 
     await storage.set("cache:1", "cached");
@@ -271,9 +272,8 @@ function createMockClient(): {
   ) => Promise<NamespaceBulkUpdateResponse | null>;
   readonly client: Cloudflare;
   readonly deleteValue: (
-    namespaceId: string,
     key: string,
-    params: { readonly account_id: string },
+    params: { readonly account_id: string; readonly namespace_id: string },
   ) => Promise<unknown>;
   readonly listKeys: (
     namespaceId: string,
@@ -284,10 +284,10 @@ function createMockClient(): {
     },
   ) => AsyncIterable<CloudflareKvKey>;
   readonly update: (
-    namespaceId: string,
     key: string,
     params: {
       readonly account_id: string;
+      readonly namespace_id: string;
       readonly value: unknown;
       readonly expiration_ttl?: number;
     },
@@ -335,8 +335,11 @@ function createMockClient(): {
     return { successful_key_count: params.body.length };
   });
   const deleteValue = vi.fn<
-    (namespaceId: string, key: string, params: { readonly account_id: string }) => Promise<unknown>
-  >(async (_namespaceId, key) => {
+    (
+      key: string,
+      params: { readonly account_id: string; readonly namespace_id: string },
+    ) => Promise<unknown>
+  >(async (key) => {
     items.delete(key);
   });
   const listKeys = vi.fn<
@@ -357,15 +360,15 @@ function createMockClient(): {
   );
   const update = vi.fn<
     (
-      namespaceId: string,
       key: string,
       params: {
         readonly account_id: string;
+        readonly namespace_id: string;
         readonly value: unknown;
         readonly expiration_ttl?: number;
       },
     ) => Promise<unknown>
-  >(async (_namespaceId, key, params) => {
+  >(async (key, params) => {
     if (!(params.value instanceof Uint8Array)) {
       throw new TypeError("Expected Uint8Array value");
     }
@@ -386,11 +389,10 @@ function createMockClient(): {
             delete: deleteValue,
             get: vi.fn<
               (
-                namespaceId: string,
                 key: string,
-                params: { readonly account_id: string },
+                params: { readonly account_id: string; readonly namespace_id: string },
               ) => Promise<{ arrayBuffer(): Promise<ArrayBuffer> }>
-            >(async (_namespaceId, key) => {
+            >(async (key) => {
               const value = items.get(key);
               if (value === undefined) {
                 throw Object.assign(new Error("not found"), { status: 404 });

@@ -101,6 +101,7 @@ export class MdxCompileError extends Error {
       diagnostics?: MdxMessage[] | undefined;
       cause?: unknown;
     } = {},
+    context?: Function,
   ) {
     super(
       formatDiagnosticMessage(reason, {
@@ -129,6 +130,18 @@ export class MdxCompileError extends Error {
     this.sourcePointer = options.sourcePointer;
     this.hint = options.hint;
     this.diagnostics = options.diagnostics ?? [];
+
+    if (Error.captureStackTrace !== undefined) {
+      Error.captureStackTrace(this, context ?? this.constructor);
+    }
+  }
+
+  static create(
+    this: void,
+    reason: string,
+    options: ConstructorParameters<typeof MdxCompileError>[1] = {},
+  ): MdxCompileError {
+    return new MdxCompileError(reason, options, MdxCompileError.create);
   }
 }
 
@@ -255,7 +268,7 @@ function toMdxCompileError(
   const details = getDiagnosticDetails(sourceContext, getErrorPlace(error), error);
   const cause = getErrorCause(error);
 
-  return new MdxCompileError(getErrorReason(error), {
+  return MdxCompileError.create(getErrorReason(error), {
     source: getErrorField(error, "source"),
     ruleId: getErrorField(error, "ruleId"),
     line: details.line,

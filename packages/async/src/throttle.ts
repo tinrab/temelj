@@ -32,7 +32,7 @@ export function throttle<Args extends unknown[], R>(
       timer = undefined;
     }
     if (pendingDeferred) {
-      pendingDeferred.reject(new AbortError());
+      pendingDeferred.reject(AbortError.create());
       pendingDeferred = undefined;
     }
     latestArgs = undefined;
@@ -42,7 +42,7 @@ export function throttle<Args extends unknown[], R>(
 
   return (...args: Args): Promise<R> => {
     if (signal?.aborted) {
-      return Promise.reject(new AbortError());
+      return Promise.reject(AbortError.create());
     }
 
     const now = Date.now();

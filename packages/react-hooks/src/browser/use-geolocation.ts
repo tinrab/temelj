@@ -1,6 +1,7 @@
 import * as React from "react";
 
 import { isBrowser, useLatest } from "../internal/mod.ts";
+import { BrowserHookError } from "./errors.ts";
 
 /**
  * Geolocation coordinates, timestamp, loading state, and error information.
@@ -63,7 +64,7 @@ export function useGeolocation(options: PositionOptions = {}): GeolocationState 
       setState({
         ...defaultGeolocationState,
         loading: false,
-        error: new Error("Geolocation is not supported"),
+        error: BrowserHookError.createGeolocationUnsupported(),
       });
       return undefined;
     }

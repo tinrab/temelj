@@ -77,7 +77,7 @@ export function createStorage<
   const toStorageError = (operation: string, error: unknown, key?: string): StorageError =>
     error instanceof StorageError
       ? error
-      : new StorageOperationError({
+      : StorageOperationError.create({
           engine: engine.name,
           operation,
           key,

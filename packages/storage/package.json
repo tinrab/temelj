@@ -1,6 +1,6 @@
 {
   "name": "@temelj/storage",
-  "version": "0.2.0",
+  "version": "0.4.0",
   "description": "A unified key-value storage interface.",
   "license": "MIT",
   "repository": {
@@ -64,26 +64,27 @@
   "dependencies": {
     "@temelj/event": "workspace:*",
     "@temelj/result": "workspace:*",
+    "@temelj/string": "workspace:*",
     "@temelj/value": "workspace:*",
     "superjson": "^2.2.6"
   },
   "devDependencies": {
-    "@aws-sdk/client-s3": "^3.1063.0",
-    "@testcontainers/mysql": "^12.0.1",
-    "@testcontainers/postgresql": "^12.0.1",
-    "@testcontainers/redis": "^12.0.1",
-    "@types/node": "25.9.2",
-    "cloudflare": "^6.3.0",
+    "@aws-sdk/client-s3": "^3.1095.0",
+    "@testcontainers/mysql": "^12.0.4",
+    "@testcontainers/postgresql": "^12.0.4",
+    "@testcontainers/redis": "^12.0.4",
+    "@types/node": "26.1.1",
+    "cloudflare": "^7.0.0",
     "ioredis": "^5.11.1",
     "libsql": "^0.5.29",
-    "mysql2": "^3.22.5",
+    "mysql2": "^3.23.1",
     "postgres": "^3.4.9",
     "shx": "^0.4.0",
-    "testcontainers": "^12.0.1",
-    "tsdown": "^0.22.2",
+    "testcontainers": "^12.0.4",
+    "tsdown": "^0.22.14",
     "tslib": "^2.8.1",
-    "typescript": "^6.0.3",
-    "vitest": "^4.1.8"
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10"
   },
   "peerDependencies": {
     "@aws-sdk/client-s3": "^3.1063.0",
