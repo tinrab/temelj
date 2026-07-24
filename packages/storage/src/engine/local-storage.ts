@@ -1,5 +1,3 @@
-import { decodeBase64, encodeBase64 } from "@temelj/string";
-
 import {
   StorageEngineError,
   type StorageEngine,
@@ -8,7 +6,7 @@ import {
   type StorageEngineSetManyItem,
   type StorageEngineSetOptions,
 } from "../types.ts";
-import { bytesEqual, resolveExpiresAt } from "../utility.ts";
+import { resolveExpiresAt } from "../utility.ts";
 
 /**
  * Minimal Web Storage-compatible interface used by browser storage engines.
@@ -47,7 +45,7 @@ interface WebStorageRecord {
   readonly expiresAt?: number;
 }
 
-class WebStorageEngine implements StorageEngine {
+class WebStorageEngine implements StorageEngine<string> {
   readonly name: string;
 
   readonly #storage: WebStorageLike;
@@ -66,24 +64,24 @@ class WebStorageEngine implements StorageEngine {
     this.#prefix = namespace.length === 0 ? "" : `${namespace}${separator}`;
   }
 
-  async get(key: string): Promise<Uint8Array | undefined> {
+  async get(key: string): Promise<string | undefined> {
     const record = this.#readRecord(this.#prefixedKey(key));
-    return record === undefined ? undefined : decodeBase64(record.value);
+    return record?.value;
   }
 
-  async set(key: string, value: Uint8Array, options?: StorageEngineSetOptions): Promise<void> {
+  async set(key: string, value: string, options?: StorageEngineSetOptions): Promise<void> {
     this.#writeRecord(this.#prefixedKey(key), value, resolveExpiresAt(options));
   }
 
   async compareAndSet(
     key: string,
-    expected: Uint8Array | undefined,
-    value: Uint8Array | undefined,
+    expected: string | undefined,
+    value: string | undefined,
     options?: StorageEngineSetOptions,
   ): Promise<boolean> {
     const storageKey = this.#prefixedKey(key);
     const current = this.#readRecord(storageKey);
-    if (!bytesEqual(current === undefined ? undefined : decodeBase64(current.value), expected)) {
+    if (current?.value !== expected) {
       return false;
     }
 
@@ -96,16 +94,16 @@ class WebStorageEngine implements StorageEngine {
     return true;
   }
 
-  async compareAndSetMany(items: readonly StorageEngineCompareAndSetManyItem[]): Promise<boolean> {
+  async compareAndSetMany(
+    items: readonly StorageEngineCompareAndSetManyItem<string>[],
+  ): Promise<boolean> {
     const records = items.map((item) => ({
       ...item,
       storageKey: this.#prefixedKey(item.key),
     }));
     for (const item of records) {
       const current = this.#readRecord(item.storageKey);
-      if (
-        !bytesEqual(current === undefined ? undefined : decodeBase64(current.value), item.expected)
-      ) {
+      if (current?.value !== item.expected) {
         return false;
       }
     }
@@ -120,7 +118,7 @@ class WebStorageEngine implements StorageEngine {
     return true;
   }
 
-  async setMany(items: readonly StorageEngineSetManyItem[]): Promise<void> {
+  async setMany(items: readonly StorageEngineSetManyItem<string>[]): Promise<void> {
     for (const item of items) {
       await this.set(item.key, item.value, item.options);
     }
@@ -181,12 +179,12 @@ class WebStorageEngine implements StorageEngine {
     return record;
   }
 
-  #writeRecord(key: string, value: Uint8Array, expiresAt: number | undefined): void {
+  #writeRecord(key: string, value: string, expiresAt: number | undefined): void {
     if (expiresAt !== undefined && expiresAt <= Date.now()) {
       this.#storage.removeItem(key);
       return;
     }
-    this.#storage.setItem(key, JSON.stringify({ value: encodeBase64(value), expiresAt }));
+    this.#storage.setItem(key, JSON.stringify({ value, expiresAt }));
   }
 
   #allStorageKeys(): string[] {

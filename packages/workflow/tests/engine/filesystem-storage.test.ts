@@ -1,4 +1,4 @@
-import { createStorage } from "@temelj/storage";
+import { createStorage, createSuperJsonStorageCodec } from "@temelj/storage";
 import { FileSystemStorageEngine } from "@temelj/storage/filesystem";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -57,6 +57,7 @@ describe("filesystem-backed workflow runtime", () => {
 
 function createFilesystemWorkflowStorage(directory: string) {
   return createStorage({
+    codec: createSuperJsonStorageCodec({ format: "bytes" }),
     engine: new FileSystemStorageEngine({
       directory,
       prefix: "workflow",

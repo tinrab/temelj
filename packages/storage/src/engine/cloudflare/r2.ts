@@ -124,7 +124,7 @@ interface StoredR2Value {
 /**
  * Storage engine backed by Cloudflare R2 through a Worker binding or the Cloudflare HTTP API.
  */
-export class CloudflareR2StorageEngine implements StorageEngine {
+export class CloudflareR2StorageEngine implements StorageEngine<Uint8Array> {
   readonly name = "cloudflare-r2";
 
   #client: Cloudflare | undefined;
@@ -192,7 +192,7 @@ export class CloudflareR2StorageEngine implements StorageEngine {
     });
   }
 
-  async setMany(items: readonly StorageEngineSetManyItem[]): Promise<void> {
+  async setMany(items: readonly StorageEngineSetManyItem<Uint8Array>[]): Promise<void> {
     await Promise.all(items.map((item) => this.set(item.key, item.value, item.options)));
   }
 

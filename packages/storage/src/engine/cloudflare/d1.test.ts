@@ -3,6 +3,7 @@ import type Cloudflare from "cloudflare";
 import { describe, expect, test, vi } from "vitest";
 
 import { createMockCloudflareD1Binding } from "../../../tests/cloudflare.ts";
+import { createSuperJsonStorageCodec } from "../../codec/super-json.ts";
 import { createStorage } from "../../storage.ts";
 import { CloudflareD1StorageEngine, type CloudflareD1Result } from "./d1.ts";
 
@@ -49,6 +50,15 @@ describe("Cloudflare D1 engine", () => {
 
   test("resolves a named D1 binding and quotes table names", async () => {
     const binding = createMockCloudflareD1Binding();
+    await binding
+      .prepare(
+        `CREATE TABLE "app storage" (
+          key TEXT PRIMARY KEY NOT NULL,
+          value TEXT NOT NULL,
+          expires_at INTEGER NOT NULL
+        )`,
+      )
+      .run();
     const storage = createStorage({
       engine: new CloudflareD1StorageEngine({
         binding: "DATABASE",
@@ -116,6 +126,30 @@ describe("Cloudflare D1 engine", () => {
         ]),
       }),
     );
+
+    const binaryStorage = createStorage({
+      codec: createSuperJsonStorageCodec({ format: "bytes" }),
+      engine: new CloudflareD1StorageEngine<Uint8Array>({
+        accountId: "account",
+        client,
+        databaseId: "database",
+        prefix: "binary",
+      }),
+    });
+    const value = {
+      bytes: new Uint8Array([0, 127, 128, 255]),
+      name: "binary payload",
+    };
+
+    await binaryStorage.set("key", value);
+    expect(await binaryStorage.get("key")).toEqual(value);
+    expect(
+      query.mock.calls.some(([, options]) =>
+        options.batch.some((item) =>
+          item.params?.some((parameter) => parameter.startsWith("temelj:d1:bytes:v1:")),
+        ),
+      ),
+    ).toBe(true);
   });
 
   test("can use a pre-created table without initialization", async () => {
@@ -132,7 +166,6 @@ describe("Cloudflare D1 engine", () => {
     const storage = createStorage({
       engine: new CloudflareD1StorageEngine({
         binding,
-        initialize: false,
         tableName: "custom_storage",
       }),
     });

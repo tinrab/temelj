@@ -1,12 +1,27 @@
+import Database from "libsql";
 import { describe, expect, test, vi } from "vitest";
 
 import { createStorage } from "../storage.ts";
 import { LibSqlStorageEngine } from "./libsql.ts";
 
+function createLibSqlEngine(
+  options: ConstructorParameters<typeof LibSqlStorageEngine<string>>[0] = {},
+): LibSqlStorageEngine<string> {
+  const client = new Database(":memory:");
+  client.exec(`
+    CREATE TABLE temelj_storage (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      expires_at INTEGER
+    )
+  `);
+  return new LibSqlStorageEngine<string>({ ...options, client });
+}
+
 describe("libSQL engine", () => {
   test("stores bytes, scans prefixes, and clears values", async () => {
     const storage = createStorage({
-      engine: new LibSqlStorageEngine({
+      engine: createLibSqlEngine({
         prefix: "app",
       }),
     });
@@ -35,7 +50,7 @@ describe("libSQL engine", () => {
   test("expires values and does not count expired deletes", async () => {
     vi.useFakeTimers();
     const storage = createStorage({
-      engine: new LibSqlStorageEngine(),
+      engine: createLibSqlEngine(),
     });
 
     try {
@@ -60,7 +75,7 @@ describe("libSQL engine", () => {
 
   test("supports setMany, deleteMany, and literal SQL wildcard prefixes", async () => {
     const storage = createStorage({
-      engine: new LibSqlStorageEngine(),
+      engine: createLibSqlEngine(),
     });
 
     try {
@@ -80,7 +95,7 @@ describe("libSQL engine", () => {
 
   test("compares and sets values atomically", async () => {
     const storage = createStorage({
-      engine: new LibSqlStorageEngine(),
+      engine: createLibSqlEngine(),
     });
 
     try {
@@ -110,7 +125,7 @@ describe("libSQL engine", () => {
   test("treats expired compare-and-set rows as absent", async () => {
     vi.useFakeTimers();
     const storage = createStorage({
-      engine: new LibSqlStorageEngine(),
+      engine: createLibSqlEngine(),
     });
 
     try {
@@ -128,7 +143,7 @@ describe("libSQL engine", () => {
 
   test("compares and sets many rows atomically", async () => {
     const storage = createStorage({
-      engine: new LibSqlStorageEngine({
+      engine: createLibSqlEngine({
         prefix: "app",
       }),
     });
@@ -168,7 +183,7 @@ describe("libSQL engine", () => {
   test("treats expired compare-and-set-many rows as absent", async () => {
     vi.useFakeTimers();
     const storage = createStorage({
-      engine: new LibSqlStorageEngine(),
+      engine: createLibSqlEngine(),
     });
 
     try {

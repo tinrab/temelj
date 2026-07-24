@@ -1,4 +1,4 @@
-import type { Storage } from "@temelj/storage";
+import type { Storage, StorageValue, StoredValue } from "@temelj/storage";
 
 import { describe, expect, test } from "vitest";
 
@@ -225,7 +225,7 @@ async function collectStreamUpdates(iterable: AsyncIterable<unknown>): Promise<u
 }
 
 async function writeCorruptedEvents(
-  storage: Storage,
+  storage: Storage<Record<string, StorageValue>, StorageValue, StoredValue>,
   runId: RunId,
   events: readonly EventRecord[],
 ): Promise<void> {

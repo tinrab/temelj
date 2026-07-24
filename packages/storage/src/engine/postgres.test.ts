@@ -96,9 +96,8 @@ describe("postgres engine", () => {
       calls.push({ query, parameters });
       return (rows.shift() ?? []) as TRow[];
     };
-    const engine = new PostgresStorageEngine({
+    const engine = new PostgresStorageEngine<Uint8Array>({
       client: { unsafe },
-      initialize: false,
     });
 
     expect(await engine.get("sessions:1")).toBeUndefined();
@@ -132,9 +131,8 @@ describe("postgres engine", () => {
       calls.push({ query, parameters });
       return (rows.shift() ?? []) as TRow[];
     };
-    const engine = new PostgresStorageEngine({
+    const engine = new PostgresStorageEngine<Uint8Array>({
       client: { unsafe },
-      initialize: false,
     });
 
     await expect(engine.compareAndSet?.("users:1", undefined, new Uint8Array([1]))).resolves.toBe(
@@ -183,9 +181,8 @@ describe("postgres engine", () => {
       calls.push({ query, parameters });
       return (rows.shift() ?? []) as TRow[];
     };
-    const engine = new PostgresStorageEngine({
+    const engine = new PostgresStorageEngine<Uint8Array>({
       client: { unsafe },
-      initialize: false,
     });
 
     await expect(

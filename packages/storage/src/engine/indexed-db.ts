@@ -5,8 +5,9 @@ import {
   type StorageEngineKeyOptions,
   type StorageEngineSetManyItem,
   type StorageEngineSetOptions,
+  type StoredValue,
 } from "../types.ts";
-import { bytesEqual, resolveExpiresAt } from "../utility.ts";
+import { resolveExpiresAt, storedValuesEqual } from "../utility.ts";
 
 /**
  * Minimal IndexedDB factory interface used by {@link IndexedDbStorageEngine}.
@@ -89,15 +90,17 @@ export interface IndexedDbEngineOptions {
   readonly separator?: string;
 }
 
-interface IndexedDbRecord {
-  readonly value: Uint8Array;
+interface IndexedDbRecord<TStoredValue extends StoredValue = StoredValue> {
+  readonly value: TStoredValue;
   readonly expiresAt?: number;
 }
 
 /**
  * Storage engine backed by an IndexedDB object store.
  */
-export class IndexedDbStorageEngine implements StorageEngine {
+export class IndexedDbStorageEngine<
+  TStoredValue extends StoredValue = StoredValue,
+> implements StorageEngine<TStoredValue> {
   readonly name = "indexedDB";
 
   readonly #factory: IndexedDbFactory;
@@ -123,12 +126,12 @@ export class IndexedDbStorageEngine implements StorageEngine {
     this.#prefix = namespace.length === 0 ? "" : `${namespace}${separator}`;
   }
 
-  async get(key: string): Promise<Uint8Array | undefined> {
+  async get(key: string): Promise<TStoredValue | undefined> {
     const record = await this.#readRecord(this.#prefixedKey(key));
-    return record === undefined ? undefined : record.value.slice();
+    return record === undefined ? undefined : copyValue(record.value);
   }
 
-  async set(key: string, value: Uint8Array, setOptions?: StorageEngineSetOptions): Promise<void> {
+  async set(key: string, value: TStoredValue, setOptions?: StorageEngineSetOptions): Promise<void> {
     const storageKey = this.#prefixedKey(key);
     const expiresAt = resolveExpiresAt(setOptions);
     const database = await this.#getDatabase();
@@ -140,14 +143,14 @@ export class IndexedDbStorageEngine implements StorageEngine {
       database
         .transaction(this.#storeName, "readwrite")
         .objectStore(this.#storeName)
-        .put({ value: value.slice(), expiresAt }, storageKey),
+        .put({ value: copyValue(value), expiresAt }, storageKey),
     );
   }
 
   async compareAndSet(
     key: string,
-    expected: Uint8Array | undefined,
-    value: Uint8Array | undefined,
+    expected: TStoredValue | undefined,
+    value: TStoredValue | undefined,
     setOptions?: StorageEngineSetOptions,
   ): Promise<boolean> {
     const database = await this.#getDatabase();
@@ -160,7 +163,9 @@ export class IndexedDbStorageEngine implements StorageEngine {
     );
   }
 
-  async compareAndSetMany(items: readonly StorageEngineCompareAndSetManyItem[]): Promise<boolean> {
+  async compareAndSetMany(
+    items: readonly StorageEngineCompareAndSetManyItem<TStoredValue>[],
+  ): Promise<boolean> {
     const database = await this.#getDatabase();
     return await compareAndSetRecords(
       database.transaction(this.#storeName, "readwrite").objectStore(this.#storeName),
@@ -173,7 +178,7 @@ export class IndexedDbStorageEngine implements StorageEngine {
     );
   }
 
-  async setMany(items: readonly StorageEngineSetManyItem[]): Promise<void> {
+  async setMany(items: readonly StorageEngineSetManyItem<TStoredValue>[]): Promise<void> {
     for (const item of items) {
       await this.set(item.key, item.value, item.options);
     }
@@ -237,11 +242,11 @@ export class IndexedDbStorageEngine implements StorageEngine {
     return this.#prefix.length === 0 ? key : key.slice(this.#prefix.length);
   }
 
-  async #readRecord(key: string): Promise<IndexedDbRecord | undefined> {
+  async #readRecord(key: string): Promise<IndexedDbRecord<TStoredValue> | undefined> {
     const database = await this.#getDatabase();
     const record = (await requestResult(
       database.transaction(this.#storeName, "readonly").objectStore(this.#storeName).get(key),
-    )) as IndexedDbRecord | undefined;
+    )) as IndexedDbRecord<TStoredValue> | undefined;
 
     if (record?.expiresAt !== undefined && record.expiresAt <= Date.now()) {
       await deleteRecord(database, this.#storeName, key);
@@ -298,11 +303,11 @@ function deleteRecord(
   );
 }
 
-function compareAndSetRecord(
+function compareAndSetRecord<TStoredValue extends StoredValue>(
   objectStore: IndexedDbObjectStore,
   key: string,
-  expected: Uint8Array | undefined,
-  value: Uint8Array | undefined,
+  expected: TStoredValue | undefined,
+  value: TStoredValue | undefined,
   expiresAt: number | undefined,
 ): Promise<boolean> {
   return new Promise((resolve, reject) => {
@@ -331,16 +336,16 @@ function compareAndSetRecord(
   });
 }
 
-interface IndexedDbCompareAndSetRecordItem {
+interface IndexedDbCompareAndSetRecordItem<TStoredValue extends StoredValue> {
   readonly key: string;
-  readonly expected: Uint8Array | undefined;
-  readonly value: Uint8Array | undefined;
+  readonly expected: TStoredValue | undefined;
+  readonly value: TStoredValue | undefined;
   readonly expiresAt: number | undefined;
 }
 
-async function compareAndSetRecords(
+async function compareAndSetRecords<TStoredValue extends StoredValue>(
   objectStore: IndexedDbObjectStore,
-  items: readonly IndexedDbCompareAndSetRecordItem[],
+  items: readonly IndexedDbCompareAndSetRecordItem<TStoredValue>[],
 ): Promise<boolean> {
   const currentRecords = new Map<string, IndexedDbRecord | undefined>();
   for (const item of items) {
@@ -365,27 +370,27 @@ async function compareAndSetRecords(
       continue;
     }
     await requestResult(
-      objectStore.put({ value: item.value.slice(), expiresAt: item.expiresAt }, item.key),
+      objectStore.put({ value: copyValue(item.value), expiresAt: item.expiresAt }, item.key),
     );
   }
   return true;
 }
 
-function compareAndSetExpectedMatches(
+function compareAndSetExpectedMatches<TStoredValue extends StoredValue>(
   current: IndexedDbRecord | undefined,
-  expected: Uint8Array | undefined,
+  expected: TStoredValue | undefined,
 ): boolean {
   if (expected === undefined) {
     return current === undefined;
   }
-  return current !== undefined && bytesEqual(current.value, expected);
+  return current !== undefined && storedValuesEqual(current.value, expected);
 }
 
-async function applyCompareAndSetWrite(
+async function applyCompareAndSetWrite<TStoredValue extends StoredValue>(
   objectStore: IndexedDbObjectStore,
   key: string,
-  expected: Uint8Array | undefined,
-  value: Uint8Array | undefined,
+  expected: TStoredValue | undefined,
+  value: TStoredValue | undefined,
   expiresAt: number | undefined,
   current: IndexedDbRecord | undefined,
 ): Promise<boolean> {
@@ -398,11 +403,11 @@ async function applyCompareAndSetWrite(
       return true;
     }
 
-    await requestResult(objectStore.put({ value: value.slice(), expiresAt }, key));
+    await requestResult(objectStore.put({ value: copyValue(value), expiresAt }, key));
     return true;
   }
 
-  if (current === undefined || !bytesEqual(current.value, expected)) {
+  if (current === undefined || !storedValuesEqual(current.value, expected)) {
     return false;
   }
 
@@ -411,8 +416,12 @@ async function applyCompareAndSetWrite(
     return true;
   }
 
-  await requestResult(objectStore.put({ value: value.slice(), expiresAt }, key));
+  await requestResult(objectStore.put({ value: copyValue(value), expiresAt }, key));
   return true;
+}
+
+function copyValue<TValue extends StoredValue>(value: TValue): TValue {
+  return (value instanceof Uint8Array ? value.slice() : value) as TValue;
 }
 
 /**

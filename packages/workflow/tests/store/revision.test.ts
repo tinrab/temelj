@@ -1,4 +1,4 @@
-import { createStorage, InMemoryStorageEngine } from "@temelj/storage";
+import { createStorage, InMemoryStorageEngine, type StorageEngine } from "@temelj/storage";
 import { describe, expect, test } from "vitest";
 
 import type { WorkflowRunRecord } from "../../src/types/run.ts";
@@ -96,15 +96,16 @@ describe("workflow storage revision equality", () => {
 });
 
 function nonConditionalStorage() {
-  const engine = new InMemoryStorageEngine();
+  const engine = new InMemoryStorageEngine<string>();
+  const nonConditionalEngine: StorageEngine<string> = {
+    name: "non-conditional-memory",
+    get: (key) => engine.get(key),
+    set: (key, value, options) => engine.set(key, value, options),
+    delete: (key) => engine.delete(key),
+    keys: (options) => engine.keys(options),
+    clear: (options) => engine.clear(options),
+  };
   return createStorage({
-    engine: {
-      name: "non-conditional-memory",
-      get: (key) => engine.get(key),
-      set: (key, value, options) => engine.set(key, value, options),
-      delete: (key) => engine.delete(key),
-      keys: (options) => engine.keys(options),
-      clear: (options) => engine.clear(options),
-    },
+    engine: nonConditionalEngine,
   });
 }

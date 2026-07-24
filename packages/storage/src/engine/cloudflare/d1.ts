@@ -8,8 +8,10 @@ import type {
   StorageEngineKeyOptions,
   StorageEngineSetManyItem,
   StorageEngineSetOptions,
+  StoredValue,
 } from "../../types.ts";
 
+import { normalizeStoredValue } from "../../utility.ts";
 import {
   cloudflareClientOptions,
   resolveCloudflareBinding,
@@ -21,6 +23,8 @@ import {
  * Value accepted by the D1 binding API.
  */
 export type CloudflareD1Value = null | number | string | ArrayBuffer | Uint8Array;
+
+const D1_HTTP_BYTES_PREFIX = "temelj:d1:bytes:v1:";
 
 /**
  * Minimal prepared statement interface used by {@link CloudflareD1StorageEngine}.
@@ -105,12 +109,11 @@ export interface CloudflareD1EngineOptions extends ClientOptions {
   /**
    * Whether to create the storage table lazily. Defaults to `true`.
    */
-  readonly initialize?: boolean;
 }
 
 interface D1StorageRow {
   readonly key: string;
-  readonly value: string;
+  readonly value: unknown;
   readonly expires_at: number | string;
 }
 
@@ -122,15 +125,15 @@ interface D1Query {
 /**
  * Storage engine backed by Cloudflare D1 through a Worker binding or the HTTP API.
  */
-export class CloudflareD1StorageEngine implements StorageEngine {
+export class CloudflareD1StorageEngine<
+  TStoredValue extends StoredValue = string,
+> implements StorageEngine<TStoredValue> {
   readonly name = "cloudflare-d1";
 
   #client: Cloudflare | undefined;
-  #initializePromise: Promise<void> | undefined;
   readonly #binding: CloudflareD1Binding | undefined;
   readonly #keyPrefix: string;
   readonly #options: CloudflareD1EngineOptions;
-  readonly #shouldInitialize: boolean;
   readonly #tableName: string;
 
   constructor(options: CloudflareD1EngineOptions) {
@@ -145,10 +148,9 @@ export class CloudflareD1StorageEngine implements StorageEngine {
     this.#tableName = quoteIdentifier(options.tableName ?? "temelj_storage");
     const prefix = options.prefix ?? "";
     this.#keyPrefix = prefix.length === 0 ? "" : `${prefix}${options.separator ?? ":"}`;
-    this.#shouldInitialize = options.initialize ?? true;
   }
 
-  async get(key: string): Promise<Uint8Array | undefined> {
+  async get(key: string): Promise<TStoredValue | undefined> {
     const storageKey = this.#prefixedKey(key);
     const rows = await this.#query<D1StorageRow>(
       `SELECT key, value, expires_at FROM ${this.#tableName} WHERE key = ? LIMIT 1`,
@@ -162,10 +164,10 @@ export class CloudflareD1StorageEngine implements StorageEngine {
       await this.#execute(`DELETE FROM ${this.#tableName} WHERE key = ?`, [storageKey]);
       return undefined;
     }
-    return decodeBase64(row.value);
+    return normalizeStoredValue<TStoredValue>(row.value);
   }
 
-  async getMany(keys: readonly string[]): Promise<ReadonlyMap<string, Uint8Array>> {
+  async getMany(keys: readonly string[]): Promise<ReadonlyMap<string, TStoredValue>> {
     if (keys.length === 0) {
       return new Map();
     }
@@ -176,10 +178,15 @@ export class CloudflareD1StorageEngine implements StorageEngine {
        WHERE key IN (${placeholders(storageKeys.length)})`,
       storageKeys,
     );
-    return new Map(rows.map((row) => [this.#unprefixKey(row.key), decodeBase64(row.value)]));
+    return new Map(
+      rows.map((row) => [
+        this.#unprefixKey(row.key),
+        normalizeStoredValue<TStoredValue>(row.value),
+      ]),
+    );
   }
 
-  async set(key: string, value: Uint8Array, options?: StorageEngineSetOptions): Promise<void> {
+  async set(key: string, value: TStoredValue, options?: StorageEngineSetOptions): Promise<void> {
     const storageKey = this.#prefixedKey(key);
     const expiresAt = resolveCloudflareExpiresAt(options, this.#options.defaultTtl);
     if (expiresAt !== undefined && expiresAt <= Date.now()) {
@@ -189,14 +196,14 @@ export class CloudflareD1StorageEngine implements StorageEngine {
     await this.#execute(
       `INSERT INTO ${this.#tableName} (key, value, expires_at) VALUES (?, ?, ?)
        ON CONFLICT(key) DO UPDATE SET value = excluded.value, expires_at = excluded.expires_at`,
-      [storageKey, encodeBase64(value), expiresAt ?? 0],
+      [storageKey, value, expiresAt ?? 0],
     );
   }
 
   async compareAndSet(
     key: string,
-    expected: Uint8Array | undefined,
-    value: Uint8Array | undefined,
+    expected: TStoredValue | undefined,
+    value: TStoredValue | undefined,
     options?: StorageEngineSetOptions,
   ): Promise<boolean> {
     const storageKey = this.#prefixedKey(key);
@@ -225,7 +232,7 @@ export class CloudflareD1StorageEngine implements StorageEngine {
            expires_at = excluded.expires_at
          WHERE ${this.#tableName}.expires_at != 0 AND ${this.#tableName}.expires_at <= ?
          RETURNING key`,
-        [storageKey, encodeBase64(replacement!), expiresAt ?? 0, now],
+        [storageKey, replacement!, expiresAt ?? 0, now],
       );
       return rows.length > 0;
     }
@@ -235,7 +242,7 @@ export class CloudflareD1StorageEngine implements StorageEngine {
         `DELETE FROM ${this.#tableName}
          WHERE key = ? AND value = ? AND (expires_at = 0 OR expires_at > ?)
          RETURNING key`,
-        [storageKey, encodeBase64(expected), now],
+        [storageKey, expected, now],
       );
       return rows.length > 0;
     }
@@ -245,12 +252,12 @@ export class CloudflareD1StorageEngine implements StorageEngine {
        SET value = ?, expires_at = ?
        WHERE key = ? AND value = ? AND (expires_at = 0 OR expires_at > ?)
        RETURNING key`,
-      [encodeBase64(replacement), expiresAt ?? 0, storageKey, encodeBase64(expected), now],
+      [replacement, expiresAt ?? 0, storageKey, expected, now],
     );
     return rows.length > 0;
   }
 
-  async setMany(items: readonly StorageEngineSetManyItem[]): Promise<void> {
+  async setMany(items: readonly StorageEngineSetManyItem<TStoredValue>[]): Promise<void> {
     if (items.length === 0) {
       return;
     }
@@ -270,7 +277,7 @@ export class CloudflareD1StorageEngine implements StorageEngine {
                 ON CONFLICT(key) DO UPDATE SET
                   value = excluded.value,
                   expires_at = excluded.expires_at`,
-          params: [storageKey, encodeBase64(item.value), expiresAt ?? 0],
+          params: [storageKey, item.value, expiresAt ?? 0],
         };
       }),
     );
@@ -318,22 +325,6 @@ export class CloudflareD1StorageEngine implements StorageEngine {
     ]);
   }
 
-  async #initialize(): Promise<void> {
-    if (!this.#shouldInitialize) {
-      return;
-    }
-    this.#initializePromise ??= this.#execute(
-      `CREATE TABLE IF NOT EXISTS ${this.#tableName} (
-        key TEXT PRIMARY KEY NOT NULL,
-        value TEXT NOT NULL,
-        expires_at INTEGER NOT NULL
-      )`,
-      [],
-      false,
-    );
-    await this.#initializePromise;
-  }
-
   async #deleteExpired(): Promise<void> {
     await this.#execute(
       `DELETE FROM ${this.#tableName} WHERE expires_at != 0 AND expires_at <= ?`,
@@ -341,33 +332,17 @@ export class CloudflareD1StorageEngine implements StorageEngine {
     );
   }
 
-  async #query<TRow>(
-    sql: string,
-    params: readonly CloudflareD1Value[],
-    initialize = true,
-  ): Promise<readonly TRow[]> {
+  async #query<TRow>(sql: string, params: readonly CloudflareD1Value[]): Promise<readonly TRow[]> {
     return (
-      ((await this.#batch([{ sql, params }], initialize))[0]?.results as
-        | readonly TRow[]
-        | undefined) ?? []
+      ((await this.#batch([{ sql, params }]))[0]?.results as readonly TRow[] | undefined) ?? []
     );
   }
 
-  async #execute(
-    sql: string,
-    params: readonly CloudflareD1Value[],
-    initialize = true,
-  ): Promise<void> {
-    await this.#batch([{ sql, params }], initialize);
+  async #execute(sql: string, params: readonly CloudflareD1Value[]): Promise<void> {
+    await this.#batch([{ sql, params }]);
   }
 
-  async #batch(
-    queries: readonly D1Query[],
-    initialize = true,
-  ): Promise<readonly CloudflareD1Result[]> {
-    if (initialize) {
-      await this.#initialize();
-    }
+  async #batch(queries: readonly D1Query[]): Promise<readonly CloudflareD1Result[]> {
     if (queries.length === 0) {
       return [];
     }
@@ -387,7 +362,7 @@ export class CloudflareD1StorageEngine implements StorageEngine {
         sql: query.sql,
       })),
     })) {
-      results.push(result as CloudflareD1Result);
+      results.push(decodeHttpResult(result as CloudflareD1Result));
     }
     checkResults(results, "HTTP");
     return results;
@@ -469,7 +444,31 @@ function toHttpParameter(value: CloudflareD1Value): string {
   if (typeof value === "number") {
     return String(value);
   }
-  return encodeBase64(value instanceof Uint8Array ? value : new Uint8Array(value));
+  const bytes = value instanceof Uint8Array ? value : new Uint8Array(value);
+  return `${D1_HTTP_BYTES_PREFIX}${encodeBase64(bytes)}`;
+}
+
+function decodeHttpResult(result: CloudflareD1Result): CloudflareD1Result {
+  if (result.results === undefined) {
+    return result;
+  }
+  return {
+    ...result,
+    results: result.results.map((row) => {
+      if (typeof row !== "object" || row === null) {
+        return row;
+      }
+      return Object.fromEntries(
+        Object.entries(row).map(([key, value]) => [key, decodeHttpValue(value)]),
+      );
+    }),
+  };
+}
+
+function decodeHttpValue(value: unknown): unknown {
+  return typeof value === "string" && value.startsWith(D1_HTTP_BYTES_PREFIX)
+    ? decodeBase64(value.slice(D1_HTTP_BYTES_PREFIX.length))
+    : value;
 }
 
 export type { StorageEngineSetManyItem };

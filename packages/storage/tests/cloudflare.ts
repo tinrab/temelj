@@ -225,6 +225,13 @@ interface MockD1Statement extends CloudflareD1PreparedStatement {
 
 export function createMockCloudflareD1Binding(): CloudflareD1Binding {
   const database = new Database(":memory:");
+  database.exec(`
+    CREATE TABLE temelj_storage (
+      key TEXT PRIMARY KEY NOT NULL,
+      value TEXT NOT NULL,
+      expires_at INTEGER NOT NULL
+    )
+  `);
 
   return {
     async batch<T>(

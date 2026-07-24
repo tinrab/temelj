@@ -7,6 +7,7 @@ import {
 } from "@aws-sdk/client-s3";
 import { expect, test } from "vitest";
 
+import { createSuperJsonStorageCodec } from "../codec/super-json.ts";
 import { createStorage } from "../storage.ts";
 import { S3StorageEngine } from "./s3.ts";
 
@@ -31,6 +32,7 @@ test(
     await client.send(new CreateBucketCommand({ Bucket: bucket }));
 
     const storage = createStorage({
+      codec: createSuperJsonStorageCodec({ format: "bytes" }),
       engine: new S3StorageEngine({
         bucket,
         client,
@@ -83,6 +85,7 @@ test("s3 engine treats prefixes as literal strings", { tags: ["container"] }, as
 
   const namespace = "temelj-storage-[literal]*?";
   const storage = createStorage({
+    codec: createSuperJsonStorageCodec({ format: "bytes" }),
     engine: new S3StorageEngine({
       bucket,
       client,
@@ -90,6 +93,7 @@ test("s3 engine treats prefixes as literal strings", { tags: ["container"] }, as
     }),
   });
   const adjacentStorage = createStorage({
+    codec: createSuperJsonStorageCodec({ format: "bytes" }),
     engine: new S3StorageEngine({
       bucket,
       client,

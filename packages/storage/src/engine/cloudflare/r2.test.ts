@@ -5,6 +5,7 @@ import {
   createMockCloudflareR2Client,
 } from "../../../tests/cloudflare.ts";
 import { createBytesStorageCodec } from "../../codec/bytes.ts";
+import { createSuperJsonStorageCodec } from "../../codec/super-json.ts";
 import { createStorage } from "../../storage.ts";
 import { CloudflareR2StorageEngine } from "./r2.ts";
 
@@ -14,6 +15,7 @@ describe("Cloudflare R2 engine", () => {
     vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
     const binding = createMockCloudflareR2Binding();
     const storage = createStorage({
+      codec: createSuperJsonStorageCodec({ format: "bytes" }),
       engine: new CloudflareR2StorageEngine({
         binding,
         prefix: "app",
@@ -39,6 +41,7 @@ describe("Cloudflare R2 engine", () => {
   test("resolves a named R2 binding", async () => {
     const binding = createMockCloudflareR2Binding();
     const storage = createStorage({
+      codec: createSuperJsonStorageCodec({ format: "bytes" }),
       engine: new CloudflareR2StorageEngine({
         binding: "BUCKET",
         bindings: { BUCKET: binding },
@@ -52,6 +55,7 @@ describe("Cloudflare R2 engine", () => {
   test("uses the Cloudflare R2 HTTP API", async () => {
     const { client, deleteObject, get, list, objects, upload } = createMockCloudflareR2Client();
     const storage = createStorage({
+      codec: createSuperJsonStorageCodec({ format: "bytes" }),
       engine: new CloudflareR2StorageEngine({
         accountId: "account",
         bucketName: "bucket",

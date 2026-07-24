@@ -6,9 +6,15 @@ import type {
   StorageEngineKeyOptions,
   StorageEngineSetManyItem,
   StorageEngineSetOptions,
+  StoredValue,
 } from "../types.ts";
 
-import { isExpired, resolveExpiresAt, toBuffer, toUint8Array } from "../utility.ts";
+import {
+  isExpired,
+  normalizeStoredValue,
+  resolveExpiresAt,
+  storedValuesEqual,
+} from "../utility.ts";
 
 /**
  * Minimal mysql2 client or pool interface used by {@link MySqlStorageEngine}.
@@ -66,7 +72,6 @@ export interface MySqlEngineOptions {
   /**
    * Whether to create the storage table lazily. Defaults to `true`.
    */
-  readonly initialize?: boolean;
 
   /**
    * Whether `dispose` closes the client. Defaults to `true` for internally created clients.
@@ -75,23 +80,23 @@ export interface MySqlEngineOptions {
 }
 
 interface MySqlValueRow {
-  readonly value: Uint8Array;
+  readonly value: unknown;
   readonly expires_at: number | string | bigint | null;
 }
 
 /**
  * Storage engine backed by a MySQL table.
  */
-export class MySqlStorageEngine implements StorageEngine {
+export class MySqlStorageEngine<
+  TStoredValue extends StoredValue = string,
+> implements StorageEngine<TStoredValue> {
   readonly name = "mysql";
 
   #client: MySqlEngineClient | undefined;
-  #initialized = false;
   readonly #options: MySqlEngineOptions;
   readonly #tableName: string;
   readonly #prefix: string;
   readonly #separator: string;
-  readonly #shouldInitialize: boolean;
   readonly #shouldDispose: boolean;
 
   constructor(options: MySqlEngineOptions = {}) {
@@ -100,11 +105,10 @@ export class MySqlStorageEngine implements StorageEngine {
     this.#tableName = quoteIdentifier(options.tableName ?? "temelj_storage");
     this.#prefix = options.prefix ?? "";
     this.#separator = options.separator ?? ":";
-    this.#shouldInitialize = options.initialize ?? true;
     this.#shouldDispose = options.dispose ?? options.client === undefined;
   }
 
-  async get(key: string): Promise<Uint8Array | undefined> {
+  async get(key: string): Promise<TStoredValue | undefined> {
     const mysqlClient = await this.#getClient();
     const storageKey = this.#prefixKey(key);
     const rows = await queryRows<MySqlValueRow>(
@@ -120,10 +124,10 @@ export class MySqlStorageEngine implements StorageEngine {
       await this.#deleteRecord(mysqlClient, storageKey);
       return undefined;
     }
-    return toUint8Array(row.value);
+    return normalizeStoredValue<TStoredValue>(row.value);
   }
 
-  async getMany(keys: readonly string[]): Promise<ReadonlyMap<string, Uint8Array>> {
+  async getMany(keys: readonly string[]): Promise<ReadonlyMap<string, TStoredValue>> {
     if (keys.length === 0) {
       return new Map();
     }
@@ -135,14 +139,14 @@ export class MySqlStorageEngine implements StorageEngine {
       `SELECT \`key\`, \`value\` FROM ${this.#tableName} WHERE \`key\` IN (${placeholders(storageKeys.length)})`,
       storageKeys,
     );
-    const result = new Map<string, Uint8Array>();
+    const result = new Map<string, TStoredValue>();
     for (const row of rows) {
-      result.set(this.#unprefixKey(row.key), toUint8Array(row.value));
+      result.set(this.#unprefixKey(row.key), normalizeStoredValue<TStoredValue>(row.value));
     }
     return result;
   }
 
-  async set(key: string, value: Uint8Array, setOptions?: StorageEngineSetOptions): Promise<void> {
+  async set(key: string, value: TStoredValue, setOptions?: StorageEngineSetOptions): Promise<void> {
     const mysqlClient = await this.#getClient();
     const storageKey = this.#prefixKey(key);
     const expiresAt = resolveExpiresAt(setOptions);
@@ -164,8 +168,8 @@ export class MySqlStorageEngine implements StorageEngine {
 
   async compareAndSet(
     key: string,
-    expected: Uint8Array | undefined,
-    value: Uint8Array | undefined,
+    expected: TStoredValue | undefined,
+    value: TStoredValue | undefined,
     setOptions?: StorageEngineSetOptions,
   ): Promise<boolean> {
     const mysqlClient = await this.#getClient();
@@ -242,7 +246,9 @@ export class MySqlStorageEngine implements StorageEngine {
     return result.affectedRows > 0;
   }
 
-  async compareAndSetMany(items: readonly StorageEngineCompareAndSetManyItem[]): Promise<boolean> {
+  async compareAndSetMany(
+    items: readonly StorageEngineCompareAndSetManyItem<TStoredValue>[],
+  ): Promise<boolean> {
     if (items.length === 0) {
       return true;
     }
@@ -277,7 +283,10 @@ export class MySqlStorageEngine implements StorageEngine {
           }
           continue;
         }
-        if (existing === undefined || !toBuffer(existing).equals(toBuffer(item.expected))) {
+        if (
+          existing === undefined ||
+          !storedValuesEqual(normalizeStoredValue<TStoredValue>(existing), item.expected)
+        ) {
           return false;
         }
       }
@@ -351,7 +360,7 @@ export class MySqlStorageEngine implements StorageEngine {
     }
   }
 
-  async setMany(items: readonly StorageEngineSetManyItem[]): Promise<void> {
+  async setMany(items: readonly StorageEngineSetManyItem<TStoredValue>[]): Promise<void> {
     for (const item of items) {
       await this.set(item.key, item.value, item.options);
     }
@@ -413,7 +422,6 @@ export class MySqlStorageEngine implements StorageEngine {
       await this.#client?.end?.();
     }
     this.#client = undefined;
-    this.#initialized = false;
   }
 
   async #getClient(): Promise<MySqlEngineClient> {
@@ -426,21 +434,7 @@ export class MySqlStorageEngine implements StorageEngine {
       this.#client = createdClient as MySqlEngineClient;
     }
 
-    if (this.#shouldInitialize && !this.#initialized) {
-      await this.#initializeTable(this.#client);
-      this.#initialized = true;
-    }
     return this.#client;
-  }
-
-  async #initializeTable(mysqlClient: MySqlEngineClient): Promise<void> {
-    await mysqlClient.execute(`
-      CREATE TABLE IF NOT EXISTS ${this.#tableName} (
-        \`key\` VARCHAR(768) PRIMARY KEY,
-        \`value\` LONGBLOB NOT NULL,
-        \`expires_at\` BIGINT NULL
-      )
-    `);
   }
 
   async #deleteExpired(mysqlClient: MySqlEngineClient): Promise<void> {

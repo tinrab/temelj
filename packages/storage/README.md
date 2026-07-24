@@ -86,13 +86,15 @@ const theme = await storage.get("settings:theme");
 
 ## Codecs
 
-Choose a codec when the storage value type should be restricted or serialized differently.
+Engines persist `string`, `number`, `Uint8Array`, or their union.
+A codec must produce the exact representation accepted by its engine.
 
 ```ts
 import { createStorage, createTextStorageCodec } from "@temelj/storage";
 
 const storage = createStorage({
   codec: createTextStorageCodec(),
+  engine: new InMemoryStorageEngine<string>(),
 });
 
 await storage.set("message", "hello");
@@ -105,6 +107,32 @@ Available codecs are:
 - `createPrimitivizedJsonStorageCodec` for values normalized through `@temelj/value`.
 - `createTextStorageCodec` for strings.
 - `createBytesStorageCodec` for `Uint8Array` values.
+- `createIdentityStorageCodec` for numbers, exact raw types, or mixed `StoredValue`.
+
+The JSON, primitivized JSON, and SuperJSON codecs accept `format: "string" | "bytes"` and default to strings.
+The format literal determines the codec's persisted type.
+
+```ts
+const textTable = createStorage({
+  codec: createJsonStorageCodec({ format: "string" }),
+  engine: new LibSqlStorageEngine<string>({ client }),
+});
+
+const binaryFiles = createStorage({
+  codec: createSuperJsonStorageCodec({ format: "bytes" }),
+  engine: new FileSystemStorageEngine({ directory: "./data" }),
+});
+
+const counters = createStorage({
+  codec: createIdentityStorageCodec<number>(),
+  engine: new InMemoryStorageEngine<number>(),
+});
+
+const raw = createStorage({
+  codec: createIdentityStorageCodec<StoredValue>(),
+  engine: new InMemoryStorageEngine<StoredValue>(),
+});
+```
 
 ## Events and watching
 
@@ -189,6 +217,7 @@ import { createStorage } from "@temelj/storage";
 import { FileSystemStorageEngine } from "@temelj/storage/filesystem";
 
 const storage = createStorage({
+  codec: createSuperJsonStorageCodec({ format: "bytes" }),
   engine: new FileSystemStorageEngine({
     directory: "./.storage",
     prefix: "app",
@@ -202,6 +231,7 @@ await storage.set("users:1", { name: "Verso" });
 import { FileSystemStorageEngine } from "@temelj/storage/filesystem";
 
 const storage = createStorage({
+  codec: createSuperJsonStorageCodec({ format: "bytes" }),
   engine: new FileSystemStorageEngine({
     directory: "./.storage",
     metadataExtension: ".ttl.json",
@@ -352,6 +382,7 @@ const storage = createStorage({
 
 libSQL storage uses the `libsql` package.
 Without a path or URL, it creates an in-memory database.
+The table must already exist; the engine never issues DDL.
 
 ```ts
 import { createStorage } from "@temelj/storage";
@@ -370,7 +401,7 @@ await storage.dispose();
 
 ### Postgres Storage
 
-Postgres storage uses the `postgres` package and lazily creates the storage table by default.
+Postgres storage uses the `postgres` package. The table must already exist.
 
 ```ts
 import { createStorage } from "@temelj/storage";
@@ -389,7 +420,7 @@ await storage.dispose();
 
 ### MySQL Storage
 
-MySQL storage uses `mysql2/promise` and lazily creates the storage table by default.
+MySQL storage uses `mysql2/promise`. The table must already exist.
 
 ```ts
 import { createStorage } from "@temelj/storage";
@@ -405,6 +436,16 @@ const storage = createStorage({
 await storage.set("users:1", { name: "Verso" });
 await storage.dispose();
 ```
+
+Relational engines expect `key`, `value`, and `expires_at` columns.
+`key` must be unique, `value` should use the column type matching the engine generic (`TEXT`, numeric, or binary), and `expires_at` stores an optional millisecond Unix timestamp.
+D1 uses the same shape with `expires_at INTEGER NOT NULL` and `0` for no expiration.
+Applications are responsible for migrations and provisioning.
+
+File system, S3, and R2 store bytes.
+Web Storage stores strings.
+In-memory and IndexedDB support exact or mixed `StoredValue` records.
+Relational engines use the string, number, or binary representation returned by their configured column and normalize recognized binary driver containers to `Uint8Array`.
 
 ### Web Storage
 

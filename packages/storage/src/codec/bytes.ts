@@ -1,24 +1,10 @@
-import { StorageSerializationError, type StorageCodec } from "../types.ts";
+import type { StorageCodec } from "../types.ts";
+
+import { createIdentityStorageCodec } from "./identity.ts";
 
 /**
  * Creates a codec that stores `Uint8Array` values as raw bytes.
  */
-export function createBytesStorageCodec(): StorageCodec<Uint8Array> {
-  return {
-    encode(value) {
-      try {
-        return value.slice();
-      } catch (error) {
-        StorageSerializationError.encode(error);
-      }
-    },
-
-    decode(bytes) {
-      try {
-        return bytes.slice();
-      } catch (error) {
-        StorageSerializationError.decode(error);
-      }
-    },
-  };
+export function createBytesStorageCodec(): StorageCodec<Uint8Array, Uint8Array> {
+  return createIdentityStorageCodec<Uint8Array>();
 }

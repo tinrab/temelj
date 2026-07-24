@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
+import { createSuperJsonStorageCodec } from "../codec/super-json.ts";
 import { createStorage } from "../storage.ts";
 import { FileSystemStorageEngine } from "./file-system.ts";
 
@@ -19,6 +20,7 @@ describe("file system engine", () => {
   test("stores bytes, scans prefixes, and clears values", async () => {
     const directory = await temporaryDirectory();
     const storage = createStorage({
+      codec: createSuperJsonStorageCodec({ format: "bytes" }),
       engine: new FileSystemStorageEngine({
         directory,
         prefix: "app",
@@ -45,6 +47,7 @@ describe("file system engine", () => {
   test("treats path-like keys as literal storage keys", async () => {
     const directory = await temporaryDirectory();
     const storage = createStorage({
+      codec: createSuperJsonStorageCodec({ format: "bytes" }),
       engine: new FileSystemStorageEngine({ directory }),
     });
 
@@ -59,6 +62,7 @@ describe("file system engine", () => {
   test("supports custom value and metadata extensions", async () => {
     const directory = await temporaryDirectory();
     const storage = createStorage({
+      codec: createSuperJsonStorageCodec({ format: "bytes" }),
       engine: new FileSystemStorageEngine({
         directory,
         metadataExtension: ".ttl",
@@ -82,6 +86,7 @@ describe("file system engine", () => {
     vi.useFakeTimers();
     const directory = await temporaryDirectory();
     const storage = createStorage({
+      codec: createSuperJsonStorageCodec({ format: "bytes" }),
       engine: new FileSystemStorageEngine({ directory }),
     });
 
@@ -97,6 +102,7 @@ describe("file system engine", () => {
   test("supports setMany and deleteMany", async () => {
     const directory = await temporaryDirectory();
     const storage = createStorage({
+      codec: createSuperJsonStorageCodec({ format: "bytes" }),
       engine: new FileSystemStorageEngine({ directory }),
     });
 

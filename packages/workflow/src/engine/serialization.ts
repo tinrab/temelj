@@ -13,7 +13,9 @@ import {
 import { sanitizedWorkflowErrorDetails } from "../types/error.ts";
 import { persistedValueIssue } from "../types/run.ts";
 
-const PERSISTED_VALUE_CODEC = createSuperJsonStorageCodec<StorageValue>();
+const PERSISTED_VALUE_CODEC = createSuperJsonStorageCodec<StorageValue, "bytes">({
+  format: "bytes",
+});
 
 export function serializeError(error: unknown): WorkflowErrorRecord {
   if (error instanceof Error) {

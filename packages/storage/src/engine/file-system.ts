@@ -52,7 +52,7 @@ const DEFAULT_METADATA_EXTENSION = ".meta.json";
 /**
  * Storage engine that stores each encoded value as a file on disk.
  */
-export class FileSystemStorageEngine implements StorageEngine {
+export class FileSystemStorageEngine implements StorageEngine<Uint8Array> {
   readonly name = "file-system";
 
   readonly #directory: string;
@@ -115,7 +115,9 @@ export class FileSystemStorageEngine implements StorageEngine {
     });
   }
 
-  async compareAndSetMany(items: readonly StorageEngineCompareAndSetManyItem[]): Promise<boolean> {
+  async compareAndSetMany(
+    items: readonly StorageEngineCompareAndSetManyItem<Uint8Array>[],
+  ): Promise<boolean> {
     const storageItems = items.map((item) => ({
       key: this.#prefixKey(item.key),
       expected: item.expected,
@@ -144,7 +146,7 @@ export class FileSystemStorageEngine implements StorageEngine {
     );
   }
 
-  async setMany(items: readonly StorageEngineSetManyItem[]): Promise<void> {
+  async setMany(items: readonly StorageEngineSetManyItem<Uint8Array>[]): Promise<void> {
     for (const item of items) {
       await this.set(item.key, item.value, item.options);
     }

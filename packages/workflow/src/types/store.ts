@@ -1,4 +1,4 @@
-import type { Storage, StorageValue } from "@temelj/storage";
+import type { Storage, StorageValue, StoredValue } from "@temelj/storage";
 
 import type { CleanupMarkerRecord, CleanupRunsOptions, CleanupRunsResult } from "./cleanup.ts";
 import type { EventRecord } from "./events.ts";
@@ -16,7 +16,7 @@ import type {
 import type { WorkflowWorkerRunFilterOptions } from "./worker.ts";
 
 /** Type used for workflow storage values. */
-export type WorkflowStorage = Storage<Record<string, StorageValue>, StorageValue>;
+export type WorkflowStorage = Storage<Record<string, StorageValue>, StorageValue, StoredValue>;
 
 /** Storage value stored for cleanup index entries. */
 export type WorkflowCleanupIndexValue = StorageValue;

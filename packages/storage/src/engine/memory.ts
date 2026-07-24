@@ -4,68 +4,73 @@ import {
   type StorageEngineKeyOptions,
   type StorageEngineSetManyItem,
   type StorageEngineSetOptions,
+  type StoredValue,
 } from "../types.ts";
-import { bytesEqual } from "../utility.ts";
+import { storedValuesEqual } from "../utility.ts";
 
 const MAX_TIMEOUT = 2_147_483_647;
 
 /**
  * Options for {@link InMemoryStorageEngine}.
  */
-export interface InMemoryEngineOptions {
+export interface InMemoryEngineOptions<TStoredValue extends StoredValue = StoredValue> {
   /**
    * Initial encoded entries copied into the engine.
    */
-  readonly initialEntries?: Iterable<readonly [string, Uint8Array]>;
+  readonly initialEntries?: Iterable<readonly [string, TStoredValue]>;
 }
 
-interface InMemoryRecord {
-  readonly value: Uint8Array;
+interface InMemoryRecord<TStoredValue extends StoredValue> {
+  readonly value: TStoredValue;
   readonly expiresAt?: number;
 }
 
 /**
  * In-memory engine interface with snapshot support.
  */
-export interface InMemoryEngine extends StorageEngine {
+export interface InMemoryEngine<
+  TStoredValue extends StoredValue = StoredValue,
+> extends StorageEngine<TStoredValue> {
   /**
    * Returns a defensive copy of currently stored, non-expired records.
    */
-  snapshot(): ReadonlyMap<string, Uint8Array>;
+  snapshot(): ReadonlyMap<string, TStoredValue>;
 }
 
 /**
  * Storage engine that keeps encoded values in process memory.
  */
-export class InMemoryStorageEngine implements InMemoryEngine {
+export class InMemoryStorageEngine<
+  TStoredValue extends StoredValue = StoredValue,
+> implements InMemoryEngine<TStoredValue> {
   readonly name = "in-memory";
-  readonly watch?: StorageEngine["watch"];
+  readonly watch?: StorageEngine<TStoredValue>["watch"];
 
-  readonly #records = new Map<string, InMemoryRecord>();
+  readonly #records = new Map<string, InMemoryRecord<TStoredValue>>();
   readonly #timers = new Map<string, ReturnType<typeof setTimeout>>();
 
-  constructor(options: InMemoryEngineOptions = {}) {
+  constructor(options: InMemoryEngineOptions<TStoredValue> = {}) {
     for (const [key, value] of options.initialEntries ?? []) {
-      this.#records.set(key, { value: copyBytes(value) });
+      this.#records.set(key, { value: copyValue(value) });
     }
   }
 
-  async get(key: string): Promise<Uint8Array | undefined> {
+  async get(key: string): Promise<TStoredValue | undefined> {
     if (this.#removeExpired(key)) {
       return undefined;
     }
     const record = this.#records.get(key);
-    return record === undefined ? undefined : copyBytes(record.value);
+    return record === undefined ? undefined : copyValue(record.value);
   }
 
-  async set(key: string, value: Uint8Array, options?: StorageEngineSetOptions): Promise<void> {
+  async set(key: string, value: TStoredValue, options?: StorageEngineSetOptions): Promise<void> {
     this.#setRecord(key, value, options);
   }
 
   async compareAndSet(
     key: string,
-    expected: Uint8Array | undefined,
-    value: Uint8Array | undefined,
+    expected: TStoredValue | undefined,
+    value: TStoredValue | undefined,
     options?: StorageEngineSetOptions,
   ): Promise<boolean> {
     if (this.#removeExpired(key)) {
@@ -73,7 +78,7 @@ export class InMemoryStorageEngine implements InMemoryEngine {
     }
 
     const current = this.#records.get(key)?.value;
-    if (!bytesEqual(current, expected)) {
+    if (!storedValuesEqual(current, expected)) {
       return false;
     }
 
@@ -87,14 +92,18 @@ export class InMemoryStorageEngine implements InMemoryEngine {
     return true;
   }
 
-  async compareAndSetMany(items: readonly StorageEngineCompareAndSetManyItem[]): Promise<boolean> {
+  async compareAndSetMany(
+    items: readonly StorageEngineCompareAndSetManyItem<TStoredValue>[],
+  ): Promise<boolean> {
     for (const item of items) {
       if (this.#removeExpired(item.key)) {
         this.#clearExpiry(item.key);
       }
     }
 
-    if (items.some((item) => !bytesEqual(this.#records.get(item.key)?.value, item.expected))) {
+    if (
+      items.some((item) => !storedValuesEqual(this.#records.get(item.key)?.value, item.expected))
+    ) {
       return false;
     }
 
@@ -109,7 +118,7 @@ export class InMemoryStorageEngine implements InMemoryEngine {
     return true;
   }
 
-  async setMany(items: readonly StorageEngineSetManyItem[]): Promise<void> {
+  async setMany(items: readonly StorageEngineSetManyItem<TStoredValue>[]): Promise<void> {
     for (const item of items) {
       this.#setRecord(item.key, item.value, item.options);
     }
@@ -161,8 +170,8 @@ export class InMemoryStorageEngine implements InMemoryEngine {
     }
   }
 
-  async getMany(keys: readonly string[]): Promise<ReadonlyMap<string, Uint8Array>> {
-    const values = new Map<string, Uint8Array>();
+  async getMany(keys: readonly string[]): Promise<ReadonlyMap<string, TStoredValue>> {
+    const values = new Map<string, TStoredValue>();
     for (const key of keys) {
       const value = await this.get(key);
       if (value !== undefined) {
@@ -176,14 +185,14 @@ export class InMemoryStorageEngine implements InMemoryEngine {
     await this.clear();
   }
 
-  snapshot(): ReadonlyMap<string, Uint8Array> {
+  snapshot(): ReadonlyMap<string, TStoredValue> {
     this.#removeExpiredRecords();
     return new Map(
-      [...this.#records.entries()].map(([key, record]) => [key, copyBytes(record.value)]),
+      [...this.#records.entries()].map(([key, record]) => [key, copyValue(record.value)]),
     );
   }
 
-  #setRecord(key: string, value: Uint8Array, options: StorageEngineSetOptions | undefined): void {
+  #setRecord(key: string, value: TStoredValue, options: StorageEngineSetOptions | undefined): void {
     this.#clearExpiry(key);
 
     const expiresAt = options?.ttl === undefined ? undefined : Date.now() + options.ttl;
@@ -192,7 +201,7 @@ export class InMemoryStorageEngine implements InMemoryEngine {
       return;
     }
 
-    this.#records.set(key, { value: copyBytes(value), expiresAt });
+    this.#records.set(key, { value: copyValue(value), expiresAt });
     if (options?.ttl !== undefined) {
       this.#scheduleExpiry(key, options.ttl);
     }
@@ -256,8 +265,8 @@ function matchesPrefix(key: string, options: StorageEngineKeyOptions | undefined
   return options?.prefix === undefined || key.startsWith(options.prefix);
 }
 
-function copyBytes(value: Uint8Array): Uint8Array {
-  return value.slice();
+function copyValue<TValue extends StoredValue>(value: TValue): TValue {
+  return (value instanceof Uint8Array ? value.slice() : value) as TValue;
 }
 
 /**

@@ -12,6 +12,10 @@ import type {
 
 import { toBuffer, toUint8Array } from "../utility.ts";
 
+export type RedisStoredValue<TFormat extends "string" | "bytes"> = TFormat extends "string"
+  ? string
+  : Uint8Array;
+
 /**
  * How {@link RedisStorageEngine.dispose} closes the Redis connection.
  */
@@ -26,7 +30,9 @@ export interface RedisEngineClient {
   eval(script: string, keyCount: number, ...args: unknown[]): Promise<unknown>;
   exists(key: string): Promise<number>;
   getBuffer(key: string): Promise<Buffer | null>;
+  get(key: string): Promise<string | null>;
   mgetBuffer(...keys: string[]): Promise<Array<Buffer | null>>;
+  mget(...keys: string[]): Promise<Array<string | null>>;
   quit(): Promise<unknown>;
   scan(cursor: string, match: "MATCH", pattern: string): Promise<[string, string[]]>;
   scan(
@@ -36,14 +42,18 @@ export interface RedisEngineClient {
     count: "COUNT",
     countValue: string,
   ): Promise<[string, string[]]>;
-  set(key: string, value: Buffer): Promise<unknown>;
-  set(key: string, value: Buffer, mode: "PX", ttl: number): Promise<unknown>;
+  set(key: string, value: Buffer | string): Promise<unknown>;
+  set(key: string, value: Buffer | string, mode: "PX", ttl: number): Promise<unknown>;
 }
 
 /**
  * Options for {@link RedisStorageEngine}.
  */
-export interface RedisEngineOptions extends RedisOptions {
+export interface RedisEngineOptions<
+  TFormat extends "string" | "bytes" = "bytes",
+> extends RedisOptions {
+  /** Representation returned by Redis reads. Defaults to `"bytes"`. */
+  readonly format?: TFormat;
   /**
    * Existing ioredis-compatible client.
    */
@@ -93,46 +103,67 @@ export interface RedisEngineOptions extends RedisOptions {
 /**
  * Storage engine backed by Redis.
  */
-export class RedisStorageEngine implements StorageEngine {
+export class RedisStorageEngine<
+  TFormat extends "string" | "bytes" = "bytes",
+> implements StorageEngine<RedisStoredValue<TFormat>> {
   readonly name = "redis";
 
   #client: RedisEngineClient | undefined;
-  readonly #options: RedisEngineOptions;
+  readonly #options: RedisEngineOptions<TFormat>;
+  readonly #format: TFormat;
   readonly #prefix: string;
   readonly #separator: string;
   readonly #disposeMode: RedisEngineDisposeMode;
 
-  constructor(options: RedisEngineOptions = {}) {
+  constructor(options: RedisEngineOptions<TFormat> = {}) {
     this.#options = options;
     this.#client = options.client;
+    this.#format = (options.format ?? "bytes") as TFormat;
     this.#prefix = options.prefix ?? "";
     this.#separator = options.separator ?? ":";
     this.#disposeMode = options.dispose ?? (options.client ? false : "disconnect");
   }
 
-  async get(key: string): Promise<Uint8Array | undefined> {
-    const value = await (await this.#getClient()).getBuffer(this.#prefixKey(key));
-    return value === null ? undefined : toUint8Array(value);
+  async get(key: string): Promise<RedisStoredValue<TFormat> | undefined> {
+    const client = await this.#getClient();
+    const value =
+      this.#format === "string"
+        ? await client.get(this.#prefixKey(key))
+        : await client.getBuffer(this.#prefixKey(key));
+    return value === null
+      ? undefined
+      : ((typeof value === "string" ? value : toUint8Array(value)) as RedisStoredValue<TFormat>);
   }
 
-  async getMany(keys: readonly string[]): Promise<ReadonlyMap<string, Uint8Array>> {
+  async getMany(keys: readonly string[]): Promise<ReadonlyMap<string, RedisStoredValue<TFormat>>> {
     if (keys.length === 0) {
       return new Map();
     }
 
     const prefixedKeys = keys.map((key) => this.#prefixKey(key));
-    const values = await (await this.#getClient()).mgetBuffer(...prefixedKeys);
-    const result = new Map<string, Uint8Array>();
+    const client = await this.#getClient();
+    const values =
+      this.#format === "string"
+        ? await client.mget(...prefixedKeys)
+        : await client.mgetBuffer(...prefixedKeys);
+    const result = new Map<string, RedisStoredValue<TFormat>>();
     for (let index = 0; index < keys.length; index++) {
       const value = values[index];
       if (value !== null && value !== undefined) {
-        result.set(keys[index]!, toUint8Array(value));
+        result.set(
+          keys[index]!,
+          (typeof value === "string" ? value : toUint8Array(value)) as RedisStoredValue<TFormat>,
+        );
       }
     }
     return result;
   }
 
-  async set(key: string, value: Uint8Array, setOptions?: StorageEngineSetOptions): Promise<void> {
+  async set(
+    key: string,
+    value: RedisStoredValue<TFormat>,
+    setOptions?: StorageEngineSetOptions,
+  ): Promise<void> {
     await setRedisValue(
       await this.#getClient(),
       this.#prefixKey(key),
@@ -143,8 +174,8 @@ export class RedisStorageEngine implements StorageEngine {
 
   async compareAndSet(
     key: string,
-    expected: Uint8Array | undefined,
-    value: Uint8Array | undefined,
+    expected: RedisStoredValue<TFormat> | undefined,
+    value: RedisStoredValue<TFormat> | undefined,
     setOptions?: StorageEngineSetOptions,
   ): Promise<boolean> {
     const redis = await this.#getClient();
@@ -163,14 +194,20 @@ export class RedisStorageEngine implements StorageEngine {
           storageKey,
           "set",
           ttl?.toString() ?? "",
-          toBuffer(value),
+          redisParameter(value),
         ),
       );
     }
 
     if (value === undefined || (ttl !== undefined && ttl <= 0)) {
       return toRedisBoolean(
-        await redis.eval(COMPARE_EXPECTED_SCRIPT, 1, storageKey, toBuffer(expected), "delete"),
+        await redis.eval(
+          COMPARE_EXPECTED_SCRIPT,
+          1,
+          storageKey,
+          redisParameter(expected),
+          "delete",
+        ),
       );
     }
 
@@ -179,15 +216,17 @@ export class RedisStorageEngine implements StorageEngine {
         COMPARE_EXPECTED_SCRIPT,
         1,
         storageKey,
-        toBuffer(expected),
+        redisParameter(expected),
         "set",
         ttl?.toString() ?? "",
-        toBuffer(value),
+        redisParameter(value),
       ),
     );
   }
 
-  async compareAndSetMany(items: readonly StorageEngineCompareAndSetManyItem[]): Promise<boolean> {
+  async compareAndSetMany(
+    items: readonly StorageEngineCompareAndSetManyItem<RedisStoredValue<TFormat>>[],
+  ): Promise<boolean> {
     const redis = await this.#getClient();
     const keys = items.map((item) => this.#prefixKey(item.key));
     const args = items.flatMap((item) => {
@@ -195,16 +234,18 @@ export class RedisStorageEngine implements StorageEngine {
       const deleteValue = item.value === undefined || (ttl !== undefined && ttl <= 0);
       return [
         item.expected === undefined ? "absent" : "value",
-        item.expected === undefined ? "" : toBuffer(item.expected),
+        item.expected === undefined ? "" : redisParameter(item.expected),
         deleteValue ? "delete" : "set",
         deleteValue ? "" : (ttl?.toString() ?? ""),
-        deleteValue ? "" : toBuffer(item.value),
+        deleteValue ? "" : redisParameter(item.value),
       ];
     });
     return toRedisBoolean(await redis.eval(COMPARE_MANY_SCRIPT, keys.length, ...keys, ...args));
   }
 
-  async setMany(items: readonly StorageEngineSetManyItem[]): Promise<void> {
+  async setMany(
+    items: readonly StorageEngineSetManyItem<RedisStoredValue<TFormat>>[],
+  ): Promise<void> {
     const redis = await this.#getClient();
     await Promise.all(
       items.map((item) =>
@@ -389,10 +430,10 @@ const COMPARE_MANY_SCRIPT = `
 async function setRedisValue(
   client: RedisEngineClient,
   key: string,
-  value: Uint8Array,
+  value: string | Uint8Array,
   ttl: number | undefined,
 ): Promise<void> {
-  const buffer = toBuffer(value);
+  const buffer = redisParameter(value);
   if (ttl !== undefined && ttl <= 0) {
     await client.del(key);
     return;
@@ -405,9 +446,13 @@ async function setRedisValue(
   await client.set(key, buffer, "PX", ttl);
 }
 
+function redisParameter(value: string | Uint8Array): string | Buffer {
+  return typeof value === "string" ? value : toBuffer(value);
+}
+
 function resolveRedisTtl(
   setOptions: StorageEngineSetOptions | undefined,
-  engineOptions: RedisEngineOptions,
+  engineOptions: RedisEngineOptions<"string" | "bytes">,
 ): number | undefined {
   return setOptions?.ttl ?? engineOptions.defaultTtl;
 }

@@ -109,9 +109,8 @@ describe("mysql engine", () => {
       ])
       .mockResolvedValueOnce([{ affectedRows: 1 }, undefined])
       .mockResolvedValueOnce([{ affectedRows: 1 }, undefined]);
-    const engine = new MySqlStorageEngine({
+    const engine = new MySqlStorageEngine<Uint8Array>({
       client: { execute },
-      initialize: false,
     });
 
     expect(await engine.get("sessions:1")).toBeUndefined();
@@ -141,12 +140,11 @@ describe("mysql engine", () => {
       release,
       rollback,
     };
-    const engine = new MySqlStorageEngine({
+    const engine = new MySqlStorageEngine<Uint8Array>({
       client: {
         execute: vi.fn<MySqlEngineClient["execute"]>(),
         getConnection: async () => connection,
       },
-      initialize: false,
     });
 
     await expect(

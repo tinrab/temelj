@@ -5,6 +5,8 @@ import {
   createMockCloudflareKvClient,
 } from "../../../tests/cloudflare.ts";
 import { createBytesStorageCodec } from "../../codec/bytes.ts";
+import { createSuperJsonStorageCodec } from "../../codec/super-json.ts";
+import { createTextStorageCodec } from "../../codec/text.ts";
 import { createStorage } from "../../storage.ts";
 import { StorageOperationError } from "../../types.ts";
 import { CloudflareKvStorageEngine } from "./kv.ts";
@@ -30,9 +32,22 @@ vi.mock("cloudflare", () => ({
 }));
 
 describe("Cloudflare KV engine", () => {
+  test("stores strings directly in configured text mode", async () => {
+    const { binding, put } = createMockCloudflareKvBinding();
+    const storage = createStorage({
+      codec: createTextStorageCodec(),
+      engine: new CloudflareKvStorageEngine({ binding, format: "string" }),
+    });
+
+    await storage.set("message", "hello");
+    expect(await storage.get("message")).toBe("hello");
+    expect(put).toHaveBeenCalledWith("message", "hello", undefined);
+  });
+
   test("uses Worker KV bindings for storage operations", async () => {
     const { binding, put } = createMockCloudflareKvBinding();
     const storage = createStorage({
+      codec: createSuperJsonStorageCodec({ format: "bytes" }),
       engine: new CloudflareKvStorageEngine({
         binding,
         minTtl: 60_000,
@@ -62,6 +77,7 @@ describe("Cloudflare KV engine", () => {
   test("resolves Worker KV bindings from an env-like bindings object", async () => {
     const { binding } = createMockCloudflareKvBinding();
     const storage = createStorage({
+      codec: createSuperJsonStorageCodec({ format: "bytes" }),
       engine: new CloudflareKvStorageEngine({
         binding: "STORAGE",
         bindings: { STORAGE: binding },
@@ -75,6 +91,7 @@ describe("Cloudflare KV engine", () => {
 
   test("rejects missing named Worker KV bindings", async () => {
     const storage = createStorage({
+      codec: createSuperJsonStorageCodec({ format: "bytes" }),
       engine: new CloudflareKvStorageEngine({
         binding: "STORAGE",
         bindings: {},
@@ -98,6 +115,7 @@ describe("Cloudflare KV engine", () => {
     const { bulkDelete, bulkGet, bulkUpdate, client, deleteValue, listKeys, update } =
       createMockCloudflareKvClient();
     const storage = createStorage({
+      codec: createSuperJsonStorageCodec({ format: "bytes" }),
       engine: new CloudflareKvStorageEngine({
         accountId: "account",
         client,

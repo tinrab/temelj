@@ -15,6 +15,8 @@ import {
   type StorageChangeEvent,
   type StorageClearEvent,
   type StorageEngineWatchEvent,
+  type StorageEngine,
+  type StorageEngineValue,
   type StorageEventHandler,
   type StorageEventMap,
   type StorageEventPattern,
@@ -25,6 +27,7 @@ import {
   type StorageCompareAndSetManyItem,
   type StorageSetManyItem,
   type StorageSetOptions,
+  type StoredValue,
   type StorageWatchCallback,
   type StorageWatchUnsubscribe,
 } from "./types.ts";
@@ -39,9 +42,26 @@ import {
 export function createStorage<
   TItems extends StorageItemMap = EmptyStorageItemMap,
   TValue = StorageItemValue<TItems>,
->(options: CreateStorageOptions<TValue> = {}): Storage<TItems, TValue> {
-  const engine = options.engine ?? new InMemoryStorageEngine();
-  const codec = (options.codec ?? createSuperJsonStorageCodec()) as StorageCodec<TValue>;
+  TEngine extends StorageEngine = InMemoryStorageEngine<string>,
+>(
+  options?: {
+    readonly engine?: TEngine;
+  } & (StorageEngineValue<TEngine> extends string
+    ? { readonly codec?: StorageCodec<TValue, StorageEngineValue<TEngine>> }
+    : { readonly codec: StorageCodec<TValue, StorageEngineValue<TEngine>> }),
+): Storage<TItems, TValue, StorageEngineValue<TEngine>>;
+export function createStorage<
+  TItems extends StorageItemMap = EmptyStorageItemMap,
+  TValue = StorageItemValue<TItems>,
+  TStoredValue extends StoredValue = string,
+>(options: CreateStorageOptions<TValue, TStoredValue> = {}): Storage<TItems, TValue, TStoredValue> {
+  const engine = (options.engine ?? new InMemoryStorageEngine<string>()) as NonNullable<
+    CreateStorageOptions<TValue, TStoredValue>["engine"]
+  >;
+  const codec = (options.codec ?? createSuperJsonStorageCodec()) as StorageCodec<
+    TValue,
+    TStoredValue
+  >;
   const capabilities = {
     get compareAndSet() {
       return engine.compareAndSet !== undefined;
@@ -626,7 +646,7 @@ export function createStorage<
     },
   };
 
-  return storage as Storage<TItems, TValue>;
+  return storage as Storage<TItems, TValue, TStoredValue>;
 }
 
 function assertUniqueStorageKeys(operation: string, keys: readonly string[]): void {

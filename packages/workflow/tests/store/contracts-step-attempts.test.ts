@@ -1,4 +1,4 @@
-import { createStorage } from "@temelj/storage";
+import { createStorage, createSuperJsonStorageCodec } from "@temelj/storage";
 import { FileSystemStorageEngine } from "@temelj/storage/filesystem";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -193,6 +193,7 @@ describeWorkflowStoreStepAttemptContract({
     return createWorkflowStore({
       namespace: `contract-step-attempt-${Temporal.Now.instant().epochMilliseconds.toString(36)}-${Math.random()}`,
       storage: createStorage({
+        codec: createSuperJsonStorageCodec({ format: "bytes" }),
         engine: new FileSystemStorageEngine({
           directory,
           prefix: "workflow",

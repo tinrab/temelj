@@ -1,6 +1,7 @@
 import { RedisContainer } from "@testcontainers/redis";
 import { expect, test } from "vitest";
 
+import { createSuperJsonStorageCodec } from "../codec/super-json.ts";
 import { createStorage } from "../storage.ts";
 import { RedisStorageEngine } from "./redis.ts";
 
@@ -10,6 +11,7 @@ test(
   async () => {
     await using container = await new RedisContainer("redis:8.6-alpine").start();
     const storage = createStorage({
+      codec: createSuperJsonStorageCodec({ format: "bytes" }),
       engine: new RedisStorageEngine({
         url: container.getConnectionUrl(),
         prefix: `temelj-storage-${Date.now()}`,
@@ -44,6 +46,7 @@ test("redis engine treats scan prefixes as literal strings", { tags: ["container
   await using container = await new RedisContainer("redis:8.6-alpine").start();
   const namespace = `temelj-storage-[literal]*?-${Date.now()}`;
   const storage = createStorage({
+    codec: createSuperJsonStorageCodec({ format: "bytes" }),
     engine: new RedisStorageEngine({
       url: container.getConnectionUrl(),
       prefix: namespace,
@@ -51,6 +54,7 @@ test("redis engine treats scan prefixes as literal strings", { tags: ["container
     }),
   });
   const adjacentStorage = createStorage({
+    codec: createSuperJsonStorageCodec({ format: "bytes" }),
     engine: new RedisStorageEngine({
       url: container.getConnectionUrl(),
       prefix: namespace.replace("[literal]*?", "X"),

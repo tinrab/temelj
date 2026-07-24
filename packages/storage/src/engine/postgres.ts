@@ -1,16 +1,21 @@
 import type postgres from "postgres";
 
-import { Buffer } from "node:buffer";
-
 import type {
   StorageEngine,
   StorageEngineCompareAndSetManyItem,
   StorageEngineKeyOptions,
   StorageEngineSetManyItem,
   StorageEngineSetOptions,
+  StoredValue,
 } from "../types.ts";
 
-import { isExpired, resolveExpiresAt, toUint8Array } from "../utility.ts";
+import {
+  isExpired,
+  normalizeStoredValue,
+  resolveExpiresAt,
+  storedValueParameter,
+  storedValuesEqual,
+} from "../utility.ts";
 
 type PostgresRows<TRow extends object> = TRow[] & Iterable<TRow>;
 
@@ -68,7 +73,6 @@ export interface PostgresEngineOptions {
   /**
    * Whether to create the storage table lazily. Defaults to `true`.
    */
-  readonly initialize?: boolean;
 
   /**
    * Whether `dispose` closes the client.
@@ -78,23 +82,23 @@ export interface PostgresEngineOptions {
 }
 
 interface PostgresValueRow {
-  readonly value: Uint8Array;
+  readonly value: unknown;
   readonly expires_at: number | string | bigint | null;
 }
 
 /**
  * Storage engine backed by a Postgres table.
  */
-export class PostgresStorageEngine implements StorageEngine {
+export class PostgresStorageEngine<
+  TStoredValue extends StoredValue = string,
+> implements StorageEngine<TStoredValue> {
   readonly name = "postgres";
 
   #client: PostgresEngineClient | undefined;
-  #initialized = false;
   readonly #options: PostgresEngineOptions;
   readonly #tableName: string;
   readonly #prefix: string;
   readonly #separator: string;
-  readonly #shouldInitialize: boolean;
   readonly #shouldDispose: boolean;
 
   constructor(options: PostgresEngineOptions = {}) {
@@ -103,11 +107,10 @@ export class PostgresStorageEngine implements StorageEngine {
     this.#tableName = quoteIdentifier(options.tableName ?? "temelj_storage");
     this.#prefix = options.prefix ?? "";
     this.#separator = options.separator ?? ":";
-    this.#shouldInitialize = options.initialize ?? true;
     this.#shouldDispose = options.dispose ?? options.client === undefined;
   }
 
-  async get(key: string): Promise<Uint8Array | undefined> {
+  async get(key: string): Promise<TStoredValue | undefined> {
     const postgresClient = await this.#getClient();
     const storageKey = this.#prefixKey(key);
     const rows = await postgresClient.unsafe<PostgresValueRow>(
@@ -122,10 +125,10 @@ export class PostgresStorageEngine implements StorageEngine {
       await this.#deleteRecord(postgresClient, storageKey);
       return undefined;
     }
-    return toUint8Array(row.value);
+    return normalizeStoredValue<TStoredValue>(row.value);
   }
 
-  async getMany(keys: readonly string[]): Promise<ReadonlyMap<string, Uint8Array>> {
+  async getMany(keys: readonly string[]): Promise<ReadonlyMap<string, TStoredValue>> {
     if (keys.length === 0) {
       return new Map();
     }
@@ -136,14 +139,14 @@ export class PostgresStorageEngine implements StorageEngine {
       `SELECT key, value FROM ${this.#tableName} WHERE key = ANY($1)`,
       [storageKeys],
     );
-    const result = new Map<string, Uint8Array>();
+    const result = new Map<string, TStoredValue>();
     for (const row of rows) {
-      result.set(this.#unprefixKey(row.key), toUint8Array(row.value));
+      result.set(this.#unprefixKey(row.key), normalizeStoredValue<TStoredValue>(row.value));
     }
     return result;
   }
 
-  async set(key: string, value: Uint8Array, setOptions?: StorageEngineSetOptions): Promise<void> {
+  async set(key: string, value: TStoredValue, setOptions?: StorageEngineSetOptions): Promise<void> {
     const postgresClient = await this.#getClient();
     const storageKey = this.#prefixKey(key);
     const expiresAt = resolveExpiresAt(setOptions);
@@ -159,14 +162,14 @@ export class PostgresStorageEngine implements StorageEngine {
           value = EXCLUDED.value,
           expires_at = EXCLUDED.expires_at
       `,
-      [storageKey, Buffer.from(value), expiresAt ?? null],
+      [storageKey, storedValueParameter(value), expiresAt ?? null],
     );
   }
 
   async compareAndSet(
     key: string,
-    expected: Uint8Array | undefined,
-    value: Uint8Array | undefined,
+    expected: TStoredValue | undefined,
+    value: TStoredValue | undefined,
     setOptions?: StorageEngineSetOptions,
   ): Promise<boolean> {
     const postgresClient = await this.#getClient();
@@ -198,7 +201,7 @@ export class PostgresStorageEngine implements StorageEngine {
           ON CONFLICT (key) DO NOTHING
           RETURNING 1 AS inserted
         `,
-        [storageKey, Buffer.from(value), expiresAt ?? null],
+        [storageKey, storedValueParameter(value), expiresAt ?? null],
       );
       return rows.length > 0;
     }
@@ -210,7 +213,7 @@ export class PostgresStorageEngine implements StorageEngine {
           WHERE key = $1 AND value = $2 AND (expires_at IS NULL OR expires_at > $3)
           RETURNING 1 AS deleted
         `,
-        [storageKey, Buffer.from(expected), Date.now()],
+        [storageKey, storedValueParameter(expected), Date.now()],
       );
       return rows.length > 0;
     }
@@ -223,7 +226,7 @@ export class PostgresStorageEngine implements StorageEngine {
           WHERE key = $1 AND value = $2 AND (expires_at IS NULL OR expires_at > $3)
           RETURNING 1 AS deleted
         `,
-        [storageKey, Buffer.from(expected), Date.now()],
+        [storageKey, storedValueParameter(expected), Date.now()],
       );
       return rows.length > 0;
     }
@@ -235,12 +238,20 @@ export class PostgresStorageEngine implements StorageEngine {
         WHERE key = $3 AND value = $4 AND (expires_at IS NULL OR expires_at > $5)
         RETURNING 1 AS updated
       `,
-      [Buffer.from(value), expiresAt ?? null, storageKey, Buffer.from(expected), Date.now()],
+      [
+        storedValueParameter(value),
+        expiresAt ?? null,
+        storageKey,
+        storedValueParameter(expected),
+        Date.now(),
+      ],
     );
     return rows.length > 0;
   }
 
-  async compareAndSetMany(items: readonly StorageEngineCompareAndSetManyItem[]): Promise<boolean> {
+  async compareAndSetMany(
+    items: readonly StorageEngineCompareAndSetManyItem<TStoredValue>[],
+  ): Promise<boolean> {
     if (items.length === 0) {
       return true;
     }
@@ -268,7 +279,10 @@ export class PostgresStorageEngine implements StorageEngine {
           }
           continue;
         }
-        if (existing === undefined || !Buffer.from(existing).equals(Buffer.from(item.expected))) {
+        if (
+          existing === undefined ||
+          !storedValuesEqual(normalizeStoredValue<TStoredValue>(existing), item.expected)
+        ) {
           throw COMPARE_AND_SET_MANY_ROLLBACK;
         }
       }
@@ -292,7 +306,7 @@ export class PostgresStorageEngine implements StorageEngine {
               ON CONFLICT (key) DO NOTHING
               RETURNING 1 AS inserted
             `,
-            [storageKey, Buffer.from(item.value), expiresAt ?? null],
+            [storageKey, storedValueParameter(item.value), expiresAt ?? null],
           );
           if (rows.length === 0) {
             throw COMPARE_AND_SET_MANY_ROLLBACK;
@@ -308,7 +322,7 @@ export class PostgresStorageEngine implements StorageEngine {
               value = EXCLUDED.value,
               expires_at = EXCLUDED.expires_at
           `,
-          [storageKey, Buffer.from(item.value), expiresAt ?? null],
+          [storageKey, storedValueParameter(item.value), expiresAt ?? null],
         );
       }
 
@@ -341,7 +355,7 @@ export class PostgresStorageEngine implements StorageEngine {
     }
   }
 
-  async setMany(items: readonly StorageEngineSetManyItem[]): Promise<void> {
+  async setMany(items: readonly StorageEngineSetManyItem<TStoredValue>[]): Promise<void> {
     for (const item of items) {
       await this.set(item.key, item.value, item.options);
     }
@@ -405,7 +419,6 @@ export class PostgresStorageEngine implements StorageEngine {
       await this.#client?.end?.();
     }
     this.#client = undefined;
-    this.#initialized = false;
   }
 
   async #getClient(): Promise<PostgresEngineClient> {
@@ -418,21 +431,7 @@ export class PostgresStorageEngine implements StorageEngine {
           : createPostgres(this.#options.url, this.#options.connection);
     }
 
-    if (this.#shouldInitialize && !this.#initialized) {
-      await this.#initializeTable(this.#client);
-      this.#initialized = true;
-    }
     return this.#client;
-  }
-
-  async #initializeTable(postgresClient: PostgresEngineClient): Promise<void> {
-    await postgresClient.unsafe(`
-      CREATE TABLE IF NOT EXISTS ${this.#tableName} (
-        key TEXT PRIMARY KEY,
-        value BYTEA NOT NULL,
-        expires_at BIGINT
-      )
-    `);
   }
 
   async #deleteExpired(postgresClient: PostgresEngineClient): Promise<void> {

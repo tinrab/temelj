@@ -85,7 +85,7 @@ const DELETE_OBJECT_BATCH_SIZE = 1000;
 /**
  * Storage engine backed by objects in an S3 bucket.
  */
-export class S3StorageEngine implements StorageEngine {
+export class S3StorageEngine implements StorageEngine<Uint8Array> {
   readonly name = "s3";
 
   #client: S3EngineClient | undefined;
@@ -156,7 +156,7 @@ export class S3StorageEngine implements StorageEngine {
     );
   }
 
-  async setMany(items: readonly StorageEngineSetManyItem[]): Promise<void> {
+  async setMany(items: readonly StorageEngineSetManyItem<Uint8Array>[]): Promise<void> {
     await Promise.all(items.map((item) => this.set(item.key, item.value, item.options)));
   }
 

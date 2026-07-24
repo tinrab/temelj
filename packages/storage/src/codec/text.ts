@@ -1,25 +1,10 @@
-import { StorageSerializationError, type StorageCodec } from "../types.ts";
-import { textDecoder, textEncoder } from "./shared.ts";
+import type { StorageCodec } from "../types.ts";
+
+import { createIdentityStorageCodec } from "./identity.ts";
 
 /**
  * Creates a UTF-8 text codec for string values.
  */
-export function createTextStorageCodec(): StorageCodec<string> {
-  return {
-    encode(value) {
-      try {
-        return textEncoder.encode(value);
-      } catch (error) {
-        StorageSerializationError.encode(error);
-      }
-    },
-
-    decode(bytes) {
-      try {
-        return textDecoder.decode(bytes);
-      } catch (error) {
-        StorageSerializationError.decode(error);
-      }
-    },
-  };
+export function createTextStorageCodec(): StorageCodec<string, string> {
+  return createIdentityStorageCodec<string>();
 }

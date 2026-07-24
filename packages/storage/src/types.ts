@@ -8,6 +8,8 @@ import type { StorageTemporalValue } from "./codec/temporal.ts";
  */
 export type StoragePrimitive = null | boolean | number | string;
 
+export type StoredValue = string | number | Uint8Array;
+
 /**
  * Recursive JSON-compatible storage value.
  */
@@ -170,16 +172,19 @@ export interface StorageEntry<TValue = StorageValue> {
 /**
  * Converts values between the public storage API and raw engine bytes.
  */
-export interface StorageCodec<TValue = StorageValue> {
+export interface StorageCodec<
+  TValue = StorageValue,
+  TStoredValue extends StoredValue = StoredValue,
+> {
   /**
    * Encodes a decoded storage value into bytes for an engine.
    */
-  encode(value: TValue): Uint8Array;
+  encode(value: TValue): TStoredValue;
 
   /**
    * Decodes bytes returned by an engine into a storage value.
    */
-  decode(bytes: Uint8Array): TValue;
+  decode(value: TStoredValue): TValue;
 }
 
 /**
@@ -205,7 +210,7 @@ export interface StorageEngineKeyOptions {
 /**
  * Raw byte item passed to engine batch writes.
  */
-export interface StorageEngineSetManyItem {
+export interface StorageEngineSetManyItem<TStoredValue extends StoredValue = StoredValue> {
   /**
    * Engine key to write.
    */
@@ -214,7 +219,7 @@ export interface StorageEngineSetManyItem {
   /**
    * Encoded value bytes.
    */
-  readonly value: Uint8Array;
+  readonly value: TStoredValue;
 
   /**
    * Optional expiration for this item.
@@ -225,7 +230,9 @@ export interface StorageEngineSetManyItem {
 /**
  * Raw byte item passed to engine compare-and-set batch writes.
  */
-export interface StorageEngineCompareAndSetManyItem {
+export interface StorageEngineCompareAndSetManyItem<
+  TStoredValue extends StoredValue = StoredValue,
+> {
   /**
    * Engine key to compare and update.
    */
@@ -234,12 +241,12 @@ export interface StorageEngineCompareAndSetManyItem {
   /**
    * Expected encoded bytes, or `undefined` when the key must be absent.
    */
-  readonly expected: Uint8Array | undefined;
+  readonly expected: TStoredValue | undefined;
 
   /**
    * Replacement encoded bytes, or `undefined` to delete the key.
    */
-  readonly value: Uint8Array | undefined;
+  readonly value: TStoredValue | undefined;
 
   /**
    * Optional expiration for the replacement value.
@@ -277,7 +284,7 @@ export type StorageEngineUnwatch = () => void | Promise<void>;
 /**
  * Low-level byte storage provider used by {@link createStorage}.
  */
-export interface StorageEngine {
+export interface StorageEngine<TStoredValue extends StoredValue = StoredValue> {
   /**
    * Human-readable engine name used in operation errors.
    */
@@ -286,20 +293,20 @@ export interface StorageEngine {
   /**
    * Reads encoded bytes for a key.
    */
-  get(key: string): Promise<Uint8Array | undefined>;
+  get(key: string): Promise<TStoredValue | undefined>;
 
   /**
    * Stores encoded bytes for a key.
    */
-  set(key: string, value: Uint8Array, options?: StorageEngineSetOptions): Promise<void>;
+  set(key: string, value: TStoredValue, options?: StorageEngineSetOptions): Promise<void>;
 
   /**
    * Atomically replaces or deletes a key when the current bytes match the expected bytes.
    */
   compareAndSet?(
     key: string,
-    expected: Uint8Array | undefined,
-    value: Uint8Array | undefined,
+    expected: TStoredValue | undefined,
+    value: TStoredValue | undefined,
     options?: StorageEngineSetOptions,
   ): Promise<boolean>;
 
@@ -326,17 +333,19 @@ export interface StorageEngine {
   /**
    * Reads multiple keys and returns only keys that exist.
    */
-  getMany?(keys: readonly string[]): Promise<ReadonlyMap<string, Uint8Array>>;
+  getMany?(keys: readonly string[]): Promise<ReadonlyMap<string, TStoredValue>>;
 
   /**
    * Atomically applies multiple compare-and-set operations when every expected value matches.
    */
-  compareAndSetMany?(items: readonly StorageEngineCompareAndSetManyItem[]): Promise<boolean>;
+  compareAndSetMany?(
+    items: readonly StorageEngineCompareAndSetManyItem<TStoredValue>[],
+  ): Promise<boolean>;
 
   /**
    * Stores multiple encoded values.
    */
-  setMany?(items: readonly StorageEngineSetManyItem[]): Promise<void>;
+  setMany?(items: readonly StorageEngineSetManyItem<TStoredValue>[]): Promise<void>;
 
   /**
    * Deletes multiple keys and returns the number of deleted keys.
@@ -354,19 +363,25 @@ export interface StorageEngine {
   dispose?(): Promise<void>;
 }
 
+export type StorageEngineValue<TEngine extends StorageEngine> =
+  TEngine extends StorageEngine<infer TStoredValue> ? TStoredValue : never;
+
 /**
  * Options for creating a high-level storage instance.
  */
-export interface CreateStorageOptions<TValue = StorageValue> {
+export interface CreateStorageOptions<
+  TValue = StorageValue,
+  TStoredValue extends StoredValue = string,
+> {
   /**
    * Raw byte engine to use. Defaults to an in-memory engine.
    */
-  readonly engine?: StorageEngine;
+  readonly engine?: StorageEngine<TStoredValue>;
 
   /**
    * Codec used to encode and decode values. Defaults to SuperJSON.
    */
-  readonly codec?: StorageCodec<TValue>;
+  readonly codec?: StorageCodec<TValue, NoInfer<TStoredValue>>;
 }
 
 /**
@@ -484,11 +499,12 @@ export type StorageWatchUnsubscribe = () => void | Promise<void>;
 export interface Storage<
   TItems extends StorageItemMap = EmptyStorageItemMap,
   TValue = StorageItemValue<TItems>,
+  TStoredValue extends StoredValue = string,
 > extends AsyncDisposable {
   /**
    * Raw byte engine backing this storage instance.
    */
-  readonly engine: StorageEngine;
+  readonly engine: StorageEngine<TStoredValue>;
 
   /**
    * Feature flags derived from optional methods implemented by the engine.

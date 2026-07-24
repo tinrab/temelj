@@ -2,7 +2,6 @@ import type Cloudflare from "cloudflare";
 import type { ClientOptions } from "cloudflare";
 import type {
   NamespaceBulkDeleteResponse,
-  NamespaceBulkGetResponse,
   NamespaceBulkUpdateParams,
   NamespaceBulkUpdateResponse,
 } from "cloudflare/resources/kv/namespaces/namespaces";
@@ -26,6 +25,10 @@ import {
 
 const CLOUDFLARE_KV_BULK_GET_LIMIT = 100;
 const CLOUDFLARE_KV_BULK_MUTATION_LIMIT = 10_000;
+
+export type CloudflareKvStoredValue<TFormat extends "string" | "bytes"> = TFormat extends "string"
+  ? string
+  : Uint8Array;
 
 /**
  * Minimal Cloudflare Workers KV binding interface used by {@link CloudflareKvStorageEngine}.
@@ -60,7 +63,11 @@ export interface CloudflareKvKey {
 /**
  * Options for {@link CloudflareKvStorageEngine}.
  */
-export interface CloudflareKvEngineOptions extends ClientOptions {
+export interface CloudflareKvEngineOptions<
+  TFormat extends "string" | "bytes" = "bytes",
+> extends ClientOptions {
+  /** Representation returned by KV reads. Defaults to `"bytes"`. */
+  readonly format?: TFormat;
   /**
    * KV binding object or binding name. Binding mode is preferred in Cloudflare Workers.
    */
@@ -115,30 +122,34 @@ export interface CloudflareKvEngineOptions extends ClientOptions {
 /**
  * Storage engine backed by Cloudflare KV.
  */
-export class CloudflareKvStorageEngine implements StorageEngine {
+export class CloudflareKvStorageEngine<
+  TFormat extends "string" | "bytes" = "bytes",
+> implements StorageEngine<CloudflareKvStoredValue<TFormat>> {
   readonly name = "cloudflare-kv";
 
   #client: Cloudflare | undefined;
-  readonly #options: CloudflareKvEngineOptions;
+  readonly #options: CloudflareKvEngineOptions<TFormat>;
+  readonly #format: TFormat;
   readonly #keyPrefix: string;
   readonly #minTtl: number;
 
-  constructor(options: CloudflareKvEngineOptions) {
+  constructor(options: CloudflareKvEngineOptions<TFormat>) {
     const prefix = options.prefix ?? "";
     const separator = options.separator ?? ":";
 
     this.#options = options;
+    this.#format = (options.format ?? "bytes") as TFormat;
     this.#client = options.client;
     this.#keyPrefix = prefix.length === 0 ? "" : `${prefix}${separator}`;
     this.#minTtl = options.minTtl ?? 60_000;
   }
 
-  async get(key: string): Promise<Uint8Array | undefined> {
+  async get(key: string): Promise<CloudflareKvStoredValue<TFormat> | undefined> {
     const storageKey = this.#prefixedKey(key);
     const binding = this.#getBinding();
     if (binding !== undefined) {
       const value = await binding.get(storageKey, { type: "text" });
-      return value === null ? undefined : decodeBase64(value);
+      return value === null ? undefined : decodeKvValue(value, this.#format);
     }
 
     try {
@@ -148,7 +159,7 @@ export class CloudflareKvStorageEngine implements StorageEngine {
         ...this.#getNamespaceParams(),
         namespace_id: this.#getNamespaceId(),
       });
-      return decodeBase64(new TextDecoder().decode(await value.arrayBuffer()));
+      return decodeKvValue(new TextDecoder().decode(await value.arrayBuffer()), this.#format);
     } catch (error) {
       if (isCloudflareNotFoundError(error)) {
         return undefined;
@@ -157,14 +168,16 @@ export class CloudflareKvStorageEngine implements StorageEngine {
     }
   }
 
-  async getMany(keys: readonly string[]): Promise<ReadonlyMap<string, Uint8Array>> {
+  async getMany(
+    keys: readonly string[],
+  ): Promise<ReadonlyMap<string, CloudflareKvStoredValue<TFormat>>> {
     if (keys.length === 0) {
       return new Map();
     }
 
     const binding = this.#getBinding();
     if (binding !== undefined) {
-      const values = new Map<string, Uint8Array>();
+      const values = new Map<string, CloudflareKvStoredValue<TFormat>>();
       await Promise.all(
         keys.map(async (key) => {
           const value = await this.get(key);
@@ -176,7 +189,7 @@ export class CloudflareKvStorageEngine implements StorageEngine {
       return values;
     }
 
-    const values = new Map<string, Uint8Array>();
+    const values = new Map<string, CloudflareKvStoredValue<TFormat>>();
     const cloudflare = await this.#getClient();
     for (const keyBatch of chunkArray(keys, CLOUDFLARE_KV_BULK_GET_LIMIT)) {
       const storageKeys = keyBatch.map((key) => this.#prefixedKey(key));
@@ -188,14 +201,22 @@ export class CloudflareKvStorageEngine implements StorageEngine {
 
       for (const [storageKey, value] of Object.entries(result?.values ?? {})) {
         if (value !== null && value !== undefined) {
-          values.set(this.#unprefixKey(storageKey), decodeCloudflareBulkValue(value));
+          if (typeof value !== "string") {
+            throw new TypeError("Cloudflare KV storage value is not encoded text");
+          }
+          const encoded = value;
+          values.set(this.#unprefixKey(storageKey), decodeKvValue(encoded, this.#format));
         }
       }
     }
     return values;
   }
 
-  async set(key: string, value: Uint8Array, setOptions?: StorageEngineSetOptions): Promise<void> {
+  async set(
+    key: string,
+    value: CloudflareKvStoredValue<TFormat>,
+    setOptions?: StorageEngineSetOptions,
+  ): Promise<void> {
     const storageKey = this.#prefixedKey(key);
     const ttl = resolveCloudflareTtl(setOptions, this.#options, this.#minTtl);
     if (ttl !== undefined && ttl <= 0) {
@@ -205,7 +226,7 @@ export class CloudflareKvStorageEngine implements StorageEngine {
 
     const binding = this.#getBinding();
     if (binding !== undefined) {
-      await binding.put(storageKey, encodeBase64(value), cloudflareBindingSetOptions(ttl));
+      await binding.put(storageKey, encodeKvValue(value), cloudflareBindingSetOptions(ttl));
       return;
     }
 
@@ -216,11 +237,13 @@ export class CloudflareKvStorageEngine implements StorageEngine {
       ...this.#getNamespaceParams(),
       ...cloudflareApiSetOptions(ttl),
       namespace_id: this.#getNamespaceId(),
-      value: await toFile(new TextEncoder().encode(encodeBase64(value)), "value"),
+      value: await toFile(new TextEncoder().encode(encodeKvValue(value)), "value"),
     });
   }
 
-  async setMany(items: readonly StorageEngineSetManyItem[]): Promise<void> {
+  async setMany(
+    items: readonly StorageEngineSetManyItem<CloudflareKvStoredValue<TFormat>>[],
+  ): Promise<void> {
     if (items.length === 0) {
       return;
     }
@@ -243,7 +266,7 @@ export class CloudflareKvStorageEngine implements StorageEngine {
 
       writes.push({
         key: storageKey,
-        value: encodeCloudflareBulkValue(item.value),
+        value: encodeKvValue(item.value),
         ...cloudflareApiSetOptions(ttl),
       });
     }
@@ -440,15 +463,15 @@ function cloudflareApiSetOptions(
   return { expiration_ttl: Math.ceil(ttl / 1000) };
 }
 
-function encodeCloudflareBulkValue(value: Uint8Array): string {
-  return encodeBase64(value);
+function encodeKvValue(value: string | Uint8Array): string {
+  return typeof value === "string" ? value : encodeBase64(value);
 }
 
-function decodeCloudflareBulkValue(value: CloudflareBulkGetValue): Uint8Array {
-  if (typeof value !== "string") {
-    throw new TypeError("Cloudflare KV storage value is not encoded text");
-  }
-  return decodeBase64(value);
+function decodeKvValue<TFormat extends "string" | "bytes">(
+  value: string,
+  format: TFormat,
+): CloudflareKvStoredValue<TFormat> {
+  return (format === "string" ? value : decodeBase64(value)) as CloudflareKvStoredValue<TFormat>;
 }
 
 function checkCloudflareBulkOperation(
@@ -470,7 +493,7 @@ function checkCloudflareBulkOperation(
 }
 
 function resolveCloudflareBinding(
-  options: CloudflareKvEngineOptions,
+  options: CloudflareKvEngineOptions<"string" | "bytes">,
 ): CloudflareKvBinding | undefined {
   return resolveBinding(options.binding, options.bindings, "KV", isCloudflareKvBinding);
 }
@@ -492,7 +515,7 @@ function isCloudflareKvBinding(value: unknown): value is CloudflareKvBinding {
 
 function resolveCloudflareTtl(
   setOptions: StorageEngineSetOptions | undefined,
-  engineOptions: CloudflareKvEngineOptions,
+  engineOptions: CloudflareKvEngineOptions<"string" | "bytes">,
   minTtl: number,
 ): number | undefined {
   const ttl = setOptions?.ttl ?? engineOptions.defaultTtl;
@@ -501,12 +524,5 @@ function resolveCloudflareTtl(
   }
   return Math.max(ttl, minTtl);
 }
-
-type CloudflareBulkGetValue =
-  NonNullable<NonNullable<NamespaceBulkGetResponse["values"]>[string]> extends infer TValue
-    ? TValue extends { readonly value: infer TMetadataValue }
-      ? TMetadataValue
-      : TValue
-    : never;
 
 export type { StorageEngineSetManyItem };

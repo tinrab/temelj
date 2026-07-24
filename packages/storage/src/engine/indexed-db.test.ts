@@ -13,7 +13,7 @@ import {
 describe("indexedDB engine", () => {
   test("stores bytes, scans prefixes, and deletes records", async () => {
     const storage = createStorage({
-      engine: new IndexedDbStorageEngine({
+      engine: new IndexedDbStorageEngine<string>({
         indexedDB: createMockIndexedDbFactory(),
         namespace: "app",
       }),
