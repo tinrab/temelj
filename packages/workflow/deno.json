@@ -24,7 +24,7 @@
     "@temelj/standard-schema": "jsr:@temelj/standard-schema@^0.1.0",
     "@temelj/event": "jsr:@temelj/event@^0.1.0",
     "@temelj/log": "jsr:@temelj/log@^0.1.0",
-    "@temelj/storage": "jsr:@temelj/storage@^0.3.0",
+    "@temelj/storage": "jsr:@temelj/storage@^0.4.0",
     "@temelj/value": "jsr:@temelj/value@^0.14.0",
     "@temelj/string": "jsr:@temelj/string@^0.14.0"
   },

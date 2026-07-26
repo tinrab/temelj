@@ -1,6 +1,6 @@
 {
   "name": "@temelj/mdx",
-  "version": "0.13.0",
+  "version": "0.14.0",
   "description": "MDX processing utilities.",
   "license": "MIT",
   "repository": {
@@ -33,8 +33,10 @@
     "@types/hast": "^3.0.5",
     "github-slugger": "^2.0.0",
     "hast": "^1.0.0",
+    "hast-util-from-html-isomorphic": "^2.0.0",
     "hast-util-to-string": "^3.0.1",
-    "rehype-katex": "^7.0.1",
+    "hast-util-to-text": "^4.0.2",
+    "katex": "^0.18.1",
     "remark-frontmatter": "^5.0.0",
     "remark-gfm": "^4.0.1",
     "remark-math": "^6.0.0",
@@ -43,6 +45,7 @@
     "unified": "^11.0.5",
     "unist-util-remove": "^4.0.0",
     "unist-util-visit": "^5.1.0",
+    "unist-util-visit-parents": "^6.0.2",
     "vfile": "^6.0.3",
     "vfile-matter": "^5.0.1"
   },

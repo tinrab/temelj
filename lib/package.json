@@ -40,14 +40,6 @@
       "types": "./dist/math/mod.d.mts",
       "import": "./dist/math/mod.mjs"
     },
-    "./mdx": {
-      "types": "./dist/mdx/mod.d.mts",
-      "import": "./dist/mdx/mod.mjs"
-    },
-    "./mdx-react": {
-      "types": "./dist/mdx-react/mod.d.mts",
-      "import": "./dist/mdx-react/mod.mjs"
-    },
     "./request": {
       "types": "./dist/request/mod.d.mts",
       "import": "./dist/request/mod.mjs"
@@ -79,8 +71,6 @@
     "@temelj/id": "workspace:*",
     "@temelj/iterator": "workspace:*",
     "@temelj/math": "workspace:*",
-    "@temelj/mdx": "workspace:*",
-    "@temelj/mdx-react": "workspace:*",
     "@temelj/request": "workspace:*",
     "@temelj/result": "workspace:*",
     "@temelj/string": "workspace:*",

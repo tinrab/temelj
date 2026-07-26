@@ -1,7 +1,4 @@
-import type { Plugin } from "unified";
-
 import { StandardSchemaValidationError } from "@temelj/standard-schema";
-import rehypeKatex from "rehype-katex";
 import remarkMath from "remark-math";
 import { expect, test } from "vitest";
 import * as z from "zod";
@@ -10,10 +7,9 @@ import type { HastElement } from "./types";
 
 import { MdxCompileError, MdxCompiler } from "./compiler";
 import { headingIdPlugin } from "./plugins/heading-id/plugin";
+import { katexPlugin } from "./plugins/katex/plugin";
 import { syntaxHighlightPlugin } from "./plugins/syntax-highlight/plugin";
 import { treeProcessorPlugin } from "./plugins/tree-processor/plugin";
-
-const rehypeKatexPlugin = rehypeKatex as unknown as Plugin;
 
 const frontmatterSchema = z.object({
   title: z.string(),
@@ -140,9 +136,9 @@ ${JSON.stringify(frontmatter)}
 });
 
 test("mdx - malformed latex is reported as diagnostic", async () => {
-  const compiler = new MdxCompiler()
-    .withRemarkPlugin(remarkMath)
-    .withRehypePlugin(rehypeKatexPlugin);
+  const compiler = new MdxCompiler().withRemarkPlugin(remarkMath).withRehypePlugin(katexPlugin, {
+    inlineMathStyle: "display",
+  });
 
   const source = ["Hello, World!", "This is $2$nd line, the one with faulty: $\\f$$42$ GB"].join(
     "\n",
@@ -164,6 +160,7 @@ test("mdx - malformed latex is reported as diagnostic", async () => {
   });
   expect(artifact.messages[0].message).toContain("Could not render math with KaTeX");
   expect(artifact.messages[0].message).toContain("Source: $\\f$$42$");
+  expect(artifact.messages[0].message).not.toContain("\\displaystyle");
 });
 
 test("mdx - compile errors include source context", async () => {

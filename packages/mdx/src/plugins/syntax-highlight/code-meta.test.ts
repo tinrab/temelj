@@ -11,6 +11,7 @@ test("code meta - extract", () => {
       children: [],
       data: {
         meta: '{"highlight": "3..5", "showLineNumbers":true, "fileName":"test"}',
+        position: {},
       },
     }),
   ).toStrictEqual({
