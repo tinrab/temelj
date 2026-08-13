@@ -1,0 +1,17 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "temelj-workflow-cf-example",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-13",
+  "compatibility_flags": ["global_fetch_strictly_public"],
+  "observability": {
+    "enabled": true,
+  },
+  "workflows": [
+    {
+      "name": "temelj-workflow-cf-example",
+      "binding": "TEMELJ_WORKFLOW",
+      "class_name": "TemeljWorkflow",
+    },
+  ],
+}

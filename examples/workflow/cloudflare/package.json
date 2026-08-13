@@ -1,0 +1,25 @@
+{
+  "name": "@temelj/example-workflow-cloudflare",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "prelocal": "pnpm --filter @temelj/workflow build",
+    "local": "tsx src/local.ts",
+    "predev": "pnpm --filter @temelj/workflow build",
+    "dev": "wrangler dev",
+    "predeploy": "pnpm --filter @temelj/workflow build",
+    "deploy": "wrangler deploy",
+    "pretypecheck": "pnpm --filter @temelj/workflow build",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@temelj/workflow": "workspace:*"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260813.1",
+    "tsx": "^4.22.4",
+    "typescript": "^7.0.2",
+    "wrangler": "^4.123.0"
+  },
+  "packageManager": "pnpm@11.21.0"
+}

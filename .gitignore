@@ -1,6 +1,7 @@
 **/node_modules
 **/npm
 **/.turbo
+**/.wrangler
 **/dist
 pnpm-lock.yaml
 data

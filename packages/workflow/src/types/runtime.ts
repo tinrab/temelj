@@ -2,6 +2,7 @@ import type { Logger } from "@temelj/log";
 
 import { z } from "zod";
 
+import type { WorkflowBundle } from "../bundle.ts";
 import type {
   CompiledWorkflowFunction,
   WorkflowClientWorkersApi,
@@ -73,10 +74,9 @@ export function parseWorkflowRuntime(value: unknown): asserts value is WorkflowR
 }
 
 /** Options for workflow creation runtime. */
-export interface CreateWorkflowRuntimeOptions extends WorkflowExecutionLimits {
+interface CreateWorkflowRuntimeBaseOptions extends WorkflowExecutionLimits {
   readonly engine?: WorkflowClientEngine;
   readonly workerEngine?: WorkflowWorkerEngine;
-  readonly registry?: RegistryLike;
   /**
    * Clock used for workflow timestamps and the first value recorded by
    * deterministic time commands.
@@ -118,6 +118,13 @@ export interface CreateWorkflowRuntimeOptions extends WorkflowExecutionLimits {
   readonly telemetry?: Telemetry | false;
   readonly logger?: Logger | false;
 }
+
+/** Options for creating a workflow runtime with either a registry or an immutable bundle. */
+export type CreateWorkflowRuntimeOptions = CreateWorkflowRuntimeBaseOptions &
+  (
+    | { readonly registry?: RegistryLike; readonly workflows?: never }
+    | { readonly registry?: never; readonly workflows?: WorkflowBundle }
+  );
 
 /** Describes the workflow runtime contract. */
 export interface WorkflowRuntime {

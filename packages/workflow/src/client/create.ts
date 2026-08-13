@@ -1,3 +1,4 @@
+import type { WorkflowBundle } from "../bundle.ts";
 import type {
   WorkflowClient as WorkflowClientContract,
   WorkflowClientAdminApi,
@@ -19,6 +20,7 @@ import type {
 import type { CreateWorkflowEngineOptions } from "../types/engine-options.ts";
 import type { WorkflowClientEngine, WorkflowWorkerEngine } from "../types/engine.ts";
 
+import { createWorkflowBundleRegistry } from "../bundle.ts";
 import {
   createWorkflowClientAdminApi,
   createWorkflowClientHooksApi,
@@ -34,11 +36,17 @@ import { Registry } from "../registry.ts";
 
 type WorkflowClientEngineOptions = Omit<CreateWorkflowEngineOptions, "storage" | "store">;
 
-export interface CreateWorkflowClientOptions extends WorkflowClientEngineOptions {
+interface CreateWorkflowClientBaseOptions extends WorkflowClientEngineOptions {
   readonly engine?: WorkflowClientEngine;
   readonly workerEngine?: WorkflowWorkerEngine;
-  readonly registry?: RegistryLike;
 }
+
+/** Options for creating a workflow client with either a registry or an immutable bundle. */
+export type CreateWorkflowClientOptions = CreateWorkflowClientBaseOptions &
+  (
+    | { readonly registry?: RegistryLike; readonly workflows?: never }
+    | { readonly registry?: never; readonly workflows?: WorkflowBundle }
+  );
 
 export function createWorkflowClient(
   options: CreateWorkflowClientOptions = {},
@@ -62,11 +70,16 @@ export class WorkflowClient implements WorkflowClientContract {
   readonly #registry: RegistryLike;
 
   constructor(options: CreateWorkflowClientOptions = {}) {
-    const { engine, workerEngine, registry, now, ...engineOptions } = options;
+    const { engine, workerEngine, registry, workflows, now, ...engineOptions } = options;
+    if (registry !== undefined && workflows !== undefined) {
+      throw new TypeError("Workflow client options cannot include both registry and workflows");
+    }
     this.#now = now ?? Temporal.Now.instant;
     this.#engine = engine ?? createWorkflowEngine({ ...engineOptions, now: this.#now });
     this.#workerEngine = workerEngine ?? workflowWorkerEngineFromCandidate(this.#engine);
-    this.#registry = registry ?? new Registry();
+    this.#registry =
+      registry ??
+      (workflows === undefined ? new Registry() : createWorkflowBundleRegistry(workflows));
     this.runs = createWorkflowClientRunsApi(() => this.#engine, this.#now);
     this.admin = createWorkflowClientAdminApi(() => this.#engine, this.#now);
     this.schedules = createWorkflowClientSchedulesApi(() => this.#engine, this.#now);

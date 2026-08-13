@@ -1,3 +1,4 @@
+import "temporal-polyfill/global";
 import type { RegistryLike } from "./types/definition.ts";
 import type { WorkflowWorkerEngine, WorkflowWorkerEngineStore } from "./types/engine.ts";
 import type { WorkflowErrorRecord } from "./types/error.ts";

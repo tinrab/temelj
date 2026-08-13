@@ -89,4 +89,11 @@ export class WorkflowDefinitionError extends WorkflowError {
       WorkflowDefinitionError.implementationAlreadyRegistered,
     );
   }
+
+  static implementationNotBundled(this: void, key: string): never {
+    throw new WorkflowDefinitionError(
+      `Workflow implementation is not included in the workflow bundle: ${key}`,
+      WorkflowDefinitionError.implementationNotBundled,
+    );
+  }
 }

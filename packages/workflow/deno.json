@@ -1,6 +1,6 @@
 {
   "name": "@temelj/workflow",
-  "version": "0.0.0-alpha.1",
+  "version": "0.0.0-alpha.2",
   "exports": {
     ".": "./src/mod.ts",
     "./engine": "./src/engine/mod.ts",
@@ -16,7 +16,8 @@
     "./telemetry": "./src/telemetry.ts",
     "./vite": "./src/vite.ts",
     "./webpack": "./src/webpack.ts",
-    "./worker": "./src/worker.ts"
+    "./worker": "./src/worker.ts",
+    "./cloudflare": "./src/cloudflare/mod.ts"
   },
   "license": "MIT",
   "nodeModulesDir": "auto",
