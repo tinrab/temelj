@@ -1,3 +1,4 @@
+import "temporal-polyfill/global";
 import type { StorageValue } from "@temelj/storage";
 
 import { deepEquals } from "@temelj/value";
@@ -369,13 +370,11 @@ function readStreamFromHistory<TChunk = unknown>(
       : Math.max(0, info.chunkCount - options.fromTail);
   const chunks = projection.chunks
     .filter((chunk) => chunk.event.index >= fromIndex)
-    .map(
-      (chunk): StreamChunk<TChunk> => ({
-        index: chunk.event.index,
-        timestamp: chunk.event.timestamp,
-        value: chunk.event.chunk as TChunk,
-      }),
-    )
+    .map((chunk): StreamChunk<TChunk> => ({
+      index: chunk.event.index,
+      timestamp: chunk.event.timestamp,
+      value: chunk.event.chunk as TChunk,
+    }))
     .sort((left, right) => left.index - right.index)
     .slice(0, options.maxChunks);
   return {

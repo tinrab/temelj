@@ -1,6 +1,6 @@
 {
   "name": "@temelj/workflow",
-  "version": "0.0.0-alpha.1",
+  "version": "0.0.0-alpha.2",
   "description": "Durable, vendor-agnostic, extendible workflows.",
   "license": "MIT",
   "repository": {
@@ -72,6 +72,10 @@
     "./worker": {
       "types": "./dist/worker.d.mts",
       "import": "./dist/worker.mjs"
+    },
+    "./cloudflare": {
+      "types": "./dist/cloudflare/mod.d.mts",
+      "import": "./dist/cloudflare/mod.mjs"
     }
   },
   "scripts": {
@@ -89,25 +93,26 @@
     "@temelj/storage": "workspace:*",
     "@temelj/string": "workspace:*",
     "@temelj/value": "workspace:*",
-    "oxc-parser": "0.141.0",
+    "oxc-parser": "0.144.0",
+    "temporal-polyfill": "^1.0.4",
     "unplugin": "^3.3.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
     "@opentelemetry/sdk-metrics": "^2.10.0",
     "@opentelemetry/sdk-trace-base": "^2.10.0",
-    "@rspack/core": "^2.1.5",
+    "@rspack/core": "^2.1.10",
     "@types/node": "26.1.1",
-    "esbuild": "^0.28.1",
-    "rolldown": "^1.2.0",
-    "rollup": "^4.62.2",
+    "esbuild": "^0.28.2",
+    "rolldown": "^1.2.4",
+    "rollup": "^4.62.4",
     "shx": "^0.4.0",
     "tsdown": "^0.22.14",
     "typedoc": "^0.28.20",
     "typescript": "^7.0.2",
-    "vite": "^8.1.5",
+    "vite": "^8.2.1",
     "vitest": "^4.1.10",
-    "webpack": "^5.109.0"
+    "webpack": "^5.109.2"
   },
   "peerDependencies": {
     "@rspack/core": "^2.0.0",

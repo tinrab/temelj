@@ -98,7 +98,7 @@ export function createMessageWaitAppendRaceStorage(runId: RunId) {
 }
 
 export function createSingleKeyMessageWaitAppendRaceStorage(runId: RunId) {
-  const engine: StorageEngine = new InMemoryStorageEngine();
+  const engine: StorageEngine<string> = new InMemoryStorageEngine<string>();
   disableStorageEngineMethod(engine, "compareAndSetMany");
   const storage = createStorage({ engine });
   const compareAndSet: WorkflowTestStorageCompareAndSet = storage.compareAndSet.bind(storage);
@@ -141,7 +141,7 @@ export function createSingleKeyMessageWaitAppendRaceStorage(runId: RunId) {
 }
 
 export function createTerminalDuplicateMessageCheckStorage(runId: RunId, idempotencyKey: string) {
-  const engine: StorageEngine = new InMemoryStorageEngine();
+  const engine: StorageEngine<string> = new InMemoryStorageEngine<string>();
   disableStorageEngineMethod(engine, "compareAndSetMany");
   const storage = createStorage({ engine });
   const get: WorkflowTestStorageGet = storage.get.bind(storage);
@@ -195,7 +195,7 @@ export function createDelayedCompareAndSetStorage(options: {
   readonly skipCalls?: number;
   readonly waitForCalls: number;
 }) {
-  const engine = new InMemoryStorageEngine();
+  const engine = new InMemoryStorageEngine<string>();
   const compareAndSet = engine.compareAndSet?.bind(engine);
   if (compareAndSet === undefined) {
     throw new Error("Expected in-memory storage engine to support compareAndSet");
@@ -263,7 +263,7 @@ export function createTerminalMessageAppendRaceStorage(runId: RunId) {
 
 export function disableStorageEngineMethod<
   TMethod extends "compareAndSet" | "compareAndSetMany" | "watch",
->(engine: StorageEngine, method: TMethod): void {
+>(engine: StorageEngine<string>, method: TMethod): void {
   Object.defineProperty(engine, method, {
     configurable: true,
     value: undefined,

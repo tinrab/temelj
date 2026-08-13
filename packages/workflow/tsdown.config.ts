@@ -7,5 +7,6 @@ export default defineConfig({
   deps: {
     skipNodeModulesBundle: true,
   },
+  external: [/^cloudflare:/],
   sourcemap: false,
 });

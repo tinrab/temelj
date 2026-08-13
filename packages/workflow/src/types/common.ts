@@ -1,3 +1,4 @@
+import "temporal-polyfill/global";
 import { z } from "zod";
 
 import { durationTotal } from "../utility.ts";

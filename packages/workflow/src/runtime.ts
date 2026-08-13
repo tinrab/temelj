@@ -1,3 +1,4 @@
+import "temporal-polyfill/global";
 import type {
   CompiledWorkflowFunction,
   WorkflowClient,
@@ -34,6 +35,7 @@ import type {
   WaitStreamOptions,
 } from "./types/stream.ts";
 
+import { createWorkflowBundleRegistry } from "./bundle.ts";
 import { createWorkflowClient } from "./client/create.ts";
 import { getCompiledWorkflowDefinition } from "./compiled-function.ts";
 import {
@@ -76,9 +78,15 @@ export class WorkflowRuntime implements WorkflowRuntimeContract {
   readonly #registry: RegistryLike;
 
   constructor(options: CreateWorkflowRuntimeOptions = {}) {
+    const { registry, workflows, ...runtimeOptions } = options;
+    if (registry !== undefined && workflows !== undefined) {
+      throw new TypeError("Workflow runtime options cannot include both registry and workflows");
+    }
     const now = options.now ?? Temporal.Now.instant;
-    this.#registry = options.registry ?? new Registry();
-    this.#client = createWorkflowClient({ ...options, registry: this.#registry, now });
+    this.#registry =
+      registry ??
+      (workflows === undefined ? new Registry() : createWorkflowBundleRegistry(workflows));
+    this.#client = createWorkflowClient({ ...runtimeOptions, registry: this.#registry, now });
     this.runs = {
       getHandle: async (runId) => await getWorkflowRuntimeRun(this, runId),
       list: async (options) => await this.#client.runs.list(options),

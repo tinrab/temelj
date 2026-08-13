@@ -1,6 +1,7 @@
 // This file should export all public APIs of the library.
 
 export * from "./client/mod.ts";
+export * from "./bundle.ts";
 export { defineWorkflow, implementWorkflow, defineMessageChannel } from "./definition.ts";
 export * from "./errors/mod.ts";
 export * from "./compiled-function.ts";

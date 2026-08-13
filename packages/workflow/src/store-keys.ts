@@ -1,5 +1,6 @@
 import type { WorkflowIdempotencyKeyOptions } from "./types/store.ts";
 
+import { makeWorkflowStepAttemptKey } from "./history/attempt-key.ts";
 import { RunId } from "./types/run.ts";
 import { ScheduleId } from "./types/schedule.ts";
 
@@ -52,6 +53,36 @@ export function makeStepAttemptKeyPrefix(
   runId: RunId,
 ): WorkflowStepAttemptKeyPrefix {
   return `${namespacePrefix(namespace)}step-attempt:${runId}:`;
+}
+
+export function isStepAttemptKey(key: string, namespace: string, runId: RunId): boolean {
+  const prefix = makeStepAttemptKeyPrefix(namespace, runId);
+  if (!key.startsWith(prefix)) {
+    return false;
+  }
+  const attemptKey = decodeStepAttemptKey(key, prefix);
+  if (attemptKey === undefined) {
+    return false;
+  }
+  const separator = attemptKey.lastIndexOf(":");
+  if (!attemptKey.startsWith("run:") || separator <= "run:".length) {
+    return false;
+  }
+  const stepId = attemptKey.slice("run:".length, separator);
+  const attempt = Number(attemptKey.slice(separator + 1));
+  try {
+    return makeWorkflowStepAttemptKey(stepId, attempt) === attemptKey;
+  } catch {
+    return false;
+  }
+}
+
+function decodeStepAttemptKey(key: string, prefix: string): string | undefined {
+  try {
+    return decodeURIComponent(key.slice(prefix.length));
+  } catch {
+    return undefined;
+  }
 }
 
 /** Builds a workflow message idempotency storage key. */

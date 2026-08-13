@@ -7,7 +7,9 @@ allowBuilds:
   esbuild: true
   protobufjs: false
   ssh2: false
+  workerd: true
 minimumReleaseAge: 0
 onlyBuiltDependencies:
   - "@biomejs/biome"
   - esbuild
+  - workerd

@@ -90,14 +90,14 @@ export function createHiddenFirstRunScanStorage() {
 }
 
 export function createBestEffortStorage() {
-  const engine: StorageEngine = new InMemoryStorageEngine();
+  const engine: StorageEngine<string> = new InMemoryStorageEngine<string>();
   disableStorageEngineMethod(engine, "compareAndSet");
   disableStorageEngineMethod(engine, "compareAndSetMany");
   return createStorage({ engine });
 }
 
 export function createSingleKeyConditionalStorage() {
-  const engine: StorageEngine = new InMemoryStorageEngine();
+  const engine: StorageEngine<string> = new InMemoryStorageEngine<string>();
   disableStorageEngineMethod(engine, "compareAndSetMany");
   return createStorage({ engine });
 }
@@ -223,7 +223,7 @@ export function createRepointingRunCleanupStorage(runId: RunId) {
 }
 
 export function createFailingCreateRunStorage(runId: RunId) {
-  const engine = new InMemoryStorageEngine();
+  const engine = new InMemoryStorageEngine<string>();
   const compareAndSetMany = engine.compareAndSetMany?.bind(engine);
   const set = engine.set.bind(engine);
   let failed = false;
@@ -251,7 +251,7 @@ export function createFailingCreateRunStorage(runId: RunId) {
 }
 
 export function createFailingFallbackCreateRunStorage(runId: RunId) {
-  const engine = new InMemoryStorageEngine();
+  const engine = new InMemoryStorageEngine<string>();
   disableStorageEngineMethod(engine, "compareAndSet");
   disableStorageEngineMethod(engine, "compareAndSetMany");
   const set = engine.set.bind(engine);
@@ -269,7 +269,7 @@ export function createFailingFallbackCreateRunStorage(runId: RunId) {
 }
 
 export function createFailingStepAttemptStorage() {
-  const engine: StorageEngine = new InMemoryStorageEngine();
+  const engine: StorageEngine<string> = new InMemoryStorageEngine<string>();
   const set = engine.set.bind(engine);
   disableStorageEngineMethod(engine, "compareAndSet");
   disableStorageEngineMethod(engine, "compareAndSetMany");
@@ -283,7 +283,7 @@ export function createFailingStepAttemptStorage() {
 }
 
 export function createConcurrentEventAppendOnStepAttemptFailureStorage(runId: RunId) {
-  const engine: StorageEngine = new InMemoryStorageEngine();
+  const engine: StorageEngine<string> = new InMemoryStorageEngine<string>();
   let failed = false;
   disableStorageEngineMethod(engine, "compareAndSet");
   disableStorageEngineMethod(engine, "compareAndSetMany");
@@ -314,7 +314,7 @@ export function createConcurrentEventAppendOnStepAttemptFailureStorage(runId: Ru
 }
 
 export function createFailingMessageIdempotencyStorage() {
-  const engine = new InMemoryStorageEngine();
+  const engine = new InMemoryStorageEngine<string>();
   const set = engine.set.bind(engine);
   const compareAndSet = engine.compareAndSet?.bind(engine);
   engine.set = async (key, value, options) => {
@@ -365,7 +365,7 @@ export function createConcurrentMessageIdempotencyClaimStorage(messageKey: strin
 }
 
 export function createConcurrentMessageReplacementOnIdempotencyFailureStorage(runId: RunId) {
-  const engine: StorageEngine = new InMemoryStorageEngine();
+  const engine: StorageEngine<string> = new InMemoryStorageEngine<string>();
   disableStorageEngineMethod(engine, "compareAndSet");
   disableStorageEngineMethod(engine, "compareAndSetMany");
   const storage: WorkflowStorage = createStorage({ engine });
@@ -395,7 +395,7 @@ export function createConcurrentMessageReplacementOnIdempotencyFailureStorage(ru
 }
 
 export function createConcurrentMalformedMessageWaitersOnIdempotencyFailureStorage(runId: RunId) {
-  const engine: StorageEngine = new InMemoryStorageEngine();
+  const engine: StorageEngine<string> = new InMemoryStorageEngine<string>();
   disableStorageEngineMethod(engine, "compareAndSet");
   disableStorageEngineMethod(engine, "compareAndSetMany");
   const storage: WorkflowStorage = createStorage({ engine });

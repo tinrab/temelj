@@ -1,3 +1,4 @@
+import "temporal-polyfill/global";
 import type { WorkflowErrorRecord } from "../types/error.ts";
 import type { WorkflowResolvedMissingImplementationRetryConfig } from "../types/retry.ts";
 import type { WorkflowRunRecord } from "../types/run.ts";

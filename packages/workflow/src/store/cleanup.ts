@@ -16,7 +16,6 @@ import type {
 
 import { omitUndefined } from "../collection.ts";
 import { WorkflowStateError } from "../errors/mod.ts";
-import { workflowStepAttemptKey } from "../history/mod.ts";
 import {
   makeCleanupMarkerKey,
   makeCleanupMarkerKeyPrefix,
@@ -28,6 +27,7 @@ import {
   MessageIdempotencyKey,
   WorkflowIdempotencyKey,
   WorkflowEventsKey,
+  isStepAttemptKey,
 } from "../store-keys.ts";
 import { compareOptionalTimestamps } from "../temporal.ts";
 import { isTerminalWorkflowRunStatus } from "../utility.ts";
@@ -66,37 +66,10 @@ export async function stepAttemptKeysForCleanup(
 ): Promise<readonly string[]> {
   const prefix = makeStepAttemptKeyPrefix(namespace, runId);
   return [
-    ...new Set((await storage.keys({ prefix })).filter((key) => isStepAttemptKey(key, prefix))),
+    ...new Set(
+      (await storage.keys({ prefix })).filter((key) => isStepAttemptKey(key, namespace, runId)),
+    ),
   ];
-}
-
-function isStepAttemptKey(key: string, prefix: string): boolean {
-  if (!key.startsWith(prefix)) {
-    return false;
-  }
-  const attemptKey = decodeStepAttemptKey(key, prefix);
-  if (attemptKey === undefined) {
-    return false;
-  }
-  const separator = attemptKey.lastIndexOf(":");
-  if (!attemptKey.startsWith("run:") || separator <= "run:".length) {
-    return false;
-  }
-  const stepId = attemptKey.slice("run:".length, separator);
-  const attempt = Number(attemptKey.slice(separator + 1));
-  try {
-    return workflowStepAttemptKey(stepId, attempt) === attemptKey;
-  } catch {
-    return false;
-  }
-}
-
-function decodeStepAttemptKey(key: string, prefix: string): string | undefined {
-  try {
-    return decodeURIComponent(key.slice(prefix.length));
-  } catch {
-    return undefined;
-  }
 }
 
 export async function messageIdempotencyIndexesForCleanup(
@@ -271,9 +244,10 @@ export async function cleanupRuns(
   const eventKeys = eventKeysForCleanup.filter(
     (key): key is WorkflowEventsKey => key !== undefined,
   );
-  const runKeys = selectedRuns.map(
-    (run): WorkflowCleanupRunKey => ({ key: makeRunKey(namespace, run.id), run }),
-  );
+  const runKeys = selectedRuns.map((run): WorkflowCleanupRunKey => ({
+    key: makeRunKey(namespace, run.id),
+    run,
+  }));
   const idempotencyIndexesByRun = await Promise.all(
     selectedRuns.map(async (run) => await idempotencyIndexesForCleanup(storage, namespace, run)),
   );

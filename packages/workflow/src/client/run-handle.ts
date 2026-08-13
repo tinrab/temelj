@@ -1,3 +1,4 @@
+import "temporal-polyfill/global";
 import type { StorageValue } from "@temelj/storage";
 
 import type { WorkflowRunHandle as WorkflowRunHandleContract } from "../types/client.ts";
