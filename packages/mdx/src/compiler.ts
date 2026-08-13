@@ -8,7 +8,7 @@ import remarkGfmPlugin from "remark-gfm";
 import { VFile } from "vfile";
 import { matter } from "vfile-matter";
 
-import type { HastNode } from "./types";
+import type { HastNode } from "./types.ts";
 
 export { remarkFrontmatterPlugin, remarkGfmPlugin };
 
@@ -101,7 +101,7 @@ export class MdxCompileError extends Error {
       diagnostics?: MdxMessage[] | undefined;
       cause?: unknown;
     } = {},
-    context?: Function,
+    context?: (...arguments_: never[]) => unknown,
   ) {
     super(
       formatDiagnosticMessage(reason, {

@@ -6,7 +6,16 @@ import { toText } from "hast-util-to-text";
 import katex, { type KatexOptions } from "katex";
 import { SKIP, visitParents } from "unist-util-visit-parents";
 
-import type { HastNode } from "../../types";
+import type { HastNode } from "../../types.ts";
+
+/**
+ * TeX math style applied to inline math.
+ *
+ * `"auto"` preserves the source and KaTeX's default style.
+ */
+export type InlineMathStyle = "auto" | "display" | "script" | "scriptscript" | "text";
+
+type ExplicitInlineMathStyle = Exclude<InlineMathStyle, "auto">;
 
 const mathClasses = {
   display: "math-display",
@@ -14,7 +23,7 @@ const mathClasses = {
   language: "language-math",
 } as const;
 
-const inlineMathStyleCommands = {
+const inlineMathStyleCommands: Readonly<Record<ExplicitInlineMathStyle, string>> = {
   display: String.raw`\displaystyle`,
   script: String.raw`\scriptstyle`,
   scriptscript: String.raw`\scriptscriptstyle`,
@@ -22,13 +31,6 @@ const inlineMathStyleCommands = {
 } as const;
 
 type KatexRenderOptions = Omit<KatexOptions, "displayMode" | "throwOnError">;
-
-/**
- * TeX math style applied to inline math.
- *
- * `"auto"` preserves the source and KaTeX's default style.
- */
-export type InlineMathStyle = "auto" | keyof typeof inlineMathStyleCommands;
 
 /**
  * KaTeX options controlled by callers. Rendering mode and error handling are

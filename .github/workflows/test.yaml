@@ -37,5 +37,33 @@ jobs:
           pnpm run format:check
           pnpm run lint
 
+      - name: Check JSR packages
+        run: |
+          for package_dir in \
+            packages/value \
+            packages/async \
+            packages/string \
+            packages/color \
+            packages/ffmpeg \
+            packages/result \
+            packages/standard-schema \
+            packages/event \
+            packages/log \
+            packages/iterator \
+            packages/math \
+            packages/react-hooks \
+            packages/id \
+            packages/request \
+            packages/env \
+            packages/handlebars \
+            packages/mdx \
+            packages/mdx-react \
+            packages/cache \
+            packages/storage \
+            lib
+          do
+            (cd "$package_dir" && npx jsr publish --dry-run --allow-dirty)
+          done
+
       - name: Run tests
         run: pnpm run test

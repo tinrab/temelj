@@ -1,7 +1,7 @@
 import { type NumericRange, parseNumericRange } from "@temelj/iterator";
 import { ss, validateStandardSchemaSync } from "@temelj/standard-schema";
 
-import type { HastElement } from "../../types";
+import type { HastElement } from "../../types.ts";
 
 export interface MdxCodeMeta {
   highlight?: MdxCodeMetaHighlightLine;

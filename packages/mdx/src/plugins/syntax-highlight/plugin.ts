@@ -16,9 +16,9 @@ import {
 } from "shiki";
 import { visit } from "unist-util-visit";
 
-import type { HastElement, HastNode } from "../../types";
+import type { HastElement, HastNode } from "../../types.ts";
 
-import { extractCodeMeta } from "./code-meta";
+import { extractCodeMeta } from "./code-meta.ts";
 
 type ShikiHastOptions = Partial<CodeToHastOptions<BundledLanguage, BundledTheme>>;
 

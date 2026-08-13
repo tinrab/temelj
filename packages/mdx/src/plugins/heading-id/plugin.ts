@@ -4,7 +4,7 @@ import GithubSlugger from "github-slugger";
 import { toString as hastToString } from "hast-util-to-string";
 import { visit } from "unist-util-visit";
 
-import type { HastElement, HastNode } from "../../types";
+import type { HastElement, HastNode } from "../../types.ts";
 
 /**
  * Options for {@linkcode headingIdPlugin}.
