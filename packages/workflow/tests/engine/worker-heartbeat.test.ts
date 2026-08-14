@@ -59,6 +59,51 @@ describe("workflow worker heartbeats", () => {
     ).resolves.toBe("done");
   });
 
+  test("worker heartbeats do not make a running durable step stale", async () => {
+    let now = Temporal.Instant.from("2026-06-07T10:00:00Z");
+    const engine = createWorkflowEngine({
+      now: () => now,
+      createRunId: () => "run_heartbeat_step",
+    });
+    const registry = new Registry();
+    const client = createWorkflowClient({ engine, registry });
+    const worker = new WorkflowWorker({
+      engine,
+      registry,
+      workerId: "worker_heartbeat_step",
+      leaseDuration: Temporal.Duration.from({ milliseconds: 60_000 }),
+      heartbeatInterval: Temporal.Duration.from({ milliseconds: 1 }),
+      now: () => now,
+    });
+    const def = defineWorkflow<undefined, string>({ name: "heartbeat-step" });
+
+    client.implementWorkflow(def, async ({ step }) => {
+      return await step.task.run({ name: "long task" }, async () => {
+        now = Temporal.Instant.from("2026-06-07T10:00:30Z");
+        await waitFor(async () => {
+          const run = await engine.getRun("run_heartbeat_step");
+          return (
+            run?.leaseExpiresAt?.epochMilliseconds ===
+            Temporal.Instant.from("2026-06-07T10:01:30Z").epochMilliseconds
+          );
+        });
+        return "done";
+      });
+    });
+
+    const handle = await client.runs.start(def, undefined);
+    await expect(worker.processNextRun()).resolves.toMatchObject({
+      kind: "completed",
+      output: "done",
+    });
+    await expect(
+      handle.result({
+        timeout: Temporal.Duration.from({ milliseconds: 0 }),
+        pollInterval: Temporal.Duration.from({ milliseconds: 0 }),
+      }),
+    ).resolves.toBe("done");
+  });
+
   test("worker waits for in-flight heartbeat before returning", async () => {
     let releaseHeartbeat!: () => void;
     const heartbeatCanFinish = new Promise<void>((resolve) => {

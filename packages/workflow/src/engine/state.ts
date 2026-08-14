@@ -49,7 +49,7 @@ type WorkflowRunLookup = WorkflowRunReaderRepository;
 type WorkflowRunWriter = WorkflowRunUnconditionalWriterRepository;
 type WorkflowRunConditionalWriter = WorkflowRunConditionalWriterRepository;
 type WorkflowRunStateStore = WorkflowRunLookup & WorkflowRunWriter & WorkflowRunWriterRepository;
-type WorkflowCurrentEventAppender = WorkflowConditionalEventAppender;
+type WorkflowCurrentEventAppender = WorkflowConditionalEventAppender & WorkflowRunLookup;
 
 type WorkflowLockReleaseStore = WorkflowLockListerRepository &
   WorkflowLockConditionalWriterRepository;
@@ -101,12 +101,18 @@ export async function appendEventIfCurrentExecution(
   await history.append(async () => {
     beforeAppend?.();
     enforceWorkflowEventHistoryNextLimit(history.events, limits);
-    const events = await store.appendEventIfRunCurrent(executionOwner, event);
-    if (events === undefined) {
-      WorkflowStaleExecutionError.stale(executionOwner.id);
+    for (let attempt = 0; attempt < MAX_CONCURRENT_RUN_UPDATE_ATTEMPTS; attempt++) {
+      const current = await store.getRun(executionOwner.id);
+      if (current === undefined || !isCurrentExecutionOwner(current, executionOwner)) {
+        WorkflowStaleExecutionError.stale(executionOwner.id);
+      }
+      const events = await store.appendEventIfRunCurrent(current, event);
+      if (events !== undefined) {
+        appendedEvents = events;
+        return events;
+      }
     }
-    appendedEvents = events;
-    return events;
+    WorkflowStaleExecutionError.stale(executionOwner.id);
   });
   if (appendedEvents !== undefined) {
     afterAppend?.(event, appendedEvents);

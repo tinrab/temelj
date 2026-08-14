@@ -1,6 +1,6 @@
 {
   "name": "@temelj/workflow",
-  "version": "0.0.0-alpha.2",
+  "version": "0.0.0-alpha.3",
   "description": "Durable, vendor-agnostic, extendible workflows.",
   "license": "MIT",
   "repository": {
