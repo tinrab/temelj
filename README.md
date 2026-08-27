@@ -51,9 +51,9 @@ Foundational packages are also available in a singe dependency `@tinrab/temelj`,
   iterables.
 - [@temelj/log](./packages/log) - Structured logging primitives.
 - [@temelj/math](./packages/math) - A collection of math utilities.
-- [@temelj/mdx](./packages/mdx) - Utilities for working with MDX.
-- [@temelj/mdx-react](./packages/mdx-react) - Helpers for rendering MDX with
-  React.
+- [@temelj/mdx](./packages/mdx) - MDX parsing, formatting, compilation,
+  safe rendering, and streaming.
+- [@temelj/mdx-react](./packages/mdx-react) - MDX rendering for React.
 - [@temelj/request](./packages/request) - Utilities for working with HTTP
   requests.
 - [@temelj/result](./packages/result) - A result value type for TypeScript.

@@ -74,7 +74,7 @@ export async function welcomeUser(userId: string) {
       "crypto.randomUUID()",
       "globalThis.crypto.getRandomValues(new Uint8Array(8))",
       "performance.now()",
-      'fetch("https://example.com")',
+      'fetch("https://rabzelj.com")',
       "setTimeout(() => undefined, 1)",
       "globalThis.setInterval(() => undefined, 1)",
       "queueMicrotask(() => undefined)",

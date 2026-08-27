@@ -3,6 +3,7 @@ export * from "./ctor";
 export * from "./errors";
 export * from "./equal";
 export * from "./ops";
+export * from "./promise";
 export * from "./record";
 export * from "./size";
 export * from "./types";

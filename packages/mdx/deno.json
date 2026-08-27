@@ -1,12 +1,20 @@
 {
   "name": "@temelj/mdx",
   "version": "0.14.0",
-  "exports": "./src/mod.ts",
+  "exports": {
+    ".": "./src/mod.ts",
+    "./unified": "./src/unified/mod.ts"
+  },
   "license": "MIT",
   "nodeModulesDir": "auto",
   "imports": {
-    "@temelj/standard-schema": "jsr:@temelj/standard-schema@^0.1.0",
-    "@temelj/iterator": "jsr:@temelj/iterator@^0.12.0"
+    "@temelj/string": "jsr:@temelj/string@^0.15.0",
+    "@temelj/value": "jsr:@temelj/value@^0.15.0",
+    "property-information": "npm:property-information@7.2.0",
+    "smol-toml": "npm:smol-toml@1.8.0",
+    "unified": "npm:unified@11.0.5",
+    "vfile": "npm:vfile@6.0.3",
+    "yaml": "npm:yaml@2.9.0"
   },
   "publish": {
     "include": ["src/**/*.ts", "README.md"],

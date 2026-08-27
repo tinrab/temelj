@@ -6,7 +6,7 @@ import type { Primitive, PrimitiveObject, PrimitiveValue } from "./types";
  * @param value The value to check.
  * @returns `true` if the value is a primitive value, `false` otherwise.
  */
-export function isValuePrimitive(value: unknown): value is Primitive {
+export function isPrimitive(value: unknown): value is Primitive {
   return (
     typeof value === "string" ||
     typeof value === "boolean" ||
@@ -18,55 +18,47 @@ export function isValuePrimitive(value: unknown): value is Primitive {
   );
 }
 
-/**
- * Checks if a value is a primitive value.
- *
- * @param value The value to check.
- * @returns `true` if the value is a primitive value, `false` otherwise.
- */
-export function isObjectPrimitive(obj: unknown): obj is PrimitiveObject {
-  if (typeof obj !== "object" || obj === null) {
+export function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (typeof value !== "object" || value === null) {
     return false;
   }
-
-  const proto = Object.getPrototypeOf(obj);
-  if (proto === null) {
-    return true;
-  }
-
-  let baseProto = proto;
-  while (Object.getPrototypeOf(baseProto) !== null) {
-    baseProto = Object.getPrototypeOf(baseProto);
-  }
-  return baseProto === proto;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === null || Object.getPrototypeOf(prototype) === null;
 }
 
-/**
- * Checks if a value is a primitive value.
- *
- * @param value The value to check.
- * @returns `true` if the value is a primitive value, `false` otherwise.
- */
-export function isObjectDeepPrimitive(obj: unknown): obj is PrimitiveObject {
-  if (!isObjectPrimitive(obj)) {
+export function isPrimitiveObject(value: unknown): value is PrimitiveObject {
+  return isPlainObject(value) && isPrimitiveContainer(value, new Set());
+}
+
+export function isPrimitiveValue(value: unknown): value is PrimitiveValue {
+  return isPrimitive(value) || isPrimitiveContainer(value, new Set());
+}
+
+function isPrimitiveContainer(value: unknown, active: Set<object>): boolean {
+  if (Array.isArray(value)) {
+    if (active.has(value)) {
+      return false;
+    }
+    active.add(value);
+    for (const item of value) {
+      if (!isPrimitive(item) && !isPrimitiveContainer(item, active)) {
+        active.delete(value);
+        return false;
+      }
+    }
+    active.delete(value);
+    return true;
+  }
+  if (!isPlainObject(value) || active.has(value)) {
     return false;
   }
-
-  for (const [_, v] of Object.entries(obj)) {
-    if (!isValuePrimitive(v) && !isObjectDeepPrimitive(v)) {
+  active.add(value);
+  for (const item of Object.values(value)) {
+    if (!isPrimitive(item) && !isPrimitiveContainer(item, active)) {
+      active.delete(value);
       return false;
     }
   }
-
+  active.delete(value);
   return true;
-}
-
-/**
- * Checks if a value is a primitive value.
- *
- * @param value The value to check.
- * @returns `true` if the value is a primitive value, `false` otherwise.
- */
-export function isPrimitiveValue(value: unknown): value is PrimitiveValue {
-  return isValuePrimitive(value) || isObjectDeepPrimitive(value);
 }

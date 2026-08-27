@@ -5,10 +5,12 @@
   "license": "MIT",
   "nodeModulesDir": "auto",
   "imports": {
-    "@temelj/mdx": "jsr:@temelj/mdx@^0.14.0"
+    "@temelj/mdx": "jsr:@temelj/mdx@^0.14.0",
+    "property-information": "npm:property-information@7.2.0",
+    "style-to-js": "npm:style-to-js@2.0.2"
   },
   "publish": {
-    "include": ["src/**/*.ts", "src/**/*.tsx", "README.md", "LICENSE"],
+    "include": ["src/**/*.ts", "src/**/*.tsx", "README.md"],
     "exclude": ["src/**/*.test.ts", "src/**/*.test.tsx"]
   }
 }

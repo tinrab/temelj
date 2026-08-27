@@ -20,9 +20,9 @@ describe("workflow store keys", () => {
       makeWorkflowIdempotencyKey("default", {
         workflowName: "send/email",
         workflowVersion: "v 1",
-        idempotencyKey: "user@example.com",
+        idempotencyKey: "user@rabzelj.com",
       }),
-    ).toBe("workflow:default:idempotency:send%2Femail%40v%201:user%40example.com");
+    ).toBe("workflow:default:idempotency:send%2Femail%40v%201:user%40rabzelj.com");
     expect(makeMessageIdempotencyKey("default", "run/1", "messageId:1")).toBe(
       "workflow:default:message-idempotency:run%2F1:messageId%3A1",
     );

@@ -7,6 +7,9 @@
   },
   "license": "MIT",
   "nodeModulesDir": "auto",
+  "imports": {
+    "@temelj/value": "jsr:@temelj/value@^0.15.0"
+  },
   "publish": {
     "include": ["src/**/*.ts", "src/**/*.tsx", "README.md", "LICENSE"],
     "exclude": ["src/**/*.test.ts"]

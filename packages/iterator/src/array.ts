@@ -1,4 +1,4 @@
-import { deepEquals, isObjectPrimitive } from "@temelj/value";
+import { deepEquals, isPlainObject } from "@temelj/value";
 import merge from "deepmerge";
 
 /**
@@ -54,7 +54,7 @@ export function arrayCombineMerge<A, B>(target: A[], source: B[]): (A & B)[] {
   for (const item of source) {
     if (result[i] === undefined) {
       result[i] = structuredClone(item);
-    } else if (isObjectPrimitive(item)) {
+    } else if (isPlainObject(item)) {
       result[i] = merge(target[i] as any, item as any) as any;
     } else if (target.find((targetItem) => deepEquals(targetItem, item)) === undefined) {
       result.push(item);

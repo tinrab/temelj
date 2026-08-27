@@ -93,7 +93,7 @@
     "@temelj/storage": "workspace:*",
     "@temelj/string": "workspace:*",
     "@temelj/value": "workspace:*",
-    "oxc-parser": "0.144.0",
+    "oxc-parser": "0.147.0",
     "temporal-polyfill": "^1.0.4",
     "unplugin": "^3.3.0",
     "zod": "^4.4.3"
@@ -101,17 +101,17 @@
   "devDependencies": {
     "@opentelemetry/sdk-metrics": "^2.10.0",
     "@opentelemetry/sdk-trace-base": "^2.10.0",
-    "@rspack/core": "^2.1.10",
-    "@types/node": "26.1.1",
+    "@rspack/core": "^2.2.0",
+    "@types/node": "26.3.0",
     "esbuild": "^0.28.2",
-    "rolldown": "^1.2.4",
-    "rollup": "^4.62.4",
+    "rolldown": "^1.2.6",
+    "rollup": "^4.63.0",
     "shx": "^0.4.0",
     "tsdown": "^0.22.14",
     "typedoc": "^0.28.20",
     "typescript": "^7.0.2",
-    "vite": "^8.2.1",
-    "vitest": "^4.1.10",
+    "vite": "^8.2.2",
+    "vitest": "^4.1.11",
     "webpack": "^5.109.2"
   },
   "peerDependencies": {

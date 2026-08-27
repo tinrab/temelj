@@ -282,7 +282,7 @@ class TestContextManager implements ContextManager {
     this.#active = contextValue;
     try {
       const result = fn.apply(thisArg, args);
-      if (isPromiseLike(result)) {
+      if (isPromise(result)) {
         restoreDeferred = true;
         return result.finally(() => {
           this.#active = previous;
@@ -345,13 +345,4 @@ class TestTraceContextPropagator implements TextMapPropagator {
   fields(): string[] {
     return ["traceparent"];
   }
-}
-
-function isPromiseLike(value: unknown): value is Promise<unknown> {
-  return (
-    (typeof value === "object" || typeof value === "function") &&
-    value !== null &&
-    "finally" in value &&
-    typeof value.finally === "function"
-  );
 }

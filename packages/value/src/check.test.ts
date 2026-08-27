@@ -1,19 +1,19 @@
 import { expect, test } from "vitest";
 
-import { isObjectDeepPrimitive, isObjectPrimitive } from "./check";
+import { isPlainObject, isPrimitiveObject } from "./check";
 
-test("isObjectPlain() works", () => {
-  expect(isObjectPrimitive({ x: 42 })).toBe(true);
+test("isPlainObject() works", () => {
+  expect(isPlainObject({ x: 42 })).toBe(true);
 
-  expect(isObjectPrimitive(42)).toBe(false);
-  expect(isObjectPrimitive("abc")).toBe(false);
-  expect(isObjectPrimitive(new Date())).toBe(false);
-  expect(isObjectPrimitive(new Map())).toBe(false);
+  expect(isPlainObject(42)).toBe(false);
+  expect(isPlainObject("abc")).toBe(false);
+  expect(isPlainObject(new Date())).toBe(false);
+  expect(isPlainObject(new Map())).toBe(false);
 });
 
-test("isObjectDeepPlain() works", () => {
-  expect(isObjectDeepPrimitive({ x: 42 })).toBe(true);
-  expect(isObjectDeepPrimitive({ x: 42, y: { z: 42 } })).toBe(true);
+test("isPrimitiveObject() works", () => {
+  expect(isPrimitiveObject({ x: 42 })).toBe(true);
+  expect(isPrimitiveObject({ x: 42, y: { z: 42 } })).toBe(true);
 
-  expect(isObjectDeepPrimitive({ x: 42, d: new Date() })).toBe(false);
+  expect(isPrimitiveObject({ x: 42, d: new Date() })).toBe(false);
 });

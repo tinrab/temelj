@@ -1,6 +1,10 @@
 {
   "$schema": "./node_modules/oxfmt/configuration_schema.json",
-  "ignorePatterns": ["**/*.gen.ts"],
+  "ignorePatterns": [
+    "**/*.gen.ts",
+    "packages/mdx/fixtures/*.json",
+    "packages/mdx/src/syntax/generated/**"
+  ],
   "experimentalTailwindcss": {
     "attributes": ["class", "className"],
     "functions": ["clsx", "cn"],

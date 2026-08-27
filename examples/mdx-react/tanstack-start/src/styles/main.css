@@ -1,0 +1,8 @@
+@import "tailwindcss";
+
+@import "katex/dist/katex.min.css";
+
+@import "./ui.css";
+@import "./typeset.css";
+@import "./katex.css";
+@import "./syntax-highlight.css";

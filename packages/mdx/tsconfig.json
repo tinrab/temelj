@@ -1,3 +1,8 @@
 {
-  "extends": "../../scripts/tsconfig.json"
+  "extends": "../../scripts/tsconfig.json",
+  "compilerOptions": {
+    "noUnusedLocals": true,
+    "noUnusedParameters": true
+  },
+  "include": ["src/**/*.ts", "scripts/**/*.ts"]
 }

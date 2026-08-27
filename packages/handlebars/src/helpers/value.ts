@@ -1,5 +1,5 @@
 import { ss } from "@temelj/standard-schema";
-import { deepEquals, isObjectPrimitive, type PrimitiveValue } from "@temelj/value";
+import { deepEquals, isPlainObject, type PrimitiveValue } from "@temelj/value";
 
 import { createHelper } from "../helper_builder";
 import { type HelperDeclareSpec, SafeString } from "../types";
@@ -27,7 +27,7 @@ export function getValueHelpers(): HelperDeclareSpec {
     isEmpty: (obj: unknown) => {
       return Array.isArray(obj)
         ? obj.length === 0
-        : isObjectPrimitive(obj)
+        : isPlainObject(obj)
           ? Object.keys(obj).length === 0
           : Boolean(obj) === false;
     },

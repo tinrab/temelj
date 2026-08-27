@@ -15,5 +15,22 @@
   ],
   "rules": {
     "typescript/no-base-to-string": "off"
-  }
+  },
+  "overrides": [
+    {
+      "files": [
+        "packages/mdx/**/*.ts",
+        "packages/mdx-react/**/*.ts",
+        "packages/mdx-react/**/*.tsx",
+        "examples/mdx-react/basic/**/*.ts",
+        "examples/mdx-react/basic/**/*.tsx"
+      ],
+      "rules": {
+        "curly": "error",
+        "typescript/no-unsafe-type-assertion": "error",
+        "unicorn/no-lonely-if": "error",
+        "unicorn/no-useless-undefined": "error"
+      }
+    }
+  ]
 }
