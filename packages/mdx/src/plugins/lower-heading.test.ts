@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { ConfigurationError, LowerHeadingPlugin, Processor } from "../mod.ts";
+import { ConfigurationError, Processor } from "../mod.ts";
+import { LowerHeadingPlugin } from "./mod.ts";
 
 describe("LowerHeadingPlugin", () => {
   it("lowers rendered headings by one level by default", () => {

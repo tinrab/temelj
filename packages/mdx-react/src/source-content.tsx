@@ -493,7 +493,9 @@ function renderDefaultPendingMarkdown(
     case "pendingFencedCode":
       return (
         <pre key={key}>
-          <code>{children}</code>
+          <code className={node.language === undefined ? undefined : `language-${node.language}`}>
+            {children}
+          </code>
         </pre>
       );
     case "unresolvedLinkReference":

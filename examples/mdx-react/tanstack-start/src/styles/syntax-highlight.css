@@ -1,8 +1,6 @@
-/** biome-ignore-all lint/complexity/noImportantStyles: needed */
-
 :root {
   --code-padding: 1rem;
-  --line-number-width-default: 0;
+  --line-number-width-default: 2ch;
   --code-line-number-color: 0 0% 9%;
   --code-line-highlight: 0 0% 9%;
 
@@ -84,7 +82,7 @@ code {
   color: hsl(var(--code-line-number-color) / 0.6);
 
   content: attr(data-line);
-  width: var(--line-number-width, --line-number-width-default);
+  width: max(var(--line-number-width-default), var(--line-number-width, 0ch));
   margin-right: var(--code-padding);
 }
 

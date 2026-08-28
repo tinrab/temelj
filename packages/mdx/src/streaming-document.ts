@@ -141,6 +141,7 @@ export interface StreamingPendingFencedCode {
   readonly authored: string;
   readonly value: string;
   readonly language?: string;
+  readonly meta?: string;
   readonly range: Readonly<{ start: number; end: number }>;
 }
 
@@ -242,7 +243,9 @@ function renderStreamingNode(node: StreamingNode): string {
     case "math":
       return renderMathFallback(node.math);
     case "pendingFencedCode":
-      return `<pre><code>${escapeHtml(node.value)}</code></pre>`;
+      return node.language === undefined
+        ? `<pre><code>${escapeHtml(node.value)}</code></pre>`
+        : `<pre><code class="language-${escapeHtml(node.language)}">${escapeHtml(node.value)}</code></pre>`;
     case "pendingStrong":
       return `<strong>${node.children.map(renderStreamingNode).join("")}</strong>`;
     case "pendingEmphasis":

@@ -17,6 +17,10 @@
       "types": "./dist/mod.d.mts",
       "import": "./dist/mod.mjs"
     },
+    "./plugin": {
+      "types": "./dist/plugins/mod.d.mts",
+      "import": "./dist/plugins/mod.mjs"
+    },
     "./unified": {
       "types": "./dist/unified/mod.d.mts",
       "import": "./dist/unified/mod.mjs"
@@ -54,11 +58,15 @@
   },
   "peerDependencies": {
     "property-information": "7.2.0",
+    "shiki": "4.4.3",
     "unified": "11.0.5",
     "vfile": "6.0.3"
   },
   "peerDependenciesMeta": {
     "property-information": {
+      "optional": true
+    },
+    "shiki": {
       "optional": true
     },
     "unified": {

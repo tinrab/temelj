@@ -68,11 +68,11 @@ export function rewriteHtmlElements(
   document: HtmlDocumentNode,
   transform: (
     element: HtmlElementNode,
-  ) => HtmlElementNode | PromiseLike<HtmlElementNode | undefined> | undefined,
+  ) => HtmlElementNode | Promise<HtmlElementNode | undefined> | undefined,
 ): HtmlDocumentNode | Promise<HtmlDocumentNode> {
   const changes: Array<{
     node: HtmlElementNode;
-    result: HtmlElementNode | PromiseLike<HtmlElementNode | undefined> | undefined;
+    result: HtmlElementNode | Promise<HtmlElementNode | undefined> | undefined;
   }> = [];
   let asynchronous = false;
   for (const { node } of walkHtml(document)) {

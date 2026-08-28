@@ -113,7 +113,7 @@ function runPossiblyAsync(
 }
 
 function mapPossiblePromise<TInput, TOutput>(
-  input: TInput | PromiseLike<TInput>,
+  input: TInput | Promise<TInput>,
   map: (value: TInput) => TOutput,
   reject: (cause: unknown) => TOutput,
 ): TOutput | Promise<TOutput> {

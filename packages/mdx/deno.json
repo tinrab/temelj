@@ -3,6 +3,7 @@
   "version": "0.14.0",
   "exports": {
     ".": "./src/mod.ts",
+    "./plugin": "./src/plugins/mod.ts",
     "./unified": "./src/unified/mod.ts"
   },
   "license": "MIT",
@@ -11,6 +12,7 @@
     "@temelj/string": "jsr:@temelj/string@^0.15.0",
     "@temelj/value": "jsr:@temelj/value@^0.15.0",
     "property-information": "npm:property-information@7.2.0",
+    "shiki/types": "npm:shiki@4.4.3/types",
     "smol-toml": "npm:smol-toml@1.8.0",
     "unified": "npm:unified@11.0.5",
     "vfile": "npm:vfile@6.0.3",

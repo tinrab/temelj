@@ -51,7 +51,8 @@ function PendingMarkdown({ children, node }: PendingMdxMarkdownProps) {
           code={node.value}
           components={mdxRegistry}
           highlighter={shikiHighlighter}
-          language={node.language ?? ""}
+          language={node.language}
+          meta={node.meta}
         />
       );
   }

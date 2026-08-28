@@ -284,6 +284,7 @@ export interface PendingFencedCodeSyntax extends BlockSyntaxBase {
   readonly kind: "fencedCode";
   readonly value: readonly InlineSegment[];
   readonly language: SourceRange | undefined;
+  readonly meta: SourceRange | undefined;
 }
 
 export interface PendingMathSyntax extends BlockSyntaxBase {

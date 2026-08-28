@@ -3,9 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   DefinitionNode,
   DocumentNode,
-  DocumentTransformPlugin,
   HtmlDocumentNode,
-  HtmlTransformPlugin,
   ImageReferenceNode,
   Processor,
   parse,
@@ -14,9 +12,13 @@ import {
   rewriteMdx,
   selectHtml,
   selectMdx,
+} from "./mod.ts";
+import {
+  DocumentTransformPlugin,
+  HtmlTransformPlugin,
   type DocumentTransformContext,
   type HtmlTransformContext,
-} from "./mod.ts";
+} from "./plugins/mod.ts";
 
 class TestDocumentPlugin extends DocumentTransformPlugin {
   public readonly name: string;

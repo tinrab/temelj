@@ -91,9 +91,61 @@ if (outcome.kind === "processed") {
 }
 ```
 
+Plugin APIs live at `@temelj/mdx/plugin`:
+
+```ts
+import { Processor } from "@temelj/mdx";
+import { HeadingIdPlugin } from "@temelj/mdx/plugin";
+
+const processor = new Processor({ htmlPlugins: [new HeadingIdPlugin()] });
+```
+
 Document plugins subclass `DocumentTransformPlugin`. HTML plugins subclass
 `HtmlTransformPlugin`. `process()` supports asynchronous plugins and an
 `AbortSignal`; `processSync()` rejects asynchronous plugins.
+
+## Syntax highlighting
+
+`SyntaxHighlightPlugin` accepts a provider-neutral `SyntaxHighlighter`. A
+provider receives the exact code, its language, parsed metadata, and an optional
+abort signal. Returning `undefined` keeps the plain code block. A highlighter
+declares `kind: "synchronous"` when `highlight()` returns directly or
+`kind: "asynchronous"` when it returns a promise.
+
+Temelj recognizes JSON metadata after the fence language:
+
+````md
+```ts {"fileName":"worker.ts","highlightLines":"2,4-6","lineNumbers":true}
+const worker = createWorker();
+await worker.start();
+```
+````
+
+Line selectors are one-based and inclusive. `lineNumbers` also accepts an
+object such as `{"start":20,"lines":"1-8"}`. `commandLines` uses the same
+boolean or selector-string form. Unknown JSON fields remain in the raw metadata
+for provider-specific use.
+
+The optional Shiki adapter is exported from `@temelj/mdx/plugin` and accepts a
+caller-owned, preloaded Shiki instance:
+
+```ts
+import { Processor } from "@temelj/mdx";
+import { SyntaxHighlightPlugin, createShikiHighlighter } from "@temelj/mdx/plugin";
+
+const syntaxHighlighter = createShikiHighlighter(shiki, {
+  languageAliases: { cuda: "c" },
+  themes: { light: "github-light", dark: "github-dark" },
+});
+const processor = new Processor({
+  htmlPlugins: [new SyntaxHighlightPlugin({ highlighter: syntaxHighlighter })],
+});
+```
+
+The caller chooses the Shiki engine, languages, themes, and disposal lifetime.
+The adapter is synchronous because it uses a preloaded Shiki instance. It can
+add line classes, filename data, and opt-in language, line-count, source-code,
+and raw-meta attributes.
 
 ## Optional syntax
 

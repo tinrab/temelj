@@ -104,7 +104,7 @@ Malformed math stays readable instead of breaking the page: $\\frac{$.
 
 ## Code blocks
 
-\`\`\`c file=math.c
+\`\`\`c { "fileName": "math.c", "highlightLines": "10", "lineNumbers": true }
 float Q_rsqrt( float number )
 {
 	long i;
@@ -124,6 +124,11 @@ float Q_rsqrt( float number )
 \`\`\`
 
     Indented code remains a code block too.
+
+\`\`\`bash { "commandLines":"1" }
+echo "Hello, World!"
+Hello, World!
+\`\`\`
 
 ## HTML and executable MDX stay inert
 

@@ -6,17 +6,14 @@ import remarkToc from "remark-toc";
 import { createHighlighter } from "shiki";
 import { describe, expect, it } from "vitest";
 
+import { ConfigurationError, HtmlTextNode, Processor, TextNode } from "../mod.ts";
 import {
-  ConfigurationError,
   DocumentPlugin,
   DocumentTransformPlugin,
-  HtmlTextNode,
   HtmlTransformPlugin,
-  Processor,
-  TextNode,
   type DocumentTransformContext,
   type HtmlTransformContext,
-} from "../mod.ts";
+} from "../plugins/mod.ts";
 import { RehypePluginAdapter, RemarkPluginAdapter } from "./mod.ts";
 
 declare module "unified" {

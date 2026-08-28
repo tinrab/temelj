@@ -119,5 +119,9 @@ belong outside React and their result can be rendered with `ProcessedContent`.
 The React renderer converts HAST attribute names and CSS style strings to React
 props. To highlight an open fence while it streams, render `HighlightedCode`
 from the `pendingFencedCode` branch of `pending.markdown`, using the node's
-`value` and `language`. Each source update replaces the previous highlighting
-request, while readable plain code remains visible until the new result arrives.
+`value`, `language`, and `meta`. Each source update replaces the previous
+highlighting request. Synchronous highlighters render the updated code in the
+same React render. Asynchronous highlighters keep the last highlighted block
+mounted until the new result arrives. The same `SyntaxHighlighter` can be passed
+to `SyntaxHighlightPlugin` for strict processing. Import its type from
+`@temelj/mdx/plugin`, which also exports the optional Shiki adapter.

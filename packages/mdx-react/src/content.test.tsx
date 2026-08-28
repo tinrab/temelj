@@ -1,10 +1,11 @@
+import type { SyntaxHighlighter } from "@temelj/mdx/plugin";
+
 import {
   HtmlCodeBlockNode,
   HtmlElementNode,
   HtmlFragmentNode,
   HtmlTextNode,
   Processor,
-  type SyntaxHighlighter,
 } from "@temelj/mdx";
 // @vitest-environment jsdom
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
@@ -341,15 +342,21 @@ describe("MDX React content", () => {
     expect(container.querySelector("pre")?.getAttribute("data-language")).toBe("ts");
 
     const highlighter = {
-      highlight: ({ code }) =>
-        new HtmlElementNode("pre", { "data-highlighted": "" }, [new HtmlTextNode(code)]),
+      highlight: ({ code, metadata }) =>
+        new HtmlElementNode(
+          "pre",
+          { "data-file-name": metadata.fileName ?? "", "data-highlighted": "" },
+          [new HtmlTextNode(code)],
+        ),
+      kind: "synchronous",
     } satisfies SyntaxHighlighter;
     const PendingMarkdown = ({ children, node }: PendingMdxMarkdownProps): React.ReactNode =>
       node.kind === "pendingFencedCode" ? (
         <HighlightedCode
           code={node.value}
           highlighter={highlighter}
-          language={node.language ?? ""}
+          language={node.language}
+          meta={node.meta}
         />
       ) : (
         children
@@ -357,7 +364,7 @@ describe("MDX React content", () => {
     const pending = render(
       <StreamingSourceContent
         components={defineMdxRegistry({ pending: { markdown: PendingMarkdown } })}
-        source={"```ts\nconst streaming = true;"}
+        source={'```ts {"fileName":"stream.ts"}\nconst streaming = true;'}
         status="streaming"
       />,
     );
@@ -366,6 +373,9 @@ describe("MDX React content", () => {
       expect(pending.container.querySelector("[data-highlighted]")?.textContent).toBe(
         "const streaming = true;",
       );
+      expect(
+        pending.container.querySelector("[data-highlighted]")?.getAttribute("data-file-name"),
+      ).toBe("stream.ts");
     });
   });
 

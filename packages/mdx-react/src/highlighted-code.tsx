@@ -1,16 +1,39 @@
-import { HtmlElementNode, HtmlTextNode, type SyntaxHighlighter } from "@temelj/mdx";
+import { HtmlElementNode, HtmlTextNode, type HtmlAttributeValue } from "@temelj/mdx";
+import {
+  SyntaxHighlightMetadataError,
+  parseCodeBlockMetadata,
+  type SyntaxHighlightRequest,
+  type SyntaxHighlighter,
+} from "@temelj/mdx/plugin";
 import React, { useEffect, useRef, useState } from "react";
 
 import type { MdxRegistry } from "./registry.ts";
 
 import { HtmlNodeContent } from "./source-content.tsx";
 
+type CodeRender = (signal: AbortSignal) => Promise<HtmlElementNode | undefined>;
+
+type CodeRenderResult =
+  | Readonly<{
+      element: HtmlElementNode;
+      kind: "highlighted";
+      render: CodeRender;
+    }>
+  | Readonly<{
+      kind: "unavailable";
+      render: CodeRender;
+    }>;
+
+type SynchronousCodeResult =
+  | Readonly<{ element: HtmlElementNode | undefined; kind: "settled" }>
+  | Readonly<{ error: unknown; kind: "failed" }>;
+
 export interface HighlightedCodeProps {
   readonly code: string;
   readonly components?: MdxRegistry;
   readonly fallback?: React.ReactNode;
   readonly highlighter?: SyntaxHighlighter;
-  readonly language: string;
+  readonly language?: string;
   readonly meta?: string;
   readonly onError?: (error: unknown) => void;
 }
@@ -25,26 +48,48 @@ export function HighlightedCode({
   meta,
   onError,
 }: HighlightedCodeProps): React.ReactNode {
+  const normalizedLanguage = normalizeLanguage(language);
+  const metadata = React.useMemo(() => parseCodeBlockMetadata(meta), [meta]);
+  const onErrorReference = useRef(onError);
+  useEffect(() => {
+    onErrorReference.current = onError;
+  }, [onError]);
+  useEffect(() => {
+    if (metadata.kind === "invalid") {
+      onErrorReference.current?.(new SyntaxHighlightMetadataError(metadata.issues));
+    }
+  }, [metadata, onErrorReference]);
+  const request = React.useMemo<SyntaxHighlightRequest | undefined>(
+    () =>
+      normalizedLanguage === undefined
+        ? undefined
+        : { code, language: normalizedLanguage, metadata: metadata.metadata },
+    [code, metadata, normalizedLanguage],
+  );
+  const synchronousResult = React.useMemo(
+    () => synchronousHighlight(highlighter, request),
+    [highlighter, request],
+  );
+  useEffect(() => {
+    if (synchronousResult?.kind === "failed") {
+      onErrorReference.current?.(synchronousResult.error);
+    }
+  }, [onErrorReference, synchronousResult]);
   const element = React.useMemo(
-    () => codeFallbackElement(code, language, meta),
-    [code, language, meta],
+    () => codeFallbackElement(code, normalizedLanguage),
+    [code, normalizedLanguage],
   );
   const render = React.useMemo(
     () =>
-      highlighter === undefined
+      highlighter?.kind !== "asynchronous" || request === undefined
         ? undefined
-        : (signal: AbortSignal) =>
-            highlighter.highlight({
-              code,
-              element,
-              language,
-              meta,
-              signal,
-            }),
-    [code, element, highlighter, language, meta],
+        : (signal: AbortSignal) => highlighter.highlight({ ...request, signal }),
+    [highlighter, request],
   );
 
-  const rendered = useRenderedElement(render, onError);
+  const asynchronousElement = useRenderedElement(render, onErrorReference);
+  const rendered =
+    synchronousResult?.kind === "settled" ? synchronousResult.element : asynchronousElement;
   if (rendered === undefined) {
     return fallback ?? <HtmlNodeContent node={element} components={components} />;
   }
@@ -52,20 +97,25 @@ export function HighlightedCode({
   return <HtmlNodeContent node={rendered} components={components} />;
 }
 
+function synchronousHighlight(
+  highlighter: SyntaxHighlighter | undefined,
+  request: SyntaxHighlightRequest | undefined,
+): SynchronousCodeResult | undefined {
+  if (highlighter?.kind !== "synchronous" || request === undefined) {
+    return;
+  }
+  try {
+    return { element: highlighter.highlight(request), kind: "settled" };
+  } catch (error) {
+    return { error, kind: "failed" };
+  }
+}
+
 function useRenderedElement(
-  render: ((signal: AbortSignal) => HtmlElementNode | Promise<HtmlElementNode>) | undefined,
-  onError: ((error: unknown) => void) | undefined,
+  render: CodeRender | undefined,
+  onErrorReference: React.RefObject<((error: unknown) => void) | undefined>,
 ): HtmlElementNode | undefined {
-  const [result, setResult] = useState<
-    Readonly<{
-      element: HtmlElementNode;
-      render: (signal: AbortSignal) => HtmlElementNode | Promise<HtmlElementNode>;
-    }>
-  >();
-  const onErrorReference = useRef(onError);
-  useEffect(() => {
-    onErrorReference.current = onError;
-  }, [onError]);
+  const [result, setResult] = useState<CodeRenderResult>();
   useEffect(() => {
     const controller = new AbortController();
     if (render === undefined) {
@@ -75,29 +125,37 @@ function useRenderedElement(
       .then(() => render(controller.signal))
       .then((value) => {
         if (!controller.signal.aborted) {
-          setResult({ element: value, render });
+          setResult(
+            value === undefined
+              ? { kind: "unavailable", render }
+              : { element: value, kind: "highlighted", render },
+          );
         }
       })
       .catch((error: unknown) => {
         if (!controller.signal.aborted) {
+          setResult({ kind: "unavailable", render });
           onErrorReference.current?.(error);
         }
       });
     return () => controller.abort();
-  }, [render]);
-  if (result === undefined || result.render !== render) {
+  }, [onErrorReference, render]);
+  if (render === undefined || result?.kind !== "highlighted") {
     return undefined;
   }
   return result.element;
 }
 
-function codeFallbackElement(
-  code: string,
-  language: string,
-  meta: string | undefined,
-): HtmlElementNode {
-  return new HtmlElementNode("pre", meta === undefined ? {} : { "data-meta": meta }, [
-    new HtmlElementNode("code", { class: [`language-${language}`] }, [
+function normalizeLanguage(language: string | undefined): string | undefined {
+  const normalized = language?.trim().split(/\s+/u)[0];
+  return normalized === undefined || normalized.length === 0 ? undefined : normalized;
+}
+
+function codeFallbackElement(code: string, language: string | undefined): HtmlElementNode {
+  const attributes: Readonly<Record<string, HtmlAttributeValue>> =
+    language === undefined ? {} : { class: [`language-${language}`] };
+  return new HtmlElementNode("pre", {}, [
+    new HtmlElementNode("code", attributes, [
       new HtmlTextNode(code.length === 0 ? "" : `${code}\n`),
     ]),
   ]);

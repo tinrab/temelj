@@ -130,6 +130,7 @@ function pendingBlockStreamingDocument(
           .replace(/\r\n?|\n/gu, "\n")
           .replace(/\n$/u, ""),
         language: pending.language === undefined ? undefined : file.semanticSlice(pending.language),
+        meta: pending.meta === undefined ? undefined : file.semanticSlice(pending.meta),
         range: pending.range,
       }),
     ]);

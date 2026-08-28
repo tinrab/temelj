@@ -67,8 +67,6 @@ export {
   type ParserLimit,
   type ParserLimits,
 } from "./parser.ts";
-export * from "./plugin.ts";
-export * from "./plugins/mod.ts";
 export * from "./processor.ts";
 export * from "./source.ts";
 export type { SourceMap } from "./source-map.ts";

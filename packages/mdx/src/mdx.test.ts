@@ -1,8 +1,8 @@
+import { createHighlighter } from "shiki";
 import { describe, expect, it } from "vitest";
 
 import {
   DocumentNode,
-  DocumentTransformPlugin,
   HtmlDocumentNode,
   HtmlElementNode,
   HtmlTextNode,
@@ -14,9 +14,16 @@ import {
   renderStreamingHtml,
   rewriteHtml,
   selectMdx,
-  type DocumentTransformContext,
   type MdxNode,
 } from "./mod.ts";
+import {
+  DocumentTransformPlugin,
+  SyntaxHighlightPlugin,
+  createShikiHighlighter,
+  parseCodeBlockMetadata,
+  type DocumentTransformContext,
+  type SyntaxHighlighter,
+} from "./plugins/mod.ts";
 
 function selectNodes<TKind extends MdxNode["kind"]>(root: MdxNode, kind: TKind) {
   return Array.from(selectMdx(root, kind), ({ node }) => node);
@@ -144,6 +151,109 @@ describe("MDX", () => {
 
     await asyncProcessor.process("");
     expect(asyncCalls).toEqual(["first", "second"]);
+  });
+
+  it("parses typed JSON code metadata with one-based line ranges", () => {
+    const result = parseCodeBlockMetadata(
+      '{"fileName":"kernel.cu","highlightLines":"2,4-6","lineNumbers":{"start":20},"commandLines":"1-3","custom":42}',
+    );
+    expect(result.kind).toBe("parsed");
+    expect(result.metadata).toMatchObject({
+      fileName: "kernel.cu",
+      highlightedLines: {
+        kind: "ranges",
+        ranges: [
+          { start: 2, end: 2 },
+          { start: 4, end: 6 },
+        ],
+      },
+      commandLines: {
+        kind: "ranges",
+        ranges: [{ start: 1, end: 3 }],
+      },
+      lineNumbers: { lines: { kind: "all" }, start: 20 },
+    });
+
+    const invalid = parseCodeBlockMetadata(
+      '{"highlightLines":"0,3-2","lineNumbers":{"start":0},"fileName":""}',
+    );
+    expect(invalid).toMatchObject({
+      kind: "invalid",
+      issues: [{ field: "fileName" }, { field: "highlightLines" }, { field: "lineNumbers" }],
+    });
+  });
+
+  it("highlights owned code blocks with metadata, caching, and source origins", () => {
+    let calls = 0;
+    const highlighter = {
+      highlight(request) {
+        calls++;
+        expect(request.metadata.fileName).toBe("same.ts");
+        return new HtmlElementNode("pre", { "data-highlighted": "" }, [
+          new HtmlTextNode(request.code),
+        ]);
+      },
+      kind: "synchronous",
+    } satisfies SyntaxHighlighter;
+    const source = [
+      '```ts {"fileName":"same.ts"}',
+      "const value = 1",
+      "```",
+      "",
+      '```ts {"fileName":"same.ts"}',
+      "const value = 1",
+      "```",
+    ].join("\n");
+    const outcome = expectProcessed(
+      new Processor({ htmlPlugins: [new SyntaxHighlightPlugin({ highlighter })] }).processSync(
+        source,
+      ),
+    );
+    const blocks = outcome.value.html.children.filter(
+      (node): node is HtmlElementNode =>
+        node instanceof HtmlElementNode && node.attributes["data-highlighted"] === "",
+    );
+
+    expect(calls).toBe(1);
+    expect(blocks).toHaveLength(2);
+    expect(blocks[0]?.origin).not.toEqual(blocks[1]?.origin);
+    expect(blocks[0]?.origin?.file).toBe(outcome.file);
+  });
+
+  it("renders Shiki line metadata without changing the code", async () => {
+    const shiki = await createHighlighter({
+      langs: ["typescript"],
+      themes: ["github-light", "github-dark"],
+    });
+    try {
+      const highlighter = createShikiHighlighter(shiki, {
+        includeDataAttributes: ["language", "line-count", "meta"],
+        languageAliases: { ts: "typescript" },
+        themes: { light: "github-light", dark: "github-dark" },
+      });
+      const source = [
+        '```ts {"fileName":"answer.ts","highlightLines":"2","lineNumbers":{"start":8},"commandLines":"1"}',
+        "const answer = 42",
+        "console.log(answer)",
+        "```",
+      ].join("\n");
+      const outcome = expectProcessed(
+        new Processor({
+          htmlPlugins: [new SyntaxHighlightPlugin({ highlighter })],
+        }).processSync(source),
+      );
+      const html = outcome.value.html.toHtml();
+
+      expect(html).toContain('data-file-name="answer.ts"');
+      expect(html).toContain('data-language="ts"');
+      expect(html).toContain('data-line-count="2"');
+      expect(html).toContain('class="language-ts"');
+      expect(html).toContain('class="line line-number line-command" data-line="8"');
+      expect(html).toContain('class="line highlighted line-number" data-line="9"');
+      expect(outcome.value.html.toString()).toBe("const answer = 42\nconsole.log(answer)");
+    } finally {
+      shiki.dispose();
+    }
   });
 
   it("rejects invalid stream configuration", () => {

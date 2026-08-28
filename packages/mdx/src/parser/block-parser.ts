@@ -263,6 +263,7 @@ class LeafParser {
         range: sourceRange(active.start, active.end),
         value: active.value,
         language: active.language,
+        meta: active.meta,
       };
     }
     if (active.kind === "math") {
