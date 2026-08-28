@@ -6,6 +6,7 @@ allowBuilds:
   cpu-features: false
   esbuild: true
   protobufjs: false
+  sharp: true
   ssh2: false
   unrs-resolver: true
   workerd: true

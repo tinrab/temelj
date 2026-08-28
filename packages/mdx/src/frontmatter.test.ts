@@ -4,7 +4,7 @@ import {
   FrontmatterNode,
   FrontmatterTemporal,
   MdxStream,
-  compile,
+  compileDocument,
   parse,
   renderHtml,
   type FrontmatterObject,
@@ -228,7 +228,7 @@ describe("frontmatter", () => {
       }),
     ).document;
     expect(renderHtml(document).toHtml()).not.toContain("Hidden");
-    expect(compile(document).code).not.toContain("Hidden");
+    expect(compileDocument(document, { outputFormat: "program" }).code).not.toContain("Hidden");
   });
 
   it("decodes frontmatter when a stream completes", () => {

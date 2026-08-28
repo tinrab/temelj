@@ -146,3 +146,7 @@ export function consumeIndent(
 export function encodeNumericCharacterReference(code: number): string {
   return `&#x${code.toString(16).toUpperCase()};`;
 }
+
+export function isUrlControlCharacter(character: string): boolean {
+  return character === "\0" || character <= " " || character === "\u007F";
+}

@@ -1,5 +1,3 @@
-import { isPlainObject } from "@temelj/value";
-
 export interface JavaScriptNode {
   readonly end: number;
   readonly start: number;
@@ -8,10 +6,11 @@ export interface JavaScriptNode {
 
 export function isJavaScriptNode(value: unknown): value is JavaScriptNode {
   return (
-    isPlainObject(value) &&
-    typeof value.type === "string" &&
-    typeof value.start === "number" &&
-    typeof value.end === "number"
+    typeof value === "object" &&
+    value !== null &&
+    typeof Reflect.get(value, "type") === "string" &&
+    typeof Reflect.get(value, "start") === "number" &&
+    typeof Reflect.get(value, "end") === "number"
   );
 }
 

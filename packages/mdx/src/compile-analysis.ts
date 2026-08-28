@@ -62,6 +62,8 @@ export interface CompilerState {
   readonly definitions: ReadonlyMap<string, DefinitionNode>;
   readonly development: boolean;
   readonly esm: readonly CompiledEsm[];
+  readonly footnoteReferences: ReadonlyMap<FootnoteReferenceNode, CompiledFootnoteReference>;
+  readonly footnotes: readonly CompiledFootnote[];
   readonly hasInternalLayout: boolean;
   readonly inScope: ReadonlySet<string>;
   readonly intrinsicTags: Set<string>;
@@ -69,6 +71,20 @@ export interface CompilerState {
   readonly referencedComponents: Set<string>;
   readonly sourceName: string;
 }
+
+export interface CompiledFootnoteReference {
+  readonly occurrence: number;
+  readonly ordinal: number;
+}
+
+export interface CompiledFootnote {
+  readonly count: number;
+  readonly definition: FootnoteDefinitionNode;
+  readonly identifier: string;
+  readonly ordinal: number;
+}
+
+type CompiledFootnoteDraft = Omit<CompiledFootnote, "count">;
 
 export interface CompiledEsm {
   readonly code: string;
@@ -85,12 +101,41 @@ export function analyzeDocument(
   const referencedComponents = new Set<string>();
   const inScope = new Set<string>();
   const esm: CompiledEsm[] = [];
+  const footnoteReferences = new Map<FootnoteReferenceNode, CompiledFootnoteReference>();
+  const footnoteDrafts: CompiledFootnoteDraft[] = [];
+  const footnoteIndexes = new Map<string, number>();
+  const footnoteCounts = new Map<string, number>();
 
   for (const { node } of walkTree<MdxNode>(document, (value) => value.children)) {
-    if (node instanceof DefinitionNode && !definitions.has(normalizeIdentifier(node.identifier))) {
-      definitions.set(normalizeIdentifier(node.identifier), node);
+    if (node instanceof DefinitionNode) {
+      const identifier = normalizeIdentifier(node.identifier);
+      if (!definitions.has(identifier)) {
+        definitions.set(identifier, node);
+      }
+      continue;
     }
+    if (!(node instanceof FootnoteReferenceNode)) {
+      continue;
+    }
+    const definition = document.footnote(node.identifier);
+    if (definition === undefined) {
+      continue;
+    }
+    const identifier = normalizeIdentifier(node.identifier);
+    let index = footnoteIndexes.get(identifier);
+    if (index === undefined) {
+      index = footnoteDrafts.length;
+      footnoteIndexes.set(identifier, index);
+      footnoteDrafts.push({ definition, identifier, ordinal: index + 1 });
+    }
+    const occurrence = (footnoteCounts.get(identifier) ?? 0) + 1;
+    footnoteCounts.set(identifier, occurrence);
+    footnoteReferences.set(node, { occurrence, ordinal: index + 1 });
   }
+  const footnotes = footnoteDrafts.map((footnote): CompiledFootnote => ({
+    ...footnote,
+    count: footnoteCounts.get(footnote.identifier) ?? 1,
+  }));
 
   for (const child of document.children) {
     if (!(child instanceof EsmNode)) {
@@ -105,6 +150,8 @@ export function analyzeDocument(
     definitions,
     development: options.development ?? false,
     esm: [],
+    footnoteReferences,
+    footnotes,
     hasInternalLayout: false,
     inScope,
     intrinsicTags,
@@ -139,6 +186,9 @@ export function analyzeDocument(
     hasInternalLayout,
   };
   analyzeContentReferences(document, result);
+  if (footnotes.length > 0) {
+    addIntrinsic(result, "a", "h2", "li", "ol", "section", "sup");
+  }
   return result;
 }
 
@@ -209,7 +259,9 @@ function analyzeNodeReferences(
       addIntrinsic(state, "img");
     }
   } else if (node instanceof FootnoteReferenceNode) {
-    addIntrinsic(state, "sup");
+    if (state.footnoteReferences.has(node)) {
+      addIntrinsic(state, "a", "sup");
+    }
   } else if (node instanceof CodeBlockNode) {
     addIntrinsic(state, "pre", "code");
   } else if (node instanceof ThematicBreakNode) {

@@ -1,4 +1,39 @@
-# @temelj/mdx-react
+<p align="center">
+  <h1 align="center" style="text-decoration:none;">@temelj/mdx-react</h1>
+  <br/>
+  <p align="center">
+    React utilities for MDX.
+  </p>
+</p>
+
+<p align="center">
+  <a href="https://twitter.com/tinrab" rel="nofollow"><img src="https://img.shields.io/badge/created%20by-@tinrab-1d9bf0.svg" alt="Created by Tin Rabzelj"></a>
+  <a href="https://jsr.io/@temelj/mdx-react" rel="nofollow"><img src="https://jsr.io/badges/@temelj/mdx-react" alt="jsr"></a>
+  <a href="https://opensource.org/licenses/MIT" rel="nofollow"><img src="https://img.shields.io/github/license/tinrab/temelj" alt="License"></a>
+</p>
+
+<div align="center">
+  <a href="https://jsr.io/@temelj/mdx-react">jsr</a>
+  <span>&nbsp;&nbsp;•&nbsp;&nbsp;</span>
+  <a href="https://www.npmjs.com/package/@temelj/mdx-react">npm</a>
+  <span>&nbsp;&nbsp;•&nbsp;&nbsp;</span>
+  <a href="https://github.com/tinrab/temelj/issues/new">Issues</a>
+  <span>&nbsp;&nbsp;•&nbsp;&nbsp;</span>
+  <a href="https://twitter.com/tinrab">@tinrab</a>
+  <br />
+</div>
+
+<br/>
+<br/>
+
+## Installation
+
+```sh
+# npm
+$ npm install @temelj/mdx-react
+# jsr
+$ deno add jsr:@temelj/mdx-react # or jsr add @temelj/mdx-react
+```
 
 React bindings for `@temelj/mdx`.
 
@@ -7,6 +42,11 @@ import { defineMdxRegistry, SourceContent, StreamingSourceContent } from "@temel
 
 const registry = defineMdxRegistry({
   html: { h1: Heading },
+  markdown: {
+    codeBlock: ({ code, language, meta }) => (
+      <HighlightedCode code={code} language={language} meta={meta} />
+    ),
+  },
   jsx: {
     Alert: { component: Alert },
     Note: {
@@ -21,8 +61,8 @@ const registry = defineMdxRegistry({
   },
 });
 
-<SourceContent components={registry} source="# Hello" />;
-<StreamingSourceContent components={registry} source={source} status="streaming" />;
+<SourceContent registry={registry} source="# Hello" />;
+<StreamingSourceContent registry={registry} source={source} status="streaming" />;
 ```
 
 Both components use safe HTML lowering and never compile or evaluate source.
@@ -49,6 +89,13 @@ Unresolved nodes expose their normalized identifier but never a destination,
 image source, or footnote body. Without a callback, unresolved references render
 exactly as authored.
 
+`markdown.codeBlock` is the semantic renderer for both open and closed fenced
+code. Its `status` is `"pending"` while the closing fence is missing and
+`"complete"` once the fence has settled. Using one component for both states
+keeps the highlighted code block mounted as streamed lines arrive and when the
+closing fence is received. When it is omitted, complete code blocks continue
+through `html.pre`, and open fences continue through `pending.markdown`.
+
 Pending props contain only completed quoted strings and committed boolean
 attributes. Every prop is optional because a stream can stop before its value.
 Expressions, spreads, and authored `children`, `key`, `node`, or `ref`
@@ -72,14 +119,41 @@ Run configured processors outside React, then pass their outcome to
 
 ```tsx
 const outcome = await processor.process(source);
-<ProcessedContent outcome={outcome} components={registry} />;
+<ProcessedContent outcome={outcome} registry={registry} />;
 ```
 
-`CompiledContent` accepts an explicitly trusted, already evaluated module:
+## Trusted compilation and SSR
+
+`compileTrustedMdx()` restores the direct server workflow for executable MDX.
+It parses, validates, compiles, and evaluates once, then returns a discriminated
+outcome containing the module:
 
 ```tsx
-<CompiledContent module={trustedModule} components={{ Callout }} />
+const outcome = await compileTrustedMdx(source, {
+  resolveImport: (specifier) => trustedModules[specifier],
+});
+
+if (outcome.kind === "compiled") {
+  return <CompiledContent module={outcome.module} registry={registry} />;
+}
 ```
+
+Only call the trusted APIs for code that is allowed to execute. Compilation
+alone does not run expressions or ESM. `evaluateTrustedMdx()` uses dynamic
+function evaluation, so browser use also requires a CSP that permits it.
+
+In a Next.js App Router application, call `compileTrustedMdx()` inside a Server
+Component and render the resulting module there. Do not send the module or the
+semantic document to a Client Component.
+
+TanStack Start uses SSR followed by browser hydration. Compile with
+`compileMdx()` in a server function, return its function-body artifact, and call
+`evaluateTrustedMdx()` during SSR and hydration. The artifact is transportable;
+an evaluated module is not.
+
+The package keeps one root export. Static content renderers and trusted
+compilation are hook-free. `StreamingSourceContent` and `HighlightedCode` carry
+their own `"use client"` directives for React Server Component bundlers.
 
 ## KaTeX
 

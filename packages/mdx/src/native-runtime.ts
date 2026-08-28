@@ -7,9 +7,14 @@ import { HtmlDocumentNode, renderHtml } from "./html.ts";
 import { DocumentNode } from "./model.ts";
 import { documentTransformContext, htmlTransformContext } from "./plugin-internal.ts";
 
-export async function runNativePipeline(
-  options: PluginPipelineOptions,
-): Promise<PluginPipelineResult> {
+export type DocumentTransformOptions = Pick<
+  PluginPipelineOptions,
+  "diagnostics" | "document" | "documentPlugins" | "file" | "signal" | "syntax"
+>;
+
+export async function runDocumentTransforms(
+  options: DocumentTransformOptions,
+): Promise<DocumentNode> {
   let document = options.document;
   for (const plugin of options.documentPlugins) {
     options.signal?.throwIfAborted();
@@ -37,6 +42,39 @@ export async function runNativePipeline(
       TransformError.pluginDocumentTransformFailed(plugin.name, cause, document.origin);
     }
   }
+  return document;
+}
+
+export function runDocumentTransformsSync(options: DocumentTransformOptions): DocumentNode {
+  let document = options.document;
+  for (const plugin of options.documentPlugins) {
+    const original = document;
+    const diagnosticStart = options.diagnostics.size;
+    try {
+      const result = plugin.transform(
+        documentTransformContext(document, options.file, options.syntax, options.diagnostics),
+      );
+      if (isPromise(result)) {
+        ConfigurationError.asynchronousPluginInSynchronousProcessor();
+      }
+      if (!(result instanceof DocumentNode)) {
+        throw new TypeError("Document plugin returned a value that is not a DocumentNode");
+      }
+      document = options.diagnostics.hasErrorsSince(diagnosticStart) ? original : result;
+    } catch (cause) {
+      if (cause instanceof ConfigurationError) {
+        throw cause;
+      }
+      TransformError.pluginDocumentTransformFailed(plugin.name, cause, document.origin);
+    }
+  }
+  return document;
+}
+
+export async function runNativePipeline(
+  options: PluginPipelineOptions,
+): Promise<PluginPipelineResult> {
+  const document = await runDocumentTransforms(options);
 
   let html = renderHtml(document, options.htmlOptions);
   for (const plugin of options.htmlPlugins) {
@@ -69,28 +107,7 @@ export async function runNativePipeline(
 }
 
 export function runNativePipelineSync(options: PluginPipelineOptions): PluginPipelineResult {
-  let document = options.document;
-  for (const plugin of options.documentPlugins) {
-    const original = document;
-    const diagnosticStart = options.diagnostics.size;
-    try {
-      const result = plugin.transform(
-        documentTransformContext(document, options.file, options.syntax, options.diagnostics),
-      );
-      if (isPromise(result)) {
-        ConfigurationError.asynchronousPluginInSynchronousProcessor();
-      }
-      if (!(result instanceof DocumentNode)) {
-        throw new TypeError("Document plugin returned a value that is not a DocumentNode");
-      }
-      document = options.diagnostics.hasErrorsSince(diagnosticStart) ? original : result;
-    } catch (cause) {
-      if (cause instanceof ConfigurationError) {
-        throw cause;
-      }
-      TransformError.pluginDocumentTransformFailed(plugin.name, cause, document.origin);
-    }
-  }
+  const document = runDocumentTransformsSync(options);
 
   let html = renderHtml(document, options.htmlOptions);
   for (const plugin of options.htmlPlugins) {

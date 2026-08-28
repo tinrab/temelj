@@ -8,7 +8,7 @@ import {
   HtmlTextNode,
   MdxStream,
   Processor,
-  compile,
+  compileDocument,
   parse,
   renderHtml,
   renderStreamingHtml,
@@ -112,7 +112,9 @@ describe("MDX", () => {
     expect(expectProcessed(processor.processSync("# Hello\n")).value.html.toHtml()).toContain(
       "<h1>Hello</h1>",
     );
-    expect(compile(document).code).toContain("function Content");
+    expect(compileDocument(document, { outputFormat: "program" }).code).toContain(
+      "function Content",
+    );
   });
 
   it("runs plugins in the supplied order and permits duplicate names", async () => {

@@ -5,7 +5,7 @@ import type {
 } from "@temelj/mdx/plugin";
 import type React from "react";
 
-import { HtmlCodeBlockNode, HtmlElementNode, HtmlTextNode } from "@temelj/mdx";
+import { HtmlElementNode, HtmlTextNode } from "@temelj/mdx";
 import { render, waitFor } from "@testing-library/react";
 import { expect, test, vi } from "vitest";
 
@@ -37,26 +37,24 @@ test("does not highlight code without a language", () => {
 });
 
 test("does not send its fallback back through the semantic code block component", () => {
-  let components: MdxRegistry | undefined;
+  let registry: MdxRegistry | undefined;
   function CodeBlock({
     node,
     ...props
   }: React.HTMLAttributes<HTMLPreElement> & MdxComponentProps): React.ReactNode {
-    return node instanceof HtmlCodeBlockNode ? (
+    return node.kind === "element" && node.codeBlock !== undefined ? (
       <HighlightedCode
         code={node.codeBlock.code}
-        components={components}
+        registry={registry}
         language={node.codeBlock.language}
       />
     ) : (
       <pre {...props} />
     );
   }
-  components = defineMdxRegistry({ html: { pre: CodeBlock } });
+  registry = defineMdxRegistry({ html: { pre: CodeBlock } });
 
-  const code = render(
-    <HighlightedCode code="const value = 1" components={components} language="ts" />,
-  );
+  const code = render(<HighlightedCode code="const value = 1" registry={registry} language="ts" />);
 
   expect(code.container.querySelector("pre")?.textContent).toBe("const value = 1\n");
 });

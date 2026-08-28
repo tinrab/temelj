@@ -2,17 +2,59 @@ import { isPromise } from "@temelj/value";
 
 import type { DiagnosticBag, DiagnosticReporter } from "./diagnostics.ts";
 import type { DocumentNode, SourceFile } from "./model.ts";
-import type {
-  DocumentTransformContext,
-  DocumentTransformPlugin,
-  HtmlTransformContext,
-  HtmlTransformPlugin,
-} from "./plugin.ts";
+import type { DocumentTransformContext, HtmlTransformContext } from "./plugin.ts";
 import type { SyntaxOptions } from "./syntax-options.ts";
 import type { HtmlRewriteHandlers, MdxRewriteHandlers } from "./traversal.ts";
 
+import { ConfigurationError } from "./errors.ts";
 import { HtmlDocumentNode, HtmlElementNode, type HtmlRenderOptions } from "./html.ts";
+import {
+  DocumentPlugin,
+  DocumentTransformPlugin,
+  HtmlPlugin,
+  HtmlTransformPlugin,
+} from "./plugin.ts";
 import { rewriteHtml, rewriteMdx, walkHtml } from "./traversal.ts";
+
+export function normalizeDocumentPlugins(
+  plugins: readonly DocumentPlugin[],
+): readonly DocumentTransformPlugin[] {
+  const normalized: DocumentTransformPlugin[] = [];
+  for (const [index, plugin] of plugins.entries()) {
+    const fallbackName = `document plugin at index ${index}`;
+    if (!(plugin instanceof DocumentPlugin)) {
+      ConfigurationError.invalidPluginInstance("document", fallbackName);
+    }
+    const name = validPluginName(plugin.name, fallbackName);
+    if (!(plugin instanceof DocumentTransformPlugin)) {
+      ConfigurationError.invalidPluginInstance("document", name);
+    }
+    normalized.push(plugin);
+  }
+  return normalized;
+}
+
+export function normalizeHtmlPlugins(
+  plugins: readonly HtmlPlugin[],
+): readonly HtmlTransformPlugin[] {
+  const normalized: HtmlTransformPlugin[] = [];
+  for (const [index, plugin] of plugins.entries()) {
+    const fallbackName = `HTML plugin at index ${index}`;
+    if (!(plugin instanceof HtmlPlugin)) {
+      ConfigurationError.invalidPluginInstance("html", fallbackName);
+    }
+    const name = validPluginName(plugin.name, fallbackName);
+    if (!(plugin instanceof HtmlTransformPlugin)) {
+      ConfigurationError.invalidPluginInstance("html", name);
+    }
+    normalized.push(plugin);
+  }
+  return normalized;
+}
+
+function validPluginName(value: unknown, fallback: string): string {
+  return typeof value === "string" && value.length > 0 ? value : fallback;
+}
 
 export interface PluginPipelineOptions {
   readonly diagnostics: DiagnosticBag;

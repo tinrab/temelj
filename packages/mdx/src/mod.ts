@@ -11,7 +11,6 @@ export {
 export {
   CompileError,
   ConfigurationError,
-  EvaluationError,
   InputError,
   MdxError,
   TransformError,

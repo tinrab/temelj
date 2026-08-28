@@ -1,7 +1,13 @@
 {
   "name": "@temelj/mdx",
   "version": "0.15.0",
-  "description": "MDX processing utilities.",
+  "description": "MDX parsing, formatting, compilation, safe rendering, and streaming.",
+  "keywords": [
+    "markdown",
+    "mdx",
+    "rendering",
+    "streaming"
+  ],
   "license": "MIT",
   "repository": {
     "url": "https://github.com/tinrab/temelj"
@@ -34,6 +40,7 @@
     "clean": "shx rm -rf dist"
   },
   "dependencies": {
+    "@temelj/standard-schema": "workspace:*",
     "@temelj/string": "workspace:*",
     "@temelj/value": "workspace:*",
     "acorn": "8.18.0",

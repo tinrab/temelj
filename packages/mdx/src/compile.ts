@@ -1,4 +1,4 @@
-import { type CompilerState, visible } from "./compile-analysis.ts";
+import { type CompiledFootnote, type CompilerState, visible } from "./compile-analysis.ts";
 import { CompileError } from "./errors.ts";
 import { normalizeIdentifier } from "./identifier.ts";
 import { javascriptPropertyName } from "./javascript-ast.ts";
@@ -49,6 +49,7 @@ import {
   type SyntaxNode,
 } from "./model.ts";
 import { CodeWriter } from "./source-map.ts";
+import { normalizeUri } from "./uri.ts";
 
 export function emitContent(
   writer: CodeWriter,
@@ -56,11 +57,31 @@ export function emitContent(
   state: CompilerState,
 ): void {
   const children = visible(document.children);
-  if (children.length > 1) {
-    emitElement(writer, "_Fragment", [], children, document, state);
-  } else {
-    emitChildren(writer, children, state);
+  if (state.footnotes.length === 0) {
+    if (children.length > 1) {
+      emitElement(writer, "_Fragment", [], children, document, state);
+    } else {
+      emitChildren(writer, children, state);
+    }
+    return;
   }
+  emitElementExpression(
+    writer,
+    "_Fragment",
+    [],
+    document,
+    state,
+    () => {
+      writer.write("children:[");
+      for (const child of children) {
+        emitNode(writer, child, state);
+        writer.write(",");
+      }
+      emitFootnoteSection(writer, state);
+      writer.write("]");
+    },
+    true,
+  );
 }
 
 export function documentUsesAwait(document: DocumentNode): boolean {
@@ -174,17 +195,41 @@ function emitNode(
       );
     }
   } else if (node instanceof FootnoteReferenceNode) {
-    emitElement(
-      writer,
-      intrinsicTag("sup", state),
-      [],
-      [new TextNode(node.label, node.origin)],
-      node,
-      state,
-    );
+    const reference = state.footnoteReferences.get(node);
+    if (reference === undefined) {
+      writer.write(JSON.stringify(node.toSource()), sourceSpan(node));
+    } else {
+      const identifier = normalizeUri(node.identifier.toLowerCase());
+      const suffix = reference.occurrence > 1 ? `-${reference.occurrence}` : "";
+      emitElementExpression(writer, intrinsicTag("sup", state), [], node, state, () => {
+        writer.write("children:");
+        emitElement(
+          writer,
+          intrinsicTag("a", state),
+          [
+            ["href", JSON.stringify(`#user-content-fn-${identifier}`)],
+            ["id", JSON.stringify(`user-content-fnref-${identifier}${suffix}`)],
+            ["data-footnote-ref", JSON.stringify("")],
+            ["aria-describedby", JSON.stringify("footnote-label")],
+          ],
+          [new TextNode(String(reference.ordinal), node.origin)],
+          node,
+          state,
+        );
+      });
+    }
   } else if (node instanceof RawHtmlInlineNode || node instanceof RawHtmlBlockNode) {
     writer.write(JSON.stringify(node.value), sourceSpan(node));
   } else if (node instanceof CodeBlockNode) {
+    writer.write("(props.components?.markdown?.codeBlock ? ");
+    emitElementExpression(
+      writer,
+      "props.components.markdown.codeBlock",
+      codeBlockProperties(node),
+      node,
+      state,
+    );
+    writer.write(" : ");
     const properties: Property[] =
       node.language === undefined
         ? []
@@ -203,6 +248,7 @@ function emitNode(
         state,
       );
     });
+    writer.write(")");
   } else if (node instanceof ThematicBreakNode) {
     emitElement(writer, intrinsicTag("hr", state), [], [], node, state);
   } else if (node instanceof BlockQuoteNode) {
@@ -269,6 +315,132 @@ function emitNode(
   } else if (node instanceof TableCellNode || node instanceof TableRowNode) {
     CompileError.unsupportedStandaloneNode(node.kind);
   }
+}
+
+function codeBlockProperties(node: CodeBlockNode): readonly Property[] {
+  const source = node.origin;
+  const sourceProperty =
+    source === undefined
+      ? ""
+      : `, source:{name:${JSON.stringify(source.file.name)},start:${source.start},end:${source.end}}`;
+  const descriptor = `{kind:"element",name:"pre",attributes:{},codeBlock:{code:${JSON.stringify(
+    node.value,
+  )},language:${JSON.stringify(node.language ?? "")}${
+    node.meta === undefined ? "" : `,meta:${JSON.stringify(node.meta)}`
+  }}${sourceProperty}}`;
+  return [
+    ["code", JSON.stringify(node.value)],
+    ["language", JSON.stringify(node.language ?? "")],
+    ...(node.meta === undefined ? [] : [["meta", JSON.stringify(node.meta)] as const]),
+    ["node", descriptor],
+    ["status", JSON.stringify("complete")],
+  ];
+}
+
+function emitFootnoteSection(writer: CodeWriter, state: CompilerState): void {
+  const first = state.footnotes[0];
+  emitElementExpression(
+    writer,
+    intrinsicTag("section", state),
+    [
+      ["data-footnotes", JSON.stringify("")],
+      ["className", JSON.stringify("footnotes")],
+    ],
+    first.definition,
+    state,
+    () => {
+      writer.write("children:[");
+      emitElement(
+        writer,
+        intrinsicTag("h2", state),
+        [
+          ["id", JSON.stringify("footnote-label")],
+          ["className", JSON.stringify("sr-only")],
+        ],
+        [new TextNode("Footnotes", first.definition.origin)],
+        first.definition,
+        state,
+      );
+      writer.write(",");
+      emitElementExpression(
+        writer,
+        intrinsicTag("ol", state),
+        [],
+        first.definition,
+        state,
+        () => {
+          writer.write("children:[");
+          for (const footnote of state.footnotes) {
+            emitFootnoteItem(writer, footnote, state);
+            writer.write(",");
+          }
+          writer.write("]");
+        },
+        true,
+      );
+      writer.write("]");
+    },
+    true,
+  );
+}
+
+function emitFootnoteItem(
+  writer: CodeWriter,
+  footnote: CompiledFootnote,
+  state: CompilerState,
+): void {
+  const identifier = normalizeUri(footnote.identifier.toLowerCase());
+  emitElementExpression(
+    writer,
+    intrinsicTag("li", state),
+    [["id", JSON.stringify(`user-content-fn-${identifier}`)]],
+    footnote.definition,
+    state,
+    () => {
+      writer.write("children:[");
+      for (const child of visible(footnote.definition.children)) {
+        emitNode(writer, child, state);
+        writer.write(",");
+      }
+      for (let occurrence = 1; occurrence <= footnote.count; occurrence++) {
+        emitFootnoteBackreference(
+          writer,
+          identifier,
+          footnote.ordinal,
+          occurrence,
+          footnote.definition,
+          state,
+        );
+        writer.write(",");
+      }
+      writer.write("]");
+    },
+    true,
+  );
+}
+
+function emitFootnoteBackreference(
+  writer: CodeWriter,
+  identifier: string,
+  ordinal: number,
+  occurrence: number,
+  node: SyntaxNode<string>,
+  state: CompilerState,
+): void {
+  const suffix = occurrence > 1 ? `-${occurrence}` : "";
+  emitElement(
+    writer,
+    intrinsicTag("a", state),
+    [
+      ["href", JSON.stringify(`#user-content-fnref-${identifier}${suffix}`)],
+      ["data-footnote-backref", JSON.stringify("")],
+      ["aria-label", JSON.stringify(`Back to reference ${ordinal}${suffix}`)],
+      ["className", JSON.stringify("data-footnote-backref")],
+    ],
+    [new TextNode(occurrence > 1 ? `↩${occurrence}` : "↩", node.origin)],
+    node,
+    state,
+  );
 }
 
 function emitMath(

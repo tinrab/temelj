@@ -8,19 +8,18 @@ const macros = Object.freeze({
 });
 
 export function KaTeXMath({ source, style }: MathComponentProps): React.ReactNode {
+  let html: string | undefined;
   try {
-    const html = katex.renderToString(source, {
+    html = katex.renderToString(source, {
       displayMode: style === "display",
       macros,
       throwOnError: false,
       trust: false,
     });
-    return style === "display" ? (
-      <div dangerouslySetInnerHTML={{ __html: html }} />
-    ) : (
-      <span dangerouslySetInnerHTML={{ __html: html }} />
-    );
   } catch {
+    html = undefined;
+  }
+  if (html === undefined) {
     return style === "display" ? (
       <pre>
         <code>{source}</code>
@@ -29,4 +28,9 @@ export function KaTeXMath({ source, style }: MathComponentProps): React.ReactNod
       <code>{source}</code>
     );
   }
+  return style === "display" ? (
+    <div dangerouslySetInnerHTML={{ __html: html }} />
+  ) : (
+    <span dangerouslySetInnerHTML={{ __html: html }} />
+  );
 }

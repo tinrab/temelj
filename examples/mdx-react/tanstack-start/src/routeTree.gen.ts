@@ -10,11 +10,17 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as CompiledRouteImport } from './routes/compiled'
 import { Route as StreamingRouteImport } from './routes/streaming'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CompiledRoute = CompiledRouteImport.update({
+  id: '/compiled',
+  path: '/compiled',
   getParentRoute: () => rootRouteImport,
 } as any)
 const StreamingRoute = StreamingRouteImport.update({
@@ -25,27 +31,31 @@ const StreamingRoute = StreamingRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/compiled': typeof CompiledRoute
   '/streaming': typeof StreamingRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/compiled': typeof CompiledRoute
   '/streaming': typeof StreamingRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/compiled': typeof CompiledRoute
   '/streaming': typeof StreamingRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/streaming'
+  fullPaths: '/' | '/compiled' | '/streaming'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/streaming'
-  id: '__root__' | '/' | '/streaming'
+  to: '/' | '/compiled' | '/streaming'
+  id: '__root__' | '/' | '/compiled' | '/streaming'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  CompiledRoute: typeof CompiledRoute
   StreamingRoute: typeof StreamingRoute
 }
 
@@ -56,6 +66,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/compiled': {
+      id: '/compiled'
+      path: '/compiled'
+      fullPath: '/compiled'
+      preLoaderRoute: typeof CompiledRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/streaming': {
@@ -70,6 +87,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  CompiledRoute: CompiledRoute,
   StreamingRoute: StreamingRoute,
 }
 export const routeTree = rootRouteImport

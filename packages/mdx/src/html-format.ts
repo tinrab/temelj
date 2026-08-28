@@ -6,6 +6,27 @@ export function formatHtml(node: HtmlNode, options: HtmlFormatOptions = {}): str
   return new HtmlFormatter(options).format(node);
 }
 
+const HTML_VOID_ELEMENTS: readonly string[] = [
+  "area",
+  "base",
+  "basefont",
+  "bgsound",
+  "link",
+  "meta",
+  "input",
+  "embed",
+  "param",
+  "hr",
+  "image",
+  "img",
+  "br",
+  "wbr",
+  "col",
+  "source",
+  "track",
+  "keygen",
+];
+
 class HtmlFormatter {
   private readonly options: HtmlFormatOptions;
   private readonly voids: ReadonlySet<string>;
@@ -13,7 +34,7 @@ class HtmlFormatter {
   public constructor(options: HtmlFormatOptions) {
     this.options = { ...options };
     this.voids = new Set(
-      (options.voidElements ?? htmlVoidElements).map((name) => name.toLowerCase()),
+      (options.voidElements ?? HTML_VOID_ELEMENTS).map((name) => name.toLowerCase()),
     );
   }
 
@@ -126,24 +147,3 @@ function count(value: string, character: string): number {
   }
   return result;
 }
-
-const htmlVoidElements: readonly string[] = [
-  "area",
-  "base",
-  "basefont",
-  "bgsound",
-  "link",
-  "meta",
-  "input",
-  "embed",
-  "param",
-  "hr",
-  "image",
-  "img",
-  "br",
-  "wbr",
-  "col",
-  "source",
-  "track",
-  "keygen",
-];

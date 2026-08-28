@@ -2,19 +2,19 @@ import type { Diagnostic } from "./diagnostics.ts";
 import type { HtmlDocumentNode, HtmlRenderOptions } from "./html.ts";
 import type { ParseOutcome, ParserLimits } from "./parser.ts";
 import type { PluginPipelineOptions } from "./plugin-internal.ts";
-import type { SyntaxOptions } from "./syntax-options.ts";
-
-import { DiagnosticBag } from "./diagnostics.ts";
-import { ConfigurationError } from "./errors.ts";
-import { DocumentNode } from "./model.ts";
-import { runNativePipeline, runNativePipelineSync } from "./native-runtime.ts";
-import { parse } from "./parser.ts";
-import {
+import type {
   DocumentPlugin,
   DocumentTransformPlugin,
   HtmlPlugin,
   HtmlTransformPlugin,
 } from "./plugin.ts";
+import type { SyntaxOptions } from "./syntax-options.ts";
+
+import { DiagnosticBag } from "./diagnostics.ts";
+import { DocumentNode } from "./model.ts";
+import { runNativePipeline, runNativePipelineSync } from "./native-runtime.ts";
+import { parse } from "./parser.ts";
+import { normalizeDocumentPlugins, normalizeHtmlPlugins } from "./plugin-internal.ts";
 import { SourceFile } from "./source.ts";
 
 export interface ProcessedDocument {
@@ -108,44 +108,6 @@ export class Processor {
       syntax: this.syntax,
     };
   }
-}
-
-function normalizeDocumentPlugins(
-  plugins: readonly DocumentPlugin[],
-): readonly DocumentTransformPlugin[] {
-  const normalized: DocumentTransformPlugin[] = [];
-  for (const [index, plugin] of plugins.entries()) {
-    const fallbackName = `document plugin at index ${index}`;
-    if (!(plugin instanceof DocumentPlugin)) {
-      ConfigurationError.invalidPluginInstance("document", fallbackName);
-    }
-    const name = makeValidPluginName(plugin.name, fallbackName);
-    if (!(plugin instanceof DocumentTransformPlugin)) {
-      ConfigurationError.invalidPluginInstance("document", name);
-    }
-    normalized.push(plugin);
-  }
-  return normalized;
-}
-
-function normalizeHtmlPlugins(plugins: readonly HtmlPlugin[]): readonly HtmlTransformPlugin[] {
-  const normalized: HtmlTransformPlugin[] = [];
-  for (const [index, plugin] of plugins.entries()) {
-    const fallbackName = `HTML plugin at index ${index}`;
-    if (!(plugin instanceof HtmlPlugin)) {
-      ConfigurationError.invalidPluginInstance("html", fallbackName);
-    }
-    const name = makeValidPluginName(plugin.name, fallbackName);
-    if (!(plugin instanceof HtmlTransformPlugin)) {
-      ConfigurationError.invalidPluginInstance("html", name);
-    }
-    normalized.push(plugin);
-  }
-  return normalized;
-}
-
-function makeValidPluginName(value: unknown, fallback: string): string {
-  return typeof value === "string" && value.length > 0 ? value : fallback;
 }
 
 function processedOutcome(

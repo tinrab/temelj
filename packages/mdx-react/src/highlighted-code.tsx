@@ -1,3 +1,5 @@
+"use client";
+
 import { HtmlElementNode, HtmlTextNode, type HtmlAttributeValue } from "@temelj/mdx";
 import {
   SyntaxHighlightMetadataError,
@@ -17,11 +19,9 @@ type CodeRenderResult =
   | Readonly<{
       element: HtmlElementNode;
       kind: "highlighted";
-      render: CodeRender;
     }>
   | Readonly<{
       kind: "unavailable";
-      render: CodeRender;
     }>;
 
 type SynchronousCodeResult =
@@ -30,7 +30,7 @@ type SynchronousCodeResult =
 
 export interface HighlightedCodeProps {
   readonly code: string;
-  readonly components?: MdxRegistry;
+  readonly registry?: MdxRegistry;
   readonly fallback?: React.ReactNode;
   readonly highlighter?: SyntaxHighlighter;
   readonly language?: string;
@@ -38,10 +38,10 @@ export interface HighlightedCodeProps {
   readonly onError?: (error: unknown) => void;
 }
 
-/** Highlights code asynchronously and keeps the plain code block visible while pending. */
+/** Highlights code and keeps the previous rendered block mounted during asynchronous updates. */
 export function HighlightedCode({
   code,
-  components,
+  registry,
   fallback,
   highlighter,
   language,
@@ -91,10 +91,10 @@ export function HighlightedCode({
   const rendered =
     synchronousResult?.kind === "settled" ? synchronousResult.element : asynchronousElement;
   if (rendered === undefined) {
-    return fallback ?? <HtmlNodeContent node={element} components={components} />;
+    return fallback ?? <HtmlNodeContent node={element} registry={registry} />;
   }
 
-  return <HtmlNodeContent node={rendered} components={components} />;
+  return <HtmlNodeContent node={rendered} registry={registry} />;
 }
 
 function synchronousHighlight(
@@ -126,15 +126,13 @@ function useRenderedElement(
       .then((value) => {
         if (!controller.signal.aborted) {
           setResult(
-            value === undefined
-              ? { kind: "unavailable", render }
-              : { element: value, kind: "highlighted", render },
+            value === undefined ? { kind: "unavailable" } : { element: value, kind: "highlighted" },
           );
         }
       })
       .catch((error: unknown) => {
         if (!controller.signal.aborted) {
-          setResult({ kind: "unavailable", render });
+          setResult({ kind: "unavailable" });
           onErrorReference.current?.(error);
         }
       });

@@ -1,9 +1,10 @@
 import React from "react";
 
-import type { MathComponent, CompiledMdxComponents, CompiledContentModule } from "./types.ts";
+import type { MdxRegistry } from "./registry.ts";
+import type { MathComponent, CompiledContentModule } from "./types.ts";
 
 interface CompiledContentOptions<Props extends object> {
-  readonly components?: CompiledMdxComponents;
+  readonly registry?: MdxRegistry;
   readonly math?: MathComponent;
   readonly module: CompiledContentModule<Props>;
 }
@@ -15,7 +16,7 @@ export type CompiledContentProps<Props extends object = Record<never, never>> =
       : { readonly props: Readonly<Props> });
 
 interface RuntimeCompiledContentOptions {
-  readonly components?: CompiledMdxComponents;
+  readonly registry?: MdxRegistry;
   readonly math?: MathComponent;
   readonly module: Readonly<{ default: React.ElementType }>;
   readonly props?: object;
@@ -26,10 +27,10 @@ export function CompiledContent<Props extends object = Record<never, never>>(
   options: CompiledContentProps<Props>,
 ): React.ReactNode;
 export function CompiledContent({
-  components,
+  registry,
   math,
   module,
   props,
 }: RuntimeCompiledContentOptions): React.ReactNode {
-  return React.createElement(module.default, { ...props, components, math });
+  return React.createElement(module.default, { ...props, registry, math });
 }

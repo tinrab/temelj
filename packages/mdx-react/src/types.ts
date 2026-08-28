@@ -1,16 +1,40 @@
 import type {
-  HtmlElementNode,
-  JsxFlowElementNode,
-  JsxTextElementNode,
+  CodeBlockRenderInput,
+  HtmlAttributeValue,
   MathRenderInput,
+  StreamingPendingFencedCode,
   StreamingPendingMarkdownNode,
   StreamingJsx,
 } from "@temelj/mdx";
 import type React from "react";
 
+import type { MdxRegistry } from "./registry.ts";
+
 export type MdxLiteralPropValue = boolean | string;
 
-export type MdxComponentNode = HtmlElementNode | JsxFlowElementNode | JsxTextElementNode;
+export interface MdxComponentSource {
+  readonly name: string;
+  readonly start: number;
+  readonly end: number;
+}
+
+export interface MdxElementComponentNode {
+  readonly attributes: Readonly<Record<string, HtmlAttributeValue>>;
+  readonly codeBlock?: CodeBlockRenderInput;
+  readonly kind: "element";
+  readonly name: string;
+  readonly source?: MdxComponentSource;
+}
+
+export interface MdxJsxComponentNode {
+  readonly attributes: Readonly<Record<string, boolean | string>>;
+  readonly kind: "jsxFlowElement" | "jsxTextElement";
+  readonly name: string;
+  readonly source?: MdxComponentSource;
+}
+
+/** Plain component metadata that can cross a React Server Component boundary. */
+export type MdxComponentNode = MdxElementComponentNode | MdxJsxComponentNode;
 
 export type MdxComponentProps<Node extends MdxComponentNode = MdxComponentNode> = Readonly<{
   node: Node;
@@ -56,11 +80,30 @@ export interface MdxPendingComponents {
   readonly markdown?: React.ComponentType<PendingMdxMarkdownProps>;
 }
 
-export type CompiledMdxComponents = Readonly<Record<string, React.ElementType>>;
+export type MdxCodeBlockComponentProps =
+  | Readonly<{
+      code: string;
+      language?: string;
+      meta?: string;
+      node: StreamingPendingFencedCode;
+      status: "pending";
+    }>
+  | Readonly<{
+      code: string;
+      language: string;
+      meta?: string;
+      node: MdxElementComponentNode;
+      status: "complete";
+    }>;
+
+export interface MdxMarkdownComponents {
+  readonly codeBlock?: React.ComponentType<MdxCodeBlockComponentProps>;
+}
+
 export type MathComponentProps = MathRenderInput;
 export type MathComponent = React.ComponentType<MathComponentProps>;
 export interface CompiledContentRuntimeProps {
-  readonly components?: CompiledMdxComponents;
+  readonly registry?: MdxRegistry;
   readonly math?: MathComponent;
 }
 

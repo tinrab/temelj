@@ -5,6 +5,7 @@ import type {
   HtmlNode,
   MdxStreamSnapshot,
   ProcessOutcome,
+  SourceSpan,
   StreamingJsx,
   StreamingNode,
   StreamingPendingMarkdownNode,
@@ -16,23 +17,28 @@ import {
   HtmlCodeBlockNode,
   HtmlDoctypeNode,
   HtmlDocumentNode,
+  HtmlElementNode,
   HtmlFragmentNode,
   HtmlJsxNode,
   HtmlMathNode,
   HtmlRawNode,
   HtmlTextNode,
-  MdxStream,
   Processor,
   StreamingDocument,
   hasErrorDiagnostics,
   isHtmlAttributeList,
 } from "@temelj/mdx";
 import { find, hastToReact, html, svg, type Schema } from "property-information";
-import React, { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import React from "react";
 import styleToJs from "style-to-js";
 
 import type { MdxRegistry } from "./registry.ts";
-import type { MathComponent } from "./types.ts";
+import type {
+  MathComponent,
+  MdxComponentSource,
+  MdxElementComponentNode,
+  MdxJsxComponentNode,
+} from "./types.ts";
 
 import { reservedMdxProps } from "./types.ts";
 
@@ -42,228 +48,83 @@ export type DiagnosticFallback =
 
 export interface SourceContentProps {
   readonly source: string;
-  readonly components?: MdxRegistry;
+  readonly registry?: MdxRegistry;
   readonly diagnosticFallback?: DiagnosticFallback;
   readonly math?: MathComponent;
-  readonly onDiagnostics?: (diagnostics: readonly Diagnostic[]) => void;
   readonly syntax?: SyntaxOptions;
-}
-
-export interface StreamingSourceContentProps extends SourceContentProps {
-  readonly status: "streaming" | "complete";
 }
 
 const defaultProcessor = new Processor();
 
 type ProcessedOutcome = Extract<ProcessOutcome, { kind: "processed" }>;
-type StreamingView =
-  | Readonly<{ kind: "streaming"; snapshot: MdxStreamSnapshot }>
-  | Readonly<{
-      kind: "complete";
-      outcome: ProcessOutcome;
-      blocks: readonly CompletedBlockSnapshot[];
-    }>;
-
-class StreamingSourceStore {
-  private readonly listeners = new Set<() => void>();
-  private readonly processor: Processor;
-  private stream: MdxStream;
-  private view: StreamingView;
-  private source: string;
-  private status: StreamingSourceContentProps["status"];
-
-  public constructor(
-    processor: Processor,
-    source: string,
-    status: StreamingSourceContentProps["status"],
-  ) {
-    this.processor = processor;
-    this.stream = new MdxStream({ source, syntax: processor.syntax });
-    this.source = source;
-    this.status = status;
-    this.view = this.read(status);
-  }
-
-  public readonly getSnapshot = (): StreamingView => this.view;
-
-  public readonly subscribe = (listener: () => void): (() => void) => {
-    this.listeners.add(listener);
-    return () => this.listeners.delete(listener);
-  };
-
-  public update(source: string, status: StreamingSourceContentProps["status"]): void {
-    if (source === this.source && status === this.status) {
-      return;
-    }
-    const wasComplete = this.view.kind === "complete" && this.view.outcome.kind === "processed";
-    if (wasComplete) {
-      this.stream = new MdxStream({ source, syntax: this.processor.syntax });
-    } else if (source.startsWith(this.source)) {
-      this.stream.append(source.slice(this.source.length));
-    } else if (source !== this.source) {
-      this.stream.edit(sourceEdit(this.source, source));
-    }
-    this.source = source;
-    this.status = status;
-    this.view = this.read(status);
-    for (const listener of this.listeners) {
-      listener();
-    }
-  }
-
-  private read(status: StreamingSourceContentProps["status"]): StreamingView {
-    if (status === "streaming") {
-      const snapshot = this.stream.snapshot();
-      if ("kind" in snapshot) {
-        this.stream = new MdxStream({ source: snapshot.file, syntax: this.processor.syntax });
-        const restarted = this.stream.snapshot();
-        if ("kind" in restarted) {
-          throw new Error("A new MdxStream cannot be complete");
-        }
-        return { kind: "streaming", snapshot: restarted };
-      }
-      return { kind: "streaming", snapshot };
-    }
-    const completion = this.stream.complete();
-    if (completion.kind !== "parsed") {
-      return { kind: "complete", outcome: completion, blocks: [] };
-    }
-    return {
-      kind: "complete",
-      outcome: this.processor.processSync(completion),
-      blocks: completion.blocks,
-    };
-  }
-}
-
-function sourceEdit(
-  previous: string,
-  next: string,
-): Readonly<{
-  start: number;
-  end: number;
-  text: string;
-}> {
-  let start = 0;
-  const sharedLength = Math.min(previous.length, next.length);
-  while (start < sharedLength && previous[start] === next[start]) {
-    start++;
-  }
-  let previousEnd = previous.length;
-  let nextEnd = next.length;
-  while (
-    previousEnd > start &&
-    nextEnd > start &&
-    previous[previousEnd - 1] === next[nextEnd - 1]
-  ) {
-    previousEnd--;
-    nextEnd--;
-  }
-  return Object.freeze({ start, end: previousEnd, text: next.slice(start, nextEnd) });
-}
 
 export function SourceContent({
   source,
-  components,
+  registry,
   diagnosticFallback,
   math,
-  onDiagnostics,
   syntax,
 }: SourceContentProps): React.ReactNode {
-  const processor = useMemo(
-    () => (syntax === undefined ? defaultProcessor : new Processor({ syntax })),
-    [syntax],
-  );
-  const outcome = useMemo(() => processor.processSync(source), [processor, source]);
-  useDiagnostics(onDiagnostics, outcome.diagnostics);
+  const processor = syntax === undefined ? defaultProcessor : new Processor({ syntax });
+  const outcome = processor.processSync(source);
   if (outcome.kind !== "processed" || hasErrorDiagnostics(outcome.diagnostics)) {
     return fallback(diagnosticFallback, outcome.diagnostics);
   }
-  return renderDocument(outcome.value.html, components, math);
+  return renderDocument(outcome.value.html, registry, math);
 }
 
 export interface ProcessedContentProps {
-  readonly components?: MdxRegistry;
+  readonly registry?: MdxRegistry;
   readonly diagnosticFallback?: DiagnosticFallback;
   readonly math?: MathComponent;
-  readonly onDiagnostics?: (diagnostics: readonly Diagnostic[]) => void;
   readonly outcome: ProcessOutcome;
 }
 
 /** Renders a document processed outside React. */
 export function ProcessedContent({
-  components,
+  registry,
   diagnosticFallback,
   math,
-  onDiagnostics,
   outcome,
 }: ProcessedContentProps): React.ReactNode {
-  useDiagnostics(onDiagnostics, outcome.diagnostics);
   return outcome.kind !== "processed" || hasErrorDiagnostics(outcome.diagnostics)
     ? fallback(diagnosticFallback, outcome.diagnostics)
-    : renderDocument(outcome.value.html, components, math);
+    : renderDocument(outcome.value.html, registry, math);
 }
 
 export interface HtmlNodeContentProps {
-  readonly components?: MdxRegistry;
+  readonly registry?: MdxRegistry;
   readonly math?: MathComponent;
   readonly node: HtmlNode;
 }
 
-export function HtmlNodeContent({ node, components, math }: HtmlNodeContentProps): React.ReactNode {
-  return renderNode(node, components, math, 0, false);
+export function HtmlNodeContent({ node, registry, math }: HtmlNodeContentProps): React.ReactNode {
+  return renderNode(node, registry, math, 0, false);
 }
 
-export function StreamingSourceContent({
-  source,
-  status,
-  components,
-  diagnosticFallback,
-  math,
-  onDiagnostics,
-  syntax,
-}: StreamingSourceContentProps): React.ReactNode {
-  const processor = useMemo(
-    () => (syntax === undefined ? defaultProcessor : new Processor({ syntax })),
-    [syntax],
-  );
-  const [initial] = useState(() => ({ source, status }));
-  const store = useMemo(
-    () => new StreamingSourceStore(processor, initial.source, initial.status),
-    [initial, processor],
-  );
-  useEffect(() => store.update(source, status), [source, status, store]);
-  const view = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
-  const diagnostics =
-    view.kind === "streaming" ? view.snapshot.diagnostics : view.outcome.diagnostics;
-  useDiagnostics(onDiagnostics, diagnostics);
-  if (hasErrorDiagnostics(diagnostics)) {
-    return fallback(diagnosticFallback, diagnostics);
-  }
-  if (view.kind === "streaming") {
-    const supplement = streamingSupplement(view.snapshot);
-    const rendered = view.snapshot.blocks.map((block) => (
+export function renderStreamingSnapshot(
+  snapshot: MdxStreamSnapshot,
+  registry: MdxRegistry | undefined,
+  math: MathComponent | undefined,
+): React.ReactNode {
+  const supplement = streamingSupplement(snapshot);
+  const rendered = snapshot.blocks.map((block) => (
+    <StableBlockContent
+      key={block.id}
+      content={{ kind: "streaming", document: block.document, math }}
+      registry={registry}
+    />
+  ));
+  if (supplement !== undefined) {
+    rendered.push(
       <StableBlockContent
-        key={block.id}
-        content={{ kind: "streaming", document: block.document, math }}
-        registry={components}
-      />
-    ));
-    if (supplement !== undefined) {
-      rendered.push(
-        <StableBlockContent
-          key="document-footnotes"
-          content={{ kind: "streaming", document: supplement, math }}
-          registry={components}
-        />,
-      );
-    }
-    return rendered;
+        key="document-footnotes"
+        content={{ kind: "streaming", document: supplement, math }}
+        registry={registry}
+      />,
+    );
   }
-  if (view.outcome.kind !== "processed") {
-    return fallback(diagnosticFallback, view.outcome.diagnostics);
-  }
-  return renderCompletedDocument(view.outcome, view.blocks, components, math);
+  return rendered;
 }
 
 function streamingSupplement(snapshot: MdxStreamSnapshot): StreamingDocument | undefined {
@@ -305,17 +166,17 @@ function sameStableBlockContent(
   );
 }
 
-function renderCompletedDocument(
+export function renderCompletedDocument(
   outcome: ProcessedOutcome,
   blocks: readonly CompletedBlockSnapshot[],
-  components: MdxRegistry | undefined,
+  registry: MdxRegistry | undefined,
   math: MathComponent | undefined,
 ): React.ReactNode {
   return completedRenderGroups(outcome.value.html.children, blocks).map((group) => (
     <StableBlockContent
       key={group.key}
       content={{ kind: "complete", nodes: group.nodes, math }}
-      registry={components}
+      registry={registry}
     />
   ));
 }
@@ -454,6 +315,19 @@ function renderPendingMarkdown(
   key: React.Key,
   inSvg: boolean,
 ): React.ReactNode {
+  if (node.kind === "pendingFencedCode" && registry?.markdown.codeBlock !== undefined) {
+    const CodeBlock = registry.markdown.codeBlock;
+    return (
+      <CodeBlock
+        code={node.value}
+        key={key}
+        language={node.language}
+        meta={node.meta}
+        node={node}
+        status="pending"
+      />
+    );
+  }
   const rendered = renderDefaultPendingMarkdown(node, registry, math, key, inSvg);
   const Pending = registry?.pending.markdown;
   if (Pending !== undefined) {
@@ -605,10 +479,10 @@ const reservedJsxProps: ReadonlySet<string> = new Set(reservedMdxProps);
 
 function renderDocument(
   document: HtmlDocumentNode,
-  components: MdxRegistry | undefined,
+  registry: MdxRegistry | undefined,
   math: MathComponent | undefined,
 ): React.ReactNode {
-  return renderChildren(document.children, components, math, false);
+  return renderChildren(document.children, registry, math, false);
 }
 
 function renderChildren(
@@ -629,7 +503,10 @@ function renderNode(
 ): React.ReactNode {
   if (node instanceof HtmlJsxNode) {
     const name = node.request.node.name;
-    const entry = name === undefined ? undefined : registry?.jsx[name];
+    if (name === undefined) {
+      return node.value;
+    }
+    const entry = registry?.jsx[name];
     const attributes = staticStrictJsxAttributes(node);
     if (entry === undefined || attributes === undefined) {
       return node.value;
@@ -637,7 +514,7 @@ function renderNode(
     const children = renderChildren(node.request.children, registry, math, false);
     return React.createElement(
       entry.component,
-      { ...attributes, key, node: node.request.node },
+      { ...attributes, key, node: jsxComponentNode(node, name, attributes) },
       ...children,
     );
   }
@@ -656,6 +533,19 @@ function renderNode(
   }
   if (math !== undefined && node instanceof HtmlMathNode) {
     return React.createElement(math, { key, ...node.math });
+  }
+  if (node instanceof HtmlCodeBlockNode && registry?.markdown.codeBlock !== undefined) {
+    const CodeBlock = registry.markdown.codeBlock;
+    return (
+      <CodeBlock
+        code={node.codeBlock.code}
+        key={key}
+        language={node.codeBlock.language}
+        meta={node.codeBlock.meta}
+        node={htmlComponentNode(node)}
+        status="complete"
+      />
+    );
   }
   const custom = registry?.html[node.tagName];
   const currentSvg = inSvg || node.tagName === "svg";
@@ -676,7 +566,41 @@ function renderNode(
         },
         children,
       )
-    : React.createElement(custom, { ...attributes, key, node }, ...children);
+    : React.createElement(
+        custom,
+        { ...attributes, key, node: htmlComponentNode(node) },
+        ...children,
+      );
+}
+
+function htmlComponentNode(node: HtmlElementNode): MdxElementComponentNode {
+  return Object.freeze({
+    kind: "element",
+    name: node.tagName,
+    attributes: node.attributes,
+    codeBlock: node instanceof HtmlCodeBlockNode ? node.codeBlock : undefined,
+    source: componentSource(node.origin),
+  });
+}
+
+function jsxComponentNode(
+  node: HtmlJsxNode,
+  name: string,
+  attributes: Readonly<Record<string, boolean | string>>,
+): MdxJsxComponentNode {
+  const syntax = node.request.node;
+  return Object.freeze({
+    kind: syntax.kind,
+    name,
+    attributes,
+    source: componentSource(syntax.origin),
+  });
+}
+
+function componentSource(origin: SourceSpan | undefined): MdxComponentSource | undefined {
+  return origin === undefined
+    ? undefined
+    : Object.freeze({ name: origin.file.name, start: origin.start, end: origin.end });
 }
 
 interface IntrinsicElementContentProps {
@@ -733,30 +657,9 @@ function reactAttributeName(name: string, schema: Schema): string {
   return hastToReact[information.property] ?? information.property;
 }
 
-function fallback(
+export function fallback(
   value: DiagnosticFallback | undefined,
   diagnostics: readonly Diagnostic[],
 ): React.ReactNode {
   return typeof value === "function" ? value(diagnostics) : (value ?? null);
-}
-
-function useDiagnostics(
-  onDiagnostics: ((diagnostics: readonly Diagnostic[]) => void) | undefined,
-  diagnostics: readonly Diagnostic[],
-): void {
-  const delivered = useRef<Readonly<{
-    callback: (diagnostics: readonly Diagnostic[]) => void;
-    diagnostics: readonly Diagnostic[];
-  }> | null>(null);
-  useEffect(() => {
-    if (
-      onDiagnostics === undefined ||
-      (delivered.current?.callback === onDiagnostics &&
-        delivered.current.diagnostics === diagnostics)
-    ) {
-      return;
-    }
-    delivered.current = { callback: onDiagnostics, diagnostics };
-    onDiagnostics(diagnostics);
-  }, [diagnostics, onDiagnostics]);
 }

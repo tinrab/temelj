@@ -1,6 +1,11 @@
 import type React from "react";
 
-import type { MdxJsxComponentOptions, MdxPendingComponents, PendingMdxJsxProps } from "./types.ts";
+import type {
+  MdxJsxComponentOptions,
+  MdxMarkdownComponents,
+  MdxPendingComponents,
+  PendingMdxJsxProps,
+} from "./types.ts";
 
 type HtmlComponents = Readonly<Record<string, React.ElementType>>;
 type JsxComponents = Readonly<Record<string, React.ElementType>>;
@@ -14,6 +19,7 @@ type JsxDefinitions<Components extends JsxComponents> = {
 export interface MdxRegistryDefinition<Html extends HtmlComponents, Jsx extends JsxComponents> {
   readonly html?: Html;
   readonly jsx?: JsxDefinitions<Jsx>;
+  readonly markdown?: MdxMarkdownComponents;
   readonly pending?: MdxPendingComponents;
 }
 
@@ -25,6 +31,7 @@ export interface MdxRegistryEntry {
 export interface MdxRegistry {
   readonly html: Readonly<Record<string, React.ElementType>>;
   readonly jsx: Readonly<Record<string, MdxRegistryEntry>>;
+  readonly markdown: MdxMarkdownComponents;
   readonly pending: MdxPendingComponents;
 }
 
@@ -42,6 +49,7 @@ export function defineMdxRegistry<
   return Object.freeze({
     html: Object.freeze({ ...definition.html }),
     jsx: Object.freeze(jsx),
+    markdown: Object.freeze({ ...definition.markdown }),
     pending: Object.freeze({ ...definition.pending }),
   });
 }

@@ -35,7 +35,8 @@ import {
   type HtmlNode,
 } from "./html.ts";
 import { selectTree } from "./tree.ts";
-import { replacementCharacter } from "./utility.ts";
+import { normalizeUri } from "./uri.ts";
+import { isUrlControlCharacter } from "./utility.ts";
 
 export interface HtmlRenderOptions {
   readonly allowUnsafeUrls?: boolean;
@@ -63,11 +64,7 @@ type LoweredHtml = HtmlNode | readonly HtmlNode[] | undefined;
 
 const percentEncodedByteLength = 2;
 const hexadecimalRadix = 16;
-const deleteCharacter = "\u007F";
 const percentEncodedByte = /^[0-9A-Fa-f]{2}$/u;
-const loneSurrogate = /^[\uD800-\uDFFF]$/u;
-const uriCharacters =
-  "!#$&'()*+,-./0123456789:;=?@ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdefghijklmnopqrstuvwxyz~";
 
 const linkSchemes = new Set(["http", "https", "irc", "ircs", "mailto", "xmpp"]);
 const imageSchemes = new Set(["http", "https"]);
@@ -754,27 +751,6 @@ function sanitizeUrl(
   return normalizeUri(value);
 }
 
-function normalizeUri(value: string): string {
-  const result: string[] = [];
-  const characters = Array.from(value);
-  for (let index = 0; index < characters.length; index++) {
-    const character = characters[index];
-    const hexadecimal = `${characters[index + 1] ?? ""}${characters[index + 2] ?? ""}`;
-    if (character === "%" && percentEncodedByte.test(hexadecimal)) {
-      result.push(character, hexadecimal);
-      index += hexadecimal.length;
-      continue;
-    }
-    if (uriCharacters.includes(character)) {
-      result.push(character);
-      continue;
-    }
-    const scalar = loneSurrogate.test(character) ? replacementCharacter : character;
-    result.push(encodeURIComponent(scalar));
-  }
-  return result.join("");
-}
-
 function decodeUrlForSchemeCheck(value: string): string {
   const result: string[] = [];
   for (let index = 0; index < value.length; index++) {
@@ -796,8 +772,4 @@ function decodeUrlForSchemeCheck(value: string): string {
     }
   }
   return result.join("");
-}
-
-function isUrlControlCharacter(character: string): boolean {
-  return character === "\0" || character <= " " || character === deleteCharacter;
 }

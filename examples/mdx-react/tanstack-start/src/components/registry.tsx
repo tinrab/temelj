@@ -1,7 +1,10 @@
-import type { MdxComponentProps, PendingMdxMarkdownProps } from "@temelj/mdx-react";
+import type {
+  MdxCodeBlockComponentProps,
+  MdxComponentProps,
+  PendingMdxMarkdownProps,
+} from "@temelj/mdx-react";
 import type React from "react";
 
-import { HtmlCodeBlockNode } from "@temelj/mdx";
 import { HighlightedCode, defineMdxRegistry } from "@temelj/mdx-react";
 
 import { shikiHighlighter } from "../lib/shiki";
@@ -28,6 +31,15 @@ function Note({ children, title }: React.PropsWithChildren<{ title: string }>) {
   );
 }
 
+function DemoCard({ children, title }: React.PropsWithChildren<{ title: string }>) {
+  return (
+    <section className="mb-4 rounded-md border p-4">
+      <strong>{title}</strong>
+      <div>{children}</div>
+    </section>
+  );
+}
+
 function PendingMarkdown({ children, node }: PendingMdxMarkdownProps) {
   switch (node.kind) {
     case "unresolvedLinkReference":
@@ -46,34 +58,27 @@ function PendingMarkdown({ children, node }: PendingMdxMarkdownProps) {
     case "pendingImage":
       return children;
     case "pendingFencedCode":
-      return (
-        <HighlightedCode
-          code={node.value}
-          components={mdxRegistry}
-          highlighter={shikiHighlighter}
-          language={node.language}
-          meta={node.meta}
-        />
-      );
+      return children;
   }
 }
 
-function CodeBlock({
+function CodeBlock({ code, language, meta }: MdxCodeBlockComponentProps): React.ReactNode {
+  return (
+    <HighlightedCode
+      code={code}
+      registry={mdxRegistry}
+      highlighter={shikiHighlighter}
+      language={language}
+      meta={meta}
+    />
+  );
+}
+
+function Pre({
   className,
-  node,
+  node: _node,
   ...props
 }: React.HTMLAttributes<HTMLPreElement> & MdxComponentProps): React.ReactNode {
-  if (node instanceof HtmlCodeBlockNode) {
-    return (
-      <HighlightedCode
-        code={node.codeBlock.code}
-        components={mdxRegistry}
-        highlighter={shikiHighlighter}
-        language={node.codeBlock.language}
-        meta={node.codeBlock.meta}
-      />
-    );
-  }
   return <MdxCodeBlock className={cn("mb-4", className)} {...props} />;
 }
 
@@ -89,13 +94,15 @@ export const mdxRegistry = defineMdxRegistry({
       <p className="mb-4" {...props} />
     ),
 
-    pre: CodeBlock,
+    pre: Pre,
     code: ({ node: _node, ...props }: React.HTMLAttributes<HTMLElement> & MdxComponentProps) => (
       <InlineCode {...props} />
     ),
   },
+  markdown: { codeBlock: CodeBlock },
   jsx: {
     Alert: { component: MdxAlert },
+    DemoCard: { component: DemoCard },
     Note: {
       component: Note,
       pending: ({ children, title }) => (

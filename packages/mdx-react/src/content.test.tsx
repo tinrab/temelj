@@ -1,22 +1,17 @@
 import type { SyntaxHighlighter } from "@temelj/mdx/plugin";
 
-import {
-  HtmlCodeBlockNode,
-  HtmlElementNode,
-  HtmlFragmentNode,
-  HtmlTextNode,
-  Processor,
-} from "@temelj/mdx";
+import { HtmlElementNode, HtmlFragmentNode, HtmlTextNode, Processor } from "@temelj/mdx";
 // @vitest-environment jsdom
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, expectTypeOf, it, vi } from "vitest";
 
 import type { MdxRegistry } from "./registry.ts";
 import type {
   CompiledContentComponent,
-  CompiledMdxComponents,
   MathComponentProps,
+  MdxCodeBlockComponentProps,
   MdxComponentProps,
   PendingMdxMarkdownProps,
   PendingMdxJsxProps,
@@ -24,6 +19,7 @@ import type {
 
 import {
   CompiledContent,
+  compileTrustedMdx,
   defineMdxRegistry,
   HighlightedCode,
   HtmlNodeContent,
@@ -49,6 +45,33 @@ describe("MDX React content", () => {
     expect(screen.getByText("<Widget>{value}</Widget>")).toBeDefined();
   });
 
+  it("renders static source through react-dom/server without hooks", () => {
+    expect(renderToStaticMarkup(<SourceContent source="# Server" />)).toBe("<h1>Server</h1>");
+  });
+
+  it("passes serializable completed node metadata to registered components", () => {
+    const Alert = ({ node }: MdxComponentProps): React.ReactNode => (
+      <aside data-node={JSON.stringify(node)} />
+    );
+    const { container } = render(
+      <SourceContent
+        registry={defineMdxRegistry({ jsx: { Alert: { component: Alert } } })}
+        source={'<Alert title="Info" />'}
+      />,
+    );
+
+    const encoded = container.querySelector("aside")?.getAttribute("data-node");
+    expect(encoded).toBeDefined();
+    const received: unknown = JSON.parse(encoded ?? "null");
+    expect(received).toEqual({
+      kind: "jsxFlowElement",
+      name: "Alert",
+      attributes: { title: "Info" },
+      source: { name: "source.mdx", start: 0, end: 22 },
+    });
+    expect(structuredClone(received)).toEqual(received);
+  });
+
   it("renders registered JSX components with static properties", () => {
     const Alert = ({
       description,
@@ -66,7 +89,7 @@ describe("MDX React content", () => {
 
     render(
       <SourceContent
-        components={defineMdxRegistry({ jsx: { Alert: { component: Alert } } })}
+        registry={defineMdxRegistry({ jsx: { Alert: { component: Alert } } })}
         source={'<Alert title="Info" description="Info description" />'}
       />,
     );
@@ -81,7 +104,7 @@ describe("MDX React content", () => {
 
     render(
       <SourceContent
-        components={defineMdxRegistry({ jsx: { Alert: { component: Alert } } })}
+        registry={defineMdxRegistry({ jsx: { Alert: { component: Alert } } })}
         source="<Alert title={getTitle()} />"
       />,
     );
@@ -98,13 +121,13 @@ describe("MDX React content", () => {
         {children}
       </section>
     );
-    const components = defineMdxRegistry({
+    const registry = defineMdxRegistry({
       jsx: { Note: { component: Note, pending: Pending } },
     });
 
     const { rerender } = render(
       <StreamingSourceContent
-        components={components}
+        registry={registry}
         math={Math}
         source={'<Note title="Inf'}
         status="streaming"
@@ -116,7 +139,7 @@ describe("MDX React content", () => {
 
     rerender(
       <StreamingSourceContent
-        components={components}
+        registry={registry}
         math={Math}
         source={'<Note title="Info">Some **valid** content and $x$'}
         status="streaming"
@@ -136,7 +159,7 @@ describe("MDX React content", () => {
         <span data-pending-kind={node.kind}>{children}</span>
       ),
     );
-    const components = defineMdxRegistry({
+    const registry = defineMdxRegistry({
       jsx: { Alert: { component: Alert } },
       pending: {
         jsx: ({ name }) => <span>waiting {name}</span>,
@@ -144,22 +167,16 @@ describe("MDX React content", () => {
       },
     });
     const { rerender } = render(
-      <StreamingSourceContent components={components} source="<Ale" status="streaming" />,
+      <StreamingSourceContent registry={registry} source="<Ale" status="streaming" />,
     );
     expect(document.body.textContent).toBe("");
 
-    rerender(
-      <StreamingSourceContent components={components} source="<Alert " status="streaming" />,
-    );
+    rerender(<StreamingSourceContent registry={registry} source="<Alert " status="streaming" />);
     expect(screen.getByText("waiting Alert")).toBeDefined();
 
     const unresolvedSource = "The [manual][docs] is final.\n\n";
     rerender(
-      <StreamingSourceContent
-        components={components}
-        source={unresolvedSource}
-        status="streaming"
-      />,
+      <StreamingSourceContent registry={registry} source={unresolvedSource} status="streaming" />,
     );
     expect(screen.getByText("[manual][docs]").getAttribute("data-pending-kind")).toBe(
       "unresolvedLinkReference",
@@ -172,7 +189,7 @@ describe("MDX React content", () => {
 
     rerender(
       <StreamingSourceContent
-        components={components}
+        registry={registry}
         source={`${unresolvedSource}[docs]: https://rabzelj.com\n`}
         status="streaming"
       />,
@@ -195,7 +212,7 @@ describe("MDX React content", () => {
 
     render(
       <StreamingSourceContent
-        components={defineMdxRegistry({ jsx: { Alert: { component: Alert, pending: Pending } } })}
+        registry={defineMdxRegistry({ jsx: { Alert: { component: Alert, pending: Pending } } })}
         source={source}
         status="streaming"
       />,
@@ -222,9 +239,6 @@ describe("MDX React content", () => {
       },
     });
     expectTypeOf(registry).toMatchTypeOf<MdxRegistry>();
-
-    const compiled = { Note } satisfies CompiledMdxComponents;
-    expectTypeOf(compiled.Note).toEqualTypeOf<typeof Note>();
 
     const acceptRegistry = (_registry: MdxRegistry): void => {};
     // @ts-expect-error A registry contains normalized HTML and JSX records.
@@ -267,10 +281,10 @@ describe("MDX React content", () => {
       ({ children, node }: PendingMdxMarkdownProps): React.ReactNode =>
         node.kind === "footnoteReference" || node.kind === "footnoteSection" ? null : children,
     );
-    const components = defineMdxRegistry({ pending: { markdown: PendingMarkdown } });
+    const registry = defineMdxRegistry({ pending: { markdown: PendingMarkdown } });
     rerender(
       <StreamingSourceContent
-        components={components}
+        registry={registry}
         source={`${footnotes}\nAfter.`}
         status="streaming"
       />,
@@ -292,7 +306,7 @@ describe("MDX React content", () => {
     PendingMarkdown.mockClear();
     rerender(
       <StreamingSourceContent
-        components={components}
+        registry={registry}
         source={`${footnotes}\nAfter.`}
         status="complete"
       />,
@@ -302,7 +316,7 @@ describe("MDX React content", () => {
     PendingMarkdown.mockClear();
     rerender(
       <StreamingSourceContent
-        components={components}
+        registry={registry}
         source={`${footnotes}\nAfter.`}
         status="complete"
       />,
@@ -325,14 +339,14 @@ describe("MDX React content", () => {
   it("preserves and highlights code-block semantics while streaming", async () => {
     const CodeBlock = ({ node }: MdxComponentProps) => (
       <pre
-        data-code={node instanceof HtmlCodeBlockNode ? node.codeBlock.code : undefined}
-        data-language={node instanceof HtmlCodeBlockNode ? node.codeBlock.language : undefined}
+        data-code={node.kind === "element" ? node.codeBlock?.code : undefined}
+        data-language={node.kind === "element" ? node.codeBlock?.language : undefined}
       />
     );
 
     const { container } = render(
       <StreamingSourceContent
-        components={defineMdxRegistry({ html: { pre: CodeBlock } })}
+        registry={defineMdxRegistry({ html: { pre: CodeBlock } })}
         source={"```ts\nconst answer = 42;\n```\n\nMore"}
         status="streaming"
       />,
@@ -363,7 +377,7 @@ describe("MDX React content", () => {
       );
     const pending = render(
       <StreamingSourceContent
-        components={defineMdxRegistry({ pending: { markdown: PendingMarkdown } })}
+        registry={defineMdxRegistry({ pending: { markdown: PendingMarkdown } })}
         source={'```ts {"fileName":"stream.ts"}\nconst streaming = true;'}
         status="streaming"
       />,
@@ -377,6 +391,57 @@ describe("MDX React content", () => {
         pending.container.querySelector("[data-highlighted]")?.getAttribute("data-file-name"),
       ).toBe("stream.ts");
     });
+  });
+
+  it("keeps a highlighted code block mounted while its fence settles", async () => {
+    const highlighter = {
+      highlight: ({ code }) =>
+        new HtmlElementNode("pre", { "data-highlighted": "" }, [new HtmlTextNode(code)]),
+      kind: "synchronous",
+    } satisfies SyntaxHighlighter;
+    const CodeBlock = ({ code, language, status }: MdxCodeBlockComponentProps) => (
+      <div data-code-status={status}>
+        <HighlightedCode code={code} highlighter={highlighter} language={language} />
+      </div>
+    );
+    const registry = defineMdxRegistry({ markdown: { codeBlock: CodeBlock } });
+    const view = render(
+      <StreamingSourceContent
+        registry={registry}
+        source={"```ts\nconst first = 1;"}
+        status="streaming"
+      />,
+    );
+    const original = view.container.querySelector("[data-highlighted]");
+    expect(original?.textContent).toBe("const first = 1;");
+
+    view.rerender(
+      <StreamingSourceContent
+        registry={registry}
+        source={"```ts\nconst first = 1;\nconst second = 2;"}
+        status="streaming"
+      />,
+    );
+    await waitFor(() => {
+      expect(view.container.querySelector("[data-highlighted]")?.textContent).toContain(
+        "const second = 2;",
+      );
+    });
+    expect(view.container.querySelector("[data-highlighted]")).toBe(original);
+
+    view.rerender(
+      <StreamingSourceContent
+        registry={registry}
+        source={"```ts\nconst first = 1;\nconst second = 2;\n```"}
+        status="complete"
+      />,
+    );
+    await waitFor(() => {
+      expect(
+        view.container.querySelector("[data-code-status]")?.getAttribute("data-code-status"),
+      ).toBe("complete");
+    });
+    expect(view.container.querySelector("[data-highlighted]")).toBe(original);
   });
 
   it("keeps the last valid blocks while a streamed construct is incomplete", () => {
@@ -469,10 +534,10 @@ describe("MDX React content", () => {
     const PendingMarkdown = vi.fn<(props: PendingMdxMarkdownProps) => React.ReactNode>(
       ({ children }: PendingMdxMarkdownProps): React.ReactNode => children,
     );
-    const components = defineMdxRegistry({ pending: { markdown: PendingMarkdown } });
+    const registry = defineMdxRegistry({ pending: { markdown: PendingMarkdown } });
     const { rerender } = render(
       <StreamingSourceContent
-        components={components}
+        registry={registry}
         math={Math}
         source={"$$\ny\n$$\n\n$x$ and $open"}
         status="streaming"
@@ -489,7 +554,7 @@ describe("MDX React content", () => {
 
     rerender(
       <StreamingSourceContent
-        components={components}
+        registry={registry}
         math={Math}
         source={"$$\ny\n$$\n\n$x$ and $open$"}
         status="streaming"
@@ -599,5 +664,83 @@ describe("MDX React content", () => {
         : React.createElement(math, { source: "compiled", style: "display" });
     render(<CompiledContent module={{ default: Trusted }} math={Math} />);
     expect(document.querySelector('[data-source="compiled"]')).not.toBeNull();
+  });
+
+  it("compiles and evaluates trusted MDX with scope", async () => {
+    const outcome = await compileTrustedMdx("# Hello {name}\n", {
+      scope: { name: "Tin" },
+    });
+
+    expect(outcome.kind).toBe("compiled");
+    if (outcome.kind !== "compiled") {
+      return;
+    }
+    render(<CompiledContent module={outcome.module} />);
+    expect(screen.getByRole("heading", { name: "Hello Tin" })).toBeDefined();
+  });
+
+  it("resolves trusted imports explicitly and preserves named exports", async () => {
+    const outcome = await compileTrustedMdx(
+      'import {answer} from "facts"\nexport const title = "Imported"\n\n# {answer}\n',
+      {
+        resolveImport(specifier) {
+          return specifier === "facts" ? { answer: 42 } : {};
+        },
+      },
+    );
+
+    expect(outcome.kind).toBe("compiled");
+    if (outcome.kind !== "compiled") {
+      return;
+    }
+    expect(outcome.module.title).toBe("Imported");
+    render(<CompiledContent module={outcome.module} />);
+    expect(screen.getByRole("heading", { name: "42" })).toBeDefined();
+  });
+
+  it("does not evaluate imports without a resolver", async () => {
+    const outcome = await compileTrustedMdx('import value from "remote"\n\n{value}\n');
+    expect(outcome.kind).toBe("evaluationFailed");
+    expect(outcome.diagnostics[0]?.code).toBe("mdx.evaluation.importResolver");
+  });
+
+  it("renders compiled footnotes with backlinks", async () => {
+    const outcome = await compileTrustedMdx("A note[^one].\n\n[^one]: Footnote body.\n");
+    expect(outcome.kind).toBe("compiled");
+    if (outcome.kind !== "compiled") {
+      return;
+    }
+
+    const { container } = render(<CompiledContent module={outcome.module} />);
+    expect(container.querySelector("section[data-footnotes]")?.textContent).toContain(
+      "Footnote body.",
+    );
+    expect(container.querySelector("[data-footnote-backref]")?.getAttribute("href")).toBe(
+      "#user-content-fnref-one",
+    );
+  });
+
+  it("routes compiled code blocks through the semantic registry", async () => {
+    const outcome = await compileTrustedMdx("```ts showLineNumbers\nconst answer = 42;\n```\n");
+    expect(outcome.kind).toBe("compiled");
+    if (outcome.kind !== "compiled") {
+      return;
+    }
+    const CodeBlock = ({ code, language, meta, status }: MdxCodeBlockComponentProps) => (
+      <pre data-language={language} data-meta={meta} data-status={status}>
+        {code}
+      </pre>
+    );
+    render(
+      <CompiledContent
+        registry={defineMdxRegistry({ markdown: { codeBlock: CodeBlock } })}
+        module={outcome.module}
+      />,
+    );
+    expect(screen.getByText("const answer = 42;").getAttribute("data-language")).toBe("ts");
+    expect(screen.getByText("const answer = 42;").getAttribute("data-meta")).toBe(
+      "showLineNumbers",
+    );
+    expect(screen.getByText("const answer = 42;").getAttribute("data-status")).toBe("complete");
   });
 });

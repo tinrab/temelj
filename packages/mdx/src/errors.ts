@@ -138,6 +138,8 @@ export class InputError extends MdxError {
 export type ConfigurationIssue =
   | Readonly<{ kind: "asynchronousPluginInSynchronousProcessor" }>
   | Readonly<{ kind: "cacheCapacity"; pluginName: string; capacity: number }>
+  | Readonly<{ kind: "compilerLimit"; option: string; value: number }>
+  | Readonly<{ kind: "compilerOutputFormat"; value: unknown }>
   | Readonly<{ kind: "parserLimit"; option: string; value: number; minimum: number }>
   | Readonly<{
       kind: "pluginIntegerOption";
@@ -191,6 +193,22 @@ export class ConfigurationError extends MdxError {
       `Invalid ${pluginName} cache capacity: ${capacity}; expected a non-negative safe integer`,
       { kind: "cacheCapacity", pluginName, capacity },
       ConfigurationError.invalidCacheCapacity,
+    );
+  }
+
+  public static invalidCompilerLimit(this: void, option: string, value: number): never {
+    throw new ConfigurationError(
+      `Invalid compiler ${option}: ${value}; expected a non-negative safe integer`,
+      { kind: "compilerLimit", option, value },
+      ConfigurationError.invalidCompilerLimit,
+    );
+  }
+
+  public static invalidCompilerOutputFormat(this: void, value: unknown): never {
+    throw new ConfigurationError(
+      `Invalid compiler outputFormat: ${String(value)}`,
+      { kind: "compilerOutputFormat", value },
+      ConfigurationError.invalidCompilerOutputFormat,
     );
   }
 
@@ -529,15 +547,5 @@ export class CompileError extends MdxError {
       {},
       context,
     );
-  }
-}
-
-export class EvaluationError extends MdxError {
-  private constructor(cause: unknown, context: Function) {
-    super("EvaluationError", "Trusted MDX evaluation failed", { cause }, context);
-  }
-
-  public static environmentFailed(this: void, cause: unknown): never {
-    throw new EvaluationError(cause, EvaluationError.environmentFailed);
   }
 }
