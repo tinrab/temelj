@@ -667,16 +667,20 @@ describe("MDX React content", () => {
   });
 
   it("compiles and evaluates trusted MDX with scope", async () => {
-    const outcome = await compileTrustedMdx("# Hello {name}\n", {
+    const outcome = await compileTrustedMdx("# Hello {name}\n\n:note[Compiled directive]\n", {
       scope: { name: "Tin" },
+      syntax: { directives: true },
     });
 
     expect(outcome.kind).toBe("compiled");
     if (outcome.kind !== "compiled") {
       return;
     }
-    render(<CompiledContent module={outcome.module} />);
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { container } = render(<CompiledContent module={outcome.module} />);
     expect(screen.getByRole("heading", { name: "Hello Tin" })).toBeDefined();
+    expect(container.querySelector('[data-directive="note"]')).not.toBeNull();
+    expect(consoleError).not.toHaveBeenCalled();
   });
 
   it("resolves trusted imports explicitly and preserves named exports", async () => {

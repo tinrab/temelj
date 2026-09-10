@@ -10,10 +10,10 @@ import React from "react";
 import { KaTeXMath } from "~/components/KaTeXMath";
 import { mdxRegistry } from "~/components/registry";
 
-import { mdxSyntax, staticMdxSource } from "../../../content";
+import { compiledMdxSource, mdxSyntax } from "../../../content";
 
 const loadCompiledMdx = createServerFn({ method: "GET" }).handler(async () => {
-  const outcome = await compileMdx(staticMdxSource, {
+  const outcome = await compileMdx(compiledMdxSource, {
     outputFormat: "functionBody",
     syntax: mdxSyntax,
   });

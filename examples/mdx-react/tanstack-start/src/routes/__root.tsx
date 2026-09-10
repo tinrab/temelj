@@ -44,7 +44,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
             <h2 className="font-semibold">TanStack</h2>
             <div className="flex items-center gap-2">
               <Link className="text-sm underline underline-offset-4" to="/">
-                Static
+                Dynamic safe
               </Link>
               <Link className="text-sm underline underline-offset-4" to="/streaming">
                 Streaming

@@ -221,10 +221,10 @@ function emitNode(
   } else if (node instanceof RawHtmlInlineNode || node instanceof RawHtmlBlockNode) {
     writer.write(JSON.stringify(node.value), sourceSpan(node));
   } else if (node instanceof CodeBlockNode) {
-    writer.write("(props.components?.markdown?.codeBlock ? ");
+    writer.write("(props.registry?.markdown?.codeBlock ? ");
     emitElementExpression(
       writer,
-      "props.components.markdown.codeBlock",
+      "props.registry.markdown.codeBlock",
       codeBlockProperties(node),
       node,
       state,
@@ -762,7 +762,7 @@ function directiveProperties(
   attributes: readonly { readonly name: string; readonly value: string }[],
 ): readonly Property[] {
   return [
-    ["dataDirective", JSON.stringify(name)],
+    ["data-directive", JSON.stringify(name)],
     ...attributes.map((attribute): Property => [attribute.name, JSON.stringify(attribute.value)]),
   ];
 }

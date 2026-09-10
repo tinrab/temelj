@@ -9,12 +9,12 @@ import { mdxRegistry } from "~/components/registry";
 import { Button } from "~/components/ui/button";
 import { Collapsible, CollapsibleContent } from "~/components/ui/collapsible";
 
-import { mdxSyntax, staticMdxSource } from "../../../content";
+import { dynamicMdxSource, mdxSyntax } from "../../../content";
 
 export const Route = createFileRoute("/")({ component: StaticExampleRoute });
 
 function StaticExampleRoute() {
-  const [content, setContent] = useState(staticMdxSource);
+  const [content, setContent] = useState(dynamicMdxSource);
 
   return (
     <>

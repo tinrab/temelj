@@ -36,7 +36,7 @@ export default function RootLayout({
             <h2 className="font-semibold">Next.js</h2>
             <nav aria-label="Examples" className="flex items-center gap-2">
               <Link className="text-sm underline underline-offset-4" href="/">
-                Static
+                Dynamic safe
               </Link>
               <Link className="text-sm underline underline-offset-4" href="/streaming">
                 Streaming

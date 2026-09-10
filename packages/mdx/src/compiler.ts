@@ -467,13 +467,13 @@ function emitContentFunction(
     writer.write(`${tags.length === 0 ? "" : ", "}..._provideComponents()`);
   }
   writer.write(
-    `${tags.length === 0 && options.providerImportSource === undefined ? "" : ", "}...props.components?.html};\n`,
+    `${tags.length === 0 && options.providerImportSource === undefined ? "" : ", "}...props.registry?.html};\n`,
   );
 
   const components = [...state.referencedComponents].sort();
   for (const component of components) {
     writer.write(
-      `  const ${component} = props.components?.jsx?.[${JSON.stringify(component)}]?.component ?? _components[${JSON.stringify(component)}];\n`,
+      `  const ${component} = props.registry?.jsx?.[${JSON.stringify(component)}]?.component ?? _components[${JSON.stringify(component)}];\n`,
     );
   }
   for (const [reference, component] of state.missingReferences) {
@@ -501,7 +501,7 @@ function emitPublicComponent(
     if (options.providerImportSource !== undefined) {
       writer.write("..._provideComponents(), ");
     }
-    writer.write("...props.components?.html};\n");
+    writer.write("...props.registry?.html};\n");
     writer.write(
       `  return Layout ? ${runtimeCall(state, "Layout", `{...props, children: ${content}}`)} : ${content};\n`,
     );

@@ -12,18 +12,6 @@ function Alert({ description, title }: { description?: string; title?: string })
   );
 }
 
-function DemoCard({
-  children,
-  title,
-}: React.PropsWithChildren<{ title: string }>): React.ReactNode {
-  return (
-    <section className="mb-4 rounded-md border p-4">
-      <strong>{title}</strong>
-      <div>{children}</div>
-    </section>
-  );
-}
-
 function CodeBlock({ code, language, meta }: MdxCodeBlockComponentProps): React.ReactNode {
   return (
     <pre data-language={language} data-meta={meta}>
@@ -41,7 +29,6 @@ export const compiledMdxRegistry = defineMdxRegistry({
   },
   jsx: {
     Alert: { component: Alert },
-    DemoCard: { component: DemoCard },
   },
   markdown: { codeBlock: CodeBlock },
 });

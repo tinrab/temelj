@@ -31,15 +31,6 @@ function Note({ children, title }: React.PropsWithChildren<{ title: string }>) {
   );
 }
 
-function DemoCard({ children, title }: React.PropsWithChildren<{ title: string }>) {
-  return (
-    <section className="mb-4 rounded-md border p-4">
-      <strong>{title}</strong>
-      <div>{children}</div>
-    </section>
-  );
-}
-
 function PendingMarkdown({ children, node }: PendingMdxMarkdownProps) {
   switch (node.kind) {
     case "unresolvedLinkReference":
@@ -102,7 +93,6 @@ export const mdxRegistry = defineMdxRegistry({
   markdown: { codeBlock: CodeBlock },
   jsx: {
     Alert: { component: MdxAlert },
-    DemoCard: { component: DemoCard },
     Note: {
       component: Note,
       pending: ({ children, title }) => (

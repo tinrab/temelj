@@ -4,17 +4,17 @@ export const mdxSyntax = {
   math: "auto",
 } as const;
 
-export const staticMdxSource = `---
-title: MDX rendering fixture
+export const dynamicMdxSource = `---
+title: Safe dynamic MDX rendering
 draft: false
 tags:
   - markdown
   - react
 ---
 
-# MDX rendering fixture
+# Safe dynamic MDX rendering
 
-This page is a visual check for the syntax supported by \`@temelj/mdx\`. It mixes ordinary Markdown with the optional syntax enabled by this example.
+This editor renders MDX without executing authored JavaScript. You can change the source and inspect the result immediately, while expressions, spreads, and ESM remain inert.
 
 ## Text and links
 
@@ -121,23 +121,68 @@ echo "Hello, World!"
 Hello, World!
 \`\`\`
 
-## HTML and executable MDX stay inert
+## The executable parts stay inert
 
 Raw HTML is displayed safely instead of being injected: <mark>highlighted by authored HTML</mark>.
 
-Expressions remain visible rather than being evaluated: {2 + 2}.
+The expression below remains authored text. It does not turn into the number four:
 
-The component registry also contains an Alert:
+{2 + 2}
 
-<Alert title="Info" description="Info description" />
+Registered components can render when their names and literal properties are known:
 
-<DemoCard title="Caller component">
-  JSX is parsed, but SourceContent does not execute it.
-</DemoCard>
+<Alert title="Safe component" description="This component uses completed literal properties. No authored JavaScript ran." />
+
+<Note title="Markdown children are safe too">
+  The renderer can pass parsed Markdown children to a registered component without evaluating expressions or spreads.
+</Note>
 
 export const hiddenFromRenderedHtml = 42
 
-The export above belongs to the document model but is omitted from rendered HTML.
+The export above belongs to the parsed document, but this renderer omits it instead of executing it.
+`;
+
+export const compiledMdxSource = `---
+title: Trusted compiled MDX
+draft: false
+---
+
+export const answer = 6 * 7
+export const language = "MDX"
+
+# Trusted compiled MDX
+
+This page takes a different path from the dynamic editor. The server parses and compiles trusted MDX, evaluates the generated module, checks the outcome, and then renders the resulting React component.
+
+## Expressions execute
+
+Because this source is trusted, JavaScript expressions run. The exported value \`answer\` is available to the document, so \`{answer}\` renders as **{answer}**.
+
+Expressions can also build ordinary text: Welcome to **{language} compilation**.
+
+<Alert title="Trusted execution" description="This registered component was created by evaluated MDX on the server." />
+
+## Markdown still behaves normally
+
+Compilation keeps the same Markdown structure, source ranges, math nodes, and footnotes as strict parsing. For example, the area of a circle is $A = \\pi r^2$.[^runtime]
+
+[^runtime]: Compilation produces JavaScript, while the application still owns component registration and the KaTeX renderer.
+
+:::note[Compiler boundary]{mode=trusted}
+Directives remain semantic content and compile to ordinary React elements with literal attributes.
+:::
+
+## Code blocks use the registry
+
+The compiled document sends code-block metadata to the same registered renderer used elsewhere in the demo.
+
+\`\`\`ts {"fileName":"answer.ts","lineNumbers":true,"highlightLines":"2"}
+export function calculateAnswer(): number {
+  return 6 * 7;
+}
+\`\`\`
+
+Use trusted compilation only for MDX that is allowed to execute. External or user-authored content should use the dynamic safe renderer instead.
 `;
 
 export const streamedMdxChunks = [
