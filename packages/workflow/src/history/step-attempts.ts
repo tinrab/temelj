@@ -16,23 +16,29 @@ export function createWorkflowStepAttempts(
   // Reconciliation rebuilds the materialized read model from append-only history. It skips
   // events that cannot be attached to a valid attempt instead of failing the whole rebuild.
   const attempts = new Map<string, WorkflowStepAttemptRecord>();
+
   for (const event of events) {
     const key = reconciledWorkflowStepAttemptKeyFromEvent(event);
+
     if (key === undefined) {
       continue;
     }
 
     const current = attempts.get(key);
     const attempt = applyReconciledWorkflowStepAttemptEvent(runId, event, current);
+
     if (
       attempt === undefined ||
       (isWorkflowTerminalStepAttemptEvent(event) && !attempts.has(key))
     ) {
       continue;
     }
+
     attempts.set(key, attempt);
   }
+
   const normalizedAttempts = markSupersededRunningStepAttemptsAsAbandoned([...attempts.values()]);
+
   return normalizedAttempts.sort(compareStepAttempts);
 }
 
@@ -62,6 +68,7 @@ function markSupersededRunningStepAttemptsAsAbandoned(
   // A later attempt for the same step means an earlier running attempt did not produce the
   // terminal event we expected. Marking it abandoned keeps dashboards from reporting it as live.
   const latestAttemptByStepId = new Map<string, number>();
+
   for (const attempt of attempts) {
     latestAttemptByStepId.set(
       attempt.stepId,
@@ -73,10 +80,13 @@ function markSupersededRunningStepAttemptsAsAbandoned(
     if (attempt.status !== "running") {
       return attempt;
     }
+
     const latestAttempt = latestAttemptByStepId.get(attempt.stepId) ?? attempt.attempt;
+
     if (attempt.attempt >= latestAttempt) {
       return attempt;
     }
+
     return {
       ...attempt,
       status: "abandoned",
@@ -89,9 +99,12 @@ function compareStepAttempts(
   right: WorkflowStepAttemptRecord,
 ): number {
   const started = Temporal.Instant.compare(left.startedAt, right.startedAt);
+
   if (started !== 0) {
     return started;
   }
+
   const stepId = left.stepId.localeCompare(right.stepId);
+
   return stepId === 0 ? left.attempt - right.attempt : stepId;
 }

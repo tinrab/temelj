@@ -28,6 +28,7 @@ import {
   hasErrorDiagnostics,
   isHtmlAttributeList,
 } from "@temelj/mdx";
+import { isObject, isString, isFunction } from "@temelj/value";
 import { find, hastToReact, html, svg, type Schema } from "property-information";
 import React from "react";
 import styleToJs from "style-to-js";
@@ -67,9 +68,11 @@ export function SourceContent({
 }: SourceContentProps): React.ReactNode {
   const processor = syntax === undefined ? defaultProcessor : new Processor({ syntax });
   const outcome = processor.processSync(source);
+
   if (outcome.kind !== "processed" || hasErrorDiagnostics(outcome.diagnostics)) {
     return fallback(diagnosticFallback, outcome.diagnostics);
   }
+
   return renderDocument(outcome.value.html, registry, math);
 }
 
@@ -108,6 +111,7 @@ export function renderStreamingSnapshot(
   math: MathComponent | undefined,
 ): React.ReactNode {
   const supplement = streamingSupplement(snapshot);
+
   const rendered = snapshot.blocks.map((block) => (
     <StableBlockContent
       key={block.id}
@@ -115,6 +119,7 @@ export function renderStreamingSnapshot(
       registry={registry}
     />
   ));
+
   if (supplement !== undefined) {
     rendered.push(
       <StableBlockContent
@@ -124,12 +129,14 @@ export function renderStreamingSnapshot(
       />,
     );
   }
+
   return rendered;
 }
 
 function streamingSupplement(snapshot: MdxStreamSnapshot): StreamingDocument | undefined {
   const sourceNodes = new Set(snapshot.blocks.flatMap((block) => block.document.children));
   const children = snapshot.document.children.filter((node) => !sourceNodes.has(node));
+
   return children.length === 0 ? undefined : new StreamingDocument(children);
 }
 
@@ -193,16 +200,21 @@ function completedRenderGroups(
 ): readonly HtmlRenderGroup[] {
   const groups: HtmlRenderGroup[] = [];
   const occurrences = new Map<string, number>();
+
   for (const [index, node] of nodes.entries()) {
     const block = blockForHtmlNode(node, blocks);
+
     const baseKey = isFootnoteSection(node)
       ? "document-footnotes"
       : (block?.id ?? `completed-node-${index}`);
+
     const previous = groups.at(-1);
+
     if (previous?.baseKey === baseKey) {
       previous.nodes.push(node);
       continue;
     }
+
     const occurrence = occurrences.get(baseKey) ?? 0;
     occurrences.set(baseKey, occurrence + 1);
     groups.push({
@@ -211,6 +223,7 @@ function completedRenderGroups(
       nodes: [node],
     });
   }
+
   return groups;
 }
 
@@ -223,9 +236,11 @@ function blockForHtmlNode(
   blocks: readonly CompletedBlockSnapshot[],
 ): CompletedBlockSnapshot | undefined {
   const origin = node.origin;
+
   if (origin === undefined) {
     return;
   }
+
   return blocks.find((block) => block.range.start <= origin.start && origin.end <= block.range.end);
 }
 
@@ -282,13 +297,16 @@ function renderStreamingNode(
     case "element": {
       const custom = registry?.html[node.tagName];
       const currentSvg = inSvg || node.tagName === "svg";
+
       const children = renderStreamingChildren(
         node.children,
         registry,
         math,
         currentSvg && node.tagName !== "foreignObject",
       );
+
       const attributes = reactAttributes(node.attributes, currentSvg ? svg : html);
+
       return custom === undefined
         ? React.createElement(
             IntrinsicElementContent,
@@ -301,8 +319,10 @@ function renderStreamingNode(
           )
         : React.createElement(custom, { ...attributes, key, node }, ...children);
     }
+
     default: {
       const exhaustive: never = node;
+
       return exhaustive;
     }
   }
@@ -317,6 +337,7 @@ function renderPendingMarkdown(
 ): React.ReactNode {
   if (node.kind === "pendingFencedCode" && registry?.markdown.codeBlock !== undefined) {
     const CodeBlock = registry.markdown.codeBlock;
+
     return (
       <CodeBlock
         code={node.value}
@@ -328,8 +349,10 @@ function renderPendingMarkdown(
       />
     );
   }
+
   const rendered = renderDefaultPendingMarkdown(node, registry, math, key, inSvg);
   const Pending = registry?.pending.markdown;
+
   if (Pending !== undefined) {
     return (
       <Pending key={key} node={node}>
@@ -337,6 +360,7 @@ function renderPendingMarkdown(
       </Pending>
     );
   }
+
   return rendered;
 }
 
@@ -350,7 +374,9 @@ function renderDefaultPendingMarkdown(
   if (node.kind === "footnoteReference" || node.kind === "footnoteSection") {
     return renderStreamingNode(node.content, registry, math, key, inSvg);
   }
+
   const children = pendingMarkdownChildren(node, registry, math, inSvg);
+
   switch (node.kind) {
     case "pendingStrong":
       return <strong key={key}>{children}</strong>;
@@ -378,6 +404,7 @@ function renderDefaultPendingMarkdown(
       return node.authored;
     default: {
       const exhaustive: never = node;
+
       return exhaustive;
     }
   }
@@ -409,6 +436,7 @@ function pendingMarkdownChildren(
       return node.authored;
     default: {
       const exhaustive: never = node;
+
       return exhaustive;
     }
   }
@@ -425,6 +453,7 @@ function renderStreamingMathFallback(
       </code>
     );
   }
+
   return (
     <pre data-math-meta={node.math.meta} key={key}>
       <code className="language-math math-display">
@@ -443,31 +472,43 @@ function renderStreamingJsx(
   if (!node.safe) {
     return node.state === "complete" ? node.authored : null;
   }
+
   if (node.name === undefined || registry === undefined) {
     return node.state === "complete" ? node.authored : null;
   }
+
   const entry = registry.jsx[node.name];
+
   if (entry === undefined) {
     return node.state === "complete" ? node.authored : null;
   }
+
   if (Object.keys(node.attributes).some((name) => reservedJsxProps.has(name))) {
     return node.state === "complete" ? node.authored : null;
   }
+
   const children = renderStreamingChildren(node.children, registry, math, false);
+
   if (node.state === "complete") {
     return React.createElement(entry.component, { ...node.attributes, key, node }, ...children);
   }
+
   if (entry.pending === null) {
     return null;
   }
+
   const props = { ...node.attributes, children, node };
+
   if (entry.pending !== undefined) {
     return React.createElement(entry.pending, { ...props, key });
   }
+
   if (registry.pending.jsx === undefined) {
     return null;
   }
+
   const Pending = registry.pending.jsx;
+
   return (
     <Pending key={key} name={node.name} node={node} props={node.attributes}>
       {children}
@@ -503,27 +544,35 @@ function renderNode(
 ): React.ReactNode {
   if (node instanceof HtmlJsxNode) {
     const name = node.request.node.name;
+
     if (name === undefined) {
       return node.value;
     }
+
     const entry = registry?.jsx[name];
     const attributes = staticStrictJsxAttributes(node);
+
     if (entry === undefined || attributes === undefined) {
       return node.value;
     }
+
     const children = renderChildren(node.request.children, registry, math, false);
+
     return React.createElement(
       entry.component,
       { ...attributes, key, node: jsxComponentNode(node, name, attributes) },
       ...children,
     );
   }
+
   if (node instanceof HtmlTextNode || node instanceof HtmlRawNode) {
     return node.value;
   }
+
   if (node instanceof HtmlCommentNode || node instanceof HtmlDoctypeNode) {
     return null;
   }
+
   if (node instanceof HtmlDocumentNode || node instanceof HtmlFragmentNode) {
     return (
       <React.Fragment key={key}>
@@ -531,11 +580,14 @@ function renderNode(
       </React.Fragment>
     );
   }
+
   if (math !== undefined && node instanceof HtmlMathNode) {
     return React.createElement(math, { key, ...node.math });
   }
+
   if (node instanceof HtmlCodeBlockNode && registry?.markdown.codeBlock !== undefined) {
     const CodeBlock = registry.markdown.codeBlock;
+
     return (
       <CodeBlock
         code={node.codeBlock.code}
@@ -547,15 +599,19 @@ function renderNode(
       />
     );
   }
+
   const custom = registry?.html[node.tagName];
   const currentSvg = inSvg || node.tagName === "svg";
+
   const children = renderChildren(
     node.children,
     registry,
     math,
     currentSvg && node.tagName !== "foreignObject",
   );
+
   const attributes = reactAttributes(node.attributes, currentSvg ? svg : html);
+
   return custom === undefined
     ? React.createElement(
         IntrinsicElementContent,
@@ -589,6 +645,7 @@ function jsxComponentNode(
   attributes: Readonly<Record<string, boolean | string>>,
 ): MdxJsxComponentNode {
   const syntax = node.request.node;
+
   return Object.freeze({
     kind: syntax.kind,
     name,
@@ -603,8 +660,12 @@ function componentSource(origin: SourceSpan | undefined): MdxComponentSource | u
     : Object.freeze({ name: origin.file.name, start: origin.start, end: origin.end });
 }
 
+type ReactAttributes = Readonly<
+  Record<string, boolean | number | string | Readonly<Record<string, string>>>
+>;
+
 interface IntrinsicElementContentProps {
-  readonly attributes: Readonly<Record<string, unknown>>;
+  readonly attributes: ReactAttributes;
   readonly children?: React.ReactNode;
   readonly tagName: string;
 }
@@ -621,39 +682,44 @@ function staticStrictJsxAttributes(
   node: HtmlJsxNode,
 ): Readonly<Record<string, boolean | string>> | undefined {
   const attributes: Record<string, boolean | string> = {};
+
   for (const attribute of node.request.node.attributes) {
-    if (attribute.kind !== "jsxAttribute" || typeof attribute.value === "object") {
+    if (attribute.kind !== "jsxAttribute" || isObject(attribute.value)) {
       return;
     }
+
     if (reservedJsxProps.has(attribute.name)) {
       return;
     }
+
     attributes[attribute.name] = attribute.value ?? true;
   }
+
   return attributes;
 }
 
-function reactAttributes(
-  attributes: Readonly<Record<string, HtmlAttributeValue>>,
-  schema: Schema,
-): Readonly<Record<string, boolean | number | string | Readonly<Record<string, string>>>> {
+function reactAttributes(attributes: Readonly<Record<string, HtmlAttributeValue>>, schema: Schema) {
   const result: Record<string, boolean | number | string | Readonly<Record<string, string>>> = {};
+
   for (const [name, value] of Object.entries(attributes)) {
     const reactName = reactAttributeName(name, schema);
     const serialized = isHtmlAttributeList(value) ? value.join(" ") : value;
     result[reactName] =
-      reactName === "style" && typeof serialized === "string"
+      reactName === "style" && isString(serialized)
         ? styleToJs(serialized, { reactCompat: true })
         : serialized;
   }
+
   return result;
 }
 
 function reactAttributeName(name: string, schema: Schema): string {
   const information = find(schema, name);
+
   if (information.attribute.startsWith("aria-") || information.attribute.startsWith("data-")) {
     return information.attribute;
   }
+
   return hastToReact[information.property] ?? information.property;
 }
 
@@ -661,5 +727,5 @@ export function fallback(
   value: DiagnosticFallback | undefined,
   diagnostics: readonly Diagnostic[],
 ): React.ReactNode {
-  return typeof value === "function" ? value(diagnostics) : (value ?? null);
+  return isFunction(value) ? value(diagnostics) : (value ?? null);
 }

@@ -6,11 +6,17 @@ import type {
 } from "../../types/run.ts";
 
 export type WorkflowRunStatusCounts = Record<WorkflowRunStatus, number>;
+
 export type WorkflowRunStatusRunIds = Record<WorkflowRunStatus, string[]>;
+
 export type WorkflowRunTransitionReasonCounts = Record<WorkflowRunTransitionReason, number>;
+
 export type WorkflowRunTransitionReasonRunIds = Record<WorkflowRunTransitionReason, string[]>;
+
 export type WorkflowRunRetryReasonCounts = Record<WorkflowRunRetryReason, number>;
+
 export type WorkflowTerminalRunStatusCounts = Record<WorkflowTerminalRunStatus, number>;
+
 export type WorkflowTerminalRunStatusRunIds = Record<WorkflowTerminalRunStatus, string[]>;
 
 const WORKFLOW_RUN_STATUSES = [
@@ -111,30 +117,29 @@ export function createWorkflowRunRetryReasonCounts(): WorkflowRunRetryReasonCoun
 function createCountBuckets<const TKey extends string>(
   keys: readonly TKey[],
 ): Record<TKey, number> {
-  const buckets = {} as Record<TKey, number>;
-  for (const key of keys) {
-    buckets[key] = 0;
-  }
-  return buckets;
+  const buckets = Object.fromEntries<number>(keys.map((key) => [key, 0]));
+
+  // SAFETY: Callers supply the complete status/reason tuples. Every key has a number entry.
+  return buckets as Record<TKey, number>;
 }
 
 function createRunIdBuckets<const TKey extends string>(
   keys: readonly TKey[],
 ): Record<TKey, string[]> {
-  const buckets = {} as Record<TKey, string[]>;
-  for (const key of keys) {
-    buckets[key] = [];
-  }
-  return buckets;
+  const buckets = Object.fromEntries<string[]>(keys.map((key) => [key, []]));
+
+  // SAFETY: Callers supply the complete status/reason tuples. Every key has its own empty array.
+  return buckets as Record<TKey, string[]>;
 }
 
 function sortedRunIdBuckets<const TKey extends string>(
   keys: readonly TKey[],
   runIds: Record<TKey, readonly string[]>,
 ): Record<TKey, readonly string[]> {
-  const buckets = {} as Record<TKey, readonly string[]>;
-  for (const key of keys) {
-    buckets[key] = [...runIds[key]].sort((left, right) => left.localeCompare(right));
-  }
-  return buckets;
+  const buckets = Object.fromEntries<readonly string[]>(
+    keys.map((key) => [key, [...runIds[key]].sort((left, right) => left.localeCompare(right))]),
+  );
+
+  // SAFETY: Callers supply the complete status/reason tuples. Every key has its sorted run IDs.
+  return buckets as Record<TKey, readonly string[]>;
 }

@@ -1,6 +1,8 @@
 import type { LogAttributes, LogLevel, Logger } from "@temelj/log";
 
 import type { IntervalHandle } from "../timer.ts";
+import type { WorkflowDefinition } from "../types/definition.ts";
+import type { WorkflowRunContext } from "../types/definition.ts";
 import type { WorkflowImplementation } from "../types/definition.ts";
 import type {
   WorkflowDeterministicBytesContext,
@@ -24,10 +26,12 @@ import type {
   WorkflowRunWriterRepository,
   WorkflowStepAttemptLookup,
 } from "../types/store.ts";
+import type { RunTelemetryContext } from "../types/telemetry.ts";
 import type { Telemetry } from "../types/telemetry.ts";
 import type { WorkflowChildWorkflowEngine } from "./child-workflow.ts";
 import type { WorkflowStepLockEngine } from "./lock.ts";
 
+import { omitUndefined } from "../collection.ts";
 import { WorkflowNonRetryableError } from "../errors/failures.ts";
 import { WorkflowHistory } from "../history/mod.ts";
 import { withRunTelemetry, WORKFLOW_ATTRIBUTES, WORKFLOW_SYSTEM } from "../telemetry.ts";
@@ -82,7 +86,10 @@ export interface WorkflowExecutionServiceOptions {
   readonly maximumStepAttemptsPerRun: number;
   readonly limits: WorkflowExecutionLimits;
   readonly engine: WorkflowExecutionStepRuntime;
-  readonly readCurrentRunResult: <TOutput>(runId: RunId) => Promise<ExecutionResult<TOutput>>;
+  readonly readCurrentRunResult: <TOutput>(
+    definition: WorkflowDefinition<unknown, TOutput, unknown>,
+    runId: RunId,
+  ) => Promise<ExecutionResult<TOutput>>;
   readonly emitResultLifecycleEvent: <TOutput>(
     result: ExecutionResult<TOutput>,
     previousRun?: WorkflowRunRecord,
@@ -121,6 +128,7 @@ async function executeWorkflowRunCore<TInput, TOutput, TRawInput = TInput>(
   executionOptions: WorkflowResumeOptions | undefined,
 ): Promise<ExecutionResult<TOutput>> {
   requireDefinitionMatchesRun(implementation.definition, run);
+
   const workflowRetry = resolveWorkflowRetryConfig(
     implementation.config.retry,
     {
@@ -129,9 +137,11 @@ async function executeWorkflowRunCore<TInput, TOutput, TRawInput = TInput>(
     },
     "Workflow retry",
   );
+
   const startedAt = service.now();
   const isClaimedRun = run.status === "running" && run.workerId !== undefined;
   enforceWorkflowEventHistoryNextLimit(await service.store.getEvents(run.id), service.limits);
+
   const runningRun = await patchRun(
     service.store,
     run,
@@ -141,22 +151,27 @@ async function executeWorkflowRunCore<TInput, TOutput, TRawInput = TInput>(
       isClaimedRun ? run.attempts : nextRunAttempt(run.attempts),
     ),
   );
+
   const startedEvents = await service.store.appendEventIfRunCurrent(runningRun, {
     kind: "workflow_started",
     timestamp: startedAt,
   });
+
   if (startedEvents === undefined) {
-    return await service.readCurrentRunResult<TOutput>(run.id);
+    return await service.readCurrentRunResult(implementation.definition, run.id);
   }
+
   if (isClaimedRun) {
     service.observeRunEvent(run);
   }
+
   service.observeRunEvent(runningRun, run);
   service.observeDurableEventAppended(run.id, startedEvents.at(-1)!, startedEvents);
   const history = new WorkflowHistory(startedEvents);
   const replaying = history.hasPriorWorkflowStart();
   const runLogger = scopedRunLogger(service.logger, runningRun, false);
   const handlerLogger = replaying ? replayAwareLogger(runLogger, history) : runLogger;
+
   const environment = {
     store: service.store,
     runId: run.id,
@@ -182,45 +197,67 @@ async function executeWorkflowRunCore<TInput, TOutput, TRawInput = TInput>(
     runningRun,
     executionOptions?.signal ?? new AbortController().signal,
   );
+
   const executionSignal = executionAbort.signal;
   const deterministic = createWorkflowDeterministicApi(environment);
   const step = createStepApi(environment, service.engine, executionSignal, deterministic);
-  const telemetryContext = {
-    run: runningRun,
-    ...(run.telemetryContext === undefined ? {} : { traceContext: run.telemetryContext }),
-  };
+
+  const telemetryContext: RunTelemetryContext = { run: runningRun };
+
+  if (run.telemetryContext !== undefined) {
+    Object.assign(telemetryContext, {
+      traceContext: run.telemetryContext,
+    } satisfies Partial<RunTelemetryContext>);
+  }
 
   const executeClaimedRun = async (): Promise<ExecutionResult<TOutput>> => {
     try {
       history.requireStartedEventsAreUnique();
       history.requireTerminalEventsHaveStartedEvents();
       history.requireTerminalEventsAreUnique();
+
+      const result = {
+        id: runningRun.id,
+        workflowName: runningRun.workflowName,
+      } satisfies Partial<WorkflowRunContext>;
+
+      if (runningRun.workflowVersion !== undefined) {
+        Object.assign(result, {
+          workflowVersion: runningRun.workflowVersion,
+        } satisfies Partial<WorkflowRunContext>);
+      }
+
+      const result1 = Object.assign(result, {
+        createdAt: runningRun.createdAt,
+      } satisfies Partial<WorkflowRunContext>);
+
+      const runContext: WorkflowRunContext = result1;
+
+      // SAFETY: Start and schedule creation prepare input before persistence; requireDefinitionMatchesRun verified this run belongs to the same workflow contract.
       const output = await implementation.handler({
         input: runningRun.input as TInput,
         step,
         deterministic,
         log: handlerLogger,
-        run: {
-          id: runningRun.id,
-          workflowName: runningRun.workflowName,
-          ...(runningRun.workflowVersion === undefined
-            ? {}
-            : { workflowVersion: runningRun.workflowVersion }),
-          createdAt: runningRun.createdAt,
-        },
+        run: runContext,
         signal: executionSignal,
         version: runningRun.workflowVersion,
       });
+
       history.requireReplayConsumed();
       const latestRun = await getRequiredRun(service.store, run.id);
+
       if (latestRun.status === "canceled") {
         return makeCanceledRunResult(latestRun);
       }
+
       if (!isCurrentExecutionOwner(latestRun, runningRun)) {
-        return await service.readCurrentRunResult<TOutput>(run.id);
+        return await service.readCurrentRunResult(implementation.definition, run.id);
       }
+
       const completedAt = service.now();
       enforceWorkflowEventHistoryNextLimit(history.events, service.limits);
+
       const completedRun = await patchCurrentExecutionRun(
         service.store,
         runningRun,
@@ -230,42 +267,52 @@ async function executeWorkflowRunCore<TInput, TOutput, TRawInput = TInput>(
           completedAt,
         ),
       );
+
       if (completedRun === undefined) {
-        return await service.readCurrentRunResult<TOutput>(run.id);
+        return await service.readCurrentRunResult(implementation.definition, run.id);
       }
+
       const completedEvents = await service.store.appendEventIfRunCurrent(completedRun, {
         kind: "workflow_completed",
         timestamp: completedAt,
       });
+
       if (completedEvents === undefined) {
-        return await service.readCurrentRunResult<TOutput>(run.id);
+        return await service.readCurrentRunResult(implementation.definition, run.id);
       }
+
       service.observeDurableEventAppended(run.id, completedEvents.at(-1)!, completedEvents);
       await releaseLocksForRun(service.store, completedRun.id, completedAt);
       await wakeParentRunForTerminalChild(service.store, completedRun, completedAt);
+
       return await service.emitResultLifecycleEvent(
-        makeCompletedRunResult<TOutput>(completedRun),
+        makeCompletedRunResult(implementation.definition, completedRun),
         runningRun,
       );
     } catch (error) {
       const latestRun = await service.store.getRun(run.id);
+
       if (latestRun?.status === "canceled") {
         return makeCanceledRunResult(latestRun);
       }
+
       if (latestRun === undefined || !isCurrentExecutionOwner(latestRun, runningRun)) {
-        return await service.readCurrentRunResult<TOutput>(run.id);
+        return await service.readCurrentRunResult(implementation.definition, run.id);
       }
 
       if (executionOptions?.signal?.aborted === true && isAbortError(error)) {
         const abortedAt = service.now();
+
         const waitingRun = await patchCurrentExecutionRun(
           service.store,
           runningRun,
           transitionRunToExecutionWait(runningRun, abortedAt, abortedAt),
         );
+
         if (waitingRun === undefined) {
-          return await service.readCurrentRunResult<TOutput>(run.id);
+          return await service.readCurrentRunResult(implementation.definition, run.id);
         }
+
         return await service.emitResultLifecycleEvent(
           {
             kind: "waiting",
@@ -279,6 +326,7 @@ async function executeWorkflowRunCore<TInput, TOutput, TRawInput = TInput>(
       if (error instanceof WorkflowSuspended) {
         const suspendedAt = service.now();
         const deadlineAt = runningRun.deadlineAt;
+
         if (
           deadlineAt !== undefined &&
           (error.retryReason !== undefined
@@ -288,6 +336,7 @@ async function executeWorkflowRunCore<TInput, TOutput, TRawInput = TInput>(
           return await service.emitResultLifecycleEvent(
             await failRunForDeadline(
               service.store,
+              implementation.definition,
               runningRun,
               deadlineAt,
               suspendedAt,
@@ -308,9 +357,11 @@ async function executeWorkflowRunCore<TInput, TOutput, TRawInput = TInput>(
             retryStepName: error.retryStep?.name,
           }),
         );
+
         if (waitingRun === undefined) {
-          return await service.readCurrentRunResult<TOutput>(run.id);
+          return await service.readCurrentRunResult(implementation.definition, run.id);
         }
+
         return await service.emitResultLifecycleEvent(
           {
             kind: "waiting",
@@ -324,6 +375,7 @@ async function executeWorkflowRunCore<TInput, TOutput, TRawInput = TInput>(
       const failedAt = service.now();
       const serialized = serializeError(error);
       const workflowAttempt = runningRun.attempts ?? 1;
+
       const failWorkflowRun = async (
         errorRecord: WorkflowErrorRecord,
       ): Promise<ExecutionResult<TOutput>> => {
@@ -332,19 +384,24 @@ async function executeWorkflowRunCore<TInput, TOutput, TRawInput = TInput>(
           runningRun,
           transitionRunToFailed(runningRun, errorRecord, failedAt, "failed"),
         );
+
         if (failedRun === undefined) {
-          return await service.readCurrentRunResult<TOutput>(run.id);
+          return await service.readCurrentRunResult(implementation.definition, run.id);
         }
+
         const failedEvents = await service.store.appendEventIfRunCurrent(failedRun, {
           kind: "workflow_failed",
           timestamp: failedAt,
         });
+
         if (failedEvents === undefined) {
-          return await service.readCurrentRunResult<TOutput>(run.id);
+          return await service.readCurrentRunResult(implementation.definition, run.id);
         }
+
         service.observeDurableEventAppended(run.id, failedEvents.at(-1)!, failedEvents);
         await releaseLocksForRun(service.store, failedRun.id, failedAt);
         await wakeParentRunForTerminalChild(service.store, failedRun, failedAt);
+
         return await service.emitResultLifecycleEvent(
           {
             kind: "failed",
@@ -354,12 +411,14 @@ async function executeWorkflowRunCore<TInput, TOutput, TRawInput = TInput>(
           runningRun,
         );
       };
+
       if (
         !(error instanceof WorkflowNonRetryableError) &&
         shouldRetryWorkflowAttempt(workflowRetry, workflowAttempt)
       ) {
         let retryAt: Temporal.Instant;
         let nextAttempt: number;
+
         try {
           retryAt =
             retryClassificationRetryAt(failedAt, error, "Workflow retry classification") ??
@@ -369,10 +428,19 @@ async function executeWorkflowRunCore<TInput, TOutput, TRawInput = TInput>(
         } catch (retryError) {
           return await failWorkflowRun(serializeError(retryError));
         }
+
         const deadlineAt = runningRun.deadlineAt;
+
         if (deadlineAt !== undefined && Temporal.Instant.compare(deadlineAt, retryAt) <= 0) {
           return await service.emitResultLifecycleEvent(
-            await failRunForDeadline(service.store, runningRun, deadlineAt, failedAt, runningRun),
+            await failRunForDeadline(
+              service.store,
+              implementation.definition,
+              runningRun,
+              deadlineAt,
+              failedAt,
+              runningRun,
+            ),
             runningRun,
           );
         }
@@ -387,9 +455,11 @@ async function executeWorkflowRunCore<TInput, TOutput, TRawInput = TInput>(
             error: serialized,
           }),
         );
+
         if (waitingRun === undefined) {
-          return await service.readCurrentRunResult<TOutput>(run.id);
+          return await service.readCurrentRunResult(implementation.definition, run.id);
         }
+
         return await service.emitResultLifecycleEvent(
           {
             kind: "waiting",
@@ -408,11 +478,13 @@ async function executeWorkflowRunCore<TInput, TOutput, TRawInput = TInput>(
 
   try {
     const result = await withRunTelemetry(service.telemetry, telemetryContext, executeClaimedRun);
+
     try {
       service.telemetry?.recordRunExecution?.({ ...telemetryContext, result });
     } catch {
       return result;
     }
+
     return result;
   } catch (error) {
     try {
@@ -420,23 +492,24 @@ async function executeWorkflowRunCore<TInput, TOutput, TRawInput = TInput>(
     } catch {
       throw error;
     }
+
     throw error;
   }
 }
 
 function scopedRunLogger(logger: Logger, run: WorkflowRunRecord, replaying: boolean): Logger {
-  return logger.child({
-    [WORKFLOW_ATTRIBUTES.system]: WORKFLOW_SYSTEM,
-    [WORKFLOW_ATTRIBUTES.workflowName]: run.workflowName,
-    ...(run.workflowVersion === undefined
-      ? {}
-      : { [WORKFLOW_ATTRIBUTES.workflowVersion]: run.workflowVersion }),
-    [WORKFLOW_ATTRIBUTES.runId]: run.id,
-    [WORKFLOW_ATTRIBUTES.namespace]: run.namespace,
-    [WORKFLOW_ATTRIBUTES.runAttempt]: run.attempts,
-    ...(run.workerId === undefined ? {} : { [WORKFLOW_ATTRIBUTES.workerId]: run.workerId }),
-    [WORKFLOW_ATTRIBUTES.replay]: replaying,
-  });
+  return logger.child(
+    omitUndefined({
+      [WORKFLOW_ATTRIBUTES.system]: WORKFLOW_SYSTEM,
+      [WORKFLOW_ATTRIBUTES.workflowName]: run.workflowName,
+      [WORKFLOW_ATTRIBUTES.workflowVersion]: run.workflowVersion,
+      [WORKFLOW_ATTRIBUTES.runId]: run.id,
+      [WORKFLOW_ATTRIBUTES.namespace]: run.namespace,
+      [WORKFLOW_ATTRIBUTES.runAttempt]: run.attempts,
+      [WORKFLOW_ATTRIBUTES.workerId]: run.workerId,
+      [WORKFLOW_ATTRIBUTES.replay]: replaying,
+    }),
+  );
 }
 
 function replayAwareLogger(logger: Logger, history: WorkflowHistory): Logger {
@@ -486,15 +559,15 @@ class ReplayAwareLogger implements Logger {
     }
   }
 
-  error(message: string, attributes?: LogAttributes & { readonly error?: unknown }): void {
+  error(message: string, cause: unknown, attributes?: LogAttributes): void {
     if (this.#history.isReplayConsumed()) {
-      this.#logger.error(message, attributes);
+      this.#logger.error(message, cause, attributes);
     }
   }
 
-  fatal(message: string, attributes?: LogAttributes & { readonly error?: unknown }): void {
+  fatal(message: string, cause: unknown, attributes?: LogAttributes): void {
     if (this.#history.isReplayConsumed()) {
-      this.#logger.fatal(message, attributes);
+      this.#logger.fatal(message, cause, attributes);
     }
   }
 
@@ -507,11 +580,16 @@ class ReplayAwareLogger implements Logger {
   }
 }
 
+interface WorkflowRunCancellation {
+  readonly signal: AbortSignal;
+  dispose(): void;
+}
+
 function watchRunCancellationWithSignal(
   store: WorkflowRunReaderRepository,
   executionOwner: WorkflowRunRecord,
   parentSignal: AbortSignal,
-): { readonly signal: AbortSignal; dispose(): void } {
+): WorkflowRunCancellation {
   const controller = new AbortController();
   let disposed = false;
   let polling = false;
@@ -520,6 +598,7 @@ function watchRunCancellationWithSignal(
   const abortFromParent = () => {
     controller.abort(parentSignal.reason);
   };
+
   if (parentSignal.aborted) {
     abortFromParent();
   } else {
@@ -530,6 +609,7 @@ function watchRunCancellationWithSignal(
     if (disposed || polling || controller.signal.aborted) {
       return;
     }
+
     polling = true;
     void store
       .getRun(executionOwner.id)
@@ -557,9 +637,11 @@ function watchRunCancellationWithSignal(
     signal: controller.signal,
     dispose() {
       disposed = true;
+
       if (interval !== undefined) {
         clearInterval(interval);
       }
+
       parentSignal.removeEventListener("abort", abortFromParent);
     },
   };

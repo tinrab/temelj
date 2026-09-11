@@ -49,9 +49,11 @@ export class SyntaxHighlightPlugin extends HtmlTransformPlugin {
   public constructor(options: SyntaxHighlightPluginOptions) {
     super();
     const maximum = options.maximumCacheEntries ?? 128;
+
     if (!Number.isSafeInteger(maximum) || maximum < 0) {
       ConfigurationError.invalidCacheCapacity("syntax-highlight", maximum);
     }
+
     this.highlighter = options.highlighter;
     this.maximumCacheEntries = maximum;
     this.mode = options.mode ?? "tolerant";
@@ -62,11 +64,14 @@ export class SyntaxHighlightPlugin extends HtmlTransformPlugin {
       if (!(node instanceof HtmlCodeBlockNode)) {
         return;
       }
+
       const metadata = parseCodeBlockMetadata(node.codeBlock.meta);
+
       if (metadata.kind === "invalid") {
         if (this.mode === "strict") {
           throw new SyntaxHighlightMetadataError(metadata.issues);
         }
+
         for (const issue of metadata.issues) {
           context.diagnostics.add({
             severity: "warning",
@@ -76,14 +81,17 @@ export class SyntaxHighlightPlugin extends HtmlTransformPlugin {
           });
         }
       }
+
       const request: SyntaxHighlightRequest = {
         code: node.codeBlock.code,
         language: node.codeBlock.language,
         metadata: metadata.metadata,
         signal: context.signal,
       };
+
       try {
         const result = this.highlight(request);
+
         return isPromise(result)
           ? result
               .then((element) => anchorHighlight(element, node))
@@ -101,24 +109,30 @@ export class SyntaxHighlightPlugin extends HtmlTransformPlugin {
     if (this.maximumCacheEntries === 0 || request.signal !== undefined) {
       return this.highlighter.highlight(request);
     }
+
     const key = JSON.stringify([request.language, request.metadata.raw, request.code]);
     const cached = this.cache.get(key);
+
     if (cached !== undefined) {
       this.cache.delete(key);
       this.cache.set(key, cached);
+
       return cached;
     }
 
     const result = this.highlighter.highlight(request);
+
     if (result === undefined) {
       return;
     }
+
     const cachedResult = isPromise(result)
       ? result
           .then((element) => {
             if (element === undefined) {
               this.cache.delete(key);
             }
+
             return element;
           })
           .catch((cause: unknown) => {
@@ -126,13 +140,17 @@ export class SyntaxHighlightPlugin extends HtmlTransformPlugin {
             throw cause;
           })
       : result;
+
     this.cache.set(key, cachedResult);
+
     if (this.cache.size > this.maximumCacheEntries) {
       const oldest = this.cache.keys().next().value;
+
       if (oldest !== undefined) {
         this.cache.delete(oldest);
       }
     }
+
     return cachedResult;
   }
 
@@ -143,9 +161,11 @@ export class SyntaxHighlightPlugin extends HtmlTransformPlugin {
     context: HtmlTransformContext,
   ): undefined {
     context.signal?.throwIfAborted();
+
     if (this.mode === "strict") {
       throw cause;
     }
+
     context.diagnostics.add({
       severity: "warning",
       code: "mdx.plugin.syntax-highlight",

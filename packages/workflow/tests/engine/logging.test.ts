@@ -26,20 +26,25 @@ describe("workflow logging", () => {
 
   test("passes scoped loggers to workflow handlers and durable task callbacks", async () => {
     const records: LogRecord[] = [];
+
     const logger = createLogger({
       sink: createMemorySink(records),
       now: () => Temporal.Instant.from("2025-01-01T10:00:00Z"),
     });
+
     const engine = createWorkflowEngine({
       createRunId: () => "run_logging_scope",
       logger,
     });
+
     const workflow = implementWorkflow(
       { name: "logging-scope", version: "v1" },
       async ({ log, step }) => {
         log.info("workflow started");
+
         return await step.task.run({ name: "charge" }, ({ log }) => {
           log.info("step started", { provider: "stripe" });
+
           return "charged";
         });
       },
@@ -85,16 +90,20 @@ describe("workflow logging", () => {
 
   test("does not duplicate workflow-body or completed task logs during replay", async () => {
     const records: LogRecord[] = [];
+
     const logger = createLogger({
       sink: createMemorySink(records),
       now: () => Temporal.Instant.from("2025-01-01T10:00:00Z"),
     });
+
     let now = Temporal.Instant.from("2025-01-01T10:00:00Z");
+
     const engine = createWorkflowEngine({
       createRunId: () => "run_logging_replay",
       logger,
       now: () => now,
     });
+
     const workflow = implementWorkflow({ name: "logging-replay" }, async ({ log, step }) => {
       log.info("workflow body");
       await step.task.run({ name: "work" }, ({ log }) => {
@@ -103,6 +112,7 @@ describe("workflow logging", () => {
       await step.task.sleep("pause", Temporal.Duration.from({ seconds: 1 }));
       log.info("after pause");
       step.log.info("step after pause");
+
       return "done";
     });
 
@@ -125,21 +135,26 @@ describe("workflow logging", () => {
 
   test("keeps first execution logs when pending runs already have messages", async () => {
     const records: LogRecord[] = [];
+
     const logger = createLogger({
       sink: createMemorySink(records),
       now: () => Temporal.Instant.from("2025-01-01T10:00:00Z"),
     });
+
     const engine = createWorkflowEngine({
       createRunId: () => "run_logging_prestart_message",
       logger,
     });
+
     const definition = defineWorkflow<undefined, string>({
       name: "logging-prestart-message",
     });
+
     const workflow = implementWorkflow<undefined, string>(
       { name: "logging-prestart-message" },
       ({ log }) => {
         log.info("workflow first execution");
+
         return "done";
       },
     );
@@ -159,6 +174,7 @@ describe("workflow logging", () => {
       step.log.info("orchestration log");
       // @ts-expect-error step.log is a Logger object, not a callable durable command.
       step.log("not supported");
+
       return "done";
     });
 
@@ -167,9 +183,11 @@ describe("workflow logging", () => {
 
   test("attaches durable task logs to active OpenTelemetry step spans", async () => {
     const spanExporter = new InMemorySpanExporter();
+
     const tracerProvider = new BasicTracerProvider({
       spanProcessors: [new SimpleSpanProcessor(spanExporter)],
     });
+
     context.setGlobalContextManager(new TestContextManager());
     trace.setGlobalTracerProvider(tracerProvider);
 
@@ -181,9 +199,11 @@ describe("workflow logging", () => {
       }),
       telemetry: createOpenTelemetryTelemetry(),
     });
+
     const workflow = implementWorkflow({ name: "logging-otel" }, async ({ step }) => {
       return await step.task.run({ name: "work" }, ({ log }) => {
         log.info("step log", { answer: 42 });
+
         return "done";
       });
     });
@@ -234,11 +254,12 @@ class TestContextManager implements ContextManager {
   with<A extends unknown[], TResult>(
     contextValue: Context,
     fn: (...args: A) => TResult,
-    thisArg?: unknown,
+    thisArg?: ThisParameterType<typeof fn>,
     ...args: A
   ): TResult {
     const previous = this.#active;
     this.#active = contextValue;
+
     try {
       return fn.apply(thisArg, args);
     } finally {
@@ -256,6 +277,7 @@ class TestContextManager implements ContextManager {
 
   disable(): this {
     this.#active = ROOT_CONTEXT;
+
     return this;
   }
 }

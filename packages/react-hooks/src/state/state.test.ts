@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 /* oxlint-disable vitest/require-mock-type-parameters */
 import { err, isErr, isOk, ok } from "@temelj/result";
-import { act, renderHook, waitFor } from "@testing-library/react";
+import { act, render, renderHook, waitFor } from "@testing-library/react";
+import { createElement, Profiler, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import "../test/setup.ts";
@@ -13,13 +14,10 @@ import { useDefault } from "./use-default.ts";
 import { useDisclosure } from "./use-disclosure.ts";
 import { useEnumState } from "./use-enum-state.ts";
 import { useHistoryState } from "./use-history-state.ts";
-import { useIsFirstRender } from "./use-is-first-render.ts";
 import { useLatestRef } from "./use-latest-ref.ts";
 import { useMounted } from "./use-mounted.ts";
 import { useObjectState } from "./use-object-state.ts";
-import { usePreviousDistinct } from "./use-previous-distinct.ts";
 import { usePrevious } from "./use-previous.ts";
-import { useRenderCount } from "./use-render-count.ts";
 import { useRenderInfo } from "./use-render-info.ts";
 import { useResultEffect } from "./use-result-effect.ts";
 import { useResultMemo } from "./use-result-memo.ts";
@@ -34,6 +32,30 @@ afterEach(() => {
 });
 
 describe("state hooks", () => {
+  it("keeps function-valued effect results separate from cleanup", () => {
+    const value = () => "value";
+    const cleanup = vi.fn<() => void>();
+    const hook = renderHook(() => useResultEffect(() => ({ value, cleanup }), []));
+    expect(hook.result.current).toEqual(ok(value));
+    expect(cleanup).not.toHaveBeenCalled();
+    hook.unmount();
+    expect(cleanup).toHaveBeenCalledOnce();
+  });
+  it("useObjectState retains typed dates and callbacks in patches", () => {
+    const original = new Date(0);
+    const updated = new Date(1000);
+    const callback = () => "updated";
+
+    const { result } = renderHook(() =>
+      useObjectState({ date: original, callback: (): string => "original" }),
+    );
+
+    act(() => result.current[1]({ date: updated, callback }));
+    expect(result.current[0].date).toBe(updated);
+    expect(result.current[0].callback).toBe(callback);
+    act(() => result.current[1](() => undefined));
+    expect(result.current[0].date).toBe(updated);
+  });
   it("useCounter manages bounded increments, decrements, set, and reset", () => {
     const { result } = renderHook(() => useCounter(1, { min: 0, max: 3, step: 2 }));
 
@@ -107,6 +129,7 @@ describe("state hooks", () => {
       ({ value }) => useControllableState({ value, defaultValue: 0, onChange }),
       { initialProps: { value: 5 } },
     );
+
     act(() => controlled.result.current[1](6));
     expect(controlled.result.current[0]).toBe(5);
     expect(onChange).toHaveBeenCalledWith(6);
@@ -137,15 +160,16 @@ describe("state hooks", () => {
     expect(undoRedo.result.current.value).toBe(1);
   });
 
-  it("usePrevious and usePreviousDistinct report prior values", () => {
+  it("usePrevious and usePrevious report prior values", () => {
     const previous = renderHook(({ value }) => usePrevious(value), { initialProps: { value: 1 } });
     expect(previous.result.current).toBeUndefined();
     previous.rerender({ value: 2 });
     expect(previous.result.current).toBe(1);
 
-    const distinct = renderHook(({ value }) => usePreviousDistinct(value), {
+    const distinct = renderHook(({ value }) => usePrevious(value), {
       initialProps: { value: 1 },
     });
+
     distinct.rerender({ value: 1 });
     expect(distinct.result.current).toBeUndefined();
     distinct.rerender({ value: 2 });
@@ -162,38 +186,59 @@ describe("state hooks", () => {
     const callback = renderHook(({ value }) => useStableCallback(() => value), {
       initialProps: { value: "a" },
     });
+
     const stable = callback.result.current;
     callback.rerender({ value: "b" });
     expect(callback.result.current).toBe(stable);
     expect(callback.result.current()).toBe("b");
   });
 
-  it("useIsFirstRender, useRenderCount, useMounted, and useRenderInfo expose render diagnostics", () => {
-    const first = renderHook(() => useIsFirstRender());
-    expect(first.result.current).toBe(true);
-    first.rerender();
-    expect(first.result.current).toBe(false);
-
-    const count = renderHook(() => useRenderCount());
-    expect(count.result.current).toBe(1);
-    count.rerender();
-    expect(count.result.current).toBe(2);
-
+  it("useMounted reports lifecycle state", () => {
     const mounted = renderHook(() => useMounted());
     expect(mounted.result.current()).toBe(true);
     mounted.unmount();
     expect(mounted.result.current()).toBe(false);
-
-    const log = vi.spyOn(console, "log").mockImplementation(() => {});
-    const info = renderHook(() => useRenderInfo("StateTest"));
-    expect(info.result.current?.name).toBe("StateTest");
-    expect(log).toHaveBeenCalled();
   });
 
-  it("useRenderInfo returns undefined in production", () => {
-    vi.stubEnv("NODE_ENV", "production");
-    const { result } = renderHook(() => useRenderInfo("Prod"));
-    expect(result.current).toBeUndefined();
+  it("useRenderInfo reports committed Profiler renders", () => {
+    const reports: import("./use-render-info.ts").RenderInfo[] = [];
+
+    function Counter() {
+      const [count, setCount] = useState(0);
+      const onRender = useRenderInfo((info) => reports.push(info));
+
+      return createElement(
+        Profiler,
+        { id: "counter", onRender },
+        createElement("button", { onClick: () => setCount(count + 1) }, count),
+      );
+    }
+
+    const view = render(createElement(Counter));
+    expect(reports).toHaveLength(1);
+    expect(reports[0]).toMatchObject({
+      id: "counter",
+      phase: "mount",
+      renders: 1,
+      sinceLastRender: 0,
+    });
+    act(() => view.getByRole("button").click());
+    expect(reports).toHaveLength(2);
+    expect(reports[1]).toMatchObject({ id: "counter", phase: "update", renders: 2 });
+    expect(reports[1]?.sinceLastRender).toBeGreaterThanOrEqual(0);
+  });
+
+  it("limits history to zero and retains undefined history entries", () => {
+    const disabled = renderHook(() => useUndoRedo(0, { maxHistory: 0 }));
+    act(() => disabled.result.current.set(1));
+    expect(disabled.result.current.past).toEqual([]);
+    expect(disabled.result.current.canUndo).toBe(false);
+    const history = renderHook(() => useHistoryState<string | undefined>(undefined));
+    act(() => history.result.current.set("next"));
+    act(() => history.result.current.undo());
+    expect(history.result.current.state).toBeUndefined();
+    act(() => history.result.current.redo());
+    expect(history.result.current.state).toBe("next");
   });
 
   it("useResultState maps and resets Result state", () => {
@@ -219,9 +264,10 @@ describe("state hooks", () => {
           throw new Error("nope");
         },
         [],
-        (error) => (error as Error).message,
+        (cause) => (cause instanceof Error ? cause.message : String(cause)),
       ),
     );
+
     expect(errMemo.result.current).toEqual(err("nope"));
   });
 
@@ -232,9 +278,10 @@ describe("state hooks", () => {
           throw new Error("sync");
         },
         [],
-        (error) => (error as Error).message,
+        (cause) => (cause instanceof Error ? cause.message : String(cause)),
       ),
     );
+
     await waitFor(() => expect(sync.result.current).toEqual(err("sync")));
 
     const asyncHook = renderHook(() => useAsyncResultEffect(async () => "done", []));

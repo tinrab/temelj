@@ -18,6 +18,7 @@ export function createFormatTracker(info: FormatTrackInfo): FormatTracker {
   let line = info.now.line;
   let column = info.now.column;
   let lineShift = info.lineShift;
+
   return { current, move, shift };
 
   function current(): FormatTrackInfo {
@@ -29,6 +30,7 @@ export function createFormatTracker(info: FormatTrackInfo): FormatTracker {
     const tail = lines.at(-1) ?? "";
     line += lines.length - 1;
     column = lines.length === 1 ? column + tail.length : 1 + tail.length + lineShift;
+
     return value;
   }
 

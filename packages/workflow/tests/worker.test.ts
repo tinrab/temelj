@@ -13,6 +13,7 @@ describe("workflow worker capabilities", () => {
   test("fails early when store coordination capabilities are missing", () => {
     const engine = createWorkflowEngine();
     const registry = new Registry();
+
     const weakEngine = workflowWorkerEngineWithCapabilities(engine, {
       ...engine.store.capabilities,
       conditionalRunClaims: false,

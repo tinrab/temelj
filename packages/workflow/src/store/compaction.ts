@@ -1,6 +1,8 @@
-import { omitUndefined } from "../collection.ts";
+import { omitUndefined, type DefinedProperties } from "../collection.ts";
 
 /** Removes undefined optional fields before persisting a workflow store record. */
-export function compactWorkflowStoreRecord<TRecord extends object>(record: TRecord): TRecord {
-  return omitUndefined(record) as TRecord;
+export function compactWorkflowStoreRecord<TRecord extends object>(
+  record: TRecord,
+): DefinedProperties<TRecord> {
+  return omitUndefined(record);
 }

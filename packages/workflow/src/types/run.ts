@@ -1,4 +1,14 @@
 import { isTemporalStorageValue, type StorageValue } from "@temelj/storage";
+import {
+  isBigInt,
+  isBoolean,
+  isFunction,
+  isNumber,
+  isObject,
+  isPlainObject,
+  isString,
+  isSymbol,
+} from "@temelj/value";
 import { z } from "zod";
 
 import type { WorkflowErrorRecord } from "./error.ts";
@@ -20,8 +30,11 @@ import { workflowTelemetryContextSchema } from "./telemetry.ts";
 import { workerIdSchema } from "./worker-id.ts";
 
 export const WORKFLOW_ATTRIBUTE_MAX_KEY_LENGTH = 128;
+
 export const WORKFLOW_ATTRIBUTE_MAX_COUNT = 64;
+
 export const WORKFLOW_ATTRIBUTE_MAX_VALUE_BYTES = 1_024;
+
 export const WORKFLOW_ATTRIBUTE_RESERVED_PREFIX = "$";
 
 /** Validation issue describing why a value cannot be stored in workflow history. */
@@ -36,6 +49,7 @@ export const workflowPersistedValueSchema: z.ZodType<StorageValue> = z.custom<St
 
 /** Returns the first persistence validation issue for a workflow value, if one exists. */
 export function persistedValueIssue(
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Persistence validation inspects untrusted values before they enter workflow history.
   value: unknown,
   path: string,
   seen: WeakSet<object>,
@@ -44,45 +58,70 @@ export function persistedValueIssue(
   if (value === undefined) {
     return allowUndefined ? undefined : unsupportedUndefinedIssue(path);
   }
-  if (value === null || typeof value === "boolean" || typeof value === "string") {
+
+  if (value === null || isBoolean(value) || isString(value)) {
     return undefined;
   }
-  if (typeof value === "number") {
+
+  if (isNumber(value)) {
     return Number.isFinite(value) ? undefined : { path, message: "number must be finite" };
   }
-  if (typeof value === "bigint") {
+
+  if (isBigInt(value)) {
     return undefined;
   }
-  if (typeof value === "function" || typeof value === "symbol") {
-    return { path, message: `${typeof value} values are not supported` };
-  }
-  if (typeof value !== "object") {
-    return { path, message: `${typeof value} values are not supported` };
-  }
+
+  if (isFunction(value)) return { path, message: "function values are not supported" };
+
+  if (isSymbol(value)) return { path, message: "symbol values are not supported" };
+
+  if (!isObject(value)) return { path, message: "value type is not supported" };
+
   if (seen.has(value)) {
     return { path, message: "circular references are not supported" };
   }
+
   if (value instanceof Date) {
     return Number.isFinite(value.getTime()) ? undefined : { path, message: "Date must be valid" };
   }
+
   if (isTemporalStorageValue(value) || value instanceof RegExp || value instanceof Uint8Array) {
     return undefined;
   }
 
   seen.add(value);
+
   try {
     if (value instanceof Map) {
       return persistedMapIssue(value, path, seen);
     }
+
     if (value instanceof Set) {
       return persistedSetIssue(value, path, seen);
     }
+
     if (Array.isArray(value)) {
       return persistedArrayIssue(value, path, seen);
     }
-    if (isPlainPersistedRecord(value)) {
-      return persistedRecordIssue(value, path, seen);
+
+    if (isPlainObject(value)) {
+      if (
+        Object.getOwnPropertySymbols(value).some((key) =>
+          Object.prototype.propertyIsEnumerable.call(value, key),
+        )
+      ) {
+        return { path, message: "symbol keys are not supported" };
+      }
+
+      for (const [key, item] of Object.entries(value)) {
+        const issue = persistedValueIssue(item, `${path}.${key}`, seen, false);
+
+        if (issue !== undefined) return issue;
+      }
+
+      return undefined;
     }
+
     return { path, message: "object type is not supported" };
   } finally {
     seen.delete(value);
@@ -96,24 +135,12 @@ function persistedArrayIssue(
 ): WorkflowValueIssue | undefined {
   for (const [index, item] of value.entries()) {
     const issue = persistedValueIssue(item, `${path}[${index}]`, seen, false);
-    if (issue !== undefined) {
-      return issue;
-    }
-  }
-  return undefined;
-}
 
-function persistedRecordIssue(
-  value: Readonly<Record<string, unknown>>,
-  path: string,
-  seen: WeakSet<object>,
-): WorkflowValueIssue | undefined {
-  for (const [key, item] of Object.entries(value)) {
-    const issue = persistedValueIssue(item, `${path}.${key}`, seen, false);
     if (issue !== undefined) {
       return issue;
     }
   }
+
   return undefined;
 }
 
@@ -123,17 +150,23 @@ function persistedMapIssue(
   seen: WeakSet<object>,
 ): WorkflowValueIssue | undefined {
   let index = 0;
+
   for (const [key, item] of value) {
     const keyIssue = persistedValueIssue(key, `${path}.<key:${index}>`, seen, false);
+
     if (keyIssue !== undefined) {
       return keyIssue;
     }
+
     const itemIssue = persistedValueIssue(item, `${path}.<value:${index}>`, seen, false);
+
     if (itemIssue !== undefined) {
       return itemIssue;
     }
+
     index++;
   }
+
   return undefined;
 }
 
@@ -143,39 +176,22 @@ function persistedSetIssue(
   seen: WeakSet<object>,
 ): WorkflowValueIssue | undefined {
   let index = 0;
+
   for (const item of value) {
     const issue = persistedValueIssue(item, `${path}.<value:${index}>`, seen, false);
+
     if (issue !== undefined) {
       return issue;
     }
+
     index++;
   }
+
   return undefined;
 }
 
 function unsupportedUndefinedIssue(path: string): WorkflowValueIssue {
   return { path, message: "undefined is not supported here" };
-}
-
-function isPlainPersistedRecord(value: unknown): value is Readonly<Record<string, unknown>> {
-  if (typeof value !== "object" || value === null) {
-    return false;
-  }
-  const prototype = Reflect.getPrototypeOf(value);
-  if (prototype === Object.prototype || prototype === null) {
-    return true;
-  }
-  return isObjectPrototypeNamedObject(prototype);
-}
-
-function isObjectPrototypeNamedObject(prototype: object): boolean {
-  if (!("constructor" in prototype)) {
-    return false;
-  }
-  const constructor = prototype.constructor;
-  return (
-    typeof constructor === "function" && "name" in constructor && constructor.name === "Object"
-  );
 }
 
 export const workflowAttributeKeySchema = z

@@ -35,9 +35,11 @@ async function finalizeWorkflowAppendOutcome(
   if (outcome.status === "staleRun") {
     return undefined;
   }
+
   if (projectionPipeline === undefined) {
     WorkflowStateError.appendProjectionPipelineMissing();
   }
+
   return await projectionPipeline.finalize(outcome);
 }
 
@@ -48,12 +50,14 @@ export async function appendWorkflowEvent(
   event: EventRecord,
 ): Promise<readonly EventRecord[]> {
   await requireReadableStoredWorkflowRun(storage, namespace, runId);
+
   const projectionPipeline = await createWorkflowAppendProjectionPipeline(
     storage,
     namespace,
     runId,
     event,
   );
+
   const outcome = await appendEventWithProjections(
     storage,
     namespace,
@@ -61,6 +65,7 @@ export async function appendWorkflowEvent(
     event,
     projectionPipeline,
   );
+
   return await finalizeWorkflowAppendOutcome(outcome, projectionPipeline);
 }
 
@@ -71,12 +76,14 @@ export async function appendWorkflowEventIfRunCurrent(
   event: EventRecord,
 ): Promise<readonly EventRecord[] | undefined> {
   requireReadableStoreRun(current, namespace);
+
   const appendOutcome = await appendEventWithProjectionPipelineIfRunCurrent(
     storage,
     namespace,
     current,
     event,
   );
+
   return await finalizeWorkflowAppendOutcome(
     appendOutcome.outcome,
     appendOutcome.projectionPipeline,

@@ -1,3 +1,5 @@
+import type { StorageValue } from "@temelj/storage";
+
 import { ss } from "@temelj/standard-schema";
 import { describe, expect, expectTypeOf, test } from "vitest";
 
@@ -15,19 +17,24 @@ describe("workflow webhooks", () => {
       createRunId: () => "run_webhook",
       now: () => Temporal.Instant.from("2026-06-11T10:00:00Z"),
     });
+
     const client = createWorkflowClient({ engine });
     let webhookToken = "";
+
     const workflow = implementWorkflow<undefined, string>(
       { name: "webhook-resume" },
       async ({ step }) => {
-        const webhook = step.hook.createWebhook<{ readonly approved: boolean }>({
+        const webhook = step.hook.createWebhook({
+          schema: ss.object({ approved: ss.boolean() }),
           name: "approval",
           messageId: "webhook.approval",
           timeout: Temporal.Duration.from({ hours: 1 }),
           metadata: { route: "/webhooks/approval" },
         });
+
         webhookToken = webhook.token;
         const payload = await webhook.wait();
+
         return payload.approved ? "approved" : "rejected";
       },
     );
@@ -55,12 +62,18 @@ describe("workflow webhooks", () => {
     const engine = createWorkflowEngine({ createRunId: () => "run_webhook_helper" });
     const client = createWorkflowClient({ engine });
     let webhookToken = "";
+
     const workflow = implementWorkflow<undefined, string>(
       { name: "webhook-helper" },
       async ({ step }) => {
-        const webhook = step.hook.createWebhook<{ readonly status: string }>({ name: "callback" });
+        const webhook = step.hook.createWebhook({
+          schema: ss.object({ status: ss.string() }),
+          name: "callback",
+        });
+
         webhookToken = webhook.token;
         const payload = await webhook;
+
         return payload.status;
       },
     );
@@ -80,14 +93,18 @@ describe("workflow webhooks", () => {
     const engine = createWorkflowEngine({ createRunId: () => "run_webhook_idempotency" });
     const client = createWorkflowClient({ engine });
     let webhookToken = "";
+
     const workflow = implementWorkflow<undefined, boolean>(
       { name: "webhook-idempotency" },
       async ({ step }) => {
-        const webhook = step.hook.createWebhook<{ readonly approved: boolean }>({
+        const webhook = step.hook.createWebhook({
+          schema: ss.object({ approved: ss.boolean() }),
           name: "approval",
         });
+
         webhookToken = webhook.token;
         const payload = await webhook;
+
         return payload.approved;
       },
     );
@@ -107,6 +124,7 @@ describe("workflow webhooks", () => {
     const messageEvents = (await engine.getEvents("run_webhook_idempotency")).filter(
       (event) => event.kind === "message_sent",
     );
+
     expect(messageEvents).toHaveLength(1);
     await expect(engine.resumeWorkflow(workflow, "run_webhook_idempotency")).resolves.toMatchObject(
       {
@@ -120,14 +138,18 @@ describe("workflow webhooks", () => {
     const engine = createWorkflowEngine({ createRunId: () => "run_dispose_webhook" });
     const client = createWorkflowClient({ engine });
     let webhookToken = "";
+
     const workflow = implementWorkflow<undefined, boolean>(
       { name: "dispose-webhook" },
       async ({ step }) => {
-        const webhook = step.hook.createWebhook<{ readonly approved: boolean }>({
+        const webhook = step.hook.createWebhook({
+          schema: ss.object({ approved: ss.boolean() }),
           name: "approval",
         });
+
         webhookToken = webhook.token;
         const payload = await webhook;
+
         return payload.approved;
       },
     );
@@ -143,9 +165,11 @@ describe("workflow webhooks", () => {
     const failed = await engine.resumeWorkflow(workflow, "run_dispose_webhook");
 
     expect(failed.kind).toBe("failed");
+
     if (failed.kind !== "failed") {
       throw new Error("Expected disposed webhook to fail the run");
     }
+
     expect(failed.error.name).toBe("WorkflowHookDisposedError");
   });
 
@@ -153,14 +177,18 @@ describe("workflow webhooks", () => {
     const engine = createWorkflowEngine({ createRunId: () => "run_webhook_conflict" });
     const client = createWorkflowClient({ engine });
     let webhookToken = "";
+
     const workflow = implementWorkflow<undefined, boolean>(
       { name: "webhook-conflict" },
       async ({ step }) => {
-        const webhook = step.hook.createWebhook<{ readonly approved: boolean }>({
+        const webhook = step.hook.createWebhook({
+          schema: ss.object({ approved: ss.boolean() }),
           name: "approval",
         });
+
         webhookToken = webhook.token;
         const payload = await webhook;
+
         return payload.approved;
       },
     );
@@ -186,6 +214,7 @@ describe("workflow webhooks", () => {
     const client = createWorkflowClient({ engine });
     const schema = ss.object({ approved: ss.boolean() });
     let webhookToken = "";
+
     const workflow = implementWorkflow<undefined, boolean>(
       { name: "webhook-schema" },
       async ({ step }) => {
@@ -193,9 +222,11 @@ describe("workflow webhooks", () => {
           name: "approval",
           schema,
         });
+
         webhookToken = webhook.token;
         const payload = await webhook.wait();
         expectTypeOf(payload).toEqualTypeOf<{ readonly approved: boolean }>();
+
         return payload.approved;
       },
     );
@@ -207,9 +238,11 @@ describe("workflow webhooks", () => {
     const failed = await engine.resumeWorkflow(workflow, "run_webhook_schema");
 
     expect(failed.kind).toBe("failed");
+
     if (failed.kind !== "failed") {
       throw new Error("Expected webhook schema validation to fail");
     }
+
     expect(failed.error.message).toContain("Workflow message validation failed");
   });
 
@@ -219,8 +252,9 @@ describe("workflow webhooks", () => {
         name: "typed",
         schema: ss.object({ approved: ss.boolean() }),
       });
+
       expectTypeOf(webhook.token).toEqualTypeOf<string>();
-      expectTypeOf(webhook.metadata).toEqualTypeOf<unknown>();
+      expectTypeOf(webhook.metadata).toEqualTypeOf<StorageValue | undefined>();
       expectTypeOf(webhook.wait()).toEqualTypeOf<Promise<{ readonly approved: boolean }>>();
     });
     expectTypeOf<ReturnType<typeof parseWebhookToken>>().toEqualTypeOf<{

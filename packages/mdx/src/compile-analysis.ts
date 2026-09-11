@@ -1,3 +1,5 @@
+import { isString } from "@temelj/value";
+
 import { CompileError } from "./errors.ts";
 import { normalizeIdentifier } from "./identifier.ts";
 import {
@@ -109,29 +111,38 @@ export function analyzeDocument(
   for (const { node } of walkTree<MdxNode>(document, (value) => value.children)) {
     if (node instanceof DefinitionNode) {
       const identifier = normalizeIdentifier(node.identifier);
+
       if (!definitions.has(identifier)) {
         definitions.set(identifier, node);
       }
+
       continue;
     }
+
     if (!(node instanceof FootnoteReferenceNode)) {
       continue;
     }
+
     const definition = document.footnote(node.identifier);
+
     if (definition === undefined) {
       continue;
     }
+
     const identifier = normalizeIdentifier(node.identifier);
     let index = footnoteIndexes.get(identifier);
+
     if (index === undefined) {
       index = footnoteDrafts.length;
       footnoteIndexes.set(identifier, index);
       footnoteDrafts.push({ definition, identifier, ordinal: index + 1 });
     }
+
     const occurrence = (footnoteCounts.get(identifier) ?? 0) + 1;
     footnoteCounts.set(identifier, occurrence);
     footnoteReferences.set(node, { occurrence, ordinal: index + 1 });
   }
+
   const footnotes = footnoteDrafts.map((footnote): CompiledFootnote => ({
     ...footnote,
     count: footnoteCounts.get(footnote.identifier) ?? 1,
@@ -141,6 +152,7 @@ export function analyzeDocument(
     if (!(child instanceof EsmNode)) {
       continue;
     }
+
     const program = parseJavaScriptProgram(child.code);
     collectProgramBindings(program, inScope);
     esm.push({ code: child.code, span: child.origin });
@@ -159,36 +171,47 @@ export function analyzeDocument(
     referencedComponents,
     sourceName: options.sourceName ?? "source.mdx",
   };
+
   const esmContext: CompilerState = {
     ...state,
     missingReferences: new Map(),
     referencedComponents: new Set(),
   };
+
   let hasInternalLayout = false;
+
   const compiledEsm = esm.map((entry): CompiledEsm => {
     const jsx = transformJavaScriptProgram(
       entry.code,
       esmContext,
       entry.span === undefined ? undefined : { file: entry.span.file, offset: entry.span.start },
     );
+
     const transformed = transformEsm(jsx, parseJavaScriptProgram(jsx));
+
     if (transformed.hasDefaultExport) {
       if (hasInternalLayout) {
         CompileError.multipleDefaultExports();
       }
+
       hasInternalLayout = true;
     }
+
     return { code: transformed.code, span: entry.span };
   });
+
   const result = {
     ...state,
     esm: compiledEsm,
     hasInternalLayout,
   };
+
   analyzeContentReferences(document, result);
+
   if (footnotes.length > 0) {
     addIntrinsic(result, "a", "h2", "li", "ol", "section", "sup");
   }
+
   return result;
 }
 
@@ -204,10 +227,13 @@ function analyzeNodeReferences(
 ): void {
   if (node instanceof InlineExpressionNode || node instanceof BlockExpressionNode) {
     analyzeJavaScriptExpression(node.code, state);
+
     return;
   }
+
   if (node instanceof JsxTextElementNode || node instanceof JsxFlowElementNode) {
     recordJsxReference(resolveJsxName(node.name), state);
+
     for (const attribute of node.attributes) {
       if (attribute instanceof JsxSpreadAttributeNode) {
         analyzeJavaScriptExpression(attribute.code.slice(3).trimStart(), state);
@@ -215,9 +241,12 @@ function analyzeNodeReferences(
         analyzeJavaScriptExpression(attribute.value.code, state);
       }
     }
+
     analyzeChildren(node.children, state);
+
     return;
   }
+
   if (
     node instanceof TextNode ||
     node instanceof RawHtmlInlineNode ||
@@ -225,6 +254,7 @@ function analyzeNodeReferences(
   ) {
     return;
   }
+
   if (node instanceof ParagraphNode) {
     addIntrinsic(state, "p");
     analyzeChildren(node.children, state);
@@ -274,9 +304,11 @@ function analyzeNodeReferences(
     analyzeChildren(node.items, state);
   } else if (node instanceof ListItemNode) {
     addIntrinsic(state, "li");
+
     if (node.checked !== undefined) {
       addIntrinsic(state, "input");
     }
+
     analyzeChildren(visible(node.children), state);
   } else if (node instanceof TableNode) {
     analyzeTableReferences(node, state);
@@ -315,14 +347,18 @@ function analyzeChildren(
 
 function analyzeTableReferences(table: TableNode, state: CompilerState): void {
   addIntrinsic(state, "table");
+
   if (table.children.length > 0) {
     addIntrinsic(state, "thead");
   }
+
   if (table.children.length > 1) {
     addIntrinsic(state, "tbody");
   }
+
   for (const [rowIndex, row] of table.children.entries()) {
     addIntrinsic(state, "tr");
+
     for (const cell of row.children) {
       addIntrinsic(state, rowIndex === 0 ? "th" : "td");
       analyzeChildren(cell.children, state);
@@ -350,25 +386,27 @@ export function visible<T extends SyntaxNode<string>>(nodes: readonly T[]): T[] 
   );
 }
 
-function transformEsm(
-  source: string,
-  program: JavaScriptNode,
-): { readonly code: string; readonly hasDefaultExport: boolean } {
+function transformEsm(source: string, program: JavaScriptNode) {
   const body = nodeArray(program, "body");
   let cursor = 0;
   let hasDefaultExport = false;
   const result: string[] = [];
+
   for (const statement of body) {
     result.push(source.slice(cursor, statement.start));
+
     if (statement.type === "ExportDefaultDeclaration") {
       hasDefaultExport = true;
       const declaration = childNode(nodeValue(statement, "declaration"));
+
       if (declaration === undefined) {
         CompileError.defaultExportDeclarationMissing();
       }
+
       result.push(`const Layout = (${source.slice(declaration.start, declaration.end)});`);
     } else if (statement.type === "ExportNamedDeclaration") {
       const transformed = transformNamedDefaultExport(source, statement);
+
       if (transformed === undefined) {
         result.push(source.slice(statement.start, statement.end));
       } else {
@@ -378,9 +416,12 @@ function transformEsm(
     } else {
       result.push(source.slice(statement.start, statement.end));
     }
+
     cursor = statement.end;
   }
+
   result.push(source.slice(cursor));
+
   return { code: result.join(""), hasDefaultExport };
 }
 
@@ -389,25 +430,31 @@ function transformNamedDefaultExport(
   statement: JavaScriptNode,
 ): string | undefined {
   const specifiers = nodeArray(statement, "specifiers");
+
   const layout = specifiers.find(
     (specifier) => identifierValue(childNode(nodeValue(specifier, "exported"))) === "default",
   );
+
   if (layout === undefined) {
     return undefined;
   }
 
   const local = childNode(nodeValue(layout, "local"));
   const localName = identifierValue(local);
+
   if (local === undefined || localName === undefined) {
     CompileError.defaultExportBindingMissing();
   }
 
   const from = childNode(nodeValue(statement, "source"));
+
   const layoutDeclaration =
     from === undefined
       ? `const Layout = ${localName};`
       : `import {${localName} as Layout} from ${source.slice(from.start, from.end)};`;
+
   const remaining = specifiers.filter((specifier) => specifier !== layout);
+
   if (remaining.length === 0) {
     return layoutDeclaration;
   }
@@ -416,6 +463,7 @@ function transformNamedDefaultExport(
     from === undefined
       ? ";"
       : ` from ${source.slice(from.start, statement.end).replace(/;?$/u, ";")}`;
+
   return `${layoutDeclaration}\nexport {${remaining
     .map((specifier) => source.slice(specifier.start, specifier.end))
     .join(", ")}}${suffix}`;
@@ -439,15 +487,18 @@ function identifierValue(node: JavaScriptNode | undefined): string | undefined {
   if (node === undefined) {
     return undefined;
   }
+
   const name = nodeValue(node, "name");
   const value = nodeValue(node, "value");
-  return typeof name === "string" ? name : typeof value === "string" ? value : undefined;
+
+  return isString(name) ? name : isString(value) ? value : undefined;
 }
 
 function collectDeclarationNames(node: JavaScriptNode | undefined, names: Set<string>): void {
   if (node === undefined) {
     return;
   }
+
   if (node.type === "VariableDeclaration") {
     for (const declaration of nodeArray(node, "declarations")) {
       collectPatternNames(childNode(nodeValue(declaration, "id")), names);

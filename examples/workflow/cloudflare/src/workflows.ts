@@ -1,3 +1,4 @@
+import { ss } from "@temelj/standard-schema";
 import { defineWorkflowBundle, implementWorkflow } from "@temelj/workflow";
 
 export interface GreetingInput {
@@ -15,15 +16,19 @@ export const greetingWorkflow = implementWorkflow<GreetingInput, GreetingResult>
   { name: "cloudflare-greeting" },
   async ({ input, step }) => {
     const approved = input.waitForApproval
-      ? await step.message.wait<boolean>({
+      ? await step.message.wait({
+          schema: ss.boolean(),
           messageId: "approval",
           timeout: Temporal.Duration.from({ minutes: 5 }),
         })
       : true;
+
     const message = await step.task.run({ name: "create-greeting" }, () => {
       return `Hello, ${input.name}!`;
     });
+
     const executionId = await step.deterministic.uuid("execution-id");
+
     return { approved, executionId, message };
   },
 );

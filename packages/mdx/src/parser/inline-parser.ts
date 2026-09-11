@@ -64,8 +64,10 @@ export function parseInline(input: InlineInput, syntax: ResolvedSyntaxOptions): 
   const output: Output[] = [];
   const delimiters: Delimiter[] = [];
   const brackets: Bracket[] = [];
+
   const invalid: { range: ReturnType<InlineInput["sourceRange"]>; syntax: "expression" | "jsx" }[] =
     [];
+
   const references = new Set<string>();
   const footnotes = new Set<string>();
   let textStart = 0;
@@ -75,13 +77,16 @@ export function parseInline(input: InlineInput, syntax: ResolvedSyntaxOptions): 
     if (end > textStart) {
       output.push(textNode(input, value, textStart, end));
     }
+
     textStart = end;
   };
 
   while (offset < value.length) {
     const character = value[offset];
+
     if (character === ":" && syntax.directives) {
       const directive = inlineDirective(input, value, offset);
+
       if (directive !== undefined) {
         flushText(offset);
         output.push(directive.node);
@@ -90,8 +95,10 @@ export function parseInline(input: InlineInput, syntax: ResolvedSyntaxOptions): 
         continue;
       }
     }
+
     if (character === "\\" && value[offset + 1] === "(" && syntax.math.includes("tex")) {
       const math = texMath(input, value, offset);
+
       if (math !== undefined) {
         flushText(offset);
         output.push(math.node);
@@ -100,8 +107,10 @@ export function parseInline(input: InlineInput, syntax: ResolvedSyntaxOptions): 
         continue;
       }
     }
+
     if (character === "$" && syntax.math.includes("dollar")) {
       const math = dollarMath(input, value, offset);
+
       if (math !== undefined) {
         flushText(offset);
         output.push(math.node);
@@ -110,11 +119,14 @@ export function parseInline(input: InlineInput, syntax: ResolvedSyntaxOptions): 
         continue;
       }
     }
+
     if (character === "\n" || character === "\r") {
       let spaces = offset;
+
       while (spaces > textStart && value[spaces - 1] === " ") {
         spaces--;
       }
+
       if (offset - spaces >= 2) {
         flushText(spaces);
         const end = character === "\r" && value[offset + 1] === "\n" ? offset + 2 : offset + 1;
@@ -124,7 +136,9 @@ export function parseInline(input: InlineInput, syntax: ResolvedSyntaxOptions): 
         continue;
       }
     }
+
     const literalAutolink = matchLiteralAutolink(input, value, offset);
+
     if (literalAutolink !== undefined) {
       flushText(offset);
       output.push(literalAutolink.node);
@@ -132,6 +146,7 @@ export function parseInline(input: InlineInput, syntax: ResolvedSyntaxOptions): 
       textStart = offset;
       continue;
     }
+
     if (character === "[" || (character === "!" && value[offset + 1] === "[")) {
       const image = character === "!";
       flushText(offset);
@@ -142,11 +157,14 @@ export function parseInline(input: InlineInput, syntax: ResolvedSyntaxOptions): 
       textStart = offset;
       continue;
     }
+
     if (character === "]") {
       const bracket = brackets.at(-1);
+
       if (bracket !== undefined) {
         flushText(offset);
         brackets.pop();
+
         const resolved = resolveBracket(
           input,
           value,
@@ -157,9 +175,11 @@ export function parseInline(input: InlineInput, syntax: ResolvedSyntaxOptions): 
           references,
           footnotes,
         );
+
         if (resolved !== undefined) {
           offset = resolved;
           textStart = offset;
+
           if (!bracket.image) {
             for (const opener of brackets) {
               if (!opener.image) {
@@ -167,16 +187,20 @@ export function parseInline(input: InlineInput, syntax: ResolvedSyntaxOptions): 
               }
             }
           }
+
           continue;
         }
+
         output.push(textNode(input, value, offset, offset + 1));
         offset++;
         textStart = offset;
         continue;
       }
     }
+
     if (character === "\\") {
       const next = value[offset + 1];
+
       if (next === "\n" || next === "\r") {
         flushText(offset);
         const end = next === "\r" && value[offset + 2] === "\n" ? offset + 3 : offset + 2;
@@ -185,6 +209,7 @@ export function parseInline(input: InlineInput, syntax: ResolvedSyntaxOptions): 
         textStart = offset;
         continue;
       }
+
       if (next !== undefined && isAsciiPunctuation(next)) {
         flushText(offset);
         output.push(textNode(input, value, offset + 1, offset + 2));
@@ -193,8 +218,10 @@ export function parseInline(input: InlineInput, syntax: ResolvedSyntaxOptions): 
         continue;
       }
     }
+
     if (character === "`") {
       const code = codeSpan(input, value, offset);
+
       if (code !== undefined) {
         flushText(offset);
         output.push(code.node);
@@ -203,8 +230,10 @@ export function parseInline(input: InlineInput, syntax: ResolvedSyntaxOptions): 
         continue;
       }
     }
+
     if (character === "&") {
       const reference = characterReference(input, value, offset);
+
       if (reference !== undefined) {
         flushText(offset);
         output.push(reference.node);
@@ -213,37 +242,47 @@ export function parseInline(input: InlineInput, syntax: ResolvedSyntaxOptions): 
         continue;
       }
     }
+
     if (character === "{") {
       const expression = expressionNode(input, value, offset);
+
       if (expression !== undefined) {
         flushText(offset);
+
         if (expression.node === undefined) {
           invalid.push({ range: input.sourceRange(offset, expression.end), syntax: "expression" });
           output.push(textNode(input, value, offset, expression.end));
         } else {
           output.push(expression.node);
         }
+
         offset = expression.end;
         textStart = offset;
         continue;
       }
     }
+
     if (character === "<") {
       const angle = angleNode(input, value, offset);
+
       if (angle !== undefined) {
         flushText(offset);
+
         if (angle.invalid) {
           invalid.push({ range: input.sourceRange(offset, angle.end), syntax: "jsx" });
         }
+
         output.push(angle.node);
         offset = angle.end;
         textStart = offset;
         continue;
       }
     }
+
     if (character === "*" || character === "_" || character === "~") {
       const runEnd = markerRunEnd(value, offset, character);
       const length = runEnd - offset;
+
       if (character !== "~" || length >= (syntax.singleTilde ? 1 : 2)) {
         flushText(offset);
         const delimiter = createDelimiter(value, offset, runEnd, character);
@@ -255,11 +294,14 @@ export function parseInline(input: InlineInput, syntax: ResolvedSyntaxOptions): 
         continue;
       }
     }
+
     offset++;
   }
+
   flushText(value.length);
 
   const pending = pendingInline(input, value, output, syntax);
+
   const nodes = mergeText(
     output.map((entry) =>
       isDelimiter(entry)
@@ -269,6 +311,7 @@ export function parseInline(input: InlineInput, syntax: ResolvedSyntaxOptions): 
           : entry,
     ),
   );
+
   return {
     nodes: nodes,
     invalid: invalid.map((entry) => entry),
@@ -285,11 +328,14 @@ function pendingInline(
   syntax: ResolvedSyntaxOptions,
 ): InlinePendingSyntax | undefined {
   const candidates: PendingCandidate[] = [];
+
   for (let index = output.length - 1; index >= 0; index--) {
     const opener = output[index];
+
     if (!isDelimiter(opener) || !opener.canOpen || index === output.length - 1) {
       continue;
     }
+
     const kind =
       opener.marker === "~"
         ? opener.length >= (syntax.singleTilde ? 1 : 2)
@@ -298,9 +344,11 @@ function pendingInline(
         : opener.length >= 2
           ? "strong"
           : "emphasis";
+
     if (kind === undefined || isUnicodeWhitespace(value[opener.start + opener.length] ?? "")) {
       continue;
     }
+
     const children = output
       .slice(index + 1)
       .map((entry) =>
@@ -310,6 +358,7 @@ function pendingInline(
             ? bracketText(input, entry)
             : entry,
       );
+
     candidates.push({
       start: opener.start,
       pending: {
@@ -326,12 +375,16 @@ function pendingInline(
       offset++;
       continue;
     }
+
     const matched = codeSpan(input, value, offset);
+
     if (matched !== undefined) {
       offset = matched.end;
       continue;
     }
+
     const openingEnd = markerRunEnd(value, offset, "`");
+
     if (openingEnd < value.length) {
       candidates.push({
         start: offset,
@@ -342,10 +395,12 @@ function pendingInline(
         },
       });
     }
+
     break;
   }
 
   const pendingLink = /(!?)\[([^\]]+)\]\(([^)]*)$/u.exec(value);
+
   if (pendingLink !== null) {
     const start = pendingLink.index;
     const image = pendingLink[1] === "!";
@@ -367,6 +422,7 @@ function pendingInline(
 
   if (syntax.math.includes("tex")) {
     const start = value.lastIndexOf("\\(");
+
     if (start !== -1 && value.indexOf("\\)", start + 2) === -1 && start + 2 < value.length) {
       candidates.push({
         start,
@@ -379,8 +435,10 @@ function pendingInline(
       });
     }
   }
+
   if (syntax.math.includes("dollar")) {
     const start = value.lastIndexOf("$");
+
     if (start !== -1 && start + 1 < value.length && !isUnicodeWhitespace(value[start + 1])) {
       candidates.push({
         start,
@@ -393,6 +451,7 @@ function pendingInline(
       });
     }
   }
+
   return candidates.sort((left, right) => right.start - left.start)[0]?.pending;
 }
 
@@ -404,32 +463,44 @@ function inlineDirective(
   if (value[start + 1] === ":") {
     return;
   }
+
   const name = /^[A-Za-z][\w-]*/u.exec(value.slice(start + 1))?.[0];
+
   if (name === undefined) {
     return;
   }
+
   let cursor = start + 1 + name.length;
   let label: readonly InlineSyntax[] = [];
+
   if (value[cursor] === "[") {
     const close = findUnescapedInline(value, "]", cursor + 1);
+
     if (close === undefined) {
       return;
     }
+
     label = [textNode(input, value, cursor + 1, close)];
     cursor = close + 1;
   }
+
   let attributes: readonly InlineDirectiveAttribute[] = [];
+
   if (value[cursor] === "{") {
     const close = findUnescapedInline(value, "}", cursor + 1);
+
     if (close === undefined) {
       return;
     }
+
     attributes = parseInlineDirectiveAttributes(value.slice(cursor + 1, close));
     cursor = close + 1;
   }
+
   if (label.length === 0 && attributes.length === 0) {
     return;
   }
+
   return {
     end: cursor,
     node: {
@@ -445,6 +516,7 @@ function inlineDirective(
 function parseInlineDirectiveAttributes(source: string): readonly InlineDirectiveAttribute[] {
   const attributes: InlineDirectiveAttribute[] = [];
   const pattern = /([A-Za-z_:][\w:.-]*)(?:=(?:"([^"]*)"|'([^']*)'|([^\s]+)))?|([.#])([\w-]+)/gu;
+
   for (const match of source.matchAll(pattern)) {
     const shortcut = match[5];
     attributes.push({
@@ -452,18 +524,23 @@ function parseInlineDirectiveAttributes(source: string): readonly InlineDirectiv
       value: shortcut === undefined ? (match[2] ?? match[3] ?? match[4] ?? "") : match[6],
     });
   }
+
   return attributes;
 }
 
 function texMath(input: InlineInput, value: string, start: number): InlineMatch | undefined {
   let close = value.indexOf("\\)", start + 2);
+
   while (close !== -1 && escapedAt(value, close, start + 2)) {
     close = value.indexOf("\\)", close + 2);
   }
+
   if (close === -1) {
     return;
   }
+
   const end = close + 2;
+
   return {
     end,
     node: {
@@ -479,14 +556,19 @@ function dollarMath(input: InlineInput, value: string, start: number): InlineMat
   if (value[start + 1] === undefined || isUnicodeWhitespace(value[start + 1])) {
     return;
   }
+
   let close = value.indexOf("$", start + 1);
+
   while (close !== -1 && escapedAt(value, close, start + 1)) {
     close = value.indexOf("$", close + 1);
   }
+
   if (close === -1 || close === start + 1 || isUnicodeWhitespace(value[close - 1])) {
     return;
   }
+
   const end = close + 1;
+
   return {
     end,
     node: {
@@ -504,25 +586,33 @@ function matchLiteralAutolink(
   start: number,
 ): InlineMatch | undefined {
   const before = value[start - 1];
+
   if (before !== undefined && /[\p{L}\p{N}_]/u.test(before)) {
     return;
   }
+
   const rest = value.slice(start);
   const url = /^(?:https?:\/\/|www\.)[^\s<>]+/iu.exec(rest)?.[0];
   const email = /^[\w.+-]+@[A-Za-z\d-]+(?:\.[A-Za-z\d-]+)+/u.exec(rest)?.[0];
   let label = url ?? email;
+
   if (label === undefined) {
     return;
   }
+
   if (url !== undefined) {
     label = trimAutolinkPunctuation(label);
   }
+
   if (label === "") {
     return;
   }
+
   const end = start + label.length;
+
   const destination =
     email !== undefined ? `mailto:${label}` : label.startsWith("www.") ? `http://${label}` : label;
+
   return {
     end,
     node: {
@@ -537,9 +627,11 @@ function matchLiteralAutolink(
 
 function trimAutolinkPunctuation(value: string): string {
   let end = value.length;
+
   while (end > 0 && /[!"'*,.:;?]/u.test(value[end - 1])) {
     end--;
   }
+
   while (
     end > 0 &&
     value[end - 1] === ")" &&
@@ -547,16 +639,19 @@ function trimAutolinkPunctuation(value: string): string {
   ) {
     end--;
   }
+
   return value.slice(0, end);
 }
 
 function countCharacter(value: string, character: string): number {
   let count = 0;
+
   for (const candidate of value) {
     if (candidate === character) {
       count++;
     }
   }
+
   return count;
 }
 
@@ -571,13 +666,17 @@ function resolveBracket(
   footnotes: Set<string>,
 ): number | undefined {
   const outputIndex = output.indexOf(bracket);
+
   if (outputIndex === -1) {
     throw new Error("Bracket stack diverged from inline output");
   }
+
   if (!bracket.active) {
     output[outputIndex] = bracketText(input, bracket);
+
     return;
   }
+
   const children = output
     .slice(outputIndex + 1)
     .map((entry) =>
@@ -587,8 +686,10 @@ function resolveBracket(
           ? bracketText(input, entry)
           : entry,
     );
+
   const labelStart = bracket.start + (bracket.image ? 2 : 1);
   const label = value.slice(labelStart, close);
+
   if (
     !bracket.image &&
     label.startsWith("^") &&
@@ -603,12 +704,15 @@ function resolveBracket(
       identifier,
     });
     removeDetachedDelimiters(output, delimiters);
+
     return close + 1;
   }
 
   const inline = value[close + 1] === "(" ? linkDestination(value, close + 2) : undefined;
+
   if (inline !== undefined) {
     const destination = decodeLinkString(inline.destination);
+
     const node: InlineSyntax = bracket.image
       ? {
           kind: "image",
@@ -624,19 +728,26 @@ function resolveBracket(
           title: inline.title === undefined ? undefined : decodeLinkString(inline.title),
           children: mergeText(children),
         };
+
     output.splice(outputIndex, output.length - outputIndex, node);
     removeDetachedDelimiters(output, delimiters);
+
     return inline.end;
   }
 
   const reference = referenceSuffix(value, close + 1);
+
   const referenceKind =
     reference === undefined ? "shortcut" : reference.label === "" ? "collapsed" : "full";
+
   const identifier = normalizeIdentifier(reference?.label || label);
+
   if (identifier === "") {
     output[outputIndex] = bracketText(input, bracket);
+
     return;
   }
+
   references.add(identifier);
   const end = reference?.end ?? close + 1;
   output.splice(outputIndex, output.length - outputIndex, {
@@ -648,6 +759,7 @@ function resolveBracket(
     children: mergeText(children),
   });
   removeDetachedDelimiters(output, delimiters);
+
   return end;
 }
 
@@ -659,25 +771,33 @@ interface LinkDestinationResult {
 
 function linkDestination(value: string, start: number): LinkDestinationResult | undefined {
   let cursor = start;
+
   while (value[cursor] === " " || value[cursor] === "\t" || value[cursor] === "\n") {
     cursor++;
   }
+
   let destination = "";
+
   if (value[cursor] === "<") {
     const end = findUnescapedInline(value, ">", cursor + 1);
+
     if (end === undefined || /[\r\n<]/u.test(value.slice(cursor + 1, end))) {
       return;
     }
+
     destination = value.slice(cursor + 1, end);
     cursor = end + 1;
   } else {
     const destinationStart = cursor;
     let depth = 0;
+
     while (cursor < value.length) {
       const character = value[cursor];
+
       if (isUnicodeWhitespace(character)) {
         break;
       }
+
       if (character === "(" && !escapedAt(value, cursor, destinationStart)) {
         if (++depth > 32) {
           return;
@@ -686,36 +806,50 @@ function linkDestination(value: string, start: number): LinkDestinationResult | 
         if (depth === 0) {
           break;
         }
+
         depth--;
       }
+
       cursor++;
     }
+
     if (depth !== 0) {
       return;
     }
+
     destination = value.slice(destinationStart, cursor);
   }
+
   const beforeWhitespace = cursor;
+
   while (isUnicodeWhitespace(value[cursor] ?? "")) {
     cursor++;
   }
+
   let title: string | undefined;
+
   if (cursor !== beforeWhitespace && value[cursor] !== ")") {
     const opener = value[cursor];
     const closer = opener === "(" ? ")" : opener === "'" ? "'" : opener === '"' ? '"' : undefined;
+
     if (closer === undefined) {
       return;
     }
+
     const titleEnd = findUnescapedInline(value, closer, cursor + 1);
+
     if (titleEnd === undefined) {
       return;
     }
+
     title = value.slice(cursor + 1, titleEnd);
     cursor = titleEnd + 1;
+
     while (isUnicodeWhitespace(value[cursor] ?? "")) {
       cursor++;
     }
   }
+
   return value[cursor] === ")" ? { destination, end: cursor + 1, title } : undefined;
 }
 
@@ -723,10 +857,13 @@ function referenceSuffix(value: string, start: number): ReferenceSuffix | undefi
   if (value[start] !== "[") {
     return;
   }
+
   const end = findUnescapedInline(value, "]", start + 1);
+
   if (end === undefined || end - start > 1000 || value.slice(start + 1, end).includes("[")) {
     return;
   }
+
   return { end: end + 1, label: value.slice(start + 1, end) };
 }
 
@@ -736,14 +873,17 @@ function findUnescapedInline(value: string, target: string, start: number): numb
       return offset;
     }
   }
+
   return;
 }
 
 function escapedAt(value: string, offset: number, lowerBound: number): boolean {
   let slashes = 0;
+
   for (let index = offset - 1; index >= lowerBound && value[index] === "\\"; index--) {
     slashes++;
   }
+
   return slashes % 2 === 1;
 }
 
@@ -754,13 +894,17 @@ function decodeLinkString(value: string): string {
       if (escaped !== undefined) {
         return escaped;
       }
+
       if (reference === undefined) {
         return match;
       }
+
       if (!reference.startsWith("#")) {
         return decodeNamedCharacterReference(reference) ?? match;
       }
+
       const hexadecimal = reference[1] === "x" || reference[1] === "X";
+
       return decodeNumericCharacterReference(
         reference.slice(hexadecimal ? 2 : 1),
         hexadecimal ? 16 : 10,
@@ -801,24 +945,32 @@ function codeSpan(input: InlineInput, value: string, start: number): InlineMatch
   const openerEnd = markerRunEnd(value, start, "`");
   const size = openerEnd - start;
   let search = openerEnd;
+
   while (search < value.length) {
     const candidate = value.indexOf("`", search);
+
     if (candidate === -1) {
       return;
     }
+
     const end = markerRunEnd(value, candidate, "`");
+
     if (end - candidate === size) {
       let code = value.slice(openerEnd, candidate).replace(/\r\n|[\r\n]/gu, " ");
+
       if (/^ .* $/u.test(code) && /[^ ]/u.test(code)) {
         code = code.slice(1, -1);
       }
+
       return {
         end,
         node: { kind: "code", range: input.sourceRange(start, end), value: code },
       };
     }
+
     search = end;
   }
+
   return;
 }
 
@@ -830,20 +982,26 @@ function characterReference(
   const match = /^&(#(?:\d{1,7}|[xX][\dA-Fa-f]{1,6})|[A-Za-z][\dA-Za-z]{1,30});/u.exec(
     value.slice(start),
   );
+
   if (match === null) {
     return;
   }
+
   const body = match[1];
+
   const decoded = body.startsWith("#")
     ? decodeNumericCharacterReference(
         body.slice(body[1] === "x" || body[1] === "X" ? 2 : 1),
         body[1] === "x" || body[1] === "X" ? 16 : 10,
       )
     : decodeNamedCharacterReference(body);
+
   if (decoded === undefined) {
     return;
   }
+
   const end = start + match[0].length;
+
   return {
     end,
     node: { kind: "text", range: input.sourceRange(start, end), value: decoded },
@@ -857,14 +1015,19 @@ function expressionNode(
 ): OptionalInlineMatch | undefined {
   const scanner = new ExpressionBoundaryScanner();
   const structural = scanner.append(value.slice(start + 1));
+
   if (structural.kind === "open") {
     return { end: value.length, node: undefined };
   }
+
   const end = start + 1 + structural.offset;
+
   if (structural.kind === "invalid") {
     return { end, node: undefined };
   }
+
   const authored = value.slice(start + 1, end - 1);
+
   const boundary =
     authored.trim() === ""
       ? undefined
@@ -873,6 +1036,7 @@ function expressionNode(
           authored,
           input.sourceRange(start + 1, start + 1).start,
         );
+
   return {
     end,
     node:
@@ -888,6 +1052,7 @@ function expressionNode(
 
 function angleNode(input: InlineInput, value: string, start: number): AngleMatch | undefined {
   const rest = value.slice(start);
+
   if (/^<(?:!--|!\[CDATA\[|\?|!)/u.test(rest)) {
     const closing = rest.startsWith("<!--")
       ? "-->"
@@ -896,11 +1061,15 @@ function angleNode(input: InlineInput, value: string, start: number): AngleMatch
         : rest.startsWith("<?")
           ? "?>"
           : ">";
+
     const close = rest.indexOf(closing, 2);
+
     if (close === -1) {
       return;
     }
+
     const end = start + close + closing.length;
+
     return {
       end,
       invalid: false,
@@ -911,19 +1080,24 @@ function angleNode(input: InlineInput, value: string, start: number): AngleMatch
       },
     };
   }
+
   if (
     !/^<(?:>|\/(?:>|[A-Za-z_$][\w$-]*(?:[.:][A-Za-z_$][\w$-]*)*(?=[\s>]))|[A-Za-z_$][\w$-]*(?:[.:][A-Za-z_$][\w$-]*)*(?=[\s/{>]))/u.test(
       rest,
     )
   ) {
     const autolink = /^<((?:https?:\/\/|mailto:)[^ <>]+|[^ <>@]+@[^ <>@]+)>/u.exec(rest);
+
     if (autolink === null) {
       return;
     }
+
     const end = start + autolink[0].length;
     const label = autolink[1];
+
     const destination =
       label.includes("@") && !label.startsWith("mailto:") ? `mailto:${label}` : label;
+
     return {
       end,
       invalid: false,
@@ -936,19 +1110,25 @@ function angleNode(input: InlineInput, value: string, start: number): AngleMatch
       },
     };
   }
+
   const scanner = new JsxBoundaryScanner();
   const structural = scanner.append(rest);
   const end = structural.kind === "open" ? value.length : start + structural.offset;
+
   if (structural.kind !== "closed") {
     return { end, invalid: true, node: textNode(input, value, start, end) };
   }
+
   const authored = value.slice(start, end);
+
   const boundary = parseJavaScriptBoundary(
     "jsxExpression",
     authored,
     input.sourceRange(start, start).start,
   );
+
   const valid = boundary.kind === "valid";
+
   return {
     end,
     invalid: !valid,
@@ -970,10 +1150,13 @@ function createDelimiter(
   const afterWhitespace = after === undefined || isUnicodeWhitespace(after);
   const beforePunctuation = before !== undefined && isUnicodePunctuation(before);
   const afterPunctuation = after !== undefined && isUnicodePunctuation(after);
+
   const leftFlanking =
     !afterWhitespace && (!afterPunctuation || beforeWhitespace || beforePunctuation);
+
   const rightFlanking =
     !beforeWhitespace && (!beforePunctuation || afterWhitespace || afterPunctuation);
+
   return {
     marker,
     length: end - start,
@@ -994,11 +1177,14 @@ function resolveCloser(
   if (!closer.canClose) {
     return;
   }
+
   while (closer.length > 0) {
     const closerIndex = delimiters.lastIndexOf(closer);
     let opener: Delimiter | undefined;
+
     for (let index = closerIndex - 1; index >= 0; index--) {
       const candidate = delimiters[index];
+
       if (
         candidate.marker === closer.marker &&
         candidate.canOpen &&
@@ -1008,9 +1194,11 @@ function resolveCloser(
         break;
       }
     }
+
     if (opener === undefined) {
       return;
     }
+
     const use =
       closer.marker === "~"
         ? opener.length >= 2 && closer.length >= 2
@@ -1021,14 +1209,18 @@ function resolveCloser(
         : opener.length >= 2 && closer.length >= 2
           ? 2
           : 1;
+
     if (opener.length < use || closer.length < use) {
       return;
     }
+
     const openerOutput = output.indexOf(opener);
     const closerOutput = output.indexOf(closer);
+
     if (openerOutput === -1 || closerOutput === -1 || openerOutput >= closerOutput) {
       throw new Error("Delimiter stack diverged from inline output");
     }
+
     const children = output
       .slice(openerOutput + 1, closerOutput)
       .map((entry) =>
@@ -1038,30 +1230,38 @@ function resolveCloser(
             ? bracketText(input, entry)
             : entry,
       );
+
     opener.length -= use;
     const nodeStart = opener.start + opener.length;
     const nodeEnd = closer.start + use;
     closer.start += use;
     closer.length -= use;
+
     const node: InlineSyntax = {
       kind: closer.marker === "~" ? "delete" : use === 2 ? "strong" : "emphasis",
       range: input.sourceRange(nodeStart, nodeEnd),
       children: mergeText(children),
     };
+
     output.splice(openerOutput + 1, closerOutput - openerOutput - 1, node);
+
     for (let index = delimiters.length - 1; index >= 0; index--) {
       const delimiter = delimiters[index];
+
       if (delimiter !== opener && delimiter !== closer && !output.includes(delimiter)) {
         delimiters.splice(index, 1);
       }
     }
+
     if (opener.length === 0) {
       output.splice(output.indexOf(opener), 1);
       delimiters.splice(delimiters.indexOf(opener), 1);
     }
+
     if (closer.length === 0) {
       output.splice(output.indexOf(closer), 1);
       delimiters.splice(delimiters.indexOf(closer), 1);
+
       return;
     }
   }
@@ -1085,6 +1285,7 @@ function delimiterText(input: InlineInput, delimiter: Delimiter): InlineSyntax {
 
 function bracketText(input: InlineInput, bracket: Bracket): InlineSyntax {
   const end = bracket.start + (bracket.image ? 2 : 1);
+
   return {
     kind: "text",
     range: input.sourceRange(bracket.start, end),
@@ -1102,16 +1303,20 @@ function isBracket(output: Output): output is Bracket {
 
 function markerRunEnd(value: string, start: number, marker: string): number {
   let end = start;
+
   while (value[end] === marker) {
     end++;
   }
+
   return end;
 }
 
 function mergeText(nodes: readonly InlineSyntax[]): InlineSyntax[] {
   const merged: InlineSyntax[] = [];
+
   for (const node of nodes) {
     const previous = merged.at(-1);
+
     if (
       previous?.kind === "text" &&
       node.kind === "text" &&
@@ -1126,5 +1331,6 @@ function mergeText(nodes: readonly InlineSyntax[]): InlineSyntax[] {
       merged.push(node);
     }
   }
+
   return merged;
 }

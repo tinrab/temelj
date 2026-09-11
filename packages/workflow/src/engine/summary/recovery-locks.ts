@@ -1,3 +1,5 @@
+import { isString } from "@temelj/value";
+
 import type { LockRecord } from "../../types/lock.ts";
 import type { WorkflowRunRecord } from "../../types/run.ts";
 import type { WorkflowStepAttemptRecord } from "../../types/step-attempts.ts";
@@ -79,15 +81,20 @@ function addWorkflowRecoveryLock(
   if (lock.releasedAt !== undefined) {
     return;
   }
+
   locks.keys.add(lock.key);
+
   if (lock.holderId !== undefined) {
     locks.holderIds.add(lock.holderId);
   }
+
   if (Temporal.Instant.compare(lock.leaseExpiresAt, now) <= 0) {
     locks.staleKeys.add(lock.key);
     locks.oldestStaleAt = earliestWorkflowRecoveryInstant(locks.oldestStaleAt, lock.leaseExpiresAt);
+
     return;
   }
+
   locks.nextExpires = earliestWorkflowRecoveryLockExpiration(
     locks.nextExpires,
     lock.key,
@@ -102,19 +109,25 @@ function addWorkflowRecoveryLockWaitAttempt(
   now: Temporal.Instant,
 ): void {
   const details = workflowRecoveryLockWaitDetails(attempt);
+
   if (details === undefined) {
     return;
   }
+
   const run = runById.get(attempt.runId);
+
   if (run === undefined || run.status !== "waiting" || run.retryReason !== "step") {
     return;
   }
+
   locks.waitingRunIds.add(attempt.runId);
   locks.waitingStepIds.add(attempt.stepId);
   locks.waitingKeys.add(details.key);
+
   if (run.retryAt === undefined || Temporal.Instant.compare(run.retryAt, now) <= 0) {
     locks.dueWaitingRunIds.add(attempt.runId);
   }
+
   if (
     details.waitDeadlineAt !== undefined &&
     Temporal.Instant.compare(details.waitDeadlineAt, now) > 0
@@ -130,7 +143,7 @@ function addWorkflowRecoveryLockWaitAttempt(
 function finishWorkflowRecoveryLockSummary(
   locks: WorkflowRecoveryLockAccumulator,
 ): WorkflowRecoveryLockSummary {
-  return {
+  const result1: WorkflowRecoveryLockSummary = {
     total: locks.keys.size,
     stale: locks.staleKeys.size,
     keys: [...locks.keys].sort(),
@@ -140,49 +153,71 @@ function finishWorkflowRecoveryLockSummary(
     dueWaitingRunIds: [...locks.dueWaitingRunIds].sort(),
     waitingStepIds: [...locks.waitingStepIds].sort(),
     waitingKeys: [...locks.waitingKeys].sort(),
-    ...(locks.nextExpires === undefined
-      ? {}
-      : { nextExpiresAt: locks.nextExpires.timestamp, nextExpiringKey: locks.nextExpires.key }),
-    ...(locks.oldestStaleAt === undefined ? {} : { oldestStaleAt: locks.oldestStaleAt }),
-    ...(locks.nextWaitDeadline === undefined
-      ? {}
-      : {
-          nextWaitDeadlineAt: locks.nextWaitDeadline.timestamp,
-          nextWaitDeadlineRunId: locks.nextWaitDeadline.runId,
-        }),
   };
+
+  if (locks.nextExpires !== undefined) {
+    Object.assign(result1, {
+      nextExpiresAt: locks.nextExpires.timestamp,
+      nextExpiringKey: locks.nextExpires.key,
+    } satisfies Partial<WorkflowRecoveryLockSummary>);
+  }
+
+  if (locks.oldestStaleAt !== undefined) {
+    Object.assign(result1, {
+      oldestStaleAt: locks.oldestStaleAt,
+    } satisfies Partial<WorkflowRecoveryLockSummary>);
+  }
+
+  if (locks.nextWaitDeadline !== undefined) {
+    Object.assign(result1, {
+      nextWaitDeadlineAt: locks.nextWaitDeadline.timestamp,
+      nextWaitDeadlineRunId: locks.nextWaitDeadline.runId,
+    } satisfies Partial<WorkflowRecoveryLockSummary>);
+  }
+
+  return result1;
 }
 
 export function workflowRecoveryLockWaitDetails(
   attempt: WorkflowStepAttemptRecord,
 ): WorkflowRecoveryLockWaitDetails | undefined {
   const error = attempt.error;
+
   if (
     !(
       attempt.status === "failed" &&
       attempt.kind === "run" &&
       error !== undefined &&
       WorkflowRetryableError.isLockAlreadyHeld(error) &&
-      typeof error.details?.key === "string" &&
+      isString(error.details?.key) &&
       error.details.key.trim() !== ""
     )
   ) {
     return undefined;
   }
+
   const waitDeadlineAt = workflowLockWaitDeadline(attempt);
-  return {
-    key: error.details.key,
-    ...(waitDeadlineAt === undefined ? {} : { waitDeadlineAt }),
-  };
+
+  const result2: WorkflowRecoveryLockWaitDetails | undefined = { key: error.details.key };
+
+  if (waitDeadlineAt !== undefined) {
+    Object.assign(result2, { waitDeadlineAt } satisfies Partial<
+      WorkflowRecoveryLockWaitDetails | undefined
+    >);
+  }
+
+  return result2;
 }
 
 function workflowLockWaitDeadline(
   attempt: WorkflowStepAttemptRecord,
 ): Temporal.Instant | undefined {
   const deadline = attempt.error?.details?.waitDeadlineAt;
-  if (!(typeof deadline === "string" && deadline.trim() !== "")) {
+
+  if (!(isString(deadline) && deadline.trim() !== "")) {
     return undefined;
   }
+
   try {
     return Temporal.Instant.from(deadline);
   } catch {

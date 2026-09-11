@@ -31,6 +31,7 @@ function describeWorkflowStoreLockScheduleContract(options: WorkflowStoreContrac
     test("creates, filters, and conditionally updates schedules", async () => {
       const store = await options.createStore();
       const active = scheduleRecord(store, "schedule-a");
+
       const paused = scheduleRecord(store, "schedule-b", {
         workflowName: "other-workflow",
         workflowVersion: "v2",
@@ -43,6 +44,7 @@ function describeWorkflowStoreLockScheduleContract(options: WorkflowStoreContrac
         endAt: Temporal.Instant.from("2025-01-01T00:10:00Z"),
         nextFireAt: Temporal.Instant.from("2025-01-01T00:05:00Z"),
       });
+
       await expect(store.createSchedule(active)).resolves.toEqual(active);
       await expect(store.createSchedule(active)).rejects.toThrow(
         "Workflow schedule already exists: schedule-a",
@@ -73,6 +75,7 @@ function describeWorkflowStoreLockScheduleContract(options: WorkflowStoreContrac
       const archived = scheduleRecord(store, "schedule-c", {
         status: "archived",
       });
+
       await expect(store.createSchedule(archived)).resolves.toEqual(archived);
       await expect(store.listSchedules({ status: "archived" })).resolves.toEqual([archived]);
 
@@ -84,6 +87,7 @@ function describeWorkflowStoreLockScheduleContract(options: WorkflowStoreContrac
         lastRunId: "run-from-schedule",
         tickCount: 1,
       };
+
       await expect(store.updateScheduleIfCurrent(active, updated)).resolves.toEqual(updated);
       await expect(
         store.updateScheduleIfCurrent(active, { ...updated, tickCount: 2 }),
@@ -94,6 +98,7 @@ function describeWorkflowStoreLockScheduleContract(options: WorkflowStoreContrac
     test("creates, lists, and conditionally updates locks", async () => {
       const store = await options.createStore();
       const first = lockRecord(store, "lock-a");
+
       const second = lockRecord(store, "lock-b", {
         holderId: "holder-b",
         fencingToken: 3,
@@ -117,6 +122,7 @@ function describeWorkflowStoreLockScheduleContract(options: WorkflowStoreContrac
         acquiredAt: Temporal.Instant.from("2025-01-01T00:04:00Z"),
         leaseExpiresAt: Temporal.Instant.from("2025-01-01T00:05:00Z"),
       };
+
       await expect(store.updateLockIfCurrent(first, renewed)).resolves.toEqual(renewed);
       await expect(
         store.updateLockIfCurrent(first, { ...renewed, fencingToken: 4 }),
@@ -138,6 +144,7 @@ describeWorkflowStoreLockScheduleContract({
   name: "workflow store lock and schedule contract: filesystem storage adapter",
   createStore: async () => {
     const directory = await temporaryDirectory();
+
     return createWorkflowStore({
       namespace: `contract-${Temporal.Now.instant().epochMilliseconds.toString(36)}-${Math.random()}`,
       storage: createStorage({
@@ -154,6 +161,7 @@ describeWorkflowStoreLockScheduleContract({
 async function temporaryDirectory(): Promise<string> {
   const directory = await mkdtemp(join(tmpdir(), "temelj-workflow-store-"));
   temporaryDirectories.push(directory);
+
   return directory;
 }
 
@@ -163,6 +171,7 @@ function scheduleRecord(
   options: Partial<ScheduleRecord> = {},
 ): ScheduleRecord {
   const { id: _id, namespace: _namespace, ...patch } = options;
+
   return {
     id,
     namespace: store.namespace,
@@ -187,6 +196,7 @@ function lockRecord(
   options: Partial<LockRecord> = {},
 ): LockRecord {
   const { key: _key, namespace: _namespace, ...patch } = options;
+
   return {
     key,
     namespace: store.namespace,

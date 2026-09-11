@@ -1,3 +1,5 @@
+import { isObject } from "@temelj/value";
+
 import type { HtmlNode } from "./html.ts";
 import type { DocumentNode, FlowContent, JsxAttributeLike, MdxNode, SourceSpan } from "./model.ts";
 import type { BlockSyntax, PendingBlockSyntax } from "./parser/block-syntax.ts";
@@ -30,9 +32,11 @@ export function pendingStreamingDocument(
   limits: ResolvedParserLimits,
 ): StreamingDocument {
   const authored = file.slice(block.range);
+
   if (block.syntax === "esm") {
     return new StreamingDocument([Object.freeze({ kind: "pendingEsm", range: block.range })]);
   }
+
   if (block.syntax === "expression") {
     return new StreamingDocument([
       Object.freeze({
@@ -42,17 +46,22 @@ export function pendingStreamingDocument(
       }),
     ]);
   }
+
   const name = /^<([A-Za-z_$][\w$:.-]*)/u.exec(authored)?.[1];
   const attributes: Record<string, boolean | string> = {};
   const attributePattern = /\s+([A-Za-z_$][\w$:.-]*)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'))?/gu;
+
   for (const match of authored.matchAll(attributePattern)) {
     attributes[match[1]] = match[2] ?? match[3] ?? true;
   }
+
   const safe = !/\{|\.\.\./u.test(authored);
   let children: readonly StreamingNode[] = [];
   const openingEnd = authored.indexOf(">");
+
   if (safe && openingEnd !== -1 && openingEnd + 1 < authored.length) {
     const childStart = block.range.start + openingEnd + 1;
+
     const childDraft: BlockSyntax = {
       kind: "paragraph",
       range: { start: childStart, end: block.range.end },
@@ -63,7 +72,9 @@ export function pendingStreamingDocument(
         },
       ],
     };
+
     const materialized = materializeStrictDocument(file, [childDraft], syntax, limits);
+
     if (materialized.kind === "parsed") {
       const rendered = streamingDocument(materialized.document);
       const paragraph = rendered.children[0];
@@ -73,6 +84,7 @@ export function pendingStreamingDocument(
           : rendered.children;
     }
   }
+
   return new StreamingDocument([
     Object.freeze({
       kind: "jsx",
@@ -94,23 +106,30 @@ export function applyPendingBlock(
   syntax: ResolvedSyntaxOptions,
 ): readonly OwnedBlock[] {
   let ownerIndex = -1;
+
   for (let index = blocks.length - 1; index >= 0; index--) {
     const block = blocks[index];
+
     if (block.range.start <= pending.range.start && pending.range.end <= block.range.end) {
       ownerIndex = index;
       break;
     }
   }
+
   if (ownerIndex === -1) {
     return blocks;
   }
+
   const owner = blocks[ownerIndex];
   const document = pendingBlockStreamingDocument(pending, file, syntax, owner.streaming);
+
   if (document === undefined) {
     return blocks;
   }
+
   const next = [...blocks];
   next[ownerIndex] = { ...next[ownerIndex], streaming: document };
+
   return next;
 }
 
@@ -135,6 +154,7 @@ function pendingBlockStreamingDocument(
       }),
     ]);
   }
+
   if (pending.kind === "math") {
     return new StreamingDocument([
       Object.freeze({
@@ -148,6 +168,7 @@ function pendingBlockStreamingDocument(
       }),
     ]);
   }
+
   if (pending.kind === "expression") {
     return new StreamingDocument([
       Object.freeze({
@@ -157,9 +178,11 @@ function pendingBlockStreamingDocument(
       }),
     ]);
   }
+
   if (pending.kind === "esm") {
     return new StreamingDocument([Object.freeze({ kind: "pendingEsm", range: pending.range })]);
   }
+
   if (pending.kind === "jsx") {
     return new StreamingDocument([
       Object.freeze({
@@ -173,17 +196,22 @@ function pendingBlockStreamingDocument(
       }),
     ]);
   }
+
   if (pending.kind !== "paragraph") {
     return;
   }
+
   const parsed = parseInline(new InlineInput(file, pending.input), syntax);
+
   if (parsed.pending === undefined) {
     return;
   }
+
   const pendingInline = parsed.pending;
   const node = streamingPendingInline(pendingInline, file);
   const settledParagraph = settled?.children[0];
   const settledByRange = new Map<string, StreamingNode>();
+
   if (settledParagraph?.kind === "element" && settledParagraph.tagName === "p") {
     for (const child of settledParagraph.children) {
       if (child.range !== undefined) {
@@ -191,6 +219,7 @@ function pendingBlockStreamingDocument(
       }
     }
   }
+
   const prefix = parsed.nodes.flatMap((node): readonly StreamingNode[] => {
     if (node.range.end <= pendingInline.range.start) {
       return [
@@ -198,12 +227,16 @@ function pendingBlockStreamingDocument(
           streamingInlineSyntax(node, file),
       ];
     }
+
     if (node.kind === "text" && node.range.start < pendingInline.range.start) {
       const range = Object.freeze({ start: node.range.start, end: pendingInline.range.start });
+
       return [Object.freeze({ kind: "text", value: file.semanticSlice(range), range })];
     }
+
     return [];
   });
+
   return new StreamingDocument([
     Object.freeze({
       kind: "element",
@@ -222,13 +255,17 @@ export function applyAmbiguousMarkerBlock(
   const match = /(?:^|(?:\r\n|\r|\n){2})([ \t]{0,3}(?:[*+-]|\d{1,9}[.)])[ \t]*)$/u.exec(file.text);
   const authored = match?.[1];
   const block = blocks.at(-1);
+
   if (match === null || authored === undefined || block === undefined) {
     return blocks;
   }
+
   const start = file.text.length - authored.length;
+
   if (start < block.range.start || start > block.range.end) {
     return blocks;
   }
+
   const next = [...blocks];
   next[next.length - 1] = {
     ...block,
@@ -240,11 +277,13 @@ export function applyAmbiguousMarkerBlock(
       }),
     ]),
   };
+
   return next;
 }
 
 function streamingPendingInline(pending: InlinePendingSyntax, file: SourceFile): StreamingNode {
   const authored = file.slice(pending.range);
+
   switch (pending.kind) {
     case "strong":
     case "emphasis":
@@ -300,6 +339,7 @@ function streamingInlineSyntax(node: InlineSyntax, file: SourceFile): StreamingN
     "children" in node
       ? Object.freeze(node.children.map((child) => streamingInlineSyntax(child, file)))
       : Object.freeze([]);
+
   switch (node.kind) {
     case "text":
       return Object.freeze({ kind: "text", value: node.value, range: node.range });
@@ -387,6 +427,7 @@ export function strictBlockDocument(node: FlowContent, complete: DocumentNode): 
   const definitions = complete.children.filter(
     (child) => child.kind === "definition" || child.kind === "footnoteDefinition",
   );
+
   return new StrictDocumentNode(
     [node, ...definitions.filter((definition) => definition !== node)],
     node.origin,
@@ -408,12 +449,14 @@ export function streamingDocument(
       }),
     ]);
   }
+
   const candidatesByRange = new Map(
     candidates.map((candidate) => [
       rangeKey(candidate.range.start, candidate.range.end),
       candidate,
     ]),
   );
+
   return new StreamingDocument(
     renderHtml(document).children.map((node) => streamingNode(node, candidatesByRange, source)),
   );
@@ -430,34 +473,43 @@ export function streamingDocuments(
   const rendered = renderHtml(document);
   const htmlByBlock = new Map<FlowContent, HtmlNode[]>();
   const blocksByOrigin = new Map<string, MaterializedBlock>();
+
   for (const block of blocks) {
     htmlByBlock.set(block.node, []);
     const origin = block.node.origin;
+
     if (origin !== undefined) {
       blocksByOrigin.set(rangeKey(origin.start, origin.end), block);
     }
   }
+
   const supplement: HtmlNode[] = [];
   let active: HtmlNode[] | undefined;
+
   for (const node of rendered.children) {
     if (isFootnoteSection(node)) {
       supplement.push(node);
       active = undefined;
       continue;
     }
+
     if (node.origin !== undefined) {
       const owner = blocksByOrigin.get(rangeKey(node.origin.start, node.origin.end));
       active = owner === undefined ? undefined : htmlByBlock.get(owner.node);
     }
+
     active?.push(node);
   }
+
   const streamingByBlock = new Map<FlowContent, StreamingDocument>();
+
   for (const block of blocks) {
     streamingByBlock.set(
       block.node,
       streamingDocumentFromHtml(htmlByBlock.get(block.node) ?? [], source, block.candidates),
     );
   }
+
   return Object.freeze({
     blocks: streamingByBlock,
     supplement: streamingDocumentFromHtml(supplement, source),
@@ -475,6 +527,7 @@ function streamingDocumentFromHtml(
       candidate,
     ]),
   );
+
   return new StreamingDocument(nodes.map((node) => streamingNode(node, candidatesByRange, source)));
 }
 
@@ -485,6 +538,7 @@ function isFootnoteSection(node: HtmlNode): boolean {
 function hasOpenTexMath(source: string): boolean {
   const inline = source.lastIndexOf("\\(") > source.lastIndexOf("\\)");
   const display = source.lastIndexOf("\\[") > source.lastIndexOf("\\]");
+
   return inline || display;
 }
 
@@ -494,10 +548,12 @@ function streamingNode(
   source?: string,
 ): StreamingNode {
   const range = sourceRange(node.origin);
+
   if (node instanceof HtmlFootnoteReferenceNode) {
     if (range === undefined || source === undefined) {
       throw new Error("A streaming footnote reference must retain its source range");
     }
+
     return Object.freeze({
       kind: "footnoteReference",
       authored: source.slice(range.start, range.end),
@@ -508,6 +564,7 @@ function streamingNode(
       range,
     });
   }
+
   if (node instanceof HtmlFootnoteSectionNode) {
     return Object.freeze({
       kind: "footnoteSection",
@@ -516,12 +573,15 @@ function streamingNode(
       range,
     });
   }
+
   if (node instanceof HtmlCodeBlockNode) {
     return Object.freeze({ kind: "codeBlock", codeBlock: node.codeBlock, range });
   }
+
   if (node instanceof HtmlMathNode) {
     return Object.freeze({ kind: "math", math: node.math, range });
   }
+
   switch (node.kind) {
     case "jsx":
       return Object.freeze({
@@ -541,11 +601,14 @@ function streamingNode(
     case "text": {
       const candidate =
         range === undefined ? undefined : candidates.get(rangeKey(range.start, range.end));
+
       if (candidate !== undefined && source !== undefined) {
         return unresolvedReference(candidate, source);
       }
+
       return Object.freeze({ kind: "text", value: node.value, range });
     }
+
     case "raw":
       return Object.freeze({ kind: "raw", value: node.value, range });
     case "comment":
@@ -566,6 +629,7 @@ function streamingNode(
       return Object.freeze({ kind: "omitted", syntax: "esm", range });
     default: {
       const exhaustive: never = node;
+
       return exhaustive;
     }
   }
@@ -589,22 +653,27 @@ function staticAttributes(
   attributes: readonly JsxAttributeLike[],
 ): Readonly<Record<string, boolean | string>> {
   const entries: Array<readonly [string, boolean | string]> = [];
+
   for (const attribute of attributes) {
     if (attribute.kind === "jsxSpreadAttribute") {
       continue;
     }
+
     const value = attribute.value;
-    if (typeof value === "object") {
+
+    if (isObject(value)) {
       continue;
     }
+
     entries.push([attribute.name, value ?? true]);
   }
+
   return Object.freeze(Object.fromEntries(entries));
 }
 
 function hasOnlyStaticAttributes(attributes: readonly JsxAttributeLike[]): boolean {
   return attributes.every(
-    (attribute) => attribute.kind === "jsxAttribute" && typeof attribute.value !== "object",
+    (attribute) => attribute.kind === "jsxAttribute" && !isObject(attribute.value),
   );
 }
 
@@ -614,6 +683,7 @@ export function dependenciesFor(
 ): StreamDependencies {
   const definitions = new Set<string>();
   const footnotes = new Set<string>();
+
   for (const cursor of walkTree<MdxNode>(node, (value) => value.children)) {
     if (cursor.node.kind === "linkReference" || cursor.node.kind === "imageReference") {
       definitions.add(cursor.node.identifier);
@@ -621,6 +691,7 @@ export function dependenciesFor(
       footnotes.add(cursor.node.identifier);
     }
   }
+
   for (const candidate of candidates) {
     if (candidate.kind === "reference") {
       definitions.add(candidate.identifier);
@@ -628,6 +699,7 @@ export function dependenciesFor(
       footnotes.add(candidate.identifier);
     }
   }
+
   return Object.freeze({
     definitions: Object.freeze([...definitions]),
     footnotes: Object.freeze([...footnotes]),
@@ -636,6 +708,7 @@ export function dependenciesFor(
 
 function unresolvedReference(candidate: ReferenceCandidate, source: string): StreamingNode {
   const authored = source.slice(candidate.range.start, candidate.range.end);
+
   if (candidate.kind === "footnoteReference") {
     return Object.freeze({
       kind: "unresolvedFootnoteReference",
@@ -644,6 +717,7 @@ function unresolvedReference(candidate: ReferenceCandidate, source: string): Str
       range: candidate.range,
     });
   }
+
   if (candidate.image) {
     return Object.freeze({
       kind: "unresolvedImageReference",
@@ -654,6 +728,7 @@ function unresolvedReference(candidate: ReferenceCandidate, source: string): Str
       range: candidate.range,
     });
   }
+
   return Object.freeze({
     kind: "unresolvedLinkReference",
     authored,
@@ -670,21 +745,26 @@ function inlineSyntaxText(node: InlineSyntax): string {
   if (node.kind === "text" || "value" in node) {
     return node.value;
   }
+
   if (node.kind === "image") {
     return node.alt;
   }
+
   if (node.kind === "reference" && node.image) {
     return node.children.map(inlineSyntaxText).join("");
   }
+
   if ("children" in node) {
     return node.children.map(inlineSyntaxText).join("");
   }
+
   return "";
 }
 
 function rangeKey(start: number, end: number): string {
   return `${start}:${end}`;
 }
+
 function sourceRange(
   origin: Readonly<SourceSpan> | undefined,
 ): Readonly<{ start: number; end: number }> | undefined {

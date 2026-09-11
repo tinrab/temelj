@@ -28,6 +28,10 @@
 
 ## Installation
 
+Regenerate the committed option types and serializers from the checked-in option data with `pnpm --filter @temelj/ffmpeg script:generate`. This command also formats and lints the generated TypeScript.
+
+`split(...labels)` and `asplit(...labels)` return arrays matching the requested labels, with two generated labels when none are supplied. Mixed-output chains preserve each output's media type. `disableMap` accepts an input-map specification or a raw-map wrapper such as `unsafeMapLabel("audio")`.
+
 ```sh
 # npm
 $ npm install @temelj/ffmpeg

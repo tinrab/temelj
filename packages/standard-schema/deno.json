@@ -4,6 +4,9 @@
   "exports": "./src/mod.ts",
   "license": "MIT",
   "nodeModulesDir": "auto",
+  "imports": {
+    "@temelj/value": "jsr:@temelj/value@^0.15.0"
+  },
   "publish": {
     "include": ["src/**/*.ts", "README.md"],
     "exclude": ["src/**/*.test.ts"]

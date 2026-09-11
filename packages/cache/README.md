@@ -28,6 +28,8 @@
 
 ## Installation
 
+Per-call async loaders are provided as `cache.getOrLoad(key, { loader, signal, ttl })`. The constructor's loader is used when the options omit `loader`.
+
 ```sh
 # npm
 $ npm install @temelj/cache

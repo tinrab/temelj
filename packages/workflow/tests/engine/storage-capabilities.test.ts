@@ -28,10 +28,12 @@ describe("workflow storage capabilities", () => {
   test("best-effort storage reports weak capabilities and executes single-process runs", async () => {
     const storage = createBestEffortStorage();
     const store = new WorkflowStore({ storage });
+
     const engine = createWorkflowEngine({
       store,
       createRunId: () => "run_best_effort_storage",
     });
+
     const workflow = implementWorkflow<undefined, string>(
       { name: "best-effort-storage" },
       async ({ step }) => {
@@ -76,14 +78,17 @@ describe("workflow storage capabilities", () => {
   test("single-key conditional storage reports non-atomic batches and materializes attempts", async () => {
     const storage = createSingleKeyConditionalStorage();
     const store = new WorkflowStore({ storage });
+
     const engine = createWorkflowEngine({
       store,
       createRunId: () => "run_single_key_conditional_storage",
     });
+
     const workflow = implementWorkflow<undefined, string>(
       { name: "single-key-conditional-storage" },
       async ({ step }) => {
         await step.task.sleep("pause", Temporal.Duration.from({ seconds: 1 }));
+
         return await step.task.run({ name: "work" }, () => "done");
       },
     );
@@ -127,6 +132,7 @@ describe("workflow storage capabilities", () => {
     const engine = createWorkflowEngine({
       createRunId: () => "run_repair_step_attempts",
     });
+
     const workflow = implementWorkflow<undefined, string>(
       { name: "repair-step-attempts" },
       async ({ step }) => await step.task.run({ name: "work" }, () => "done"),
@@ -142,6 +148,7 @@ describe("workflow storage capabilities", () => {
       "run_repair_step_attempts",
       workflowStepAttemptKey("run:work", 1),
     );
+
     await engine.storage.delete(attemptKey);
     await expect(engine.storage.get(attemptKey)).resolves.toBeUndefined();
 
@@ -165,6 +172,7 @@ describe("workflow storage capabilities", () => {
     const engine = createWorkflowEngine({
       createRunId: () => "run_repair_message_idempotency",
     });
+
     const workflow = implementWorkflow<undefined, string>(
       { name: "repair-message-idempotency" },
       async ({ run, step }) => {
@@ -173,6 +181,7 @@ describe("workflow storage capabilities", () => {
           payload: "ok",
           idempotencyKey: "ready-key",
         });
+
         return "sent";
       },
     );
@@ -187,6 +196,7 @@ describe("workflow storage capabilities", () => {
       "run_repair_message_idempotency",
       "ready-key",
     );
+
     await engine.storage.delete(indexKey);
     await expect(engine.storage.get(indexKey)).resolves.toBeUndefined();
 

@@ -10,12 +10,15 @@ import { waitFor } from "../utility.ts";
 describe("workflow worker shutdown", () => {
   test("worker stop waits for active execution before releasing the lease", async () => {
     const now = Temporal.Instant.from("2026-06-11T10:00:00Z");
+
     const engine = createWorkflowEngine({
       createRunId: () => "run_worker_stop_waits",
       now: () => now,
     });
+
     const registry = new Registry();
     const client = createWorkflowClient({ engine, registry });
+
     const firstWorker = new WorkflowWorker({
       engine,
       registry,
@@ -24,15 +27,20 @@ describe("workflow worker shutdown", () => {
       heartbeatInterval: Temporal.Duration.from({ milliseconds: 0 }),
       now: () => now,
     });
+
     const def = defineWorkflow<undefined, string>({ name: "worker-stop-waits" });
     let workflowStarted!: () => void;
+
     const workflowStartedPromise = new Promise<void>((resolve) => {
       workflowStarted = resolve;
     });
+
     let finishExecution!: () => void;
+
     const executionCanFinish = new Promise<void>((resolve) => {
       finishExecution = resolve;
     });
+
     let stopReturned = false;
 
     client.implementWorkflow(def, async ({ signal }) => {
@@ -51,6 +59,7 @@ describe("workflow worker shutdown", () => {
     const stop = firstWorker.stop().finally(() => {
       stopReturned = true;
     });
+
     await waitFor(async () => (await engine.getRun(handle.runId))?.status === "running");
     await Promise.resolve();
 
@@ -79,14 +88,18 @@ describe("workflow worker shutdown", () => {
 
   test("worker stop drain timeout leaves active leases for natural expiry", async () => {
     vi.useFakeTimers();
+
     try {
       const now = Temporal.Instant.from("2026-06-11T10:00:00Z");
+
       const engine = createWorkflowEngine({
         createRunId: () => "run_worker_stop_timeout",
         now: () => now,
       });
+
       const registry = new Registry();
       const client = createWorkflowClient({ engine, registry });
+
       const worker = new WorkflowWorker({
         engine,
         registry,
@@ -96,12 +109,16 @@ describe("workflow worker shutdown", () => {
         stopDrainTimeout: Temporal.Duration.from({ milliseconds: 1 }),
         now: () => now,
       });
+
       const def = defineWorkflow<undefined, string>({ name: "worker-stop-timeout" });
       let workflowStarted!: () => void;
+
       const workflowStartedPromise = new Promise<void>((resolve) => {
         workflowStarted = resolve;
       });
+
       let finishExecution!: () => void;
+
       const executionCanFinish = new Promise<void>((resolve) => {
         finishExecution = resolve;
       });
@@ -109,6 +126,7 @@ describe("workflow worker shutdown", () => {
       client.implementWorkflow(def, async () => {
         workflowStarted();
         await executionCanFinish;
+
         return "done";
       });
 
@@ -146,13 +164,16 @@ describe("workflow worker shutdown", () => {
 
   test("worker stop aborts active workflow and step contexts", async () => {
     vi.useFakeTimers();
+
     try {
       const engine = createWorkflowEngine({
         createRunId: () => "run_worker_stop_abort",
         now: () => Temporal.Instant.from("2026-06-11T10:00:00Z"),
       });
+
       const registry = new Registry();
       const client = createWorkflowClient({ engine, registry });
+
       const worker = new WorkflowWorker({
         engine,
         registry,
@@ -160,11 +181,14 @@ describe("workflow worker shutdown", () => {
         leaseDuration: Temporal.Duration.from({ milliseconds: 60_000 }),
         heartbeatInterval: Temporal.Duration.from({ milliseconds: 1 }),
       });
+
       const def = defineWorkflow<undefined, string>({ name: "worker-stop-abort" });
       let stepStarted!: () => void;
+
       const stepStartedPromise = new Promise<void>((resolve) => {
         stepStarted = resolve;
       });
+
       let workflowSignalAborted = false;
       let stepSignalAborted = false;
 
@@ -193,6 +217,7 @@ describe("workflow worker shutdown", () => {
             throw context.signal.reason;
           },
         );
+
         return "unreachable";
       });
 

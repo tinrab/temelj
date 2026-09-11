@@ -18,6 +18,7 @@ import { createWorkflowStepStreamApi } from "./stream.ts";
 import { createWorkflowStepTaskApi } from "./task.ts";
 
 type WorkflowStepRuntime = WorkflowChildWorkflowEngine & WorkflowStepLockEngine;
+
 type WorkflowRunTaskCommand = <TOutput>(
   config: WorkflowStepRunConfig,
   callback: (context: WorkflowStepContext) => Promise<TOutput> | TOutput,
@@ -30,8 +31,10 @@ export function createStepApi(
   deterministic: WorkflowDeterministicApi,
 ): WorkflowStepApi {
   const task = createWorkflowStepTaskApi(environment, executionSignal);
+
   const runTask: WorkflowRunTaskCommand = async (config, callback) =>
     await task.run(config, callback);
+
   return {
     log: environment.logger,
     task,

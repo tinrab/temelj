@@ -45,6 +45,7 @@ export type ParseOutcome =
 export function parse(input: string | SourceFile, options: ParseOptions = {}): ParseOutcome {
   const file = input instanceof SourceFile ? input : new SourceFile(input);
   const limits = resolveParserLimits(options.limits);
+
   if (file.text.length > limits.maximumSourceLength) {
     const diagnostic = createDiagnostic({
       code: "mdx.limit.maximumSourceLength",
@@ -52,7 +53,9 @@ export function parse(input: string | SourceFile, options: ParseOptions = {}): P
       severity: "error",
       span: { file, start: 0, end: file.text.length },
     });
+
     const diagnostics: readonly [Diagnostic] = Object.freeze([diagnostic]);
+
     return Object.freeze({
       kind: "limitExceeded",
       file,
@@ -60,14 +63,17 @@ export function parse(input: string | SourceFile, options: ParseOptions = {}): P
       diagnostics,
     });
   }
+
   const session = new ParserSession({ source: file, syntax: options.syntax, limits });
   const draft = session.completeDraft();
+
   const materialized = materializeStrictDocument(
     draft.file,
     draft.blocks,
     session.syntax,
     session.limits,
   );
+
   if (materialized.kind === "parsed") {
     return Object.freeze({
       kind: "parsed",
@@ -76,6 +82,7 @@ export function parse(input: string | SourceFile, options: ParseOptions = {}): P
       diagnostics: materialized.diagnostics,
     });
   }
+
   return materialized.kind === "invalid"
     ? Object.freeze({ kind: "invalid", file: draft.file, diagnostics: materialized.diagnostics })
     : Object.freeze({

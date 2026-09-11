@@ -49,7 +49,9 @@ import {
 } from "./worker/error.ts";
 
 const DEFAULT_WORKER_LEASE_DURATION = Temporal.Duration.from({ seconds: 30 });
+
 const DEFAULT_WORKER_POLL_INTERVAL = Temporal.Duration.from({ milliseconds: 100 });
+
 const DEFAULT_WORKER_STOP_DRAIN_TIMEOUT = Temporal.Duration.from({ seconds: 30 });
 
 interface WorkerRunSlotResult {
@@ -92,24 +94,26 @@ export class WorkflowWorker implements WorkflowWorkerContract {
   constructor(options: CreateWorkflowWorkerOptions) {
     const store = options.engine.store;
 
-    requireWorkflowStoreCapabilities(store, {
-      conditionalRunClaims: "workflow worker conditional run claims",
-      conditionalRunUpdates: "workflow worker conditional run updates",
-      conditionalRunLeaseExtensions: "workflow worker conditional lease extensions",
-      conditionalRunLeaseReleases: "workflow worker conditional lease releases",
-      conditionalEventAppends: "workflow worker conditional event appends",
-      reconcilesStepAttemptsFromEvents: "workflow worker step-attempt reconciliation",
-    });
+    requireWorkflowStoreCapabilities(store, [
+      ["conditionalRunClaims", "workflow worker conditional run claims"],
+      ["conditionalRunUpdates", "workflow worker conditional run updates"],
+      ["conditionalRunLeaseExtensions", "workflow worker conditional lease extensions"],
+      ["conditionalRunLeaseReleases", "workflow worker conditional lease releases"],
+      ["conditionalEventAppends", "workflow worker conditional event appends"],
+      ["reconcilesStepAttemptsFromEvents", "workflow worker step-attempt reconciliation"],
+    ]);
 
     this.#engine = options.engine;
     this.#store = store;
     this.#registry = options.registry;
     this.#workerId = options.workerId ?? createDefaultWorkerId();
     this.#leaseDuration = options.leaseDuration ?? DEFAULT_WORKER_LEASE_DURATION;
+
     const resolvedLeaseDelay = positiveTimerDelay(
       this.#leaseDuration,
       "Workflow worker leaseDuration",
     );
+
     this.#heartbeatInterval =
       options.heartbeatInterval === undefined
         ? Math.min(MAX_TIMER_DELAY, Math.max(1, Math.floor(resolvedLeaseDelay.clampedDelay / 2)))
@@ -138,13 +142,16 @@ export class WorkflowWorker implements WorkflowWorkerContract {
   async processRun(runId: RunId): Promise<ExecutionResult<unknown>> {
     this.#stopRequested = false;
     const run = await this.#claimRun({ runId });
+
     if (run === undefined) {
       WorkflowStateError.runNotClaimable(runId);
     }
+
     if (this.#stopRequested) {
       await this.#releaseLease(run.id, run.attempts);
       WorkflowStateError.workerStoppedBeforeRun(runId);
     }
+
     return await this.#executeClaimedRun(run);
   }
 
@@ -152,6 +159,7 @@ export class WorkflowWorker implements WorkflowWorkerContract {
     options?: WorkflowWorkerRunFilterOptions,
   ): Promise<ExecutionResult<unknown> | undefined> {
     this.#stopRequested = false;
+
     return await this.#processNextRun(options);
   }
 
@@ -173,13 +181,17 @@ export class WorkflowWorker implements WorkflowWorkerContract {
     this.#stopRequested = false;
     let processedRuns = 0;
     const activeRuns = new Set<Promise<WorkerRunSlotResult>>();
+
     const pollInterval =
       options?.pollInterval === undefined
         ? this.#defaultPollInterval
         : nonNegativeTimerDelay(options.pollInterval, "Workflow worker pollInterval").clampedDelay;
+
     const maxRuns = resolvePositiveSafeIntegerOption(options?.maxRuns, "Workflow worker maxRuns");
+
     const concurrency =
       resolvePositiveSafeIntegerOption(options?.concurrency, "Workflow worker concurrency") ?? 1;
+
     const tickSchedules = options?.tickSchedules ?? false;
 
     while (!this.#stopRequested && options?.signal?.aborted !== true) {
@@ -199,7 +211,7 @@ export class WorkflowWorker implements WorkflowWorkerContract {
         let execution: Promise<WorkerRunSlotResult>;
         execution = this.#processNextRun(options ?? {}, options?.signal).then(
           (result): WorkerRunSlotResult => ({ execution, result }),
-          (error: unknown): WorkerRunSlotResult => ({ error, execution }),
+          (cause: unknown): WorkerRunSlotResult => ({ error: cause, execution }),
         );
         activeRuns.add(execution);
       }
@@ -207,14 +219,17 @@ export class WorkflowWorker implements WorkflowWorkerContract {
       if (activeRuns.size > 0) {
         const settled = await Promise.race(activeRuns);
         activeRuns.delete(settled.execution);
+
         if (settled.error !== undefined) {
           await this.#abortActiveWorkerExecutions(activeRuns);
           throw settled.error;
         }
+
         if (settled.result !== undefined) {
           processedRuns++;
           continue;
         }
+
         if (activeRuns.size > 0) {
           await this.#sleep(
             await this.#idlePollDelay(options ?? {}, pollInterval, tickSchedules),
@@ -237,9 +252,11 @@ export class WorkflowWorker implements WorkflowWorkerContract {
     if (activeRuns.size > 0) {
       for (const settled of await Promise.all(activeRuns)) {
         activeRuns.delete(settled.execution);
+
         if (settled.error !== undefined) {
           throw settled.error;
         }
+
         if (settled.result !== undefined) {
           processedRuns++;
         }
@@ -253,16 +270,21 @@ export class WorkflowWorker implements WorkflowWorkerContract {
     this.#stopRequested = true;
     const activeExecutions = [...this.#activeExecutions];
     const releaseRuns = [...this.#activeExecutionRuns];
+
     for (const controller of this.#activeExecutionAborts) {
       controller.abort();
     }
+
     for (const wakeup of this.#pollWakeups) {
       wakeup();
     }
+
     const drained = await this.#waitForActiveExecutions(activeExecutions);
+
     if (!drained) {
       return;
     }
+
     await Promise.all(
       releaseRuns.map(async ([runId, attempts]) => await this.#releaseLease(runId, attempts)),
     );
@@ -272,20 +294,26 @@ export class WorkflowWorker implements WorkflowWorkerContract {
     if (activeExecutions.length === 0) {
       return true;
     }
+
     if (this.#stopDrainTimeout === 0) {
       return false;
     }
+
     let timer: TimeoutHandle | undefined;
+
     const timeout = new Promise<false>((resolve) => {
       timer = setTimeout(() => {
         resolve(false);
       }, this.#stopDrainTimeout);
     });
+
     const drained = Promise.allSettled(activeExecutions).then(() => true);
     const result = await Promise.race([drained, timeout]);
+
     if (timer !== undefined) {
       clearTimeout(timer);
     }
+
     return result;
   }
 
@@ -293,17 +321,20 @@ export class WorkflowWorker implements WorkflowWorkerContract {
     for (const controller of this.#activeExecutionAborts) {
       controller.abort();
     }
+
     await Promise.all(activeRuns);
   }
 
   async #claimRun(options?: WorkflowWorkerClaimOptions): Promise<WorkflowRunRecord | undefined> {
     const timestamp = this.#now();
+
     const run = await this.#store.claimRun({
       ...options,
       workerId: this.#workerId,
       leaseDuration: this.#leaseDuration,
       now: timestamp,
     });
+
     if (run === undefined && options?.runId !== undefined) {
       this.#observeWorkerOperation({
         operation: "claim",
@@ -312,6 +343,7 @@ export class WorkflowWorker implements WorkflowWorkerContract {
         runId: options.runId,
       });
     }
+
     return run;
   }
 
@@ -321,19 +353,32 @@ export class WorkflowWorker implements WorkflowWorkerContract {
   ): Promise<ExecutionResult<unknown> | undefined> {
     const timestamp = this.#now();
     const run = await this.#claimRun(options);
-    this.#observeWorkerOperation({
+
+    const observation: WorkflowWorkerLocalObservationEvent = {
       operation: "poll",
       status: run === undefined ? "empty" : "claimed",
       timestamp,
-      ...(run === undefined ? {} : { runId: run.id, run }),
-    });
+    };
+
+    if (run !== undefined) {
+      Object.assign(observation, {
+        runId: run.id,
+        run,
+      } satisfies Partial<WorkflowWorkerLocalObservationEvent>);
+    }
+
+    this.#observeWorkerOperation(observation);
+
     if (run === undefined) {
       return undefined;
     }
+
     if (this.#stopRequested || signal?.aborted === true) {
       await this.#releaseLease(run.id, run.attempts);
+
       return undefined;
     }
+
     return await this.#executeClaimedRun(run, signal);
   }
 
@@ -341,6 +386,7 @@ export class WorkflowWorker implements WorkflowWorkerContract {
     if (this.#engine.tickSchedules === undefined) {
       WorkflowCapabilityError.unsupported("workflow schedule ticking");
     }
+
     await this.#engine.tickSchedules({ now: this.#now() });
   }
 
@@ -349,11 +395,14 @@ export class WorkflowWorker implements WorkflowWorkerContract {
     signal?: AbortSignal,
   ): Promise<ExecutionResult<unknown>> {
     const definition = this.#registry.getByName(run.workflowName, run.workflowVersion);
+
     if (definition === undefined) {
       return await this.#rescheduleMissingImplementation(run);
     }
+
     const attempts =
       run.attempts !== undefined && isPositiveSafeInteger(run.attempts) ? run.attempts : undefined;
+
     return await this.#withHeartbeat(
       run.id,
       attempts,
@@ -370,9 +419,11 @@ export class WorkflowWorker implements WorkflowWorkerContract {
     const retryAttempt = run.attempts ?? (run.retryAttempt ?? 0) + 1;
     const errorRecord = makeMissingImplementationNotFoundErrorRecord(run);
     const deadlineAt = run.deadlineAt;
+
     if (deadlineAt !== undefined && Temporal.Instant.compare(deadlineAt, timestamp) <= 0) {
       return await this.#failMissingImplementationForDeadline(run, deadlineAt, timestamp);
     }
+
     if (
       this.#missingImplementationRetry.maximumAttempts > 0 &&
       retryAttempt >= this.#missingImplementationRetry.maximumAttempts
@@ -381,6 +432,7 @@ export class WorkflowWorker implements WorkflowWorkerContract {
     }
 
     let availableAt: Temporal.Instant;
+
     try {
       availableAt = timestamp.add(
         Temporal.Duration.from({
@@ -397,9 +449,11 @@ export class WorkflowWorker implements WorkflowWorkerContract {
         timestamp,
       );
     }
+
     if (deadlineAt !== undefined && Temporal.Instant.compare(deadlineAt, availableAt) <= 0) {
       return await this.#failMissingImplementationForDeadline(run, deadlineAt, timestamp);
     }
+
     const waitingRun = await patchRunIfCurrent(
       this.#store,
       run,
@@ -411,9 +465,11 @@ export class WorkflowWorker implements WorkflowWorkerContract {
         retryAttempt,
       ),
     );
+
     if (waitingRun === undefined) {
       return await this.#readRunExecutionResult(run.id);
     }
+
     await wakeParentRunForWaitingChild(this.#store, waitingRun, availableAt);
 
     return {
@@ -457,16 +513,20 @@ export class WorkflowWorker implements WorkflowWorkerContract {
       run,
       transitionRunToFailed(run, errorRecord, timestamp, reason, deadlineAt),
     );
+
     if (failedRun === undefined) {
       return await this.#readRunExecutionResult(run.id);
     }
+
     const appendedEvents = await this.#store.appendEventIfRunCurrent(failedRun, {
       kind: "workflow_failed",
       timestamp,
     });
+
     if (appendedEvents === undefined) {
       return await this.#readRunExecutionResult(run.id);
     }
+
     await wakeParentRunForTerminalChildState(this.#store, failedRun, timestamp);
 
     return {
@@ -478,9 +538,11 @@ export class WorkflowWorker implements WorkflowWorkerContract {
 
   async #readRunExecutionResult(runId: RunId): Promise<ExecutionResult<unknown>> {
     const current = await this.#engine.getRun(runId);
+
     if (current === undefined) {
       WorkflowRunNotFoundError.notFound(runId);
     }
+
     if (current.status === "completed") {
       return {
         kind: "completed",
@@ -488,6 +550,7 @@ export class WorkflowWorker implements WorkflowWorkerContract {
         output: current.output,
       };
     }
+
     if (current.status === "failed") {
       return {
         kind: "failed",
@@ -498,6 +561,7 @@ export class WorkflowWorker implements WorkflowWorkerContract {
         },
       };
     }
+
     if (current.status === "canceled") {
       return {
         kind: "failed",
@@ -508,6 +572,7 @@ export class WorkflowWorker implements WorkflowWorkerContract {
         },
       };
     }
+
     return {
       kind: "waiting",
       run: current,
@@ -517,6 +582,7 @@ export class WorkflowWorker implements WorkflowWorkerContract {
 
   async #extendLease(runId: RunId, attempts?: number): Promise<WorkflowRunRecord | undefined> {
     const timestamp = this.#now();
+
     const run = await this.#store.extendRunLease({
       runId,
       workerId: this.#workerId,
@@ -524,31 +590,46 @@ export class WorkflowWorker implements WorkflowWorkerContract {
       leaseDuration: this.#leaseDuration,
       now: timestamp,
     });
-    this.#observeWorkerOperation({
+
+    const observation: WorkflowWorkerLocalObservationEvent = {
       operation: "lease_extension",
       status: run === undefined ? "failure" : "success",
       timestamp,
       runId,
-      ...(run === undefined ? {} : { run }),
-    });
+    };
+
+    if (run !== undefined) {
+      Object.assign(observation, { run } satisfies Partial<WorkflowWorkerLocalObservationEvent>);
+    }
+
+    this.#observeWorkerOperation(observation);
+
     return run;
   }
 
   async #releaseLease(runId: RunId, attempts?: number): Promise<WorkflowRunRecord | undefined> {
     const timestamp = this.#now();
+
     const run = await this.#store.releaseRunLease({
       runId,
       workerId: this.#workerId,
       attempts,
       now: timestamp,
     });
-    this.#observeWorkerOperation({
+
+    const observation: WorkflowWorkerLocalObservationEvent = {
       operation: "lease_release",
       status: run === undefined ? "failure" : "success",
       timestamp,
       runId,
-      ...(run === undefined ? {} : { run }),
-    });
+    };
+
+    if (run !== undefined) {
+      Object.assign(observation, { run } satisfies Partial<WorkflowWorkerLocalObservationEvent>);
+    }
+
+    this.#observeWorkerOperation(observation);
+
     return run;
   }
 
@@ -560,18 +641,22 @@ export class WorkflowWorker implements WorkflowWorkerContract {
   ): Promise<T> {
     const executionAbort = new AbortController();
     this.#activeExecutionAborts.add(executionAbort);
+
     if (attempts !== undefined) {
       this.#activeExecutionRuns.set(runId, attempts);
     }
+
     let timer: IntervalHandle | undefined;
     let heartbeatPending = false;
     let heartbeat: Promise<void> | undefined;
     let heartbeatError: unknown;
     let abortRelease: Promise<WorkflowRunRecord | undefined> | undefined;
+
     const abortExecution = () => {
       executionAbort.abort();
       abortRelease = this.#releaseLease(runId, attempts);
     };
+
     if (this.#stopRequested || signal?.aborted === true) {
       executionAbort.abort();
     } else {
@@ -583,6 +668,7 @@ export class WorkflowWorker implements WorkflowWorkerContract {
         if (heartbeatPending || executionAbort.signal.aborted) {
           return;
         }
+
         // Only one heartbeat may be in flight. If lease extension fails because the run was
         // reclaimed or canceled, abort the user execution instead of letting stale code continue.
         heartbeatPending = true;
@@ -598,15 +684,15 @@ export class WorkflowWorker implements WorkflowWorkerContract {
               executionAbort.abort();
             }
           })
-          .catch((error: unknown) => {
+          .catch((cause: unknown) => {
             executionAbort.abort();
-            heartbeatError ??= error;
+            heartbeatError ??= cause;
             this.#observeWorkerOperation({
               operation: "heartbeat",
               status: "failure",
               timestamp: this.#now(),
               runId,
-              error,
+              error: cause,
             });
           })
           .finally(() => {
@@ -617,9 +703,11 @@ export class WorkflowWorker implements WorkflowWorkerContract {
 
     const execution = (async () => await callback(executionAbort.signal))();
     this.#activeExecutions.add(execution);
+
     let executionOutcome:
       | { readonly status: "fulfilled"; readonly value: T }
       | { readonly status: "rejected"; readonly reason: unknown };
+
     try {
       executionOutcome = {
         status: "fulfilled",
@@ -634,6 +722,7 @@ export class WorkflowWorker implements WorkflowWorkerContract {
       if (timer !== undefined) {
         clearInterval(timer);
       }
+
       this.#activeExecutions.delete(execution);
       this.#activeExecutionAborts.delete(executionAbort);
       this.#activeExecutionRuns.delete(runId);
@@ -641,12 +730,15 @@ export class WorkflowWorker implements WorkflowWorkerContract {
       await heartbeat;
       await abortRelease;
     }
+
     if (heartbeatError !== undefined) {
       throw heartbeatError;
     }
+
     if (executionOutcome.status === "rejected") {
       throw executionOutcome.reason;
     }
+
     return executionOutcome.value;
   }
 
@@ -664,15 +756,18 @@ export class WorkflowWorker implements WorkflowWorkerContract {
   async #sleep(duration: number, signal: AbortSignal | undefined): Promise<void> {
     if (duration <= 0 || this.#stopRequested || signal?.aborted === true) {
       await Promise.resolve();
+
       return;
     }
 
     await new Promise<void>((resolve) => {
       let timer: TimeoutHandle | undefined;
+
       const finish = () => {
         if (timer !== undefined) {
           clearTimeout(timer);
         }
+
         this.#pollWakeups.delete(finish);
         signal?.removeEventListener("abort", finish);
         resolve();
@@ -697,6 +792,7 @@ export class WorkflowWorker implements WorkflowWorkerContract {
     const summary = await this.#engine.getRunSummary(options);
     const summaryWakeAt = earliestSummaryWakeAt(summary, timestamp);
     const scheduleWakeAt = tickSchedules ? await this.#nextScheduleWakeAt() : undefined;
+
     const nextWakeAt =
       summaryWakeAt === undefined
         ? scheduleWakeAt
@@ -704,6 +800,7 @@ export class WorkflowWorker implements WorkflowWorkerContract {
             Temporal.Instant.compare(summaryWakeAt, scheduleWakeAt) <= 0
           ? summaryWakeAt
           : scheduleWakeAt;
+
     if (nextWakeAt === undefined) {
       return pollInterval;
     }
@@ -719,6 +816,7 @@ export class WorkflowWorker implements WorkflowWorkerContract {
     if (this.#engine.listSchedules === undefined) {
       return undefined;
     }
+
     return (await this.#engine.listSchedules({ status: "active", limit: 1 }))[0]?.nextFireAt;
   }
 }
@@ -730,6 +828,7 @@ function earliestSummaryWakeAt(
   if (summary.lease.expired > 0) {
     return timestamp;
   }
+
   const nextAt =
     summary.nextAvailableAt === undefined
       ? summary.retry.nextRetryAt
@@ -737,12 +836,15 @@ function earliestSummaryWakeAt(
           Temporal.Instant.compare(summary.nextAvailableAt, summary.retry.nextRetryAt) <= 0
         ? summary.nextAvailableAt
         : summary.retry.nextRetryAt;
+
   if (nextAt === undefined) {
     return summary.lease.nextExpiresAt;
   }
+
   if (summary.lease.nextExpiresAt === undefined) {
     return nextAt;
   }
+
   return Temporal.Instant.compare(summary.lease.nextExpiresAt, nextAt) < 0
     ? summary.lease.nextExpiresAt
     : nextAt;

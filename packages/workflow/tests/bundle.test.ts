@@ -1,8 +1,5 @@
 import { describe, expect, test } from "vitest";
 
-import type { CreateWorkflowClientOptions } from "../src/client/create.ts";
-import type { CreateWorkflowRuntimeOptions } from "../src/types/runtime.ts";
-
 import { defineWorkflowBundle } from "../src/bundle.ts";
 import { createWorkflowClient } from "../src/client/create.ts";
 import { attachWorkflowDefinition } from "../src/compiled-function.ts";
@@ -30,6 +27,7 @@ describe("workflow bundles", () => {
       { name: "bundle-compiled" },
       ({ input }) => input[0] * 2,
     );
+
     const compiled = attachWorkflowDefinition(async (value: number) => value * 2, implementation);
 
     const bundle = defineWorkflowBundle([compiled]);
@@ -49,6 +47,7 @@ describe("workflow bundles", () => {
       { name: "bundle-runtime" },
       ({ input }) => input * 2,
     );
+
     const runtime = createWorkflowRuntime({ workflows: defineWorkflowBundle([workflow]) });
 
     const handle = await runtime.start(workflow.definition, 21);
@@ -62,6 +61,7 @@ describe("workflow bundles", () => {
       { name: "bundle-client" },
       ({ input }) => input + 1,
     );
+
     const client = createWorkflowClient({ workflows: defineWorkflowBundle([workflow]) });
 
     const handle = await client.runs.start(workflow.definition, 41);
@@ -78,12 +78,15 @@ describe("workflow bundles", () => {
     const runtimeOptions = {
       registry,
       workflows: bundle,
-    } as unknown as CreateWorkflowRuntimeOptions;
-    const clientOptions = { registry, workflows: bundle } as unknown as CreateWorkflowClientOptions;
+    };
 
+    const clientOptions = { registry, workflows: bundle };
+
+    // @ts-expect-error Exercise the runtime check for conflicting options from JavaScript callers.
     expect(() => createWorkflowRuntime(runtimeOptions)).toThrow(
       "cannot include both registry and workflows",
     );
+    // @ts-expect-error Exercise the runtime check for conflicting options from JavaScript callers.
     expect(() => createWorkflowClient(clientOptions)).toThrow(
       "cannot include both registry and workflows",
     );

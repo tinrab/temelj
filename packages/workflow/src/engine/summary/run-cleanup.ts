@@ -66,6 +66,7 @@ function addWorkflowRunCleanupEligibility(
   ) {
     return;
   }
+
   cleanup.eligibleRuns++;
   cleanup.status[run.status]++;
   cleanup.statusRunIds[run.status].push(run.id);
@@ -84,19 +85,27 @@ function finishWorkflowRunCleanupSummary(
   cleanup: WorkflowRunCleanupAccumulator,
   cutoff: Temporal.Instant | undefined,
 ): WorkflowRunCleanupSummaryFields {
-  return cutoff === undefined
-    ? {}
-    : {
-        cleanup: {
-          eligibleRuns: cleanup.eligibleRuns,
-          status: cleanup.status,
-          statusRunIds: sortedWorkflowTerminalRunStatusRunIds(cleanup.statusRunIds),
-          ...(cleanup.oldestFinishedAt === undefined
-            ? {}
-            : { oldestFinishedAt: cleanup.oldestFinishedAt }),
-          ...(cleanup.newestFinishedAt === undefined
-            ? {}
-            : { newestFinishedAt: cleanup.newestFinishedAt }),
-        },
-      };
+  if (cutoff === undefined) {
+    return {};
+  }
+
+  const result: NonNullable<WorkflowRunCleanupSummaryFields["cleanup"]> = {
+    eligibleRuns: cleanup.eligibleRuns,
+    status: cleanup.status,
+    statusRunIds: sortedWorkflowTerminalRunStatusRunIds(cleanup.statusRunIds),
+  };
+
+  if (cleanup.oldestFinishedAt !== undefined) {
+    Object.assign(result, { oldestFinishedAt: cleanup.oldestFinishedAt } satisfies Partial<
+      NonNullable<WorkflowRunCleanupSummaryFields["cleanup"]>
+    >);
+  }
+
+  if (cleanup.newestFinishedAt !== undefined) {
+    Object.assign(result, { newestFinishedAt: cleanup.newestFinishedAt } satisfies Partial<
+      NonNullable<WorkflowRunCleanupSummaryFields["cleanup"]>
+    >);
+  }
+
+  return { cleanup: result };
 }

@@ -168,6 +168,7 @@ export function appendWorkflowReplayProjectionEvents(
   for (const [offset, event] of events.entries()) {
     appendWorkflowReplayProjectionEvent(projection, event, startIndex + offset);
   }
+
   return projection;
 }
 
@@ -187,64 +188,78 @@ function appendWorkflowReplayProjectionEvent(
 
   switch (event.kind) {
     case "workflow_started": {
-      incrementWorkflowStartedCount(projection);
+      projection.workflowStartedCount++;
       break;
     }
+
     case "step_started": {
       projection.startedStep.set(event.stepId, event);
       appendProjectedEvent(projection.startedStepAttempts, event.stepId, event);
       recordProjectedStepAttempt(projection, event);
       appendStartedEvent(projection.startedEventsByStepId, event);
-      incrementTotalStartedStepCount(projection);
+      projection.totalStartedStepCount++;
       break;
     }
+
     case "step_completed": {
       projection.completedStep.set(event.stepId, event);
       break;
     }
+
     case "step_failed": {
       appendProjectedEvent(projection.failedSteps, event.stepId, event);
+
       if (!projection.terminalStartedBefore.has(event)) {
         const failedSteps = projection.unstartedFailedStep;
+
         if (!failedSteps.has(event.stepId)) {
           failedSteps.set(event.stepId, event);
         }
       }
+
       break;
     }
+
     case "metadata_set": {
       projection.metadataSet.set(event.stepId, event);
       break;
     }
+
     case "attributes_set": {
       projection.attributesSet.set(event.stepId, event);
       break;
     }
+
     case "sleep_started": {
       projection.startedSleep.set(event.stepId, event);
       appendStartedEvent(projection.startedEventsByStepId, event);
-      incrementTotalStartedStepCount(projection);
+      projection.totalStartedStepCount++;
       break;
     }
+
     case "sleep_completed": {
       projection.completedSleep.set(event.stepId, event);
       break;
     }
+
     case "child_workflow_started": {
       projection.startedChildWorkflow.set(event.stepId, event);
       const startedWorkflows = projection.childWorkflowStartedByAttemptKey;
       const childWorkflowKey = workflowChildWorkflowAttemptKey(event);
+
       if (!startedWorkflows.has(childWorkflowKey)) {
         startedWorkflows.set(childWorkflowKey, { index, event });
       }
+
       appendProjectedEvent(projection.childWorkflowStartedByStepId, event.stepId, {
         index,
         event,
       });
       appendStartedEvent(projection.startedEventsByStepId, event);
-      incrementTotalStartedStepCount(projection);
+      projection.totalStartedStepCount++;
       break;
     }
+
     case "child_workflow_completed": {
       projection.completedChildWorkflow.set(event.stepId, event);
       appendProjectedEvent(projection.childWorkflowCompletedByStepId, event.stepId, {
@@ -253,6 +268,7 @@ function appendWorkflowReplayProjectionEvent(
       });
       break;
     }
+
     case "child_workflow_failed": {
       projection.failedChildWorkflow.set(event.stepId, event);
       appendProjectedEvent(projection.childWorkflowFailedByStepId, event.stepId, {
@@ -261,6 +277,7 @@ function appendWorkflowReplayProjectionEvent(
       });
       break;
     }
+
     case "message_wait_started": {
       projection.startedMessageWait.set(event.stepId, event);
       activeMessageWaits(projection, event.messageId).set(event.stepId, event.stepName);
@@ -272,9 +289,10 @@ function appendWorkflowReplayProjectionEvent(
       projection.messageWaitStartedIndex.set(event, index);
       projection.latestMessageWaitStartedIndex.set(event.stepId, index);
       appendStartedEvent(projection.startedEventsByStepId, event);
-      incrementTotalStartedStepCount(projection);
+      projection.totalStartedStepCount++;
       break;
     }
+
     case "message_wait_completed": {
       deleteActiveMessageWait(projection, event);
       appendProjectedEvent(projection.completedMessageWait, event.stepId, {
@@ -283,6 +301,7 @@ function appendWorkflowReplayProjectionEvent(
       });
       break;
     }
+
     case "message_wait_failed": {
       deleteActiveMessageWait(projection, event);
       appendProjectedEvent(projection.failedMessageWait, event.stepId, {
@@ -291,41 +310,51 @@ function appendWorkflowReplayProjectionEvent(
       });
       break;
     }
+
     case "message_sent": {
       appendProjectedEvent(projection.messageSentById, event.messageId, {
         index,
         event,
       });
+
       if (event.idempotencyKey !== undefined) {
         const messages = projection.messageSentByIdempotencyKey;
+
         if (!messages.has(event.idempotencyKey)) {
           messages.set(event.idempotencyKey, event);
         }
+
         projection.latestMessageSentByIdempotencyKey.set(event.idempotencyKey, event);
       }
+
       break;
     }
+
     case "message_send_started": {
       projection.startedMessageSend.set(event.stepId, event);
       appendStartedEvent(projection.startedEventsByStepId, event);
-      incrementTotalStartedStepCount(projection);
+      projection.totalStartedStepCount++;
       break;
     }
+
     case "message_send_completed": {
       projection.completedMessageSend.set(event.stepId, event);
       break;
     }
+
     case "message_send_failed": {
       projection.failedMessageSend.set(event.stepId, event);
       break;
     }
+
     case "stream_started": {
       projection.startedStream.set(event.stepId, event);
       setProjectedStreamStartedByIdOrName(projection, event, index);
       appendStartedEvent(projection.startedEventsByStepId, event);
-      incrementTotalStartedStepCount(projection);
+      projection.totalStartedStepCount++;
       break;
     }
+
     case "stream_chunk": {
       appendProjectedEvent(projection.streamChunks, event.stepId, event);
       appendProjectedEvent(projection.streamChunksByStreamId, event.streamId, {
@@ -335,22 +364,29 @@ function appendWorkflowReplayProjectionEvent(
       setProjectedStreamChunkByIndex(projection, event);
       break;
     }
+
     case "stream_closed": {
       projection.closedStream.set(event.stepId, event);
       const closed = projection.streamClosedByStreamId;
+
       if (!closed.has(event.streamId)) {
         closed.set(event.streamId, { index, event });
       }
+
       break;
     }
+
     case "stream_failed": {
       projection.failedStream.set(event.stepId, event);
       const failed = projection.streamFailedByStreamId;
+
       if (!failed.has(event.streamId)) {
         failed.set(event.streamId, { index, event });
       }
+
       break;
     }
+
     case "deterministic_value_recorded": {
       projection.deterministicValue.set(event.stepId, event);
       break;
@@ -365,6 +401,7 @@ function appendStartedEvent(
   if (!isWorkflowRecordedStepEventKind(event.kind) || !("stepId" in event)) {
     return;
   }
+
   appendProjectedEvent(startedEventsByStepId, event.stepId, event);
 }
 
@@ -374,8 +411,10 @@ function recordProjectedStepAttempt(
 ): void {
   if (!(Number.isSafeInteger(event.attempt) && event.attempt > 0)) {
     projection.invalidStartedStepAttempt.set(event.stepId, event);
+
     return;
   }
+
   const nextAttempt = event.attempt + 1;
   projection.nextStepAttemptByStepId.set(
     event.stepId,
@@ -383,33 +422,18 @@ function recordProjectedStepAttempt(
   );
 }
 
-function incrementTotalStartedStepCount(projection: WorkflowReplayProjection): void {
-  asMutableProjection(projection).totalStartedStepCount++;
-}
-
-function incrementWorkflowStartedCount(projection: WorkflowReplayProjection): void {
-  asMutableProjection(projection).workflowStartedCount++;
-}
-
-function asMutableProjection(projection: WorkflowReplayProjection): WorkflowReplayProjection & {
-  workflowStartedCount: number;
-  totalStartedStepCount: number;
-} {
-  return projection as WorkflowReplayProjection & {
-    workflowStartedCount: number;
-    totalStartedStepCount: number;
-  };
-}
-
 function setProjectedStreamChunkByIndex(
   projection: WorkflowReplayProjection,
   event: StreamChunkEvent,
 ): void {
   const chunks = projection.streamChunkByIndex.get(event.stepId);
+
   if (chunks === undefined) {
     projection.streamChunkByIndex.set(event.stepId, new Map([[event.index, event]]));
+
     return;
   }
+
   if (!chunks.has(event.index)) {
     chunks.set(event.index, event);
   }
@@ -423,6 +447,7 @@ function setProjectedStreamStartedByIdOrName(
   if (!projection.streamStartedByIdOrName.has(event.streamId)) {
     projection.streamStartedByIdOrName.set(event.streamId, { index, event });
   }
+
   if (!projection.streamStartedByIdOrName.has(event.stepName)) {
     projection.streamStartedByIdOrName.set(event.stepName, { index, event });
   }
@@ -433,11 +458,14 @@ function activeMessageWaits(
   messageId: MessageId,
 ): Map<StepId, string> {
   const waits = projection.activeMessageWaitsByMessageId.get(messageId);
+
   if (waits !== undefined) {
     return waits;
   }
+
   const nextWaits = new Map<StepId, string>();
   projection.activeMessageWaitsByMessageId.set(messageId, nextWaits);
+
   return nextWaits;
 }
 
@@ -446,6 +474,7 @@ function deleteActiveMessageWait(
   event: MessageWaitCompletedEvent | MessageWaitFailedEvent,
 ): void {
   const activeWaits = activeMessageWaits(projection, event.messageId);
+
   if (activeWaits.get(event.stepId) === event.stepName) {
     activeWaits.delete(event.stepId);
   }
@@ -461,10 +490,12 @@ export function findLastIndexedWorkflowEventAfter<
 ): TMatch | undefined {
   for (let index = entries.length - 1; index >= 0; index--) {
     const entry = entries[index];
+
     if (entry.index > afterIndex && predicate(entry.event)) {
       return entry.event;
     }
   }
+
   return undefined;
 }
 
@@ -476,10 +507,12 @@ function findLastIndexedWorkflowEventEntryAfter<TEvent extends EventRecord, TMat
   for (let index = entries.length - 1; index >= 0; index--) {
     const entry = entries[index];
     const event = entry.event;
+
     if (entry.index > afterIndex && predicate(event)) {
       return { index: entry.index, event };
     }
   }
+
   return undefined;
 }
 
@@ -490,6 +523,7 @@ export function findWorkflowMessageSentForWait(
   timeoutAt: Temporal.Instant | undefined,
 ): MessageSentEvent | undefined {
   const waitStartedIndex = projection.latestMessageWaitStartedIndex.get(stepId) ?? -1;
+
   return (projection.messageSentById.get(messageId) ?? []).find(({ index, event }) => {
     return (
       index > waitStartedIndex &&
@@ -524,21 +558,31 @@ export function findStreamEventProjection(
   streamIdOrName: StreamIdOrName,
 ): StreamEventProjection | undefined {
   const started = projection.streamStartedByIdOrName.get(streamIdOrName);
+
   if (started === undefined) {
     return undefined;
   }
-  return {
+
+  const summary: StreamEventProjection | undefined = {
     started: started.event,
     chunks: [...(projection.streamChunksByStreamId.get(started.event.streamId) ?? [])].sort(
       (left, right) => left.event.index - right.event.index,
     ),
-    ...(projection.streamClosedByStreamId.get(started.event.streamId) === undefined
-      ? {}
-      : { closed: projection.streamClosedByStreamId.get(started.event.streamId) }),
-    ...(projection.streamFailedByStreamId.get(started.event.streamId) === undefined
-      ? {}
-      : { failed: projection.streamFailedByStreamId.get(started.event.streamId) }),
   };
+
+  if (projection.streamClosedByStreamId.get(started.event.streamId) !== undefined) {
+    Object.assign(summary, {
+      closed: projection.streamClosedByStreamId.get(started.event.streamId),
+    } satisfies Partial<StreamEventProjection | undefined>);
+  }
+
+  if (projection.streamFailedByStreamId.get(started.event.streamId) !== undefined) {
+    Object.assign(summary, {
+      failed: projection.streamFailedByStreamId.get(started.event.streamId),
+    } satisfies Partial<StreamEventProjection | undefined>);
+  }
+
+  return summary;
 }
 
 export function findLastWorkflowSleepStartedForCompleted(
@@ -546,6 +590,7 @@ export function findLastWorkflowSleepStartedForCompleted(
   completed: SleepCompletedEvent,
 ): SleepStartedEvent | undefined {
   const started = projection.startedSleep.get(completed.stepId);
+
   return started?.stepName === completed.stepName ? started : undefined;
 }
 
@@ -554,6 +599,7 @@ export function findLastMessageWaitStartedForCompleted(
   completed: MessageWaitCompletedEvent,
 ): MessageWaitStartedEvent | undefined {
   const started = projection.startedMessageWait.get(completed.stepId);
+
   return started?.stepName === completed.stepName && started.messageId === completed.messageId
     ? started
     : undefined;
@@ -583,9 +629,11 @@ export function findWorkflowChildWorkflowLifecycleForAttempt(
   const started = projection.childWorkflowStartedByAttemptKey.get(
     workflowChildWorkflowAttemptKey(attempt),
   );
+
   if (started === undefined) {
     return { hasTerminalAfterStarted: false };
   }
+
   return {
     started: started.event,
     hasTerminalAfterStarted: hasWorkflowChildWorkflowTerminalAfterStarted(projection, started),
@@ -628,6 +676,7 @@ export function findLastMessageWaitStartedByNameAndMessageId(
     projection.messageWaitStartedByNameAndMessageId.get(
       workflowMessageWaitNameMessageKey(stepName, messageId),
     ) ?? [];
+
   return entries.at(-1)?.event;
 }
 
@@ -636,27 +685,33 @@ export function findLastMessageWaitTerminalAfterStarted(
   started: MessageWaitStartedEvent,
 ): MessageWaitCompletedEvent | MessageWaitFailedEvent | undefined {
   const startedIndex = projection.messageWaitStartedIndex.get(started);
+
   if (startedIndex === undefined) {
     return undefined;
   }
+
   const completed = findLastIndexedWorkflowEventEntryAfter(
     projection.completedMessageWait.get(started.stepId) ?? [],
     startedIndex,
     (event): event is MessageWaitCompletedEvent =>
       event.stepName === started.stepName && event.messageId === started.messageId,
   );
+
   const failed = findLastIndexedWorkflowEventEntryAfter(
     projection.failedMessageWait.get(started.stepId) ?? [],
     startedIndex,
     (event): event is MessageWaitFailedEvent =>
       event.stepName === started.stepName && event.messageId === started.messageId,
   );
+
   if (completed === undefined) {
     return failed?.event;
   }
+
   if (failed === undefined) {
     return completed.event;
   }
+
   return completed.index > failed.index ? completed.event : failed.event;
 }
 
@@ -674,6 +729,7 @@ export function findLastWorkflowMessageSentById(
   messageId: MessageId,
 ): MessageSentEvent | undefined {
   const entries = projection.messageSentById.get(messageId) ?? [];
+
   return entries.at(-1)?.event;
 }
 
@@ -683,10 +739,13 @@ function appendProjectedEvent<TKey, TEvent>(
   event: TEvent,
 ): void {
   const events = map.get(stepId);
+
   if (events === undefined) {
     map.set(stepId, [event]);
+
     return;
   }
+
   events.push(event);
 }
 

@@ -131,4 +131,5 @@ export const WorkflowErrorCode = {
 } as const;
 
 export const workflowErrorCodeSchema = z.enum(WorkflowErrorCode);
+
 export type WorkflowErrorCode = z.infer<typeof workflowErrorCodeSchema>;

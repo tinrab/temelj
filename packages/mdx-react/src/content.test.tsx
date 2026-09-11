@@ -34,6 +34,7 @@ afterEach(() => {
 
 describe("MDX React content", () => {
   const mathProcessor = new Processor({ syntax: { math: "auto" } });
+
   const Math = ({ meta, source, style }: MathComponentProps): React.ReactNode => (
     <span data-meta={meta} data-source={source} data-style={style}>
       {source}
@@ -53,6 +54,7 @@ describe("MDX React content", () => {
     const Alert = ({ node }: MdxComponentProps): React.ReactNode => (
       <aside data-node={JSON.stringify(node)} />
     );
+
     const { container } = render(
       <SourceContent
         registry={defineMdxRegistry({ jsx: { Alert: { component: Alert } } })}
@@ -115,12 +117,14 @@ describe("MDX React content", () => {
 
   it("renders committed pending JSX with completed props and Markdown children", () => {
     const Note = ({ title }: { readonly title: string }): React.ReactNode => <aside>{title}</aside>;
+
     const Pending = ({ children, title }: PendingMdxJsxProps<typeof Note>): React.ReactNode => (
       <section aria-label="pending note">
         <strong>{title}</strong>
         {children}
       </section>
     );
+
     const registry = defineMdxRegistry({
       jsx: { Note: { component: Note, pending: Pending } },
     });
@@ -134,6 +138,7 @@ describe("MDX React content", () => {
         syntax={{ math: "auto" }}
       />,
     );
+
     const pending = screen.getByLabelText("pending note");
     expect(pending.textContent).toBe("");
 
@@ -154,11 +159,13 @@ describe("MDX React content", () => {
 
   it("uses global pending only for exact registered JSX names", () => {
     const Alert = (): React.ReactNode => <aside>ready</aside>;
+
     const PendingMarkdown = vi.fn<(props: PendingMdxMarkdownProps) => React.ReactNode>(
       ({ children, node }: PendingMdxMarkdownProps): React.ReactNode => (
         <span data-pending-kind={node.kind}>{children}</span>
       ),
     );
+
     const registry = defineMdxRegistry({
       jsx: { Alert: { component: Alert } },
       pending: {
@@ -166,9 +173,11 @@ describe("MDX React content", () => {
         markdown: PendingMarkdown,
       },
     });
+
     const { rerender } = render(
       <StreamingSourceContent registry={registry} source="<Ale" status="streaming" />,
     );
+
     expect(document.body.textContent).toBe("");
 
     rerender(<StreamingSourceContent registry={registry} source="<Alert " status="streaming" />);
@@ -224,6 +233,7 @@ describe("MDX React content", () => {
 
   it("infers optional pending props without accepting raw registries", () => {
     const Note = ({ title }: { readonly title: string }): React.ReactNode => title;
+
     const registry = defineMdxRegistry({
       html: { Note: "aside" },
       jsx: {
@@ -233,14 +243,17 @@ describe("MDX React content", () => {
           component: Note,
           pending: ({ title }) => {
             expectTypeOf(title).toEqualTypeOf<string | undefined>();
+
             return title;
           },
         },
       },
     });
+
     expectTypeOf(registry).toMatchTypeOf<MdxRegistry>();
 
     const acceptRegistry = (_registry: MdxRegistry): void => {};
+
     // @ts-expect-error A registry contains normalized HTML and JSX records.
     acceptRegistry({ html: { Note } });
 
@@ -281,6 +294,7 @@ describe("MDX React content", () => {
       ({ children, node }: PendingMdxMarkdownProps): React.ReactNode =>
         node.kind === "footnoteReference" || node.kind === "footnoteSection" ? null : children,
     );
+
     const registry = defineMdxRegistry({ pending: { markdown: PendingMarkdown } });
     rerender(
       <StreamingSourceContent
@@ -364,6 +378,7 @@ describe("MDX React content", () => {
         ),
       kind: "synchronous",
     } satisfies SyntaxHighlighter;
+
     const PendingMarkdown = ({ children, node }: PendingMdxMarkdownProps): React.ReactNode =>
       node.kind === "pendingFencedCode" ? (
         <HighlightedCode
@@ -375,6 +390,7 @@ describe("MDX React content", () => {
       ) : (
         children
       );
+
     const pending = render(
       <StreamingSourceContent
         registry={defineMdxRegistry({ pending: { markdown: PendingMarkdown } })}
@@ -399,12 +415,15 @@ describe("MDX React content", () => {
         new HtmlElementNode("pre", { "data-highlighted": "" }, [new HtmlTextNode(code)]),
       kind: "synchronous",
     } satisfies SyntaxHighlighter;
+
     const CodeBlock = ({ code, language, status }: MdxCodeBlockComponentProps) => (
       <div data-code-status={status}>
         <HighlightedCode code={code} highlighter={highlighter} language={language} />
       </div>
     );
+
     const registry = defineMdxRegistry({ markdown: { codeBlock: CodeBlock } });
+
     const view = render(
       <StreamingSourceContent
         registry={registry}
@@ -412,6 +431,7 @@ describe("MDX React content", () => {
         status="streaming"
       />,
     );
+
     const original = view.container.querySelector("[data-highlighted]");
     expect(original?.textContent).toBe("const first = 1;");
 
@@ -511,6 +531,7 @@ describe("MDX React content", () => {
 
   it("uses the semantic math component for streaming and direct HTML nodes", () => {
     const source = "\\(stream\\)";
+
     const { container } = render(
       <StreamingSourceContent
         math={Math}
@@ -519,12 +540,15 @@ describe("MDX React content", () => {
         syntax={{ math: "auto" }}
       />,
     );
+
     expect(container.querySelector('[data-source="stream"]')).not.toBeNull();
 
     const outcome = mathProcessor.processSync("$direct$\n");
+
     if (outcome.kind !== "processed") {
       throw new Error(`Expected processed outcome, received ${outcome.kind}`);
     }
+
     const html = outcome.value.html;
     render(<HtmlNodeContent math={Math} node={html} />);
     expect(document.querySelector('[data-source="direct"]')).not.toBeNull();
@@ -534,7 +558,9 @@ describe("MDX React content", () => {
     const PendingMarkdown = vi.fn<(props: PendingMdxMarkdownProps) => React.ReactNode>(
       ({ children }: PendingMdxMarkdownProps): React.ReactNode => children,
     );
+
     const registry = defineMdxRegistry({ pending: { markdown: PendingMarkdown } });
+
     const { rerender } = render(
       <StreamingSourceContent
         registry={registry}
@@ -603,6 +629,7 @@ describe("MDX React content", () => {
 
   it("converts CSS strings and namespace-aware attributes to React props", () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+
     const node = new HtmlFragmentNode([
       new HtmlElementNode("span", {
         "aria-describedby": "description",
@@ -662,6 +689,7 @@ describe("MDX React content", () => {
       math === undefined
         ? null
         : React.createElement(math, { source: "compiled", style: "display" });
+
     render(<CompiledContent module={{ default: Trusted }} math={Math} />);
     expect(document.querySelector('[data-source="compiled"]')).not.toBeNull();
   });
@@ -673,9 +701,11 @@ describe("MDX React content", () => {
     });
 
     expect(outcome.kind).toBe("compiled");
+
     if (outcome.kind !== "compiled") {
       return;
     }
+
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
     const { container } = render(<CompiledContent module={outcome.module} />);
     expect(screen.getByRole("heading", { name: "Hello Tin" })).toBeDefined();
@@ -694,12 +724,24 @@ describe("MDX React content", () => {
     );
 
     expect(outcome.kind).toBe("compiled");
+
     if (outcome.kind !== "compiled") {
       return;
     }
-    expect(outcome.module.title).toBe("Imported");
+
+    expect(outcome.module).toHaveProperty("title", "Imported");
     render(<CompiledContent module={outcome.module} />);
     expect(screen.getByRole("heading", { name: "42" })).toBeDefined();
+  });
+
+  it("rejects primitive import results at the evaluator boundary", async () => {
+    const outcome = await compileTrustedMdx('import {answer} from "facts"\n\n# {answer}\n', {
+      // @ts-expect-error Import resolvers must return a module object.
+      resolveImport: () => 42,
+    });
+
+    expect(outcome.kind).toBe("evaluationFailed");
+    expect(outcome.diagnostics[0]?.message).toContain("non-module value");
   });
 
   it("does not evaluate imports without a resolver", async () => {
@@ -711,6 +753,7 @@ describe("MDX React content", () => {
   it("renders compiled footnotes with backlinks", async () => {
     const outcome = await compileTrustedMdx("A note[^one].\n\n[^one]: Footnote body.\n");
     expect(outcome.kind).toBe("compiled");
+
     if (outcome.kind !== "compiled") {
       return;
     }
@@ -727,14 +770,17 @@ describe("MDX React content", () => {
   it("routes compiled code blocks through the semantic registry", async () => {
     const outcome = await compileTrustedMdx("```ts showLineNumbers\nconst answer = 42;\n```\n");
     expect(outcome.kind).toBe("compiled");
+
     if (outcome.kind !== "compiled") {
       return;
     }
+
     const CodeBlock = ({ code, language, meta, status }: MdxCodeBlockComponentProps) => (
       <pre data-language={language} data-meta={meta} data-status={status}>
         {code}
       </pre>
     );
+
     render(
       <CompiledContent
         registry={defineMdxRegistry({ markdown: { codeBlock: CodeBlock } })}

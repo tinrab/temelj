@@ -71,6 +71,7 @@ describe("workflow observation", () => {
     if (result.kind !== "completed") {
       throw new Error("Expected workflow result to be completed");
     }
+
     expect(result.output).toBe("done");
   });
 
@@ -102,12 +103,15 @@ describe("workflow observation", () => {
 
   it("emits durable append and stream update events", async () => {
     const engine = createWorkflowEngine({ createRunId: () => "run-durable" });
+
     const workflow = implementWorkflow({ name: "durable" }, async ({ step }) => {
       const stream = step.stream.create("progress");
       await stream.write("one");
       await stream.close();
+
       return "done";
     });
+
     const durableEvents: string[] = [];
     const attempts: string[] = [];
     const streamEvents: string[] = [];
@@ -138,12 +142,15 @@ describe("workflow observation", () => {
 
   it("emits message, hook resume, and webhook resume events", async () => {
     let runIndex = 0;
+
     const engine = createWorkflowEngine({
       createRunId: () => {
         runIndex++;
+
         return `run-message-${runIndex}`;
       },
     });
+
     const workflow = implementWorkflow({ name: "message-target" }, () => "ready");
     const messageEvents: string[] = [];
     const resumeEvents: string[] = [];
@@ -187,5 +194,6 @@ function hookToken(runId: RunId, name: string, messageId: MessageId): string {
   const payload = Buffer.from(JSON.stringify({ v: 1, runId, name, messageId })).toString(
     "base64url",
   );
+
   return `temelj-hook:v1:${payload}`;
 }

@@ -1,3 +1,5 @@
+import { isBigInt, isBoolean, isFunction, isNumber, isObject, isString, isSymbol } from "./check";
+
 const ByteSize = {
   BOOLEAN: 4,
   NUMBER: 8,
@@ -19,30 +21,38 @@ export function sizeOf(value: unknown): number {
 }
 
 function sizeValue(value: unknown, seen: WeakSet<object>): number {
-  switch (typeof value) {
-    case "string":
-      return value.length * ByteSize.STRING_CODE_UNIT;
-    case "boolean":
-      return ByteSize.BOOLEAN;
-    case "number":
-      return ByteSize.NUMBER;
-    case "bigint":
-      return sizeString(value.toString());
-    case "symbol":
-      return sizeSymbol(value);
-    case "function":
-      return sizeString(value.toString());
-    case "object":
-      return value === null ? 0 : sizeObject(value, seen);
-    case "undefined":
-      return 0;
+  if (isString(value)) {
+    return value.length * ByteSize.STRING_CODE_UNIT;
   }
+
+  if (isBoolean(value)) {
+    return ByteSize.BOOLEAN;
+  }
+
+  if (isNumber(value)) {
+    return ByteSize.NUMBER;
+  }
+
+  if (isBigInt(value) || isFunction(value)) {
+    return sizeString(value.toString());
+  }
+
+  if (isSymbol(value)) {
+    return sizeSymbol(value);
+  }
+
+  if (isObject(value)) {
+    return sizeObject(value, seen);
+  }
+
+  return 0;
 }
 
 function sizeObject(value: object, seen: WeakSet<object>): number {
   if (seen.has(value)) {
     return 0;
   }
+
   seen.add(value);
 
   if (value instanceof ArrayBuffer) {
@@ -78,31 +88,38 @@ function sizeObject(value: object, seen: WeakSet<object>): number {
 
 function sizeMap(map: Map<unknown, unknown>, seen: WeakSet<object>): number {
   let bytes = 0;
+
   for (const [key, value] of map) {
     bytes += sizeValue(key, seen);
     bytes += sizeValue(value, seen);
   }
+
   return bytes;
 }
 
 function sizeSet(set: Set<unknown>, seen: WeakSet<object>): number {
   let bytes = 0;
+
   for (const value of set) {
     bytes += sizeValue(value, seen);
   }
+
   return bytes;
 }
 
 function sizeArray(array: readonly unknown[], seen: WeakSet<object>): number {
   let bytes = 0;
+
   for (const value of array) {
     bytes += sizeValue(value, seen);
   }
+
   return bytes;
 }
 
 function sizeProperties(value: object, seen: WeakSet<object>): number {
   let bytes = 0;
+
   for (const key of Reflect.ownKeys(value)) {
     if (!isEnumerable(value, key)) {
       continue;
@@ -111,6 +128,7 @@ function sizeProperties(value: object, seen: WeakSet<object>): number {
     bytes += sizeKey(key);
     bytes += sizeValue(readProperty(value, key), seen);
   }
+
   return bytes;
 }
 
@@ -118,8 +136,11 @@ function isEnumerable(value: object, key: PropertyKey): boolean {
   return Object.prototype.propertyIsEnumerable.call(value, key);
 }
 
+// Property inspection is an arbitrary-value boundary; sizeValue handles the returned value.
+// oxlint-disable-next-line anti-slop/no-unknown-returns
 function readProperty(value: object, key: PropertyKey): unknown {
   try {
+    // SAFETY: the key comes from Reflect.ownKeys(value); its property value is deliberately unknown.
     return value[key as keyof typeof value];
   } catch {
     return undefined;
@@ -127,14 +148,16 @@ function readProperty(value: object, key: PropertyKey): unknown {
 }
 
 function sizeKey(key: PropertyKey): number {
-  if (typeof key === "symbol") {
+  if (isSymbol(key)) {
     return sizeSymbol(key);
   }
+
   return sizeString(String(key));
 }
 
 function sizeSymbol(symbol: symbol): number {
   const globalKey = Symbol.keyFor(symbol);
+
   if (globalKey !== undefined) {
     return sizeString(globalKey);
   }

@@ -7,6 +7,7 @@ import type { StreamingDocument } from "./streaming-document.ts";
 import type { SyntaxOptions } from "./syntax-options.ts";
 
 declare const blockIdBrand: unique symbol;
+
 export type BlockId = string & { readonly [blockIdBrand]: "BlockId" };
 
 export interface MdxEdit {

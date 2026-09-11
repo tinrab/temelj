@@ -2,6 +2,7 @@ import { type WebStorageLike } from "@temelj/storage/localstorage";
 
 export function createMockWebStorage(): WebStorageLike {
   const items = new Map<string, string>();
+
   return {
     get length(): number {
       return items.size;

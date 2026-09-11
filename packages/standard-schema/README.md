@@ -43,3 +43,9 @@ import { ss } from "@temelj/standard-schema";
 const schema = ss.string();
 const result = schema["~standard"].validate("hello");
 ```
+
+`SchemaFields` names an object's field schemas. `object` validates those fields and strips other keys; `strictObject` rejects extra keys. `looseObject` preserves extra keys at runtime, but its output type exposes only the validated fields.
+
+`array()` checks the container and returns `unknown[]`. Pass an element schema, such as `array(string())`, to validate its elements. `fn()` checks that a value is callable; it does not validate the function's parameters or result.
+
+`defaulted(schema, value)` uses the supplied value, including function values. Use `defaultedWith(schema, () => value)` to create a default only when the input is `undefined`.

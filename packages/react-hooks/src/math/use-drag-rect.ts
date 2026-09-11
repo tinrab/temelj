@@ -20,14 +20,15 @@ export interface DragRectReturn<T extends Element> extends Omit<DragVectorReturn
  */
 export function useDragRect<T extends Element>(): DragRectReturn<T> {
   const drag = useDragVector<T>();
+  const dragRef = drag.ref;
   const [rectRef, rect] = useRect<T>();
 
   const ref = React.useCallback(
     (node: T | null) => {
-      drag.ref.current = node;
+      dragRef(node);
       rectRef(node);
     },
-    [drag.ref, rectRef],
+    [dragRef, rectRef],
   );
 
   return { ...drag, ref, rect };

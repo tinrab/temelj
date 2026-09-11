@@ -34,6 +34,7 @@ test("retains definitions, references, and non-JSX raw HTML in the owned model",
       '[guide]: https://rabzelj.com "Guide"\n[logo]: /logo\n\n[Read][guide] and ![Logo][logo]\n\n<!-- raw -->',
     ),
   );
+
   const document = result.document;
   expect(selectNode(document, "definition")?.url).toBe("https://rabzelj.com");
   expect(selectNode(document, "linkReference")?.identifier).toBe("GUIDE");
@@ -74,5 +75,6 @@ function expectParsed(
   if (outcome.kind !== "parsed") {
     throw new Error(`Expected parsed outcome, received ${outcome.kind}`);
   }
+
   return outcome;
 }

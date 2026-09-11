@@ -1,47 +1,22 @@
 import { readdirSync, readFileSync } from "node:fs";
+import { z } from "zod";
 
-export function readWorkflowPackageJson(): {
-  readonly dependencies: Record<string, string>;
-  readonly devDependencies?: Record<string, string>;
-  readonly exports: Record<string, unknown>;
-  readonly optionalDependencies?: Record<string, string>;
-  readonly peerDependencies?: Record<string, string>;
-} {
-  const value: unknown = JSON.parse(
-    readFileSync(new URL("../../package.json", import.meta.url), "utf8"),
+const dependenciesSchema = z.record(z.string(), z.string());
+
+const workflowPackageMetadataSchema = z.object({
+  dependencies: dependenciesSchema,
+  devDependencies: dependenciesSchema.optional(),
+  exports: z.record(z.string(), z.object({ types: z.string(), import: z.string() })),
+  optionalDependencies: dependenciesSchema.optional(),
+  peerDependencies: dependenciesSchema.optional(),
+});
+
+type WorkflowPackageMetadata = z.infer<typeof workflowPackageMetadataSchema>;
+
+export function readWorkflowPackageJson(): WorkflowPackageMetadata {
+  return workflowPackageMetadataSchema.parse(
+    JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")),
   );
-  if (
-    typeof value !== "object" ||
-    value === null ||
-    !("dependencies" in value) ||
-    typeof value.dependencies !== "object" ||
-    value.dependencies === null ||
-    !("exports" in value) ||
-    typeof value.exports !== "object" ||
-    value.exports === null
-  ) {
-    throw new Error("Expected workflow package metadata");
-  }
-  const packageJson = value as {
-    readonly dependencies: Record<string, string>;
-    readonly devDependencies?: Record<string, string>;
-    readonly exports: Record<string, unknown>;
-    readonly optionalDependencies?: Record<string, string>;
-    readonly peerDependencies?: Record<string, string>;
-  };
-  return {
-    dependencies: packageJson.dependencies,
-    ...(packageJson.devDependencies === undefined
-      ? {}
-      : { devDependencies: packageJson.devDependencies }),
-    exports: packageJson.exports,
-    ...(packageJson.optionalDependencies === undefined
-      ? {}
-      : { optionalDependencies: packageJson.optionalDependencies }),
-    ...(packageJson.peerDependencies === undefined
-      ? {}
-      : { peerDependencies: packageJson.peerDependencies }),
-  };
 }
 
 export function storageBackendPackageDependencies(packageJson: {
@@ -62,6 +37,7 @@ export function storageBackendPackageDependencies(packageJson: {
 
 export function workflowRuntimeSourceFiles(): readonly URL[] {
   const sourceDirectory = new URL("../../src/", import.meta.url);
+
   return readdirSync(sourceDirectory)
     .filter((file) => file.endsWith(".ts") && !file.endsWith(".test.ts"))
     .map((file) => new URL(file, sourceDirectory));

@@ -1,4 +1,4 @@
-import { isPlainObject } from "@temelj/value";
+import { isNumber, isBoolean, isString, isPlainObject } from "@temelj/value";
 import { find, html, svg, type Schema } from "property-information";
 
 import { isHeadingDepth, type HeadingDepth } from "../heading.ts";
@@ -69,9 +69,40 @@ import {
   type TableAlignment,
 } from "../model.ts";
 
-type UnistRecord = Record<string, unknown> & {
+interface UnistRecord {
   readonly type: string;
-};
+  readonly align?: unknown;
+  readonly alt?: unknown;
+  readonly attributes?: unknown;
+  readonly checked?: unknown;
+  children?: unknown;
+  data?: unknown;
+  readonly depth?: unknown;
+  readonly identifier?: unknown;
+  readonly label?: unknown;
+  readonly lang?: unknown;
+  readonly meta?: unknown;
+  readonly name?: unknown;
+  readonly ordered?: unknown;
+  readonly position?: unknown;
+  readonly properties?: unknown;
+  readonly referenceType?: unknown;
+  readonly spread?: unknown;
+  readonly start?: unknown;
+  readonly tagName?: unknown;
+  readonly title?: unknown;
+  readonly url?: unknown;
+  readonly value?: unknown;
+}
+
+interface UnistPosition {
+  readonly start: ReturnType<SourceFile["location"]>;
+  readonly end: ReturnType<SourceFile["location"]>;
+}
+
+interface UnistOrigin {
+  readonly position?: UnistPosition;
+}
 
 const unifiedDataKeys = {
   directiveLabel: "temeljDirectiveLabel",
@@ -96,35 +127,43 @@ export class UnifiedTreeBridge {
 
   public toMdast(document: DocumentNode): UnistRecord {
     const node = this.mdxToUnist(document);
+
     if (node.type !== "root") {
       throw new UnifiedBoundaryError("The document bridge did not produce an mdast root");
     }
+
     return node;
   }
 
   public fromMdast(root: unknown): DocumentNode {
     const node = this.unistToMdx(root);
+
     if (!(node instanceof DocumentNode)) {
       throw new UnifiedBoundaryError(
         `Remark returned a ${node.kind} node instead of an mdast root`,
       );
     }
+
     return node;
   }
 
   public toHast(document: HtmlDocumentNode): UnistRecord {
     const node = this.htmlToUnist(document);
+
     if (node.type !== "root") {
       throw new UnifiedBoundaryError("The HTML bridge did not produce a HAST root");
     }
+
     return node;
   }
 
   public fromHast(root: unknown): HtmlDocumentNode {
     const node = this.unistToHtml(root, false);
+
     if (!(node instanceof HtmlDocumentNode)) {
       throw new UnifiedBoundaryError(`Rehype returned a ${node.kind} node instead of a HAST root`);
     }
+
     return node;
   }
 
@@ -132,6 +171,7 @@ export class UnifiedTreeBridge {
     const position = positionFromOrigin(node.origin);
     const base = position === undefined ? {} : { position };
     const children = (): UnistRecord[] => node.children.map((child) => this.mdxToUnist(child));
+
     switch (node.kind) {
       case "document":
         return { type: "root", children: children(), ...base };
@@ -269,11 +309,14 @@ export class UnifiedTreeBridge {
       case "containerDirective": {
         const value = directiveToUnist("containerDirective", node, base, this);
         value.children = node.body.map((child) => this.mdxToUnist(child));
+
         if (node.label !== undefined) {
           value.data = { [unifiedDataKeys.directiveLabel]: this.mdxToUnist(node.label) };
         }
+
         return value;
       }
+
       case "inlineExpression":
         return { type: "mdxTextExpression", value: node.code, ...base };
       case "blockExpression":
@@ -292,6 +335,7 @@ export class UnifiedTreeBridge {
         return { type: "mdxJsxAttributeValueExpression", value: node.code, ...base };
       default: {
         const exhaustive: never = node;
+
         return exhaustive;
       }
     }
@@ -300,9 +344,12 @@ export class UnifiedTreeBridge {
   public unistToMdx(value: unknown, mode: "flow" | "phrasing" = "flow"): MdxNode {
     const node = this.nodeRecord(value);
     const origin = this.origin(node.position);
+
     const children = (childMode: "flow" | "phrasing" = "flow"): MdxNode[] =>
       this.nodeChildren(node).map((child) => this.unistToMdx(child, childMode));
+
     let result: MdxNode;
+
     switch (node.type) {
       case "root":
         result = new DocumentNode(flow(children(), node.type), origin);
@@ -395,6 +442,7 @@ export class UnifiedTreeBridge {
             : new DisplayMathNode(stringField(node, "value"), { format, meta, origin });
         break;
       }
+
       case "paragraph":
         result = new ParagraphNode(phrasing(children("phrasing"), node.type), origin);
         break;
@@ -502,13 +550,16 @@ export class UnifiedTreeBridge {
       default:
         throw new UnifiedBoundaryError(`Unsupported mdast node type: ${node.type}`);
     }
+
     this.visiting.delete(node);
+
     return result;
   }
 
   private htmlToUnist(node: HtmlNode): UnistRecord {
     const position = positionFromOrigin(node.origin);
     const base = position === undefined ? {} : { position };
+
     if (node instanceof HtmlDocumentNode) {
       return {
         type: "root",
@@ -516,24 +567,32 @@ export class UnifiedTreeBridge {
         ...base,
       };
     }
+
     if (node instanceof HtmlJsxNode) {
       const result = { type: "text", value: node.value, ...base };
       this.ownedHtmlNodes.set(result, node);
+
       return result;
     }
+
     if (node instanceof HtmlTextNode) {
       const result = { type: "text", value: node.value, ...base };
+
       return result;
     }
+
     if (node instanceof HtmlRawNode) {
       return { type: "raw", value: node.value, ...base };
     }
+
     if (node instanceof HtmlCommentNode) {
       return { type: "comment", value: node.value, ...base };
     }
+
     if (node instanceof HtmlDoctypeNode) {
       return { type: "doctype", ...base };
     }
+
     if (node instanceof HtmlElementNode) {
       const result = {
         type: "element",
@@ -542,11 +601,14 @@ export class UnifiedTreeBridge {
         children: node.children.map((child) => this.htmlToUnist(child)),
         ...base,
       };
+
       if (node instanceof HtmlMathNode || node instanceof HtmlCodeBlockNode) {
         this.ownedHtmlNodes.set(result, node);
       }
+
       return result;
     }
+
     if ("children" in node && Array.isArray(node.children)) {
       return {
         type: "root",
@@ -554,6 +616,7 @@ export class UnifiedTreeBridge {
         ...base,
       };
     }
+
     throw new UnifiedBoundaryError(`Unsupported owned HTML node kind: ${node.kind}`);
   }
 
@@ -561,6 +624,7 @@ export class UnifiedTreeBridge {
     const node = this.nodeRecord(value);
     const origin = this.origin(node.position);
     let result: HtmlNode;
+
     switch (node.type) {
       case "root":
         result = new HtmlDocumentNode(
@@ -592,11 +656,14 @@ export class UnifiedTreeBridge {
         );
         break;
       }
+
       default:
         throw new UnifiedBoundaryError(`Unsupported HAST node type: ${node.type}`);
     }
+
     this.visiting.delete(node);
     const owned = this.ownedHtmlNodes.get(node);
+
     if (
       owned instanceof HtmlJsxNode &&
       result instanceof HtmlTextNode &&
@@ -606,6 +673,7 @@ export class UnifiedTreeBridge {
     ) {
       return new HtmlJsxNode(result.value, owned.request, result.origin);
     }
+
     if (
       owned instanceof HtmlMathNode &&
       result instanceof HtmlElementNode &&
@@ -615,6 +683,7 @@ export class UnifiedTreeBridge {
     ) {
       return new HtmlMathNode(owned.math, result.origin);
     }
+
     if (
       owned instanceof HtmlCodeBlockNode &&
       result instanceof HtmlElementNode &&
@@ -624,6 +693,7 @@ export class UnifiedTreeBridge {
     ) {
       return new HtmlCodeBlockNode(owned.codeBlock, result.origin);
     }
+
     return result;
   }
 
@@ -631,10 +701,13 @@ export class UnifiedTreeBridge {
     if (!isUnistNode(value)) {
       throw new UnifiedBoundaryError("Unified returned a malformed node without a string type");
     }
+
     if (this.visiting.has(value)) {
       throw new UnifiedBoundaryError(`Unified returned a cyclic ${value.type} tree`);
     }
+
     this.visiting.add(value);
+
     return value;
   }
 
@@ -642,6 +715,7 @@ export class UnifiedTreeBridge {
     if (!Array.isArray(node.children)) {
       throw new UnifiedBoundaryError(`${node.type} must have a children array`);
     }
+
     return node.children;
   }
 
@@ -649,41 +723,48 @@ export class UnifiedTreeBridge {
     if (position === undefined) {
       return undefined;
     }
+
     if (
       !isPlainObject(position) ||
+      !("start" in position) ||
+      !("end" in position) ||
       !isPlainObject(position.start) ||
       !isPlainObject(position.end)
     ) {
       throw new UnifiedBoundaryError("A returned Unist position is malformed");
     }
-    const start = position.start.offset;
-    const end = position.end.offset;
+
+    const start = "offset" in position.start ? position.start.offset : undefined;
+    const end = "offset" in position.end ? position.end.offset : undefined;
+
     if (
       !Number.isInteger(start) ||
       !Number.isInteger(end) ||
-      typeof start !== "number" ||
-      typeof end !== "number" ||
+      !isNumber(start) ||
+      !isNumber(end) ||
       start < 0 ||
       end < start ||
       end > this.file.text.length
     ) {
       throw new UnifiedBoundaryError("A returned Unist position has invalid UTF-16 offsets");
     }
+
     return { file: this.file, start, end };
   }
 }
 
-function positionFromOrigin(origin: Readonly<SourceSpan> | undefined): unknown {
+function positionFromOrigin(origin: Readonly<SourceSpan> | undefined): UnistPosition | undefined {
   if (origin === undefined) {
     return undefined;
   }
+
   return { start: origin.file.location(origin.start), end: origin.file.location(origin.end) };
 }
 
 function directiveToUnist(
   type: string,
   node: TextDirectiveNode | LeafDirectiveNode | ContainerDirectiveNode,
-  base: object,
+  base: UnistOrigin,
   bridge: UnifiedTreeBridge,
 ): UnistRecord {
   return {
@@ -701,7 +782,7 @@ function directiveToUnist(
 function jsxElementToUnist(
   type: string,
   node: JsxTextElementNode | JsxFlowElementNode,
-  base: object,
+  base: UnistOrigin,
   bridge: UnifiedTreeBridge,
 ): UnistRecord {
   return {
@@ -713,11 +794,12 @@ function jsxElementToUnist(
   };
 }
 
-function jsxAttributeToUnist(node: JsxAttributeNode, base: object): UnistRecord {
+function jsxAttributeToUnist(node: JsxAttributeNode, base: UnistOrigin): UnistRecord {
   const value =
     node.value instanceof JsxAttributeValueExpressionNode
       ? { type: "mdxJsxAttributeValueExpression", value: node.value.code }
       : (node.value ?? null);
+
   return { type: "mdxJsxAttribute", name: node.name, value, ...base };
 }
 
@@ -726,9 +808,11 @@ function propertiesToHast(
   schema: Schema,
 ): Record<string, HtmlAttributeValue> {
   const result: Record<string, HtmlAttributeValue> = Object.create(null);
+
   for (const [name, value] of Object.entries(attributes)) {
     result[find(schema, name).property] = value;
   }
+
   return result;
 }
 
@@ -739,93 +823,112 @@ function propertiesFromHast(
   if (!isPlainObject(value)) {
     throw new UnifiedBoundaryError("HAST properties must be an object");
   }
+
   const result: Record<string, HtmlAttributeValue> = Object.create(null);
-  for (const name of Object.keys(value)) {
-    const item = value[name];
+
+  for (const [name, item] of Object.entries(value)) {
     if (item === null || item === undefined) {
       continue;
     }
-    if (
-      typeof item === "boolean" ||
-      typeof item === "string" ||
-      (typeof item === "number" && Number.isFinite(item))
-    ) {
+
+    if (isBoolean(item) || isString(item) || (isNumber(item) && Number.isFinite(item))) {
       result[find(schema, name).attribute] = item;
       continue;
     }
+
     if (
       Array.isArray(item) &&
-      item.every(
-        (entry) =>
-          typeof entry === "string" || (typeof entry === "number" && Number.isFinite(entry)),
-      )
+      item.every((entry) => isString(entry) || (isNumber(entry) && Number.isFinite(entry)))
     ) {
       result[find(schema, name).attribute] = [...item];
       continue;
     }
+
     throw new UnifiedBoundaryError(`Unsupported HAST property value for ${JSON.stringify(name)}`);
   }
+
   return result;
 }
 
-function stringField(node: UnistRecord, name: string): string {
+function stringField(node: UnistRecord, name: keyof UnistRecord): string {
   const value = node[name];
-  if (typeof value !== "string") {
+
+  if (!isString(value)) {
     throw new UnifiedBoundaryError(`${node.type}.${name} must be a string`);
   }
+
   return value;
 }
+
 function nullableString(value: unknown): string | undefined {
   if (value === null || value === undefined) {
     return undefined;
   }
-  if (typeof value !== "string") {
+
+  if (!isString(value)) {
     throw new UnifiedBoundaryError("Expected a string or null");
   }
+
   return value;
 }
+
 function nullableBoolean(value: unknown): boolean | undefined {
   if (value === null || value === undefined) {
     return undefined;
   }
-  if (typeof value !== "boolean") {
+
+  if (!isBoolean(value)) {
     throw new UnifiedBoundaryError("Expected a boolean or null");
   }
+
   return value;
 }
+
 function booleanField(value: unknown, fallback: boolean): boolean {
   return value === undefined || value === null ? fallback : (nullableBoolean(value) ?? fallback);
 }
+
 function nullableNumber(value: unknown): number | undefined {
   if (value === null || value === undefined) {
     return undefined;
   }
-  if (typeof value !== "number" || !Number.isSafeInteger(value)) {
+
+  if (!isNumber(value) || !Number.isSafeInteger(value)) {
     throw new UnifiedBoundaryError("Expected a safe integer or null");
   }
+
   return value;
 }
+
 function headingDepth(value: unknown): HeadingDepth {
   if (isHeadingDepth(value)) {
     return value;
   }
+
   throw new UnifiedBoundaryError("heading.depth must be between 1 and 6");
 }
+
 function referenceKind(value: unknown): ReferenceKind {
   if (value === "full" || value === "collapsed" || value === "shortcut") {
     return value;
   }
+
   throw new UnifiedBoundaryError("A reference has an invalid referenceType");
 }
+
 function mathFormat(node: UnistRecord): "dollar" | "tex" {
-  return isPlainObject(node.data) && node.data[unifiedDataKeys.mathFormat] === "tex"
+  return isPlainObject(node.data) &&
+    unifiedDataKeys.mathFormat in node.data &&
+    node.data[unifiedDataKeys.mathFormat] === "tex"
     ? "tex"
     : "dollar";
 }
+
 function tableAlignments(value: unknown): TableAlignment[] {
   if (!Array.isArray(value)) {
     return [];
   }
+
   return value.map((item) =>
     item === null
       ? "none"
@@ -836,58 +939,80 @@ function tableAlignments(value: unknown): TableAlignment[] {
           })(),
   );
 }
+
 function directiveAttributes(value: unknown): DirectiveAttributes {
   if (value === null || value === undefined) {
     return new DirectiveAttributes();
   }
+
   if (!isPlainObject(value)) {
     throw new UnifiedBoundaryError("Directive attributes must be an object");
   }
+
   return new DirectiveAttributes(
-    Object.keys(value).map(
-      (name) => new DirectiveAttribute(name, nullableString(value[name]) ?? ""),
+    Object.entries(value).map(
+      ([name, item]) => new DirectiveAttribute(name, nullableString(item) ?? ""),
     ),
   );
 }
+
 function directiveLabel(values: MdxNode[], type: string): DirectiveLabelNode | undefined {
   return values.length === 0 ? undefined : new DirectiveLabelNode(phrasing(values, type));
 }
+
 function directiveDataLabel(
   value: unknown,
   bridge: UnifiedTreeBridge,
 ): DirectiveLabelNode | undefined {
-  if (!isPlainObject(value) || value[unifiedDataKeys.directiveLabel] === undefined) {
+  if (
+    !isPlainObject(value) ||
+    !(unifiedDataKeys.directiveLabel in value) ||
+    value[unifiedDataKeys.directiveLabel] === undefined
+  ) {
     return undefined;
   }
+
   const label = bridge.unistToMdx(value[unifiedDataKeys.directiveLabel]);
+
   if (!(label instanceof DirectiveLabelNode)) {
     throw new UnifiedBoundaryError("Container directive label is malformed");
   }
+
   return label;
 }
+
 function jsxAttributes(value: unknown, bridge: UnifiedTreeBridge): JsxAttributeLike[] {
   if (!Array.isArray(value)) {
     throw new UnifiedBoundaryError("MDX JSX attributes must be an array");
   }
+
   return value.map((item) => {
     const node = bridge.nodeRecord(item);
     const origin = bridge.origin(node.position);
     bridge.visiting.delete(node);
+
     if (node.type === "mdxJsxExpressionAttribute") {
       return new JsxSpreadAttributeNode(stringField(node, "value"), origin);
     }
+
     if (node.type !== "mdxJsxAttribute") {
       throw new UnifiedBoundaryError(`Unsupported MDX JSX attribute type: ${node.type}`);
     }
+
     const name = stringField(node, "name");
-    if (node.value === null || node.value === undefined || typeof node.value === "string") {
+
+    if (node.value === null || node.value === undefined || isString(node.value)) {
       return new JsxAttributeNode(name, { value: node.value ?? undefined, origin });
     }
+
     const expression = bridge.nodeRecord(node.value);
+
     if (expression.type !== "mdxJsxAttributeValueExpression") {
       throw new UnifiedBoundaryError("Unsupported MDX JSX attribute value");
     }
+
     bridge.visiting.delete(expression);
+
     return new JsxAttributeNode(name, {
       value: new JsxAttributeValueExpressionNode(
         stringField(expression, "value"),
@@ -897,36 +1022,47 @@ function jsxAttributes(value: unknown, bridge: UnifiedTreeBridge): JsxAttributeL
     });
   });
 }
+
 function phrasing(values: MdxNode[], parent: string): PhrasingContent[] {
   if (!values.every(isPhrasing)) {
     throw new UnifiedBoundaryError(`${parent} contains non-phrasing content`);
   }
+
   return values;
 }
+
 function flow(values: MdxNode[], parent: string): FlowContent[] {
   if (!values.every(isFlow)) {
     throw new UnifiedBoundaryError(`${parent} contains non-flow content`);
   }
+
   return values;
 }
+
 function listItems(values: MdxNode[], parent: string): ListItemNode[] {
   if (!values.every((node): node is ListItemNode => node.kind === "listItem")) {
     throw new UnifiedBoundaryError(`${parent} contains a non-list-item child`);
   }
+
   return values;
 }
+
 function tableCells(values: MdxNode[], parent: string): TableCellNode[] {
   if (!values.every((node): node is TableCellNode => node.kind === "tableCell")) {
     throw new UnifiedBoundaryError(`${parent} contains a non-table-cell child`);
   }
+
   return values;
 }
+
 function tableRows(values: MdxNode[], parent: string): TableRowNode[] {
   if (!values.every((node): node is TableRowNode => node.kind === "tableRow")) {
     throw new UnifiedBoundaryError(`${parent} contains a non-table-row child`);
   }
+
   return values;
 }
+
 function isPhrasing(node: MdxNode): node is PhrasingContent {
   switch (node.kind) {
     case "text":
@@ -950,6 +1086,7 @@ function isPhrasing(node: MdxNode): node is PhrasingContent {
       return false;
   }
 }
+
 function isFlow(node: MdxNode): node is FlowContent {
   switch (node.kind) {
     case "paragraph":
@@ -976,5 +1113,5 @@ function isFlow(node: MdxNode): node is FlowContent {
 }
 
 function isUnistNode(value: unknown): value is UnistRecord {
-  return isPlainObject(value) && typeof value.type === "string";
+  return isPlainObject(value) && "type" in value && isString(value.type);
 }

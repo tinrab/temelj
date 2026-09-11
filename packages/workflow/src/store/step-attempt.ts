@@ -28,6 +28,7 @@ export async function listWorkflowStepAttempts(
   const attempts = await queryWorkflowStepAttempts(storage, namespace, store, runId, options, {
     label: "Workflow step attempt list options",
   });
+
   return limitWorkflowItems(attempts, options?.limit);
 }
 
@@ -46,6 +47,7 @@ export async function listWorkflowStepAttemptsPage(
     { ...options, limit: undefined },
     { label: "Workflow step attempt page options" },
   );
+
   return pageItems(
     attempts,
     options,
@@ -75,5 +77,6 @@ export async function repairWorkflowStepAttempts(
   runId: RunId,
 ): Promise<readonly WorkflowStepAttemptRecord[]> {
   await getRequiredStoreRun(store, runId);
+
   return await reconcileStepAttempts(storage, namespace, runId, await store.getEvents(runId));
 }

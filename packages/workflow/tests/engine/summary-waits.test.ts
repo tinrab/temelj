@@ -9,6 +9,7 @@ import { createWorkflowRunSleepWaitSummaryReducer } from "../../src/engine/summa
 describe("workflow run wait activity summary reducer", () => {
   test("summarizes active sleep and message wait attempts", () => {
     const sleepDuration = Temporal.Duration.from({ minutes: 15 });
+
     const sleepA = [
       stepAttempt("run_sleep_a", "sleep:first", "first-sleep", "sleep", {
         attempt: 2,
@@ -16,17 +17,20 @@ describe("workflow run wait activity summary reducer", () => {
         duration: sleepDuration,
       }),
     ];
+
     const sleepB = [
       stepAttempt("run_sleep_b", "sleep:second", "second-sleep", "sleep", {
         until: Temporal.Instant.from("2026-06-12T10:45:00Z"),
       }),
     ];
+
     const waitA = [
       stepAttempt("run_wait_a", "message-wait:first", "first-wait", "message-wait", {
         messageId: "first.received",
         timeoutAt: Temporal.Instant.from("2026-06-12T11:00:00Z"),
       }),
     ];
+
     const waitB = [
       stepAttempt("run_wait_b", "message-wait:second", "second-wait", "message-wait", {
         attempt: 3,
@@ -34,6 +38,7 @@ describe("workflow run wait activity summary reducer", () => {
         timeoutAt: Temporal.Instant.from("2026-06-12T10:50:00Z"),
       }),
     ];
+
     const summary = summarizeWorkflowRuns({
       runs: [],
       now: Temporal.Instant.from("2026-06-12T10:00:00Z"),
@@ -223,6 +228,7 @@ function stepAttempt(
   patch: Partial<WorkflowStepAttemptRecord> = {},
 ): WorkflowStepAttemptRecord {
   const timestamp = Temporal.Instant.from("2026-06-12T09:00:00Z");
+
   return {
     runId,
     stepId,

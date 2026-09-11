@@ -9,21 +9,25 @@ export function applyOptionalUpdate<T>(
 
 export function lineStartOffset(source: string, offset: number): number {
   const searchFrom = Math.max(0, offset - 1);
+
   return Math.max(source.lastIndexOf("\n", searchFrom), source.lastIndexOf("\r", searchFrom)) + 1;
 }
 
 export function lineStartOffsets(source: string): readonly number[] {
   const offsets = [0];
+
   for (let index = 0; index < source.length; index++) {
     if (source[index] === "\r") {
       if (source[index + 1] === "\n") {
         index++;
       }
+
       offsets.push(index + 1);
     } else if (source[index] === "\n") {
       offsets.push(index + 1);
     }
   }
+
   return offsets;
 }
 
@@ -62,6 +66,7 @@ export function isBlank(value: string): boolean {
       return false;
     }
   }
+
   return true;
 }
 
@@ -76,14 +81,17 @@ export function findUnescaped(
       return offset;
     }
   }
+
   return;
 }
 
 export function isEscaped(source: string, offset: number, lowerBound: number): boolean {
   let slashes = 0;
+
   for (let index = offset - 1; index >= lowerBound && source[index] === "\\"; index--) {
     slashes++;
   }
+
   return slashes % 2 === 1;
 }
 
@@ -130,16 +138,21 @@ export function consumeIndent(
 ): ConsumedIndent {
   let column = 1;
   let offset = start;
+
   while (offset < end) {
     const character = source[offset];
+
     const next =
       character === " " ? column + 1 : character === "\t" ? nextTabColumn(column) : column;
+
     if (next === column || next - 1 > maximum) {
       break;
     }
+
     column = next;
     offset++;
   }
+
   return Object.freeze({ offset, columns: column - 1 });
 }
 

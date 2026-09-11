@@ -1,3 +1,5 @@
+import type { WorkflowSourceMap } from "../types/vite.ts";
+
 import { stripQuery } from "./source.ts";
 
 export interface GeneratedSourceMapOptions {
@@ -8,7 +10,7 @@ export interface GeneratedSourceMapOptions {
   readonly sourceText: string;
 }
 
-export function createGeneratedSourceMap(options: GeneratedSourceMapOptions): unknown {
+export function createGeneratedSourceMap(options: GeneratedSourceMapOptions): WorkflowSourceMap {
   return {
     version: 3,
     file: stripQuery(options.id),
@@ -21,10 +23,13 @@ export function createGeneratedSourceMap(options: GeneratedSourceMapOptions): un
 
 function createWorkflowTransformMappings(options: GeneratedSourceMapOptions): string {
   const generatedLines = options.generatedCode.split("\n");
+
   const sourceStart =
     options.sourceText === "" ? -1 : options.generatedSource.indexOf(options.sourceText);
+
   const generatedStart =
     options.sourceText === "" ? -1 : options.generatedCode.indexOf(options.sourceText);
+
   if (sourceStart < 0 || generatedStart < 0) {
     return generatedLines.map(() => "").join(";");
   }
@@ -42,14 +47,18 @@ function createWorkflowTransformMappings(options: GeneratedSourceMapOptions): st
       ) {
         return "";
       }
+
       const sourceLine = sourceStartLine + generatedLine - generatedStartLine;
+
       const segment = [
         encodeSourceMapVlq(0),
         encodeSourceMapVlq(0),
         encodeSourceMapVlq(sourceLine - previousSourceLine),
         encodeSourceMapVlq(0),
       ].join("");
+
       previousSourceLine = sourceLine;
+
       return segment;
     })
     .join(";");
@@ -57,11 +66,13 @@ function createWorkflowTransformMappings(options: GeneratedSourceMapOptions): st
 
 function lineIndexAt(text: string, offset: number): number {
   let line = 0;
+
   for (let index = 0; index < offset; index++) {
     if (text[index] === "\n") {
       line++;
     }
   }
+
   return line;
 }
 
@@ -70,13 +81,17 @@ const SOURCE_MAP_BASE64_DIGITS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrst
 function encodeSourceMapVlq(value: number): string {
   let vlq = value < 0 ? (-value << 1) + 1 : value << 1;
   let result = "";
+
   do {
     let digit = vlq & 31;
     vlq >>>= 5;
+
     if (vlq > 0) {
       digit |= 32;
     }
+
     result += SOURCE_MAP_BASE64_DIGITS[digit]!;
   } while (vlq > 0);
+
   return result;
 }

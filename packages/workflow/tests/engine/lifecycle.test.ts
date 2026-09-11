@@ -44,9 +44,11 @@ describe("workflow lifecycle operations", () => {
     );
 
     expect(registry.latest("registry-latest")?.version).toBe("2");
+
     const handle = await client.runs.start(def, undefined, {
       workflowVersionResolver: (workflowName) => registry.latest(workflowName)?.version,
     });
+
     await client.workers.processRun(handle.runId);
 
     await expect(handle.result()).resolves.toBe("new");
@@ -65,20 +67,23 @@ describe("workflow lifecycle operations", () => {
     const def = defineWorkflow<undefined, string>({ name: "missing-latest" });
 
     expect(registry.latest("missing-latest")?.version).toBe(undefined);
+
     const handle = await client.runs
       .start(def, undefined, {
         workflowVersionResolver: (workflowName) => {
           const version = registry.latest(workflowName)?.version;
+
           if (version === undefined) {
             throw new Error(`No workflow versions registered for ${workflowName}`);
           }
+
           return version;
         },
       })
-      .catch((error: unknown) => error);
+      .catch((cause: unknown) => cause);
 
     expect(handle).toBeInstanceOf(Error);
-    expect((handle as Error).message).toBe("No workflow versions registered for missing-latest");
+    expect(handle).toMatchObject({ message: "No workflow versions registered for missing-latest" });
   });
 
   test("reruns a workflow from stored input and context", async () => {
@@ -86,7 +91,9 @@ describe("workflow lifecycle operations", () => {
       createRunId: sequentialRunIds("run_original", "run_rerun"),
       now: () => Temporal.Instant.from("2026-06-11T10:00:00Z"),
     });
+
     const client = createWorkflowClient({ engine });
+
     const workflow = implementWorkflow<{ readonly userId: string }, string>(
       { name: "rerun-workflow", version: "1" },
       ({ input }) => input.userId,
@@ -100,6 +107,7 @@ describe("workflow lifecycle operations", () => {
         idempotencyKey: "original",
       },
     );
+
     await engine.resumeWorkflow(workflow, original.runId);
 
     const rerun = await client.admin.rerun(original.runId, {
@@ -125,12 +133,14 @@ describe("workflow lifecycle operations", () => {
     const engine = createWorkflowEngine({
       createRunId: sequentialRunIds("run_old_version", "run_latest_version"),
     });
+
     const oldSpec = defineWorkflow<{ readonly orderId: string }, string>({
       name: "rerun-versioned",
       version: "1",
     });
 
     const original = await engine.startWorkflow(oldSpec, { orderId: "order_1" });
+
     const rerun = await engine.rerunWorkflow(original.runId, {
       workflowName: "rerun-versioned",
       workflowVersion: "2",
@@ -154,12 +164,14 @@ describe("workflow lifecycle operations", () => {
     const engine = createWorkflowEngine({
       createRunId: sequentialRunIds("run_versioned_source", "run_unversioned_rerun"),
     });
+
     const source = defineWorkflow<{ readonly orderId: string }, string>({
       name: "rerun-clear-version",
       version: "1",
     });
 
     const original = await engine.startWorkflow(source, { orderId: "order_1" });
+
     const rerun = await engine.rerunWorkflow(original.runId, {
       workflowVersion: undefined,
       start: { idempotencyKey: "order_1:unversioned" },
@@ -183,8 +195,10 @@ describe("workflow lifecycle operations", () => {
     const engine = createWorkflowEngine({
       createRunId: sequentialRunIds("run_rerun_source", "run_rerun_resolved"),
     });
+
     const registry = new Registry();
     const client = createWorkflowClient({ engine, registry });
+
     const source = defineWorkflow<{ readonly orderId: string }, string>({
       name: "rerun-resolved",
       version: "1",
@@ -201,9 +215,11 @@ describe("workflow lifecycle operations", () => {
 
     const original = await client.runs.start(source, { orderId: "order_1" });
     await client.workers.processRun(original.runId);
+
     const rerun = await client.admin.rerun(original.runId, {
       workflowVersionResolver: (workflowName) => registry.latest(workflowName)?.version,
     });
+
     await client.workers.processRun(rerun.runId);
 
     expect(rerun).toMatchObject({
@@ -218,6 +234,7 @@ describe("workflow lifecycle operations", () => {
     const engine = createWorkflowEngine({
       createRunId: sequentialRunIds("run_rerun_validation", "run_rerun_validation_next"),
     });
+
     const client = createWorkflowClient({ engine });
     const def = defineWorkflow<undefined, string>({ name: "rerun-validation" });
     const handle = await engine.startWorkflow(def, undefined);
@@ -234,6 +251,7 @@ describe("workflow lifecycle operations", () => {
     const waitingEvents: WorkflowLifecycleEvent[] = [];
     const retryEvents: WorkflowLifecycleEvent[] = [];
     let now = Temporal.Instant.from("2026-06-11T10:00:00Z");
+
     const engine = createWorkflowEngine({
       createRunId: sequentialRunIds("run_waiting", "run_retry", "run_completed"),
       now: () => now,
@@ -255,9 +273,11 @@ describe("workflow lifecycle operations", () => {
       { name: "lifecycle-waiting" },
       async ({ step }) => {
         await step.task.sleep("pause", Temporal.Duration.from({ seconds: 1 }));
+
         return "waited";
       },
     );
+
     const retryWorkflow = implementWorkflow<undefined, string>(
       {
         name: "lifecycle-retry",
@@ -267,6 +287,7 @@ describe("workflow lifecycle operations", () => {
         throw new Error("try again");
       },
     );
+
     const completedWorkflow = implementWorkflow<undefined, string>(
       { name: "lifecycle-completed" },
       () => "done",
@@ -296,6 +317,7 @@ describe("workflow lifecycle operations", () => {
   test("emits lifecycle callbacks for failed and canceled transitions", async () => {
     const failedEvents: WorkflowLifecycleEvent[] = [];
     const canceledEvents: WorkflowLifecycleEvent[] = [];
+
     const engine = createWorkflowEngine({
       createRunId: sequentialRunIds("run_failed", "run_canceled"),
       onRunFailed: (event) => {
@@ -312,6 +334,7 @@ describe("workflow lifecycle operations", () => {
         throw new Error("boom");
       },
     );
+
     const pendingDef = defineWorkflow<undefined, string>({ name: "lifecycle-canceled" });
 
     await engine.runWorkflowNow(failedWorkflow, undefined);
@@ -328,15 +351,18 @@ describe("workflow lifecycle operations", () => {
 
   test("isolates observation handler failures from durable workflow outcomes", async () => {
     const engine = createWorkflowEngine({ createRunId: () => "run_observer_failure" });
+
     const workflow = implementWorkflow<undefined, string>(
       { name: "observer-failure" },
       async ({ step }) => {
         const stream = step.stream.create<string>("log");
         await stream.write("one");
         await stream.close();
+
         return "done";
       },
     );
+
     const thrown = new Error("observer failed");
     let successfulObserverCalls = 0;
     engine.on("workflow:run-created", () => {

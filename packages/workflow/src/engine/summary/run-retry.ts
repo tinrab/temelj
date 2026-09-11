@@ -17,10 +17,12 @@ interface WorkflowRunRetryAccumulator {
   readonly stepNames: Set<string>;
 }
 
-export function createWorkflowRunRetrySummaryReducer(): {
+export interface WorkflowRunRetrySummaryReducer {
   readonly addRun: (run: WorkflowRunRecord) => void;
   readonly finish: () => WorkflowRunRetrySummary;
-} {
+}
+
+export function createWorkflowRunRetrySummaryReducer(): WorkflowRunRetrySummaryReducer {
   const retry = createWorkflowRunRetryAccumulator();
 
   return {
@@ -47,10 +49,13 @@ function addWorkflowRunRetry(retry: WorkflowRunRetryAccumulator, run: WorkflowRu
   if (!isWorkflowRunScheduledForRetry(run)) {
     return;
   }
+
   const reason = workflowRunRetryReason(run.retryReason);
+
   if (reason === undefined) {
     return;
   }
+
   retry.total++;
   retry.runIds.add(run.id);
   retry.reason[reason]++;
@@ -70,6 +75,7 @@ function addWorkflowRunRetryMetadata(
   if (run.retryStepId !== undefined) {
     retry.stepIds.add(run.retryStepId);
   }
+
   if (run.retryStepName !== undefined) {
     retry.stepNames.add(run.retryStepName);
   }
@@ -90,6 +96,7 @@ function setWorkflowRunNextRetry(retry: WorkflowRunRetryAccumulator, run: Workfl
   ) {
     return;
   }
+
   retry.nextRetryAt = run.retryAt;
   retry.nextRetryRunId = run.id;
 }
@@ -97,20 +104,26 @@ function setWorkflowRunNextRetry(retry: WorkflowRunRetryAccumulator, run: Workfl
 function finishWorkflowRunRetrySummary(
   retry: WorkflowRunRetryAccumulator,
 ): WorkflowRunRetrySummary {
-  return {
+  const result = {
     total: retry.total,
     retryRunIds: sortedStringSet(retry.runIds),
     retryStepIds: sortedStringSet(retry.stepIds),
     retryStepNames: sortedStringSet(retry.stepNames),
     reason: retry.reason,
-    ...(retry.nextRetryAt === undefined
-      ? {}
-      : {
-          nextRetryAt: retry.nextRetryAt,
-          ...optionalProperty("nextRetryRunId", retry.nextRetryRunId),
-        }),
+  } satisfies Partial<WorkflowRunRetrySummary>;
+
+  if (retry.nextRetryAt !== undefined) {
+    Object.assign(result, {
+      nextRetryAt: retry.nextRetryAt,
+      ...optionalProperty("nextRetryRunId", retry.nextRetryRunId),
+    } satisfies Partial<WorkflowRunRetrySummary>);
+  }
+
+  const result1 = Object.assign(result, {
     ...optionalProperty("highestAttempt", retry.highestAttempt),
-  };
+  } satisfies Partial<WorkflowRunRetrySummary>);
+
+  return result1;
 }
 
 function workflowRunRetryReason(

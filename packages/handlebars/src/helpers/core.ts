@@ -1,3 +1,5 @@
+import { isString } from "@temelj/value";
+
 import type { Registry } from "../registry";
 import type { HelperDeclareSpec } from "../types";
 
@@ -9,6 +11,7 @@ export function getCoreHelpers(registry: Registry): HelperDeclareSpec {
       if (context.data === undefined) {
         context.data = {};
       }
+
       for (const [k, v] of Object.entries(context.hash)) {
         context.data[k] = v;
       }
@@ -17,25 +20,31 @@ export function getCoreHelpers(registry: Registry): HelperDeclareSpec {
       if (context.data === undefined) {
         context.data = {};
       }
+
       if (context.data.root === undefined) {
         context.data.root = {};
       }
+
       for (const [k, v] of Object.entries(context.hash)) {
         context.data.root[k] = v;
       }
     },
     partial: (path: string, options) => {
       let partial = registry.partials[path];
-      if (typeof partial === "string") {
-        partial = registry.compile(partial) as (options: unknown) => string;
+
+      if (isString(partial)) {
+        partial = registry.compile(partial);
       }
-      if (typeof partial !== "function") {
+
+      if (partial === undefined) {
         HandlebarsHelperError.partialNotFound(path);
       }
+
       return partial(options.hash);
     },
     render: (template: string, options) => {
-      const partial = registry.compile(template) as (options: unknown) => string;
+      const partial = registry.compile(template);
+
       return partial(options.hash);
     },
   };

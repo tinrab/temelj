@@ -11,12 +11,14 @@ import type {
 import type { Schema, SchemaOutput } from "@temelj/standard-schema";
 
 import { compileMdx } from "@temelj/mdx";
+import { isObject, isFunction } from "@temelj/value";
 import * as jsxDevRuntime from "react/jsx-dev-runtime";
 import * as jsxRuntime from "react/jsx-runtime";
 
 import type { CompiledContentModule } from "./types.ts";
 
 const asyncFunctionConstructor: Function = Object.getPrototypeOf(async function () {}).constructor;
+
 const mdxRuntime = Object.freeze({ ...jsxRuntime, ...jsxDevRuntime });
 
 export interface TrustedMdxImportContext {
@@ -24,15 +26,15 @@ export interface TrustedMdxImportContext {
   readonly sourceName: string;
 }
 
-export type TrustedMdxImportResolver = (
+export type TrustedMdxImportResolver<TModule extends object = object> = (
   specifier: string,
   context: TrustedMdxImportContext,
-) => unknown;
+) => TModule | Promise<TModule>;
 
-export interface TrustedMdxEvaluationOptions {
+export interface TrustedMdxEvaluationOptions<TScope extends object = object> {
   readonly baseUrl?: string;
   readonly resolveImport?: TrustedMdxImportResolver;
-  readonly scope?: Readonly<Record<string, unknown>>;
+  readonly scope?: Readonly<TScope>;
 }
 
 export type TrustedMdxEvaluationOutcome =
@@ -45,14 +47,16 @@ export type TrustedMdxEvaluationOutcome =
       diagnostics: readonly [Diagnostic, ...Diagnostic[]];
     }>;
 
-export type CompileTrustedMdxOptions = Omit<CompileMdxOptions, "outputFormat"> &
-  TrustedMdxEvaluationOptions;
-
-export type CompileTrustedMdxSchemaOptions<TSchema extends Schema> = Omit<
-  CompileMdxSchemaOptions<TSchema>,
+export type CompileTrustedMdxOptions<TScope extends object = object> = Omit<
+  CompileMdxOptions,
   "outputFormat"
 > &
-  TrustedMdxEvaluationOptions;
+  TrustedMdxEvaluationOptions<TScope>;
+
+export type CompileTrustedMdxSchemaOptions<
+  TSchema extends Schema,
+  TScope extends object = object,
+> = Omit<CompileMdxSchemaOptions<TSchema>, "outputFormat"> & TrustedMdxEvaluationOptions<TScope>;
 
 export type TrustedMdxCompileOutcome<TFrontmatter = FrontmatterObject> =
   | Readonly<{
@@ -75,11 +79,12 @@ export type TrustedMdxCompileOutcome<TFrontmatter = FrontmatterObject> =
     }>;
 
 /** Evaluates an explicitly trusted function-body artifact. */
-export async function evaluateTrustedMdx(
+export async function evaluateTrustedMdx<TScope extends object>(
   artifact: FunctionBodyCompileArtifact,
-  options: Readonly<TrustedMdxEvaluationOptions> = {},
+  options: Readonly<TrustedMdxEvaluationOptions<TScope>> = {},
 ): Promise<TrustedMdxEvaluationOutcome> {
   const missingResolver = artifact.imports.length > 0 && options.resolveImport === undefined;
+
   if (missingResolver) {
     return evaluationFailure(
       "mdx.evaluation.importResolver",
@@ -87,21 +92,26 @@ export async function evaluateTrustedMdx(
     );
   }
 
-  const scope: Readonly<Record<string, unknown>> = options.scope ?? Object.freeze({});
+  const scope = options.scope ?? Object.freeze({});
   const scopeNames = Object.keys(scope);
   validateScopeNames(scopeNames);
+
   const resolveImport = async (specifier: string): Promise<object> => {
     const resolver = options.resolveImport;
+
     if (resolver === undefined) {
       throw new Error(`No resolver was provided for ${JSON.stringify(specifier)}`);
     }
+
     const resolved = await resolver(specifier, {
       baseUrl: options.baseUrl,
       sourceName: artifact.map.sources[0] ?? "source.mdx",
     });
-    if ((typeof resolved !== "object" && typeof resolved !== "function") || resolved === null) {
+
+    if (!isObject(resolved) && !isFunction(resolved)) {
       throw new TypeError(`Resolver returned a non-module value for ${JSON.stringify(specifier)}`);
     }
+
     return resolved;
   };
 
@@ -113,18 +123,22 @@ export async function evaluateTrustedMdx(
       ...scopeNames,
       artifact.code,
     ]);
-    if (typeof evaluator !== "function") {
+
+    if (!isFunction(evaluator)) {
       throw new TypeError("Async function construction did not return a function");
     }
-    const result: unknown = await Reflect.apply(evaluator, undefined, [
+
+    const result: unknown = await evaluator(
       mdxRuntime,
       resolveImport,
       artifact.frontmatter,
-      ...scopeNames.map((name) => scope[name]),
-    ]);
+      ...Object.values(scope),
+    );
+
     if (!isCompiledContentModule(result)) {
       throw new TypeError("Trusted MDX did not evaluate to a module with a default component");
     }
+
     return Object.freeze({
       kind: "evaluated",
       module: result,
@@ -137,26 +151,32 @@ export async function evaluateTrustedMdx(
   }
 }
 
-export function compileTrustedMdx<TSchema extends Schema>(
+export function compileTrustedMdx<TSchema extends Schema, TScope extends object>(
   source: string | SourceFile,
-  options: Readonly<CompileTrustedMdxSchemaOptions<TSchema>>,
+  options: Readonly<CompileTrustedMdxSchemaOptions<TSchema, TScope>>,
 ): Promise<TrustedMdxCompileOutcome<SchemaOutput<TSchema>>>;
-export function compileTrustedMdx(
+export function compileTrustedMdx<TScope extends object>(
   source: string | SourceFile,
-  options?: Readonly<CompileTrustedMdxOptions>,
+  options?: Readonly<CompileTrustedMdxOptions<TScope>>,
 ): Promise<TrustedMdxCompileOutcome<FrontmatterObject>>;
-export async function compileTrustedMdx(
+export async function compileTrustedMdx<TScope extends object>(
   source: string | SourceFile,
-  options: Readonly<CompileTrustedMdxOptions & { readonly frontmatterSchema?: Schema }> = {},
+  options: Readonly<
+    CompileTrustedMdxOptions<TScope> & { readonly frontmatterSchema?: Schema }
+  > = {},
 ): Promise<TrustedMdxCompileOutcome<unknown>> {
   const compiled = await compileMdx(source, { ...options, outputFormat: "functionBody" });
+
   if (compiled.kind !== "compiled") {
     return compiled;
   }
+
   if (compiled.artifact.format !== "functionBody") {
     throw new Error("compileMdx returned the wrong artifact format");
   }
+
   const evaluated = await evaluateTrustedMdx(compiled.artifact, options);
+
   if (evaluated.kind === "evaluationFailed") {
     return Object.freeze({
       kind: "evaluationFailed",
@@ -167,6 +187,7 @@ export async function compileTrustedMdx(
       diagnostics: evaluated.diagnostics,
     });
   }
+
   return Object.freeze({
     kind: "compiled",
     file: compiled.file,
@@ -180,11 +201,13 @@ export async function compileTrustedMdx(
 
 function validateScopeNames(names: readonly string[]): void {
   const reserved = new Set(["__mdxRuntime", "__resolveMdxImport", "frontmatter"]);
+
   for (const name of names) {
     if (reserved.has(name)) {
       throw new TypeError(`Invalid trusted MDX scope binding: ${JSON.stringify(name)}`);
     }
   }
+
   try {
     Reflect.construct(asyncFunctionConstructor, [...names, ""]);
   } catch {
@@ -195,12 +218,7 @@ function validateScopeNames(names: readonly string[]): void {
 }
 
 function isCompiledContentModule(value: unknown): value is CompiledContentModule {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "default" in value &&
-    typeof value.default === "function"
-  );
+  return isObject(value) && value !== null && "default" in value && isFunction(value.default);
 }
 
 function evaluationFailure(
@@ -214,5 +232,6 @@ function evaluationFailure(
 > {
   const diagnostic: Diagnostic = Object.freeze({ severity: "error", code, message });
   const diagnostics: readonly [Diagnostic] = Object.freeze([diagnostic]);
+
   return Object.freeze({ kind: "evaluationFailed", diagnostics });
 }

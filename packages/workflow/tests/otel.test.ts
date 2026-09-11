@@ -1,5 +1,6 @@
 import type {
   Attributes,
+  AttributeValue,
   Context,
   ContextManager,
   TextMapGetter,
@@ -21,6 +22,7 @@ import {
   SimpleSpanProcessor,
   type ReadableSpan,
 } from "@opentelemetry/sdk-trace-base";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { afterEach, describe, expect, test } from "vitest";
 
 import { implementWorkflow } from "../src/definition.ts";
@@ -43,9 +45,11 @@ describe("OpenTelemetry workflow telemetry", () => {
 
   test("emits workflow spans and low-cardinality metrics", async () => {
     const spanExporter = new InMemorySpanExporter();
+
     const tracerProvider = new BasicTracerProvider({
       spanProcessors: [new SimpleSpanProcessor(spanExporter)],
     });
+
     const metricExporter = new InMemoryMetricExporter(AggregationTemporality.CUMULATIVE);
     const metricReader = new PeriodicExportingMetricReader({ exporter: metricExporter });
     const meterProvider = new MeterProvider({ readers: [metricReader] });
@@ -66,6 +70,7 @@ describe("OpenTelemetry workflow telemetry", () => {
         serviceNamespace: "billing",
       }),
     });
+
     const workflow = implementWorkflow(
       { name: "otel-workflow", version: "v1" },
       async ({ step }) => {
@@ -124,6 +129,7 @@ describe("OpenTelemetry workflow telemetry", () => {
         WORKFLOW_METRIC_NAMES.stepDuration,
       ]),
     );
+
     for (const attributes of allMetricAttributes(metricData)) {
       expect(attributes).toHaveProperty(WORKFLOW_ATTRIBUTES.system, WORKFLOW_SYSTEM);
       expect(attributes).not.toHaveProperty(WORKFLOW_ATTRIBUTES.runId);
@@ -135,9 +141,11 @@ describe("OpenTelemetry workflow telemetry", () => {
 
   test("can include workflow and step names in span names while preserving trace lineage", async () => {
     const spanExporter = new InMemorySpanExporter();
+
     const tracerProvider = new BasicTracerProvider({
       spanProcessors: [new SimpleSpanProcessor(spanExporter)],
     });
+
     context.setGlobalContextManager(new TestContextManager());
     propagation.setGlobalPropagator(new TestTraceContextPropagator());
     trace.setGlobalTracerProvider(tracerProvider);
@@ -148,28 +156,34 @@ describe("OpenTelemetry workflow telemetry", () => {
         includeNamesInSpanNames: true,
       }),
     });
+
     const workflow = implementWorkflow({ name: "otel-named" }, async ({ step }) => {
       return await step.task.run({ name: "named-step" }, () => "done");
     });
+
     const tracer = trace.getTracer("workflow-test");
     let externalSpanId: string | undefined;
 
     const result = await tracer.startActiveSpan("external-request", async (span) => {
       externalSpanId = span.spanContext().spanId;
+
       try {
         return await engine.runWorkflowNow(workflow, undefined);
       } finally {
         span.end();
       }
     });
+
     await tracerProvider.forceFlush();
 
     expect(result).toMatchObject({ kind: "completed", output: "done" });
 
     const spans = spanExporter.getFinishedSpans();
+
     const runSpan = spans.find(
       (span) => span.name === `${WORKFLOW_SPAN_NAMES.runExecution} otel-named`,
     );
+
     const stepSpan = spans.find(
       (span) => span.name === `${WORKFLOW_SPAN_NAMES.stepExecution} named-step`,
     );
@@ -181,6 +195,7 @@ describe("OpenTelemetry workflow telemetry", () => {
 
   test("engine close flushes and shuts down OpenTelemetry adapter resources", async () => {
     const order: string[] = [];
+
     const engine = createWorkflowEngine({
       telemetry: createOpenTelemetryTelemetry({
         forceFlush: () => {
@@ -199,16 +214,20 @@ describe("OpenTelemetry workflow telemetry", () => {
 
   test("does not record task callback exceptions on the parent run span", async () => {
     const spanExporter = new InMemorySpanExporter();
+
     const tracerProvider = new BasicTracerProvider({
       spanProcessors: [new SimpleSpanProcessor(spanExporter)],
     });
+
     trace.setGlobalTracerProvider(tracerProvider);
 
     const engine = createWorkflowEngine({
       createRunId: () => "run-otel-step-error",
       telemetry: createOpenTelemetryTelemetry(),
     });
+
     const taskError = new Error("task callback failed");
+
     const workflow = implementWorkflow({ name: "otel-step-error" }, async ({ step }) => {
       await step.task.run({ name: "explode" }, () => {
         throw taskError;
@@ -226,6 +245,7 @@ describe("OpenTelemetry workflow telemetry", () => {
     const runSpan = spanExporter
       .getFinishedSpans()
       .find((span) => span.name === WORKFLOW_SPAN_NAMES.runExecution);
+
     const stepSpan = spanExporter
       .getFinishedSpans()
       .find((span) => span.name === WORKFLOW_SPAN_NAMES.stepExecution);
@@ -238,9 +258,11 @@ describe("OpenTelemetry workflow telemetry", () => {
 
 function fixedClock(values: readonly string[]): () => Temporal.Instant {
   let index = 0;
+
   return () => {
     const value = values[Math.min(index, values.length - 1)];
     index++;
+
     return Temporal.Instant.from(value);
   };
 }
@@ -256,7 +278,9 @@ function allMetricAttributes(metricsData: readonly MetricData[]): readonly Attri
   return metricsData.flatMap((metric) => metric.dataPoints.map((point) => point.attributes));
 }
 
-function exceptionMessages(span: ReadableSpan | undefined): readonly unknown[] {
+function exceptionMessages(
+  span: ReadableSpan | undefined,
+): readonly (AttributeValue | undefined)[] {
   return (
     span?.events
       .filter((event) => event.name === "exception")
@@ -265,36 +289,19 @@ function exceptionMessages(span: ReadableSpan | undefined): readonly unknown[] {
 }
 
 class TestContextManager implements ContextManager {
-  #active: Context = ROOT_CONTEXT;
+  readonly #context = new AsyncLocalStorage<Context>();
 
   active(): Context {
-    return this.#active;
+    return this.#context.getStore() ?? ROOT_CONTEXT;
   }
 
   with<A extends unknown[], TResult>(
     contextValue: Context,
     fn: (...args: A) => TResult,
-    thisArg?: unknown,
+    thisArg?: ThisParameterType<typeof fn>,
     ...args: A
   ): TResult {
-    const previous = this.#active;
-    let restoreDeferred = false;
-    this.#active = contextValue;
-    try {
-      const result = fn.apply(thisArg, args);
-      if (isPromise(result)) {
-        restoreDeferred = true;
-        return result.finally(() => {
-          this.#active = previous;
-        }) as TResult;
-      }
-      this.#active = previous;
-      return result;
-    } finally {
-      if (!restoreDeferred && this.#active === contextValue) {
-        this.#active = previous;
-      }
-    }
+    return this.#context.run(contextValue, () => fn.apply(thisArg, args));
   }
 
   bind<T>(_: Context, target: T): T {
@@ -306,7 +313,8 @@ class TestContextManager implements ContextManager {
   }
 
   disable(): this {
-    this.#active = ROOT_CONTEXT;
+    this.#context.disable();
+
     return this;
   }
 }
@@ -314,9 +322,11 @@ class TestContextManager implements ContextManager {
 class TestTraceContextPropagator implements TextMapPropagator {
   inject(contextValue: Context, carrier: Record<string, string>, setter: TextMapSetter): void {
     const spanContext = trace.getSpanContext(contextValue);
+
     if (spanContext === undefined) {
       return;
     }
+
     setter.set(
       carrier,
       "traceparent",
@@ -327,14 +337,18 @@ class TestTraceContextPropagator implements TextMapPropagator {
   extract(contextValue: Context, carrier: Record<string, string>, getter: TextMapGetter): Context {
     const traceparent = getter.get(carrier, "traceparent");
     const value = Array.isArray(traceparent) ? traceparent[0] : traceparent;
-    if (typeof value !== "string") {
+
+    if (value === undefined) {
       return contextValue;
     }
+
     const parts = value.split("-");
     const [, traceId, spanId, flags] = parts;
+
     if (parts.length !== 4 || traceId === undefined || spanId === undefined) {
       return contextValue;
     }
+
     return trace.setSpanContext(contextValue, {
       traceId,
       spanId,

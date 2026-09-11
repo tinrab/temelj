@@ -46,9 +46,13 @@ interface WorkflowEngineStateLimits {
 }
 
 type WorkflowRunLookup = WorkflowRunReaderRepository;
+
 type WorkflowRunWriter = WorkflowRunUnconditionalWriterRepository;
+
 type WorkflowRunConditionalWriter = WorkflowRunConditionalWriterRepository;
+
 type WorkflowRunStateStore = WorkflowRunLookup & WorkflowRunWriter & WorkflowRunWriterRepository;
+
 type WorkflowCurrentEventAppender = WorkflowConditionalEventAppender & WorkflowRunLookup;
 
 type WorkflowLockReleaseStore = WorkflowLockListerRepository &
@@ -73,6 +77,7 @@ export function requireDefinitionMatchesRun<TInput, TOutput, TRawInput = TInput>
       actualWorkflowName: run.workflowName,
     });
   }
+
   if (definition.version !== run.workflowVersion) {
     WorkflowRunMismatchError.mismatch({
       runId: run.id,
@@ -101,19 +106,26 @@ export async function appendEventIfCurrentExecution(
   await history.append(async () => {
     beforeAppend?.();
     enforceWorkflowEventHistoryNextLimit(history.events, limits);
+
     for (let attempt = 0; attempt < MAX_CONCURRENT_RUN_UPDATE_ATTEMPTS; attempt++) {
       const current = await store.getRun(executionOwner.id);
+
       if (current === undefined || !isCurrentExecutionOwner(current, executionOwner)) {
         WorkflowStaleExecutionError.stale(executionOwner.id);
       }
+
       const events = await store.appendEventIfRunCurrent(current, event);
+
       if (events !== undefined) {
         appendedEvents = events;
+
         return events;
       }
     }
+
     WorkflowStaleExecutionError.stale(executionOwner.id);
   });
+
   if (appendedEvents !== undefined) {
     afterAppend?.(event, appendedEvents);
   }
@@ -125,6 +137,7 @@ export async function requireCurrentExecutionOwner(
   executionOwner: WorkflowRunRecord,
 ): Promise<void> {
   const current = await store.getRun(runId);
+
   if (current === undefined || !isCurrentExecutionOwner(current, executionOwner)) {
     WorkflowStaleExecutionError.stale(runId);
   }
@@ -139,6 +152,7 @@ export async function patchRun(
     ...current,
     ...patch,
   };
+
   return await store.updateRun(next);
 }
 
@@ -161,14 +175,17 @@ export async function updateRunMetadataIfCurrent(
 ): Promise<WorkflowRunRecord> {
   for (let attempt = 0; attempt < MAX_CONCURRENT_RUN_UPDATE_ATTEMPTS; attempt++) {
     const current = await getRequiredRun(store, runId);
+
     const updated = await patchRunIfCurrent(store, current, {
       metadata,
       updatedAt: timestamp,
     });
+
     if (updated !== undefined) {
       return updated;
     }
   }
+
   WorkflowStateError.failedRunMetadataUpdate(runId);
 }
 
@@ -180,14 +197,17 @@ export async function setRunAttributesIfCurrent(
 ): Promise<WorkflowRunRecord> {
   for (let attempt = 0; attempt < MAX_CONCURRENT_RUN_UPDATE_ATTEMPTS; attempt++) {
     const current = await getRequiredRun(store, runId);
+
     const updated = await patchRunIfCurrent(store, current, {
       attributes: applyWorkflowAttributePatch(current.attributes, attributes),
       updatedAt: timestamp,
     });
+
     if (updated !== undefined) {
       return updated;
     }
   }
+
   WorkflowStateError.failedRunAttributesUpdate(runId);
 }
 
@@ -197,9 +217,11 @@ export async function patchCurrentExecutionRun(
   patch: Partial<WorkflowRunRecord>,
 ): Promise<WorkflowRunRecord | undefined> {
   const current = await store.getRun(executionOwner.id);
+
   if (current === undefined || !isCurrentExecutionOwner(current, executionOwner)) {
     return undefined;
   }
+
   return await patchRunIfCurrent(store, current, patch);
 }
 
@@ -210,9 +232,11 @@ export async function patchCurrentExecutionRunAttributes(
   timestamp: Temporal.Instant,
 ): Promise<WorkflowRunRecord | undefined> {
   const current = await store.getRun(executionOwner.id);
+
   if (current === undefined || !isCurrentExecutionOwner(current, executionOwner)) {
     return undefined;
   }
+
   return await patchRunIfCurrent(store, current, {
     attributes: applyWorkflowAttributePatch(current.attributes, attributes),
     updatedAt: timestamp,
@@ -539,9 +563,11 @@ export async function cancelRunWithChildren(
   canceledAt: Temporal.Instant,
 ): Promise<WorkflowRunRecord> {
   const run = await getRequiredRun(store, runId);
+
   if (run.status === "completed" || run.status === "failed") {
     WorkflowRunCancellationError.cannotCancel(runId, run.status);
   }
+
   if (run.status === "canceled") {
     return run;
   }
@@ -555,19 +581,25 @@ export async function cancelRunWithChildren(
       canceledAt,
     ),
   );
+
   if (canceledRun === undefined) {
     const latest = await getRequiredRun(store, runId);
+
     if (latest.status === "completed" || latest.status === "failed") {
       WorkflowRunCancellationError.cannotCancel(runId, latest.status);
     }
+
     if (latest.status === "canceled") {
       return latest;
     }
+
     return await cancelRunWithChildren(store, runId, canceledAt);
   }
+
   await releaseLocksForRun(store, run.id, canceledAt);
   await cancelActiveChildRuns(store, run.id, canceledAt);
   await wakeParentRunForTerminalChild(store, canceledRun, canceledAt);
+
   return canceledRun;
 }
 
@@ -580,7 +612,9 @@ export async function cancelActiveChildRuns(
     kind: "workflow",
     status: "running",
   });
+
   const childRunIds = new Set<string>();
+
   for (const attempt of attempts) {
     if (
       attempt.childRunId !== undefined &&
@@ -593,15 +627,19 @@ export async function cancelActiveChildRuns(
 
   for (const childRunId of childRunIds) {
     const child = await store.getRun(childRunId);
+
     if (child === undefined) {
       continue;
     }
+
     if (!(await parentHasActiveChildWorkflowAttemptForRun(store, parentRunId, child))) {
       continue;
     }
+
     if (child.status === "completed" || child.status === "failed" || child.status === "canceled") {
       continue;
     }
+
     await cancelRunWithChildren(store, child.id, canceledAt);
   }
 }
@@ -616,14 +654,17 @@ export async function wakeParentRunForTerminalChild(
   }
 
   const parentRun = await store.getRun(childRun.parentRunId);
+
   if (parentRun === undefined || parentRun.status !== "waiting") {
     return;
   }
+
   if (!(await parentHasActiveChildWorkflowAttemptForRun(store, parentRun.id, childRun))) {
     return;
   }
 
   const wakeAt = timestamp;
+
   if (
     parentRun.availableAt !== undefined &&
     Temporal.Instant.compare(parentRun.availableAt, wakeAt) <= 0
@@ -644,14 +685,17 @@ export async function wakeParentRunForWaitingChild(
   }
 
   const parentRun = await store.getRun(childRun.parentRunId);
+
   if (parentRun === undefined || parentRun.status !== "waiting") {
     return;
   }
+
   if (!(await parentHasActiveChildWorkflowAttemptForRun(store, parentRun.id, childRun))) {
     return;
   }
 
   const wakeAt = availableAt;
+
   if (
     parentRun.availableAt !== undefined &&
     Temporal.Instant.compare(parentRun.availableAt, wakeAt) <= 0
@@ -670,11 +714,13 @@ export async function parentHasActiveChildWorkflowAttemptForRun(
   if (childRun.parentRunId !== parentRunId) {
     return false;
   }
+
   const attempts = await store.listStepAttempts(parentRunId, {
     kind: "workflow",
     status: "running",
     childRunId: childRun.id,
   });
+
   for (const attempt of attempts) {
     if (
       childRun.parentRunId === parentRunId &&
@@ -689,6 +735,7 @@ export async function parentHasActiveChildWorkflowAttemptForRun(
       return true;
     }
   }
+
   return false;
 }
 
@@ -700,14 +747,18 @@ export async function parentHasActiveChildWorkflowEventForAttempt(
   if (attempt.childRunId === undefined) {
     return false;
   }
+
   const events = await store.getEvents(parentRunId);
   const lifecycle = new WorkflowHistory(events).childWorkflowLifecycleForAttempt(attempt);
+
   if (lifecycle.started === undefined) {
     return false;
   }
+
   if (!isPositiveSafeInteger(lifecycle.started.attempt)) {
     return false;
   }
+
   // The materialized attempt may still exist after the child has completed.
   // The event history is checked here to confirm that the parent is still actively waiting for this exact child.
   return !lifecycle.hasTerminalAfterStarted;
@@ -715,19 +766,24 @@ export async function parentHasActiveChildWorkflowEventForAttempt(
 
 export async function failRunForDeadline<TOutput>(
   store: WorkflowChildRunStateStore,
+  definition: WorkflowDefinition<unknown, TOutput, unknown>,
   run: WorkflowRunRecord,
   deadlineAt: Temporal.Instant,
   failedAt: Temporal.Instant,
   executionOwner?: WorkflowRunRecord,
 ): Promise<ExecutionResult<TOutput>> {
   const serialized = serializeError(WorkflowRunDeadlineExceededError.create(run.id, deadlineAt));
+
   if (executionOwner !== undefined) {
     const current = await store.getRun(run.id);
+
     if (current === undefined || !isCurrentExecutionOwner(current, executionOwner)) {
-      return await readRunResult<TOutput>(store, run.id, failedAt);
+      return await readRunResult(store, definition, run.id, failedAt);
     }
   }
+
   await cancelActiveChildRuns(store, run.id, failedAt);
+
   const failedRun =
     executionOwner === undefined
       ? await patchRun(store, run, transitionRunToFailed(run, serialized, failedAt, "deadline"))
@@ -736,18 +792,23 @@ export async function failRunForDeadline<TOutput>(
           executionOwner,
           transitionRunToFailed(executionOwner, serialized, failedAt, "deadline"),
         );
+
   if (failedRun === undefined) {
-    return await readRunResult<TOutput>(store, run.id, failedAt);
+    return await readRunResult(store, definition, run.id, failedAt);
   }
+
   const failedEvents = await store.appendEventIfRunCurrent(failedRun, {
     kind: "workflow_failed",
     timestamp: failedAt,
   });
+
   if (failedEvents === undefined) {
-    return await readRunResult<TOutput>(store, run.id, failedAt);
+    return await readRunResult(store, definition, run.id, failedAt);
   }
+
   await releaseLocksForRun(store, run.id, failedAt);
   await wakeParentRunForTerminalChild(store, failedRun, failedAt);
+
   return {
     kind: "failed",
     run: failedRun,
@@ -785,6 +846,7 @@ export class WorkflowSuspended extends Error {
     super(`Workflow suspended until ${availableAt.toString()}`);
     this.name = "WorkflowSuspended";
     this.availableAt = availableAt;
+
     if (Error.captureStackTrace !== undefined) {
       Error.captureStackTrace(this, context ?? this.constructor);
     }
@@ -815,6 +877,7 @@ export class WorkflowStaleExecutionError extends Error {
   constructor(runId: RunId, context?: Function) {
     super(`Workflow execution no longer owns run: ${runId}`);
     this.name = "WorkflowStaleExecutionError";
+
     if (Error.captureStackTrace !== undefined) {
       Error.captureStackTrace(this, context ?? this.constructor);
     }

@@ -296,10 +296,12 @@ describe("workflow recovery summary helpers", () => {
       "run_earliest",
       Temporal.Instant.from("2026-06-12T10:05:00Z"),
     );
+
     const later = workflowRecoveryDeadline(
       "run_later",
       Temporal.Instant.from("2026-06-12T10:30:00Z"),
     );
+
     const missingOwner = workflowRecoveryDeadline(
       undefined,
       Temporal.Instant.from("2026-06-12T09:00:00Z"),
@@ -315,6 +317,7 @@ function runRecord(
   patch: Partial<WorkflowRunRecord> = {},
 ): WorkflowRunRecord {
   const timestamp = Temporal.Instant.from("2026-06-12T09:00:00Z");
+
   return {
     id,
     namespace: "default",

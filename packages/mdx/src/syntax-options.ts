@@ -1,6 +1,9 @@
 export type FrontmatterFormat = "yaml" | "toml";
+
 export type FrontmatterMode = "auto" | FrontmatterFormat;
+
 export type MathFormat = "dollar" | "tex";
+
 export type MathMode = "auto" | MathFormat;
 
 export interface SyntaxOptions {
@@ -30,9 +33,11 @@ function resolveMath(mode: MathMode | undefined): readonly MathFormat[] {
   if (mode === undefined) {
     return [];
   }
+
   if (mode === "auto") {
     return ["dollar", "tex"];
   }
+
   return [mode];
 }
 
@@ -44,8 +49,10 @@ function resolveFrontmatter(mode: FrontmatterMode | undefined): readonly Frontma
   if (mode === undefined) {
     return [];
   }
+
   if (mode === "auto") {
     return ["yaml", "toml"];
   }
+
   return [mode];
 }

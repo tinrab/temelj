@@ -4,7 +4,9 @@ import { makeGeneratedName } from "../../src/vite/generated-name.ts";
 import { transformWorkflowSource } from "../../src/vite/transform.ts";
 
 const CALL_WORKFLOW_STEP_FUNCTION_NAME = makeGeneratedName("callWorkflowStepFunction");
+
 const CONTEXT_NAME = makeGeneratedName("context");
+
 const LOAD_USER_STEP_NAME = makeGeneratedName("step", "loadUser");
 
 function callWorkflowStepFunctionText(fn: string, args: string): string {
@@ -23,6 +25,7 @@ export async function loadUser(userId: string) {
       "/repo/workflows/steps.ts",
       { root: "/repo" },
     );
+
     const result = transformWorkflowSource(
       `
 import { loadUser } from "./steps";
@@ -62,6 +65,7 @@ export async function loadUser(userId: string) {
       "/repo/workflows/steps.ts",
       { root: "/repo" },
     );
+
     const result = transformWorkflowSource(
       `
 import { loadUser } from "./steps.js";
@@ -101,6 +105,7 @@ export async function loadUser(userId: string) {
       "/repo/workflows/steps.ts",
       { root: "/repo" },
     );
+
     const result = transformWorkflowSource(
       `
 import { loadUser as readUser } from "./steps.ts";
@@ -139,6 +144,7 @@ export async function loadUser(userId: string) {
       "/repo/workflows/steps.ts",
       { root: "/repo" },
     );
+
     const barrel = transformWorkflowSource(
       `
 export { loadUser as readUser } from "./steps";
@@ -146,6 +152,7 @@ export { loadUser as readUser } from "./steps";
       "/repo/workflows/index.ts",
       { root: "/repo", manifests: steps === undefined ? [] : [steps.manifest] },
     );
+
     const result = transformWorkflowSource(
       `
 import { readUser } from "./index";
@@ -185,6 +192,7 @@ export async function loadUser(userId: string) {
       "/repo/workflows/steps.ts",
       { root: "/repo" },
     );
+
     const barrel = transformWorkflowSource(
       `
 export * from "./steps";
@@ -192,6 +200,7 @@ export * from "./steps";
       "/repo/workflows/index.ts",
       { root: "/repo", manifests: steps === undefined ? [] : [steps.manifest] },
     );
+
     const result = transformWorkflowSource(
       `
 import { loadUser } from "./index";

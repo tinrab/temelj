@@ -170,19 +170,23 @@ export class WorkflowStore implements WorkflowStoreContract {
     if (options.signal?.aborted === true) {
       return;
     }
+
     const key = makeEventsKey(this.namespace, runId);
     await new Promise<void>((resolve) => {
       let settled = false;
       let unwatch: WorkflowStoreWatcherDisposer | undefined;
+
       const finish = () => {
         if (settled) {
           return;
         }
+
         settled = true;
         options.signal?.removeEventListener("abort", finish);
         disposeWorkflowStoreWatcher(unwatch);
         resolve();
       };
+
       options.signal?.addEventListener("abort", finish, { once: true });
       void this.storage
         .watch((event) => {
@@ -192,6 +196,7 @@ export class WorkflowStore implements WorkflowStoreContract {
         })
         .then((unsubscribe) => {
           unwatch = unsubscribe;
+
           if (settled) {
             disposeWorkflowStoreWatcher(unwatch);
           }
@@ -245,7 +250,7 @@ export class WorkflowStore implements WorkflowStoreContract {
     return listCleanupMarkers(this.storage, this.namespace);
   }
 
-  async createSchedule<TInput>(schedule: ScheduleRecord<TInput>): Promise<ScheduleRecord<TInput>> {
+  async createSchedule(schedule: ScheduleRecord): Promise<ScheduleRecord> {
     return createSchedule(this.storage, this.namespace, schedule);
   }
 
@@ -253,10 +258,10 @@ export class WorkflowStore implements WorkflowStoreContract {
     return getReadableSchedule(this.storage, this.namespace, scheduleId);
   }
 
-  async updateScheduleIfCurrent<TInput>(
+  async updateScheduleIfCurrent(
     current: ScheduleRecord,
-    next: ScheduleRecord<TInput>,
-  ): Promise<ScheduleRecord<TInput> | undefined> {
+    next: ScheduleRecord,
+  ): Promise<ScheduleRecord | undefined> {
     return updateScheduleIfCurrent(this.storage, this.namespace, current, next);
   }
 
@@ -292,6 +297,7 @@ function disposeWorkflowStoreWatcher(unwatch: WorkflowStoreWatcherDisposer | und
   if (unwatch === undefined) {
     return;
   }
+
   ignoreWorkflowStoreWatcherDisposal(unwatch());
 }
 
@@ -299,6 +305,7 @@ function ignoreWorkflowStoreWatcherDisposal(result: void | Promise<void>): void 
   if (result === undefined) {
     return;
   }
+
   void result.catch(() => {});
 }
 

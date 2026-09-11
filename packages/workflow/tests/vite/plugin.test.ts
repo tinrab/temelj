@@ -1,228 +1,130 @@
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { build } from "vite";
 import { describe, expect, it } from "vitest";
 
 import { makeGeneratedName } from "../../src/vite/generated-name.ts";
 import { workflow } from "../../src/vite/plugin.ts";
 
 const ATTACH_WORKFLOW_DEFINITION_NAME = makeGeneratedName("attachWorkflowDefinition");
+
 const CALL_WORKFLOW_STEP_FUNCTION_NAME = makeGeneratedName("callWorkflowStepFunction");
+
 const CONTEXT_NAME = makeGeneratedName("context");
 
-function callWorkflowStepFunctionText(fn: string, args: string): string {
-  return `${CALL_WORKFLOW_STEP_FUNCTION_NAME}(${CONTEXT_NAME}.step, ${fn}, ${args})`;
+interface ViteWorkflowFixture {
+  readonly source: string;
+  readonly modules?: ReadonlyMap<string, string>;
+  readonly exclude?: readonly string[];
+}
+
+async function buildWorkflowFixture(fixture: ViteWorkflowFixture): Promise<string> {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "temelj-workflow-vite-"));
+
+  try {
+    await fs.writeFile(path.join(root, "workflow.ts"), fixture.source);
+
+    for (const [file, source] of fixture.modules ?? []) {
+      await fs.writeFile(path.join(root, file), source);
+    }
+
+    let transformed = "";
+
+    await build({
+      configFile: false,
+      root,
+      logLevel: "silent",
+      plugins: [
+        workflow({ root, exclude: fixture.exclude }),
+        {
+          name: "capture-workflow-transform",
+          enforce: "pre",
+          transform(code, id) {
+            if (id === path.join(root, "workflow.ts")) {
+              transformed = code;
+            }
+          },
+        },
+      ],
+      build: {
+        write: false,
+        minify: false,
+        lib: { entry: path.join(root, "workflow.ts"), formats: ["es"] },
+        rolldownOptions: { external: ["@temelj/workflow"] },
+      },
+    });
+
+    return transformed;
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
 }
 
 describe("workflow Vite plugin", () => {
-  it("delegates Vite transform calls to the shared workflow transform", async () => {
-    const plugin = workflow({ root: "/repo" });
-    if (typeof plugin.transform !== "function") {
-      throw new Error("Expected workflow plugin to provide a transform hook");
-    }
-
-    const result = await plugin.transform.call(
-      {} as ThisParameterType<typeof plugin.transform>,
-      `
+  it("compiles workflows through Vite's native transform context", async () => {
+    const code = await buildWorkflowFixture({
+      source: `
 export async function task(value: string) {
   "use workflow";
   return value;
 }
 `,
-      "/repo/src/task.ts",
-    );
+    });
 
-    expect(result).toEqual(
-      expect.objectContaining({
-        code: expect.stringContaining(`${ATTACH_WORKFLOW_DEFINITION_NAME}(task`),
-      }),
-    );
-    expect(result).not.toHaveProperty("map");
+    expect(code).toContain(`${ATTACH_WORKFLOW_DEFINITION_NAME}(task`);
   });
 
-  it("loads imported step manifests before transforming workflow importers", async () => {
-    const plugin = workflow({ root: "/repo" });
-    const transform = plugin.transform;
-    if (typeof transform !== "function") {
-      throw new Error("Expected workflow plugin to provide a transform hook");
-    }
-
-    const modules = new Map([
-      [
-        "/repo/src/steps.ts",
-        `
+  it.each([
+    { name: "direct", source: "./steps", importName: "loadUser", reExport: "" },
+    {
+      name: "renamed re-export",
+      source: "./index",
+      importName: "readUser",
+      reExport: 'export { loadUser as readUser } from "./steps";',
+    },
+    {
+      name: "export-star",
+      source: "./index",
+      importName: "loadUser",
+      reExport: 'export * from "./steps";',
+    },
+  ])("loads $name step manifests before transforming importers", async (fixture) => {
+    const code = await buildWorkflowFixture({
+      modules: new Map([
+        [
+          "steps.ts",
+          `
 export async function loadUser(userId: string) {
   "use step";
   return { name: userId };
 }
 `,
-      ],
-    ]);
-    const context = {
-      async resolve(source: string, importer: string | undefined) {
-        if (source === "./steps" && importer === "/repo/src/workflow.ts") {
-          return { id: "/repo/src/steps.ts" };
-        }
-        return null;
-      },
-      async load(options: { readonly id: string }) {
-        const code = modules.get(options.id);
-        if (code === undefined) {
-          return null;
-        }
-        return await transform.call(context as never, code, options.id);
-      },
-    };
-
-    const result = await transform.call(
-      context as ThisParameterType<typeof transform>,
-      `
-import { loadUser } from "./steps";
+        ],
+        ["index.ts", fixture.reExport],
+      ]),
+      source: `
+import { ${fixture.importName} } from "${fixture.source}";
 
 export async function welcomeUser(userId: string) {
   "use workflow";
-  const user = await loadUser(userId);
+  const user = await ${fixture.importName}(userId);
   return user.name;
 }
 `,
-      "/repo/src/workflow.ts",
-    );
+    });
 
-    expect(result).toEqual(
-      expect.objectContaining({
-        code: expect.stringContaining(
-          `const user = await ${callWorkflowStepFunctionText("loadUser", "userId")};`,
-        ),
-      }),
+    expect(code).toContain(
+      `${CALL_WORKFLOW_STEP_FUNCTION_NAME}(${CONTEXT_NAME}.step, ${fixture.importName}, userId)`,
     );
   });
 
-  it("loads re-exported step manifests before transforming workflow importers", async () => {
-    const plugin = workflow({ root: "/repo" });
-    const transform = plugin.transform;
-    if (typeof transform !== "function") {
-      throw new Error("Expected workflow plugin to provide a transform hook");
-    }
+  it("respects exclusions in the native transform hook", async () => {
+    const code = await buildWorkflowFixture({
+      source: 'export function task() { "use workflow"; return 1; }',
+      exclude: ["workflow\\.ts$"],
+    });
 
-    const modules = new Map([
-      [
-        "/repo/src/steps.ts",
-        `
-export async function loadUser(userId: string) {
-  "use step";
-  return { name: userId };
-}
-`,
-      ],
-      [
-        "/repo/src/index.ts",
-        `
-export { loadUser as readUser } from "./steps";
-`,
-      ],
-    ]);
-    const context = {
-      async resolve(source: string, importer: string | undefined) {
-        if (source === "./index" && importer === "/repo/src/workflow.ts") {
-          return { id: "/repo/src/index.ts" };
-        }
-        if (source === "./steps" && importer === "/repo/src/index.ts") {
-          return { id: "/repo/src/steps.ts" };
-        }
-        return null;
-      },
-      async load(options: { readonly id: string }) {
-        const code = modules.get(options.id);
-        if (code === undefined) {
-          return null;
-        }
-        return await transform.call(context as never, code, options.id);
-      },
-    };
-
-    const result = await transform.call(
-      context as ThisParameterType<typeof transform>,
-      `
-import { readUser } from "./index";
-
-export async function welcomeUser(userId: string) {
-  "use workflow";
-  const user = await readUser(userId);
-  return user.name;
-}
-`,
-      "/repo/src/workflow.ts",
-    );
-
-    expect(result).toEqual(
-      expect.objectContaining({
-        code: expect.stringContaining(
-          `const user = await ${callWorkflowStepFunctionText("readUser", "userId")};`,
-        ),
-      }),
-    );
-  });
-
-  it("loads export-star step manifests before transforming workflow importers", async () => {
-    const plugin = workflow({ root: "/repo" });
-    const transform = plugin.transform;
-    if (typeof transform !== "function") {
-      throw new Error("Expected workflow plugin to provide a transform hook");
-    }
-
-    const modules = new Map([
-      [
-        "/repo/src/steps.ts",
-        `
-export async function loadUser(userId: string) {
-  "use step";
-  return { name: userId };
-}
-`,
-      ],
-      [
-        "/repo/src/index.ts",
-        `
-export * from "./steps";
-`,
-      ],
-    ]);
-    const context = {
-      async resolve(source: string, importer: string | undefined) {
-        if (source === "./index" && importer === "/repo/src/workflow.ts") {
-          return { id: "/repo/src/index.ts" };
-        }
-        if (source === "./steps" && importer === "/repo/src/index.ts") {
-          return { id: "/repo/src/steps.ts" };
-        }
-        return null;
-      },
-      async load(options: { readonly id: string }) {
-        const code = modules.get(options.id);
-        if (code === undefined) {
-          return null;
-        }
-        return await transform.call(context as never, code, options.id);
-      },
-    };
-
-    const result = await transform.call(
-      context as ThisParameterType<typeof transform>,
-      `
-import { loadUser } from "./index";
-
-export async function welcomeUser(userId: string) {
-  "use workflow";
-  const user = await loadUser(userId);
-  return user.name;
-}
-`,
-      "/repo/src/workflow.ts",
-    );
-
-    expect(result).toEqual(
-      expect.objectContaining({
-        code: expect.stringContaining(
-          `const user = await ${callWorkflowStepFunctionText("loadUser", "userId")};`,
-        ),
-      }),
-    );
+    expect(code).not.toContain(ATTACH_WORKFLOW_DEFINITION_NAME);
   });
 });

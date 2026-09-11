@@ -1,5 +1,6 @@
 import type { Logger } from "@temelj/log";
 import type { Schema, SchemaOutput } from "@temelj/standard-schema";
+import type { StorageValue } from "@temelj/storage";
 
 import { z } from "zod";
 
@@ -87,21 +88,21 @@ export interface WorkflowStepMessageApi {
   /** Sends a named message to another workflow run. */
   send(runId: RunId, options: SendMessageOptions): Promise<void>;
   /** Sends a message through a typed message channel to another workflow run. */
-  send<TPayload, TKey = void>(
+  send<TPayload, TRawPayload = TPayload>(
     runId: RunId,
-    channel: MessageChannel<TPayload, TKey>,
-    options?: SendMessageChannelOptions<TPayload, TKey>,
+    channel: MessageChannel<TPayload, TRawPayload>,
+    options?: SendMessageChannelOptions<TRawPayload>,
   ): Promise<void>;
   /** Waits for a named message and returns its payload. */
-  wait<TPayload = unknown>(options: WaitForMessageOptions): Promise<TPayload>;
+  wait(options: WaitForMessageOptions): Promise<StorageValue | undefined>;
   /** Waits for a named message and validates its payload with the configured schema. */
   wait<const TSchema extends Schema>(
-    options: WaitForMessageOptions<TSchema>,
+    options: WaitForMessageOptions<TSchema> & { readonly schema: TSchema },
   ): Promise<SchemaOutput<TSchema>>;
   /** Waits for a message through a typed message channel. */
-  wait<TPayload, TKey = void>(
-    channel: MessageChannel<TPayload, TKey>,
-    options?: WaitForMessageChannelOptions<TKey>,
+  wait<TPayload>(
+    channel: MessageChannel<TPayload, unknown>,
+    options?: WaitForMessageChannelOptions,
   ): Promise<TPayload>;
 }
 
@@ -131,7 +132,7 @@ export interface WorkflowStepLockApi {
 /** Durable run metadata and attribute update commands available inside a workflow handler. */
 export interface WorkflowStepRunDataApi {
   /** Replaces the workflow run metadata value. */
-  setMetadata(commandId: string, metadata: unknown): Promise<void>;
+  setMetadata(commandId: string, metadata: StorageValue): Promise<void>;
   /** Applies a workflow run attribute patch. */
   setAttributes(commandId: string, attributes: WorkflowAttributePatch): Promise<void>;
 }
@@ -164,16 +165,16 @@ export interface WorkflowStepStreamApi {
 /** External resume token commands available inside a workflow handler. */
 export interface WorkflowStepHookApi {
   /** Creates a message-backed external resume hook. */
-  create<TPayload = unknown>(options: CreateHookOptions): Hook<TPayload>;
+  create(options: CreateHookOptions): Hook<StorageValue | undefined>;
   /** Creates a message-backed external resume hook with schema-validated payloads. */
   create<const TSchema extends Schema>(
-    options: CreateHookOptions<TSchema>,
+    options: CreateHookOptions<TSchema> & { readonly schema: TSchema },
   ): Hook<SchemaOutput<TSchema>>;
   /** Creates a webhook-labeled external resume hook. */
-  createWebhook<TPayload = unknown>(options: CreateWebhookOptions): Webhook<TPayload>;
+  createWebhook(options: CreateWebhookOptions): Webhook<StorageValue | undefined>;
   /** Creates a webhook-labeled external resume hook with schema-validated payloads. */
   createWebhook<const TSchema extends Schema>(
-    options: CreateWebhookOptions<TSchema>,
+    options: CreateWebhookOptions<TSchema> & { readonly schema: TSchema },
   ): Webhook<SchemaOutput<TSchema>>;
 }
 
@@ -187,7 +188,8 @@ export interface WorkflowStepRunConfig {
 
 /** Handler signature for reusable durable step definitions. */
 export type WorkflowStepDefinitionHandler<TArgs extends readonly unknown[], TOutput> = (
-  ...args: [...TArgs, WorkflowStepContext]
+  context: WorkflowStepContext,
+  ...args: TArgs
 ) => Promise<TOutput> | TOutput;
 
 /** Reusable named durable task that can be called from workflow handlers. */
@@ -207,7 +209,7 @@ export interface WorkflowStepDefinition<
 
 /** Compile-time type markers carried by a reusable step definition. */
 export interface WorkflowStepDefinitionTypes<TArgs extends readonly unknown[], TOutput> {
-  /** Argument tuple accepted by the step handler before the context parameter. */
+  /** Argument tuple accepted by the step handler after the context parameter. */
   readonly args: TArgs;
   /** Awaited output returned by the step handler. */
   readonly output: TOutput;

@@ -21,10 +21,12 @@ interface WorkflowRunStatusAccumulator {
   readonly statusRunIds: WorkflowRunStatusRunIds;
 }
 
-export function createWorkflowRunStatusSummaryReducer(): {
+export interface WorkflowRunStatusSummaryReducer {
   readonly addRun: (run: WorkflowRunRecord) => void;
   readonly finish: () => WorkflowRunStatusSummaryFields;
-} {
+}
+
+export function createWorkflowRunStatusSummaryReducer(): WorkflowRunStatusSummaryReducer {
   const status = createWorkflowRunStatusAccumulator();
 
   return {

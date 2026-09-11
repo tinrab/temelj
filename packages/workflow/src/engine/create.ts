@@ -7,7 +7,11 @@ import type {
   CleanupRunsResult,
   RetentionPolicyOptions,
 } from "../types/cleanup.ts";
-import type { WorkflowImplementation, WorkflowStartTarget } from "../types/definition.ts";
+import type {
+  WorkflowDefinition,
+  WorkflowImplementation,
+  WorkflowStartTarget,
+} from "../types/definition.ts";
 import type {
   CreateWorkflowEngineOptions,
   WorkflowExecutionLimits,
@@ -155,6 +159,7 @@ import {
 } from "./stream.ts";
 
 type WorkflowEngineObservation = ObservationEmitter;
+
 const MAX_CRYPTO_GET_RANDOM_VALUES_BYTES = 65_536;
 
 type WorkflowEngineMessageEvent = Extract<EventRecord, { readonly kind: "message_sent" }>;
@@ -244,10 +249,12 @@ function defaultDeterministicUuid(): string {
 
 function defaultDeterministicBytes(context: { readonly length: number }): Uint8Array {
   const bytes = new Uint8Array(context.length);
+
   for (let offset = 0; offset < bytes.byteLength; offset += MAX_CRYPTO_GET_RANDOM_VALUES_BYTES) {
     const chunk = bytes.subarray(offset, offset + MAX_CRYPTO_GET_RANDOM_VALUES_BYTES);
     globalThis.crypto.getRandomValues(chunk);
   }
+
   return bytes;
 }
 
@@ -260,6 +267,11 @@ export function createWorkflowEngine(
 
 /** Storage-backed workflow engine implementation used by the default client and runtime. */
 export class WorkflowEngine implements WorkflowEngineContract {
+  /** Exposes this engine's worker operations to clients. */
+  get workerEngine(): this {
+    return this;
+  }
+
   public readonly storage: WorkflowStorage;
   public readonly store: WorkflowStore;
   readonly #now: () => Temporal.Instant;
@@ -282,34 +294,45 @@ export class WorkflowEngine implements WorkflowEngineContract {
     }
 
     const telemetry = options.telemetry === false ? undefined : options.telemetry;
+
     const storage =
       options.store === undefined
         ? instrumentWorkflowStorage(options.storage ?? createStorage(), telemetry)
         : undefined;
+
     this.store = options.store ?? createWorkflowStore({ storage });
     this.storage = this.store.storage;
     const now = options.now ?? Temporal.Now.instant;
     this.#now = now;
     const createRunId = options.createRunId ?? createDefaultRunIdFactory(now);
+
     const createRecordedId =
       options.createRecordedId ?? createDefaultWorkflowRecordedIdFactory(createRunId);
+
     const createDeterministicRandom =
       options.createDeterministicRandom ?? defaultDeterministicRandom;
+
     const createDeterministicUuid = options.createDeterministicUuid ?? defaultDeterministicUuid;
     const createDeterministicBytes = options.createDeterministicBytes ?? defaultDeterministicBytes;
     const maximumStepAttemptsPerRun = options.maximumStepAttemptsPerRun ?? 1_000;
+
     const limits: WorkflowExecutionLimits = {
       maximumPersistedValueBytes: options.maximumPersistedValueBytes,
       maximumEventHistoryEvents: options.maximumEventHistoryEvents,
       maximumStreamChunks: options.maximumStreamChunks,
     };
+
     this.#limits = limits;
 
-    const readCurrentRunResult = async <TOutput>(runId: RunId): Promise<ExecutionResult<TOutput>> =>
-      await readRunResult<TOutput>(this.store, runId, now());
+    const readCurrentRunResult = async <TOutput>(
+      definition: WorkflowDefinition<unknown, TOutput, unknown>,
+      runId: RunId,
+    ): Promise<ExecutionResult<TOutput>> =>
+      await readRunResult(this.store, definition, runId, now());
 
     const logger =
       options.logger === false ? createNoopLogger() : (options.logger ?? createNoopLogger());
+
     this.#telemetry = telemetry;
     this.#logger = logger;
     const observation = createObservationEmitter(telemetry);
@@ -338,15 +361,18 @@ export class WorkflowEngine implements WorkflowEngineContract {
       now,
       limits,
     };
+
     const { emitLifecycleEvent, emitResultLifecycleEvent } = createWorkflowLifecycleEmitter(
       options,
       observation,
     );
+
     this.#runLifecycle = {
       emitLifecycleEvent,
       emitRunMetadataUpdated: observation.emitRunMetadataUpdated,
     };
     this.#inspectionApi = createWorkflowEngineInspectionApi(this.store, now);
+
     const executionService = {
       store: this.store,
       now,
@@ -369,6 +395,7 @@ export class WorkflowEngine implements WorkflowEngineContract {
         event: Extract<EventRecord, { readonly kind: "child_workflow_started" }>,
       ) => observation.emitChildWorkflowStarted({ runId, event }),
     };
+
     this.#executionApi = createWorkflowEngineExecutionApi({
       store: this.store,
       now,
@@ -441,16 +468,19 @@ export class WorkflowEngine implements WorkflowEngineContract {
 
   async close(): Promise<void> {
     const errors: unknown[] = [];
+
     try {
       await this.#logger.close?.();
     } catch (error) {
       errors.push(error);
     }
+
     try {
       await this.#telemetry?.shutdown?.();
     } catch (error) {
       errors.push(error);
     }
+
     if (errors.length > 0) {
       throw errors[0];
     }
@@ -490,22 +520,24 @@ export class WorkflowEngine implements WorkflowEngineContract {
   async createSchedule<TInput, TOutput, TRawInput = TInput>(
     workflow: WorkflowStartTarget<TInput, TOutput, TRawInput>,
     scheduleOptions: ScheduleConfig<TInput, TRawInput>,
-  ): Promise<ScheduleRecord<TInput>> {
+  ): Promise<ScheduleRecord> {
     const definition = defineWorkflowFromTarget(workflow);
-    const schedule = resolveScheduleRecord(
+
+    const schedule = await resolveScheduleRecord(
       this.store.namespace,
       definition,
       scheduleOptions,
       this.#now(),
       this.#limits,
     );
+
     return this.store.createSchedule(schedule);
   }
 
   async upsertSchedule<TInput, TOutput, TRawInput = TInput>(
     workflow: WorkflowStartTarget<TInput, TOutput, TRawInput>,
     scheduleOptions: ScheduleConfig<TInput, TRawInput>,
-  ): Promise<ScheduleRecord<TInput>> {
+  ): Promise<ScheduleRecord> {
     return upsertSchedule(
       this.store,
       defineWorkflowFromTarget(workflow),
@@ -550,11 +582,13 @@ export class WorkflowEngine implements WorkflowEngineContract {
     const tickOptions = options === undefined ? { now: timestamp } : { ...options, now: timestamp };
     const result = await tickSchedules(this.store, this, this.#now, tickOptions);
     this.#observation.emitScheduleTicked({ result, timestamp });
+
     return result;
   }
 
   async acquireLock(key: string, options: AcquireLockOptions): Promise<LockRecord> {
     const acquiredAt = options.now === undefined ? this.#now() : options.now;
+
     return acquireLock(this.store, key, options, acquiredAt);
   }
 
@@ -568,11 +602,13 @@ export class WorkflowEngine implements WorkflowEngineContract {
 
   async releaseLock(key: string, options: ReleaseLockOptions): Promise<LockRecord> {
     const releasedAt = options.now === undefined ? this.#now() : options.now;
+
     return releaseLock(this.store, key, options, releasedAt);
   }
 
   async releaseStaleLock(key: string, options?: ReleaseStaleLockOptions): Promise<LockRecord> {
     const releasedAt = options?.now === undefined ? this.#now() : options.now;
+
     return releaseStaleLock(this.store, key, releasedAt);
   }
 
@@ -681,6 +717,7 @@ export class WorkflowEngine implements WorkflowEngineContract {
   async cleanupRuns(options: CleanupRunsOptions): Promise<CleanupRunsResult> {
     const result = await this.store.cleanupRuns(options);
     this.#observation.emitCleanupCompleted(result);
+
     return result;
   }
 
@@ -692,7 +729,9 @@ export class WorkflowEngine implements WorkflowEngineContract {
     const result = await this.store.cleanupRuns(
       retentionCleanupOptions(retentionOptions, this.#now),
     );
+
     this.#observation.emitRetentionApplied(result);
+
     return result;
   }
 
@@ -737,7 +776,7 @@ export class WorkflowEngine implements WorkflowEngineContract {
     return markWorkflowRunPermanentlyFailed(this.#runService, this.#runLifecycle, runId, options);
   }
 
-  async updateRunMetadata(runId: RunId, metadata: unknown): Promise<WorkflowRunRecord> {
+  async updateRunMetadata(runId: RunId, metadata: StorageValue): Promise<WorkflowRunRecord> {
     return updateWorkflowRunMetadata(this.#runService, this.#runLifecycle, runId, metadata);
   }
 
@@ -776,12 +815,12 @@ export class WorkflowEngine implements WorkflowEngineContract {
     return getStreamInfoForRun(this.#streamService, runId, streamIdOrName);
   }
 
-  followStream<TChunk = unknown>(
+  followStream(
     runId: RunId,
     streamIdOrName: StreamIdOrName,
     followOptions?: FollowStreamOptions,
-  ): AsyncIterable<StreamUpdate<TChunk>> {
-    return followStreamForRun<TChunk>(this.#streamService, runId, streamIdOrName, followOptions);
+  ): AsyncIterable<StreamUpdate> {
+    return followStreamForRun(this.#streamService, runId, streamIdOrName, followOptions);
   }
 
   async waitForStream(
@@ -792,13 +831,13 @@ export class WorkflowEngine implements WorkflowEngineContract {
     return waitForStreamForRun(this.#streamService, runId, streamIdOrName, waitOptions);
   }
 
-  async waitForStreamChunk<TChunk = unknown>(
+  async waitForStreamChunk(
     runId: RunId,
     streamIdOrName: StreamIdOrName,
     afterIndex: number,
     waitOptions?: WaitStreamOptions,
-  ): Promise<StreamChunk<TChunk> | undefined> {
-    return waitForStreamChunkForRun<TChunk>(
+  ): Promise<StreamChunk | undefined> {
+    return waitForStreamChunkForRun(
       this.#streamService,
       runId,
       streamIdOrName,
@@ -815,33 +854,33 @@ export class WorkflowEngine implements WorkflowEngineContract {
     return waitForStreamTerminalForRun(this.#streamService, runId, streamIdOrName, waitOptions);
   }
 
-  async readStream<TChunk = unknown>(
+  async readStream(
     runId: RunId,
     streamIdOrName: StreamIdOrName,
     readOptions?: ReadStreamOptions,
-  ): Promise<StreamState<TChunk>> {
-    return readStreamForRun<TChunk>(this.#streamService, runId, streamIdOrName, readOptions);
+  ): Promise<StreamState> {
+    return readStreamForRun(this.#streamService, runId, streamIdOrName, readOptions);
   }
 
-  async readStreamPage<TChunk = unknown>(
+  async readStreamPage(
     runId: RunId,
     streamIdOrName: StreamIdOrName,
     readOptions?: ReadStreamPageOptions,
-  ): Promise<StreamPage<TChunk>> {
-    return readStreamPageForRun<TChunk>(this.#streamService, runId, streamIdOrName, readOptions);
+  ): Promise<StreamPage> {
+    return readStreamPageForRun(this.#streamService, runId, streamIdOrName, readOptions);
   }
 
-  async sendMessage<TPayload, TKey = void>(
+  async sendMessage<TPayload, TRawPayload = TPayload>(
     runId: RunId,
-    messageInput: SendMessageInput | MessageChannel<TPayload, TKey>,
-    channelOptions?: SendMessageChannelOptions<TPayload, TKey>,
+    messageInput: SendMessageInput | MessageChannel<TPayload, TRawPayload>,
+    channelOptions?: SendMessageChannelOptions<TRawPayload>,
   ) {
     await sendWorkflowMessageInput(this.#messageService, runId, messageInput, channelOptions);
   }
 
-  async broadcastMessage<TPayload, TKey = void>(
-    messageInput: BroadcastMessageInput | MessageChannel<TPayload, TKey>,
-    channelOptions?: BroadcastMessageChannelOptions<TPayload, TKey>,
+  async broadcastMessage<TPayload, TRawPayload = TPayload>(
+    messageInput: BroadcastMessageInput | MessageChannel<TPayload, TRawPayload>,
+    channelOptions?: BroadcastMessageChannelOptions<TRawPayload>,
   ) {
     return broadcastWorkflowMessageInput(this.#messageService, messageInput, channelOptions);
   }

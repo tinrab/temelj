@@ -9,6 +9,7 @@ try {
     name: process.argv[2] ?? "Ada",
     waitForApproval: false,
   });
+
   await runtime.workers.processRun(handle.runId);
   console.log(await handle.result());
 } finally {

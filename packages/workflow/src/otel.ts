@@ -8,25 +8,21 @@ import {
   type ObservableGauge,
 } from "@opentelemetry/api";
 
-import type {
-  EventKind,
-  MessageWaitCompletedEvent,
-  MessageWaitStartedEvent,
-} from "./types/events.ts";
+import type { MessageWaitCompletedEvent, MessageWaitStartedEvent } from "./types/events.ts";
 import type {
   ChildWorkflowStartedObservationEvent,
   CleanupObservationEvent,
   DurableEventObservationEvent,
   MessageObservationEvent,
-  ObservationEventMap,
+  ObservationEventArgs,
   ResumeObservationEvent,
   RunObservationEvent,
   ScheduleRunCreatedObservationEvent,
   ScheduleTickObservationEvent,
-  StepAttemptObservationEvent,
   StreamObservationEvent,
   WorkerOperationObservationEvent,
 } from "./types/observation.ts";
+import type { ExecutionResult } from "./types/result.ts";
 import type {
   RunTelemetryContext,
   RunTelemetryResultContext,
@@ -37,6 +33,7 @@ import type {
   TelemetryEngine,
 } from "./types/telemetry.ts";
 
+import { omitUndefined } from "./collection.ts";
 import { getEventDescriptor } from "./events/descriptors.ts";
 import { WorkflowHistory } from "./history/mod.ts";
 import {
@@ -239,8 +236,10 @@ class OpenTelemetryWorkflowTelemetry implements Telemetry {
       if (this.#engine?.getRunSummary === undefined) {
         return;
       }
+
       try {
         const summary = await this.#engine.getRunSummary();
+
         for (const [status, count] of Object.entries(summary.status)) {
           result.observe(count, this.#attributes({ [WORKFLOW_ATTRIBUTES.runStatus]: status }));
         }
@@ -252,6 +251,7 @@ class OpenTelemetryWorkflowTelemetry implements Telemetry {
       if (this.#engine?.getRunSummary === undefined) {
         return;
       }
+
       try {
         const summary = await this.#engine.getRunSummary();
         result.observe(
@@ -267,35 +267,28 @@ class OpenTelemetryWorkflowTelemetry implements Telemetry {
   captureContext(): TelemetryContext | undefined {
     const carrier: Record<string, string> = {};
     propagation.inject(context.active(), carrier);
+
     return Object.keys(carrier).length === 0
       ? undefined
-      : {
-          ...(carrier.traceparent === undefined ? {} : { traceparent: carrier.traceparent }),
-          ...(carrier.tracestate === undefined ? {} : { tracestate: carrier.tracestate }),
-        };
+      : omitUndefined({ traceparent: carrier.traceparent, tracestate: carrier.tracestate });
   }
 
-  async withRunExecution<T>(
+  async withRunExecution<T extends ExecutionResult>(
     telemetryContext: RunTelemetryContext,
     callback: () => Promise<T>,
   ): Promise<T> {
     const parent = contextFromTraceContext(telemetryContext.traceContext);
+
     return await this.#tracer.startActiveSpan(
       this.#runExecutionSpanName(telemetryContext),
       {
         attributes: this.#attributes({
           [WORKFLOW_ATTRIBUTES.workflowName]: telemetryContext.run.workflowName,
-          ...(telemetryContext.run.workflowVersion === undefined
-            ? {}
-            : { [WORKFLOW_ATTRIBUTES.workflowVersion]: telemetryContext.run.workflowVersion }),
+          [WORKFLOW_ATTRIBUTES.workflowVersion]: telemetryContext.run.workflowVersion,
           [WORKFLOW_ATTRIBUTES.runId]: telemetryContext.run.id,
           [WORKFLOW_ATTRIBUTES.namespace]: telemetryContext.run.namespace,
-          ...(telemetryContext.run.attempts === undefined
-            ? {}
-            : { [WORKFLOW_ATTRIBUTES.runAttempt]: telemetryContext.run.attempts }),
-          ...(telemetryContext.run.workerId === undefined
-            ? {}
-            : { [WORKFLOW_ATTRIBUTES.workerId]: telemetryContext.run.workerId }),
+          [WORKFLOW_ATTRIBUTES.runAttempt]: telemetryContext.run.attempts,
+          [WORKFLOW_ATTRIBUTES.workerId]: telemetryContext.run.workerId,
         }),
       },
       parent,
@@ -312,17 +305,16 @@ class OpenTelemetryWorkflowTelemetry implements Telemetry {
       {
         attributes: this.#attributes({
           [WORKFLOW_ATTRIBUTES.workflowName]: telemetryContext.run.workflowName,
-          ...(telemetryContext.run.workflowVersion === undefined
-            ? {}
-            : { [WORKFLOW_ATTRIBUTES.workflowVersion]: telemetryContext.run.workflowVersion }),
+          [WORKFLOW_ATTRIBUTES.workflowVersion]: telemetryContext.run.workflowVersion,
           [WORKFLOW_ATTRIBUTES.runId]: telemetryContext.run.id,
           [WORKFLOW_ATTRIBUTES.stepId]: telemetryContext.step.id,
           [WORKFLOW_ATTRIBUTES.stepName]: telemetryContext.step.name,
           [WORKFLOW_ATTRIBUTES.stepKind]: telemetryContext.step.kind,
           [WORKFLOW_ATTRIBUTES.stepAttempt]: telemetryContext.attempt,
-          ...(telemetryContext.timeoutAt === undefined
-            ? {}
-            : { [WORKFLOW_ATTRIBUTES.stepTimeoutAt]: telemetryContext.timeoutAt.toString() }),
+          [WORKFLOW_ATTRIBUTES.stepTimeoutAt]:
+            telemetryContext.timeoutAt === undefined
+              ? undefined
+              : telemetryContext.timeoutAt.toString(),
         }),
       },
       async (span) => await withSpanStatus(span, callback),
@@ -334,20 +326,24 @@ class OpenTelemetryWorkflowTelemetry implements Telemetry {
     callback: () => Promise<T>,
   ): Promise<T> {
     const startedAt = Date.now();
+
     const attributes = this.#attributes({
       [WORKFLOW_ATTRIBUTES.storageOperation]: telemetryContext.operation,
       [WORKFLOW_ATTRIBUTES.storageBackend]: telemetryContext.backend,
     });
+
     if (this.#options.includeStorageOperationSpans === false) {
       try {
         const result = await callback();
         this.#recordStorageOperationResult(startedAt, attributes, "success");
+
         return result;
       } catch (error) {
         this.#recordStorageOperationResult(startedAt, attributes, "failure");
         throw error;
       }
     }
+
     return await this.#tracer.startActiveSpan(
       WORKFLOW_SPAN_NAMES.storageOperation,
       { attributes },
@@ -357,6 +353,7 @@ class OpenTelemetryWorkflowTelemetry implements Telemetry {
           this.#recordStorageOperationResult(startedAt, attributes, "success");
           span.setAttribute(WORKFLOW_ATTRIBUTES.storageOperationStatus, "success");
           span.setStatus({ code: SpanStatusCode.OK });
+
           return result;
         } catch (error) {
           this.#recordStorageOperationResult(startedAt, attributes, "failure");
@@ -373,19 +370,19 @@ class OpenTelemetryWorkflowTelemetry implements Telemetry {
 
   recordRunExecution<TOutput>(telemetryContext: RunTelemetryResultContext<TOutput>): void {
     const result = telemetryContext.result;
+
     if (result?.kind === "completed" || result?.kind === "failed") {
       const duration = optionalDurationBetweenMilliseconds(
         result.run.startedAt ?? result.run.createdAt,
         result.run.finishedAt,
       );
+
       if (duration !== undefined) {
         this.#runDuration.record(
           duration,
           this.#attributes({
             [WORKFLOW_ATTRIBUTES.workflowName]: result.run.workflowName,
-            ...(result.run.workflowVersion === undefined
-              ? {}
-              : { [WORKFLOW_ATTRIBUTES.workflowVersion]: result.run.workflowVersion }),
+            [WORKFLOW_ATTRIBUTES.workflowVersion]: result.run.workflowVersion,
             [WORKFLOW_ATTRIBUTES.runStatus]: result.run.status,
           }),
         );
@@ -393,10 +390,7 @@ class OpenTelemetryWorkflowTelemetry implements Telemetry {
     }
   }
 
-  observe<Key extends keyof ObservationEventMap>(
-    name: Key,
-    payload: ObservationEventMap[Key],
-  ): void {
+  observe(...[name, event]: ObservationEventArgs): void {
     switch (name) {
       case "workflow:run-created":
       case "workflow:run-waiting":
@@ -404,75 +398,88 @@ class OpenTelemetryWorkflowTelemetry implements Telemetry {
       case "workflow:run-manual-retry":
       case "workflow:run-completed":
       case "workflow:run-canceled": {
-        const event = payload as RunObservationEvent;
         this.#recordRunTransition(event);
         break;
       }
+
       case "workflow:run-failed": {
-        const event = payload as RunObservationEvent;
         this.#recordRunTransition(event);
         this.#recordRetryExhausted(event);
         break;
       }
+
       case "workflow:run-permanently-failed": {
-        const event = payload as RunObservationEvent;
         this.#recordRunTransition(event);
         this.#recordRetryExhausted(event);
         break;
       }
+
       case "workflow:run-claimed": {
-        const event = payload as RunObservationEvent;
         this.#recordRunTransition(event);
+
         const attributes = this.#runMetricAttributes(event, {
           [WORKFLOW_ATTRIBUTES.workerOperation]: event.reason,
         });
+
         this.#workerClaims.add(1, attributes);
+
         const startedAt =
           event.previousRun?.availableAt ?? event.run.availableAt ?? event.run.createdAt;
+
         const latency = optionalDurationBetweenMilliseconds(startedAt, event.timestamp);
+
         if (latency !== undefined) {
           this.#pendingToClaimedLatency.record(latency, attributes);
         }
+
         break;
       }
+
       case "workflow:run-started": {
-        const event = payload as RunObservationEvent;
         this.#recordRunTransition(event);
+
         if (event.previousRun?.status !== "waiting") {
           break;
         }
+
         const startedAt = event.previousRun.availableAt ?? event.previousRun.lastTransitionAt;
         const latency = optionalDurationBetweenMilliseconds(startedAt, event.timestamp);
+
         if (latency !== undefined) {
           this.#waitingToResumedLatency.record(latency, this.#runMetricAttributes(event));
         }
+
         break;
       }
+
       case "workflow:run-lease-released": {
-        const event = payload as RunObservationEvent;
         this.#recordRunTransition(event);
         this.#workerLeaseReleases.add(1, this.#runMetricAttributes(event));
         break;
       }
+
       case "workflow:run-retrying": {
-        const event = payload as RunObservationEvent;
         this.#recordRunTransition(event);
+
         const attributes =
           event.run.retryReason === undefined
             ? this.#runMetricAttributes(event)
             : this.#runMetricAttributes(event, {
                 [WORKFLOW_ATTRIBUTES.retryReason]: event.run.retryReason,
               });
+
         this.#retryScheduled.add(1, attributes);
         const delay = optionalDurationBetweenMilliseconds(event.timestamp, event.run.retryAt);
+
         if (delay !== undefined) {
           this.#retryDelay.record(delay, attributes);
         }
+
         break;
       }
+
       case "workflow:durable-event-appended": {
-        const event = payload as DurableEventObservationEvent;
-        const descriptor = getEventDescriptor(event.event.kind as EventKind);
+        const descriptor = getEventDescriptor(event.event.kind);
         this.#eventsAppended.add(
           1,
           this.#attributes({
@@ -486,47 +493,51 @@ class OpenTelemetryWorkflowTelemetry implements Telemetry {
         this.#recordChildWorkflowOperationSpan(event, history);
         break;
       }
+
       case "workflow:step-attempt-updated": {
-        const event = payload as StepAttemptObservationEvent;
         const attributes = this.#attributes({
           [WORKFLOW_ATTRIBUTES.stepKind]: event.attempt.kind,
           [WORKFLOW_ATTRIBUTES.stepStatus]: event.attempt.status,
-          ...(this.#options.includeStepNameMetricAttribute
-            ? { [WORKFLOW_ATTRIBUTES.stepName]: event.attempt.stepName }
-            : {}),
+          [WORKFLOW_ATTRIBUTES.stepName]: this.#options.includeStepNameMetricAttribute
+            ? event.attempt.stepName
+            : undefined,
         });
+
         this.#stepAttempts.add(1, attributes);
+
         if (event.attempt.status === "completed" || event.attempt.status === "failed") {
           const duration = optionalDurationBetweenMilliseconds(
             event.attempt.startedAt,
             event.attempt.finishedAt,
           );
+
           if (duration !== undefined) {
             this.#stepDuration.record(duration, attributes);
           }
         }
+
         break;
       }
+
       case "workflow:message-sent": {
-        const event = payload as MessageObservationEvent;
         this.#messagesSent.add(1, this.#attributes({}));
         this.#recordMessageSentSpan(event);
         break;
       }
+
       case "workflow:hook-resumed": {
-        const event = payload as ResumeObservationEvent;
         this.#hooksResumed.add(1, this.#attributes({ [WORKFLOW_ATTRIBUTES.hookKind]: "hook" }));
         this.#recordHookResumeSpan("hook", event);
         break;
       }
+
       case "workflow:webhook-resumed": {
-        const event = payload as ResumeObservationEvent;
         this.#hooksResumed.add(1, this.#attributes({ [WORKFLOW_ATTRIBUTES.hookKind]: "webhook" }));
         this.#recordHookResumeSpan("webhook", event);
         break;
       }
+
       case "workflow:stream-updated": {
-        const event = payload as StreamObservationEvent;
         this.#streamUpdates.add(
           1,
           this.#attributes({
@@ -537,13 +548,13 @@ class OpenTelemetryWorkflowTelemetry implements Telemetry {
         this.#recordStreamOperationSpan(event);
         break;
       }
+
       case "workflow:child-workflow-started": {
-        const event = payload as ChildWorkflowStartedObservationEvent;
         this.#recordChildWorkflowStartedSpan(event);
         break;
       }
+
       case "workflow:cleanup-completed": {
-        const event = payload as CleanupObservationEvent;
         this.#cleanupDeletedRuns.add(
           event.result.deletedRuns,
           this.#attributes({ [WORKFLOW_ATTRIBUTES.cleanupSource]: "cleanup" }),
@@ -551,8 +562,8 @@ class OpenTelemetryWorkflowTelemetry implements Telemetry {
         this.#recordCleanupOperationSpan("cleanup", event);
         break;
       }
+
       case "workflow:retention-applied": {
-        const event = payload as CleanupObservationEvent;
         this.#cleanupDeletedRuns.add(
           event.result.deletedRuns,
           this.#attributes({ [WORKFLOW_ATTRIBUTES.cleanupSource]: "retention" }),
@@ -560,44 +571,50 @@ class OpenTelemetryWorkflowTelemetry implements Telemetry {
         this.#recordCleanupOperationSpan("retention", event);
         break;
       }
+
       case "workflow:worker-operation": {
-        const event = payload as WorkerOperationObservationEvent;
         const attributes = this.#attributes({
           [WORKFLOW_ATTRIBUTES.workerOperation]: event.operation,
           [WORKFLOW_ATTRIBUTES.workerOperationStatus]: event.status,
         });
+
         if (event.operation === "claim" && event.status === "failure") {
           this.#workerClaimFailures.add(1, attributes);
         }
+
         if (event.operation === "heartbeat" && event.status === "failure") {
           this.#workerHeartbeatFailures.add(1, attributes);
         }
+
         if (event.operation === "lease_extension") {
           this.#workerLeaseExtensions.add(1, attributes);
         }
+
         if (event.operation === "lease_release") {
           this.#workerLeaseReleases.add(1, attributes);
         }
+
         this.#recordWorkerOperationSpan(event);
         break;
       }
+
       case "workflow:schedule-ticked": {
-        const event = payload as ScheduleTickObservationEvent;
         this.#recordScheduleTickSpan(event);
         break;
       }
+
       case "workflow:schedule-run-created": {
-        const event = payload as ScheduleRunCreatedObservationEvent;
         const attributes = this.#attributes({
           [WORKFLOW_ATTRIBUTES.workflowName]: event.workflowName,
-          ...(event.workflowVersion === undefined
-            ? {}
-            : { [WORKFLOW_ATTRIBUTES.workflowVersion]: event.workflowVersion }),
+          [WORKFLOW_ATTRIBUTES.workflowVersion]: event.workflowVersion,
         });
+
         const latency = optionalDurationBetweenMilliseconds(event.fireAt, event.timestamp);
+
         if (latency !== undefined) {
           this.#scheduleDueToRunCreatedLatency.record(latency, attributes);
         }
+
         this.#recordScheduleRunCreatedSpan(event);
         break;
       }
@@ -610,16 +627,19 @@ class OpenTelemetryWorkflowTelemetry implements Telemetry {
 
   async shutdown(): Promise<void> {
     const errors: unknown[] = [];
+
     try {
       await this.#options.forceFlush?.();
     } catch (error) {
       errors.push(error);
     }
+
     try {
       await this.#options.shutdown?.();
     } catch (error) {
       errors.push(error);
     }
+
     if (errors.length > 0) {
       throw errors[0];
     }
@@ -633,9 +653,11 @@ class OpenTelemetryWorkflowTelemetry implements Telemetry {
     const retryReason =
       event.previousRun?.retryReason ??
       ((event.previousRun?.attempts ?? event.run.attempts ?? 1) > 1 ? "workflow" : undefined);
+
     if (retryReason === undefined) {
       return;
     }
+
     this.#retryExhausted.add(
       1,
       this.#runMetricAttributes(event, {
@@ -646,13 +668,11 @@ class OpenTelemetryWorkflowTelemetry implements Telemetry {
   }
 
   #attributes(attributes: Attributes): Attributes {
-    return {
-      ...(this.#options.serviceNamespace === undefined
-        ? {}
-        : { "service.namespace": this.#options.serviceNamespace }),
+    return omitUndefined({
+      "service.namespace": this.#options.serviceNamespace,
       [WORKFLOW_ATTRIBUTES.system]: WORKFLOW_SYSTEM,
       ...attributes,
-    };
+    });
   }
 
   #runExecutionSpanName(telemetryContext: RunTelemetryContext): string {
@@ -676,7 +696,9 @@ class OpenTelemetryWorkflowTelemetry implements Telemetry {
       ...attributes,
       [WORKFLOW_ATTRIBUTES.storageOperationStatus]: status,
     };
+
     this.#storageOperationDuration.record(Date.now() - startedAt, resultAttributes);
+
     if (status === "failure") {
       this.#storageOperationErrors.add(1, resultAttributes);
     }
@@ -685,9 +707,7 @@ class OpenTelemetryWorkflowTelemetry implements Telemetry {
   #runMetricAttributes(event: RunObservationEvent, attributes: Attributes = {}): Attributes {
     return this.#attributes({
       [WORKFLOW_ATTRIBUTES.workflowName]: event.workflowName,
-      ...(event.workflowVersion === undefined
-        ? {}
-        : { [WORKFLOW_ATTRIBUTES.workflowVersion]: event.workflowVersion }),
+      [WORKFLOW_ATTRIBUTES.workflowVersion]: event.workflowVersion,
       [WORKFLOW_ATTRIBUTES.runStatus]: event.status,
       [WORKFLOW_ATTRIBUTES.runTransition]: event.reason,
       ...attributes,
@@ -698,27 +718,34 @@ class OpenTelemetryWorkflowTelemetry implements Telemetry {
     if (event.event.kind !== "message_wait_completed") {
       return;
     }
+
     const completed = event.event;
     const started = history.startedMessageWaitForCompleted(completed);
+
     if (started === undefined) {
       return;
     }
+
     const latency = optionalDurationBetweenMilliseconds(
       started.timestamp,
       completed.messageTimestamp,
     );
+
     if (latency === undefined) {
       return;
     }
+
     const source = started.source ?? "message";
     const attributes = this.#attributes({ [WORKFLOW_ATTRIBUTES.messageSource]: source });
     this.#messageWaitLatency.record(latency, attributes);
+
     if (source === "hook" || source === "webhook") {
       this.#hookResumeLatency.record(
         latency,
         this.#attributes({ [WORKFLOW_ATTRIBUTES.hookKind]: source }),
       );
     }
+
     this.#recordMessageWaitSpan(completed, started, history);
   }
 
@@ -726,17 +753,22 @@ class OpenTelemetryWorkflowTelemetry implements Telemetry {
     if (event.event.kind !== "sleep_completed") {
       return;
     }
+
     const completed = event.event;
     const started = history.startedSleepForCompleted(completed);
+
     if (started === undefined) {
       return;
     }
+
     const requestedDuration =
       started.duration === undefined ? undefined : started.duration.total({ unit: "millisecond" });
+
     const actualDuration = optionalDurationBetweenMilliseconds(
       started.timestamp,
       completed.timestamp,
     );
+
     const span = this.#tracer.startSpan(WORKFLOW_SPAN_NAMES.sleep, {
       attributes: this.#attributes({
         [WORKFLOW_ATTRIBUTES.runId]: event.runId,
@@ -744,14 +776,11 @@ class OpenTelemetryWorkflowTelemetry implements Telemetry {
         [WORKFLOW_ATTRIBUTES.stepName]: completed.stepName,
         [WORKFLOW_ATTRIBUTES.stepKind]: "sleep",
         [WORKFLOW_ATTRIBUTES.sleepUntil]: started.until.toString(),
-        ...(requestedDuration === undefined
-          ? {}
-          : { [WORKFLOW_ATTRIBUTES.sleepDurationMs]: requestedDuration }),
-        ...(actualDuration === undefined
-          ? {}
-          : { [WORKFLOW_ATTRIBUTES.sleepActualMs]: actualDuration }),
+        [WORKFLOW_ATTRIBUTES.sleepDurationMs]: requestedDuration,
+        [WORKFLOW_ATTRIBUTES.sleepActualMs]: actualDuration,
       }),
     });
+
     span.setStatus({ code: SpanStatusCode.OK });
     span.end();
   }
@@ -766,13 +795,17 @@ class OpenTelemetryWorkflowTelemetry implements Telemetry {
     ) {
       return;
     }
+
     const terminal = event.event;
     const started = history.startedChildWorkflowForTerminal(terminal);
+
     const duration =
       started === undefined
         ? undefined
         : optionalDurationBetweenMilliseconds(started.timestamp, terminal.timestamp);
+
     const failed = terminal.kind === "child_workflow_failed";
+
     const span = this.#tracer.startSpan(WORKFLOW_SPAN_NAMES.childWorkflowOperation, {
       attributes: this.#attributes({
         [WORKFLOW_ATTRIBUTES.runId]: event.runId,
@@ -782,32 +815,27 @@ class OpenTelemetryWorkflowTelemetry implements Telemetry {
         [WORKFLOW_ATTRIBUTES.stepAttempt]: terminal.attempt,
         [WORKFLOW_ATTRIBUTES.childWorkflowOperation]: failed ? "fail" : "complete",
         [WORKFLOW_ATTRIBUTES.childWorkflowRunId]: terminal.childRunId,
-        ...(started === undefined
-          ? {}
-          : {
-              [WORKFLOW_ATTRIBUTES.childWorkflowName]: started.workflowName,
-              ...(started.workflowVersion === undefined
-                ? {}
-                : { [WORKFLOW_ATTRIBUTES.childWorkflowVersion]: started.workflowVersion }),
-            }),
+        [WORKFLOW_ATTRIBUTES.childWorkflowName]: started?.workflowName,
+        [WORKFLOW_ATTRIBUTES.childWorkflowVersion]: started?.workflowVersion,
         [WORKFLOW_ATTRIBUTES.childWorkflowStatus]: failed ? "failed" : "completed",
-        ...(duration === undefined
-          ? {}
-          : { [WORKFLOW_ATTRIBUTES.childWorkflowDurationMs]: duration }),
-        ...(failed ? { [WORKFLOW_ATTRIBUTES.errorKind]: terminal.error.name } : {}),
+        [WORKFLOW_ATTRIBUTES.childWorkflowDurationMs]: duration,
+        [WORKFLOW_ATTRIBUTES.errorKind]: failed ? terminal.error.name : undefined,
       }),
     });
+
     if (failed) {
       span.recordException(errorRecordToException(terminal.error));
       span.setStatus({ code: SpanStatusCode.ERROR, message: terminal.error.message });
     } else {
       span.setStatus({ code: SpanStatusCode.OK });
     }
+
     span.end();
   }
 
   #recordChildWorkflowStartedSpan(event: ChildWorkflowStartedObservationEvent): void {
     const started = event.event;
+
     const span = this.#tracer.startSpan(WORKFLOW_SPAN_NAMES.childWorkflowOperation, {
       attributes: this.#attributes({
         [WORKFLOW_ATTRIBUTES.runId]: event.runId,
@@ -818,18 +846,18 @@ class OpenTelemetryWorkflowTelemetry implements Telemetry {
         [WORKFLOW_ATTRIBUTES.childWorkflowOperation]: "start",
         [WORKFLOW_ATTRIBUTES.childWorkflowRunId]: started.childRunId,
         [WORKFLOW_ATTRIBUTES.childWorkflowName]: started.workflowName,
-        ...(started.workflowVersion === undefined
-          ? {}
-          : { [WORKFLOW_ATTRIBUTES.childWorkflowVersion]: started.workflowVersion }),
+        [WORKFLOW_ATTRIBUTES.childWorkflowVersion]: started.workflowVersion,
         [WORKFLOW_ATTRIBUTES.childWorkflowStatus]: "started",
       }),
     });
+
     span.setStatus({ code: SpanStatusCode.OK });
     span.end();
   }
 
   #recordMessageSentSpan(event: MessageObservationEvent): void {
     const parent = contextFromTraceContext(event.traceContext);
+
     const span = this.#tracer.startSpan(
       WORKFLOW_SPAN_NAMES.messageSend,
       {
@@ -845,12 +873,14 @@ class OpenTelemetryWorkflowTelemetry implements Telemetry {
       },
       parent,
     );
+
     span.setStatus({ code: SpanStatusCode.OK });
     span.end();
   }
 
   #recordHookResumeSpan(kind: "hook" | "webhook", event: ResumeObservationEvent): void {
     const parent = contextFromTraceContext(event.traceContext);
+
     const span = this.#tracer.startSpan(
       WORKFLOW_SPAN_NAMES.hookResume,
       {
@@ -867,6 +897,7 @@ class OpenTelemetryWorkflowTelemetry implements Telemetry {
       },
       parent,
     );
+
     span.setStatus({ code: SpanStatusCode.OK });
     span.end();
   }
@@ -875,14 +906,13 @@ class OpenTelemetryWorkflowTelemetry implements Telemetry {
     const span = this.#tracer.startSpan(WORKFLOW_SPAN_NAMES.scheduleRunCreate, {
       attributes: this.#attributes({
         [WORKFLOW_ATTRIBUTES.workflowName]: event.workflowName,
-        ...(event.workflowVersion === undefined
-          ? {}
-          : { [WORKFLOW_ATTRIBUTES.workflowVersion]: event.workflowVersion }),
+        [WORKFLOW_ATTRIBUTES.workflowVersion]: event.workflowVersion,
         [WORKFLOW_ATTRIBUTES.scheduleId]: event.scheduleId,
         [WORKFLOW_ATTRIBUTES.scheduleFireAt]: event.fireAt.toString(),
         [WORKFLOW_ATTRIBUTES.runId]: event.runId,
       }),
     });
+
     span.setStatus({ code: SpanStatusCode.OK });
     span.end();
   }
@@ -892,11 +922,13 @@ class OpenTelemetryWorkflowTelemetry implements Telemetry {
       attributes: this.#attributes({
         [WORKFLOW_ATTRIBUTES.scheduleTickedRuns]: event.result.ticked,
         [WORKFLOW_ATTRIBUTES.scheduleTickedSchedules]: event.result.scheduleIds.length,
-        ...(event.result.nextScheduleAt === undefined
-          ? {}
-          : { [WORKFLOW_ATTRIBUTES.scheduleNextAt]: event.result.nextScheduleAt.toString() }),
+        [WORKFLOW_ATTRIBUTES.scheduleNextAt]:
+          event.result.nextScheduleAt === undefined
+            ? undefined
+            : event.result.nextScheduleAt.toString(),
       }),
     });
+
     span.setStatus({ code: SpanStatusCode.OK });
     span.end();
   }
@@ -905,28 +937,25 @@ class OpenTelemetryWorkflowTelemetry implements Telemetry {
     const span = this.#tracer.startSpan(WORKFLOW_SPAN_NAMES.workerOperation, {
       attributes: this.#attributes({
         [WORKFLOW_ATTRIBUTES.workerId]: event.workerId,
-        ...(event.runId === undefined ? {} : { [WORKFLOW_ATTRIBUTES.runId]: event.runId }),
-        ...(event.run === undefined
-          ? {}
-          : {
-              [WORKFLOW_ATTRIBUTES.workflowName]: event.run.workflowName,
-              ...(event.run.workflowVersion === undefined
-                ? {}
-                : { [WORKFLOW_ATTRIBUTES.workflowVersion]: event.run.workflowVersion }),
-              [WORKFLOW_ATTRIBUTES.runStatus]: event.run.status,
-            }),
+        [WORKFLOW_ATTRIBUTES.runId]: event.runId,
+        [WORKFLOW_ATTRIBUTES.workflowName]: event.run?.workflowName,
+        [WORKFLOW_ATTRIBUTES.workflowVersion]: event.run?.workflowVersion,
+        [WORKFLOW_ATTRIBUTES.runStatus]: event.run?.status,
         [WORKFLOW_ATTRIBUTES.workerOperation]: event.operation,
         [WORKFLOW_ATTRIBUTES.workerOperationStatus]: event.status,
       }),
     });
+
     if (event.status === "failure") {
       span.setStatus({ code: SpanStatusCode.ERROR });
+
       if (event.error !== undefined) {
         span.recordException(toException(event.error));
       }
     } else {
       span.setStatus({ code: SpanStatusCode.OK });
     }
+
     span.end();
   }
 
@@ -945,13 +974,12 @@ class OpenTelemetryWorkflowTelemetry implements Telemetry {
         [WORKFLOW_ATTRIBUTES.cleanupDeletedIdempotencyKeys]: event.result.deletedIdempotencyKeys,
         [WORKFLOW_ATTRIBUTES.cleanupDeletedMessageIdempotencyKeys]:
           event.result.deletedMessageIdempotencyKeys,
-        ...(event.result.dryRun === undefined
-          ? {}
-          : { [WORKFLOW_ATTRIBUTES.cleanupDryRun]: event.result.dryRun }),
+        [WORKFLOW_ATTRIBUTES.cleanupDryRun]: event.result.dryRun,
         [WORKFLOW_ATTRIBUTES.cleanupMatchedRuns]:
           event.result.matchedRuns ?? event.result.runIds.length,
       }),
     });
+
     span.setStatus({ code: SpanStatusCode.OK });
     span.end();
   }
@@ -965,16 +993,18 @@ class OpenTelemetryWorkflowTelemetry implements Telemetry {
         [WORKFLOW_ATTRIBUTES.streamStatus]: streamStatusFromEventKind(event.eventKind),
         [WORKFLOW_ATTRIBUTES.stepId]: event.stepId,
         [WORKFLOW_ATTRIBUTES.stepName]: event.stepName,
-        ...(event.index === undefined ? {} : { [WORKFLOW_ATTRIBUTES.streamIndex]: event.index }),
-        ...(event.error === undefined ? {} : { [WORKFLOW_ATTRIBUTES.errorKind]: event.error.name }),
+        [WORKFLOW_ATTRIBUTES.streamIndex]: event.index,
+        [WORKFLOW_ATTRIBUTES.errorKind]: event.error === undefined ? undefined : event.error.name,
       }),
     });
+
     if (event.error === undefined) {
       span.setStatus({ code: SpanStatusCode.OK });
     } else {
       span.recordException(errorRecordToException(event.error));
       span.setStatus({ code: SpanStatusCode.ERROR, message: event.error.message });
     }
+
     span.end();
   }
 
@@ -985,6 +1015,7 @@ class OpenTelemetryWorkflowTelemetry implements Telemetry {
   ): void {
     const message = history.messageSentByTimestamp(completed.messageId, completed.messageTimestamp);
     const link = spanLinkFromTraceContext(completed.telemetryContext ?? message?.telemetryContext);
+
     return this.#tracer.startActiveSpan(
       WORKFLOW_SPAN_NAMES.messageWait,
       {
@@ -998,7 +1029,7 @@ class OpenTelemetryWorkflowTelemetry implements Telemetry {
           [WORKFLOW_MESSAGING_ATTRIBUTES.operationName]: "receive",
           [WORKFLOW_MESSAGING_ATTRIBUTES.operationType]: "receive",
         }),
-        ...(link === undefined ? {} : { links: [link] }),
+        links: link === undefined ? [] : [link],
       },
       (span) => {
         span.setStatus({ code: SpanStatusCode.OK });

@@ -64,10 +64,13 @@ function workflowSummaryCleanupCutoff(
   if (filters?.cleanupFinishedAtBefore === undefined) {
     return undefined;
   }
+
   const value = filters.cleanupFinishedAtBefore;
+
   if (!(value instanceof Temporal.Instant)) {
     WorkflowOptionsError.temporalInstant("Workflow cleanup finishedAtBefore");
   }
+
   return value;
 }
 
@@ -100,6 +103,7 @@ async function getWorkflowRunSummaryActivityInputs(
       listRunningStepWaits(store, runs, "message-wait"),
       listRunningEventActivity(store, runs),
     ]);
+
   return {
     runningChildWorkflows,
     runningSleeps,
@@ -121,10 +125,12 @@ async function listRunningChildWorkflowWaits(
           childRuns: [],
         };
       }
+
       const attempts = await listWorkflowRunStepAttempts(store, run.id, {
         status: "running",
         kind: "workflow",
       });
+
       return {
         runId: run.id,
         attempts,
@@ -191,12 +197,14 @@ export async function getWorkflowRunSummary(options: {
   const { store, now, filters } = options;
   const cleanupCutoff = workflowSummaryCleanupCutoff(filters);
   const runs = await store.listRuns(filters);
+
   const summaryInputs = {
     runs,
     now,
     cleanupCutoff,
     ...(await getWorkflowRunSummaryActivityInputs(store, runs)),
   } satisfies WorkflowRunSummaryInputs;
+
   return summarizeWorkflowRuns(summaryInputs);
 }
 
@@ -207,9 +215,11 @@ export async function getWorkflowRecoverySummary(options: {
 }): Promise<WorkflowRecoverySummary> {
   const { store, now, filters } = options;
   const runs = await store.listRuns(filters);
+
   const activeRuns = runs.filter((run) => {
     return workflowRunCanHaveActiveWork(run);
   });
+
   return summarizeWorkflowRecovery({
     runs,
     now,
@@ -261,6 +271,7 @@ async function listChildWorkflowAttemptGroups(
         status: "running",
         kind: "workflow",
       });
+
       return {
         runId: run.id,
         attempts,
@@ -268,6 +279,7 @@ async function listChildWorkflowAttemptGroups(
       };
     }),
   );
+
   return childWorkflowAttemptGroups;
 }
 

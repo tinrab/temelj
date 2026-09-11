@@ -50,30 +50,42 @@ export function summarizeWorkflowRuns(inputs: WorkflowRunSummaryInputs): Workflo
     runningMessageWaits = [],
     runningEvents = [],
   } = inputs;
+
   const runState = createWorkflowRunStateSummaryReducer(now, cleanupCutoff);
+
   for (const run of runs) {
     runState.addRun(run);
   }
+
   const streams = createWorkflowRunStreamActivitySummaryReducer();
   const hooks = createWorkflowRunHookActivitySummaryReducer();
+
   for (const runEvents of runningEvents) {
     const activeEvents = activeWorkflowEvents(runEvents.events);
+
     for (const stream of activeEvents.streams) {
       streams.addStream(runEvents.runId, stream);
     }
+
     for (const hook of activeEvents.hooks) {
       hooks.addHook(runEvents.runId, hook);
     }
   }
+
   const sleeps = createWorkflowRunSleepWaitSummaryReducer();
+
   for (const runSleeps of runningSleeps) {
     sleeps.addAttempts(runSleeps.runId, runSleeps.attempts);
   }
+
   const messageWaits = createWorkflowRunMessageWaitSummaryReducer();
+
   for (const runWaits of runningMessageWaits) {
     messageWaits.addAttempts(runWaits.runId, runWaits.attempts);
   }
+
   const childWorkflowWaits = createWorkflowRunChildWorkflowWaitSummaryReducer();
+
   for (const childWorkflowWait of runningChildWorkflows) {
     childWorkflowWaits.addChildWorkflowAttempts(
       childWorkflowWait.runId,

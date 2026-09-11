@@ -18,10 +18,12 @@ interface WorkflowRunStreamActivityAccumulator {
   readonly streamNames: Set<string>;
 }
 
-export function createWorkflowRunStreamActivitySummaryReducer(): {
+export interface WorkflowRunStreamActivitySummaryReducer {
   readonly addStream: (runId: RunId, stream: ActiveWorkflowStreamSummary) => void;
   readonly finish: () => WorkflowRunStreamActivitySummary;
-} {
+}
+
+export function createWorkflowRunStreamActivitySummaryReducer(): WorkflowRunStreamActivitySummaryReducer {
   const streams = createWorkflowRunStreamActivityAccumulator();
 
   return {
@@ -62,20 +64,25 @@ function addWorkflowRunStreamActivity(
 function finishWorkflowRunStreamActivitySummary(
   streams: WorkflowRunStreamActivityAccumulator,
 ): WorkflowRunStreamActivitySummary {
-  return streams.total === 0
-    ? {}
-    : {
-        stream: {
-          activeStreams: streams.total,
-          activeStreamRuns: streams.runIds.size,
-          streamRunIds: [...streams.runIds].sort(),
-          streamStepIds: [...streams.stepIds].sort(),
-          streamIds: [...streams.streamIds].sort(),
-          streamNames: [...streams.streamNames].sort(),
-          chunkCount: streams.chunkCount,
-          ...(streams.oldestStartedAt === undefined
-            ? {}
-            : { oldestStartedAt: streams.oldestStartedAt }),
-        },
-      };
+  if (streams.total === 0) {
+    return {};
+  }
+
+  const result: NonNullable<WorkflowRunStreamActivitySummary["stream"]> = {
+    activeStreams: streams.total,
+    activeStreamRuns: streams.runIds.size,
+    streamRunIds: [...streams.runIds].sort(),
+    streamStepIds: [...streams.stepIds].sort(),
+    streamIds: [...streams.streamIds].sort(),
+    streamNames: [...streams.streamNames].sort(),
+    chunkCount: streams.chunkCount,
+  };
+
+  if (streams.oldestStartedAt !== undefined) {
+    Object.assign(result, { oldestStartedAt: streams.oldestStartedAt } satisfies Partial<
+      NonNullable<WorkflowRunStreamActivitySummary["stream"]>
+    >);
+  }
+
+  return { stream: result };
 }

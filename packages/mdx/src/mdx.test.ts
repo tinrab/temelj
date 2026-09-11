@@ -67,6 +67,7 @@ describe("MDX", () => {
       "export const count = 1",
       "",
     ].join("\n");
+
     const report = expectParsed(parse(source));
 
     expect(report.document).toBeInstanceOf(DocumentNode);
@@ -90,6 +91,7 @@ describe("MDX", () => {
     const document = expectParsed(
       parse("<Widget>{value}</Widget>\n\nexport const value = 1\n"),
     ).document;
+
     const html = renderHtml(document).toHtml();
     expect(html).toContain("&lt;Widget>{value}&lt;/Widget>");
     expect(html).not.toContain("export const");
@@ -119,14 +121,19 @@ describe("MDX", () => {
 
   it("runs plugins in the supplied order and permits duplicate names", async () => {
     const calls: string[] = [];
+
     const first = new TestDocumentPlugin("duplicate", ({ document }) => {
       calls.push("first");
+
       return document;
     });
+
     const second = new TestDocumentPlugin("duplicate", ({ document }) => {
       calls.push("second");
+
       return document;
     });
+
     const plugins = [first, second];
     const processor = new Processor({ documentPlugins: plugins });
     plugins.reverse();
@@ -138,16 +145,20 @@ describe("MDX", () => {
     expect(calls).toEqual(["first", "second"]);
 
     const asyncCalls: string[] = [];
+
     const asyncPlugins = [
       new TestDocumentPlugin("duplicate", ({ document }) => {
         asyncCalls.push("first");
+
         return document;
       }),
       new TestDocumentPlugin("duplicate", ({ document }) => {
         asyncCalls.push("second");
+
         return document;
       }),
     ];
+
     const asyncProcessor = new Processor({ documentPlugins: asyncPlugins });
     asyncPlugins.reverse();
 
@@ -159,6 +170,7 @@ describe("MDX", () => {
     const result = parseCodeBlockMetadata(
       '{"fileName":"kernel.cu","highlightLines":"2,4-6","lineNumbers":{"start":20},"commandLines":"1-3","custom":42}',
     );
+
     expect(result.kind).toBe("parsed");
     expect(result.metadata).toMatchObject({
       fileName: "kernel.cu",
@@ -179,6 +191,7 @@ describe("MDX", () => {
     const invalid = parseCodeBlockMetadata(
       '{"highlightLines":"0,3-2","lineNumbers":{"start":0},"fileName":""}',
     );
+
     expect(invalid).toMatchObject({
       kind: "invalid",
       issues: [{ field: "fileName" }, { field: "highlightLines" }, { field: "lineNumbers" }],
@@ -187,16 +200,19 @@ describe("MDX", () => {
 
   it("highlights owned code blocks with metadata, caching, and source origins", () => {
     let calls = 0;
+
     const highlighter = {
       highlight(request) {
         calls++;
         expect(request.metadata.fileName).toBe("same.ts");
+
         return new HtmlElementNode("pre", { "data-highlighted": "" }, [
           new HtmlTextNode(request.code),
         ]);
       },
       kind: "synchronous",
     } satisfies SyntaxHighlighter;
+
     const source = [
       '```ts {"fileName":"same.ts"}',
       "const value = 1",
@@ -206,11 +222,13 @@ describe("MDX", () => {
       "const value = 1",
       "```",
     ].join("\n");
+
     const outcome = expectProcessed(
       new Processor({ htmlPlugins: [new SyntaxHighlightPlugin({ highlighter })] }).processSync(
         source,
       ),
     );
+
     const blocks = outcome.value.html.children.filter(
       (node): node is HtmlElementNode =>
         node instanceof HtmlElementNode && node.attributes["data-highlighted"] === "",
@@ -227,23 +245,27 @@ describe("MDX", () => {
       langs: ["typescript"],
       themes: ["github-light", "github-dark"],
     });
+
     try {
       const highlighter = createShikiHighlighter(shiki, {
         includeDataAttributes: ["language", "line-count", "meta"],
         languageAliases: { ts: "typescript" },
         themes: { light: "github-light", dark: "github-dark" },
       });
+
       const source = [
         '```ts {"fileName":"answer.ts","highlightLines":"2","lineNumbers":{"start":8},"commandLines":"1"}',
         "const answer = 42",
         "console.log(answer)",
         "```",
       ].join("\n");
+
       const outcome = expectProcessed(
         new Processor({
           htmlPlugins: [new SyntaxHighlightPlugin({ highlighter })],
         }).processSync(source),
       );
+
       const html = outcome.value.html.toHtml();
 
       expect(html).toContain('data-file-name="answer.ts"');
@@ -267,6 +289,7 @@ describe("MDX", () => {
   it("publishes typed pending JSX only while streaming", () => {
     const stream = new MdxStream();
     const opening = stream.append('<Alert title="Info" ');
+
     const node =
       opening.document.children[0]?.kind === "jsx" ? opening.document.children[0] : undefined;
 
@@ -288,9 +311,11 @@ describe("MDX", () => {
   it("preserves block identity across appends and makes completion terminal", () => {
     const stream = new MdxStream({ source: "The [manual][docs] is final.\n\n" });
     const snapshot = stream.snapshot();
+
     if ("kind" in snapshot) {
       throw new Error("Expected a stream snapshot");
     }
+
     const firstId = snapshot.blocks[0]?.id;
     expect(snapshot.blocks[0]?.dependencies.definitions).toEqual(["DOCS"]);
     expect(renderStreamingHtml(snapshot.document)).toContain("[manual][docs]");
@@ -298,24 +323,30 @@ describe("MDX", () => {
     const appended = stream.append("[docs]: https://rabzelj.com\n\nSecond");
     expect(appended.blocks[0]?.id).toBe(firstId);
     const resolved = appended.blocks[0];
+
     if (resolved === undefined) {
       throw new Error("Expected the reference block");
     }
+
     expect(renderStreamingHtml(resolved.document)).toContain(
       '<a href="https://rabzelj.com">manual</a>',
     );
 
     const definitionStart = appended.file.text.indexOf("[docs]:");
+
     const repaired = stream.edit({
       start: definitionStart,
       end: definitionStart + "[docs]: https://rabzelj.com\n\n".length,
       text: "",
     });
+
     expect(repaired.blocks[0]?.id).toBe(firstId);
     const unresolved = repaired.blocks[0];
+
     if (unresolved === undefined) {
       throw new Error("Expected the repaired reference block");
     }
+
     expect(renderStreamingHtml(unresolved.document)).toContain("[manual][docs]");
     expect(stream.complete().kind).toBe("parsed");
     expect(() => stream.append("more")).toThrow("completed MdxStream is terminal");
@@ -332,6 +363,7 @@ describe("MDX", () => {
     const document = new HtmlDocumentNode([
       new HtmlElementNode("h1", {}, [new HtmlTextNode("Heading")]),
     ]);
+
     const rewritten = rewriteHtml(document, {
       element: ({ node }) => (node.tagName === "h1" ? node.with({ tagName: "h2" }) : node),
     });
@@ -346,6 +378,7 @@ function expectParsed(
   if (outcome.kind !== "parsed") {
     throw new Error(`Expected parsed outcome, received ${outcome.kind}`);
   }
+
   return outcome;
 }
 
@@ -355,5 +388,6 @@ function expectProcessed(
   if (outcome.kind !== "processed") {
     throw new Error(`Expected processed outcome, received ${outcome.kind}`);
   }
+
   return outcome;
 }

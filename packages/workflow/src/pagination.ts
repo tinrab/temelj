@@ -1,5 +1,7 @@
 import { decodeBase64UrlString, encodeBase64UrlString } from "@temelj/string";
+import { isNumber } from "@temelj/value";
 
+import type { EventRecord } from "./types/events.ts";
 import type {
   CursorKeyPart,
   CursorPayload,
@@ -12,6 +14,7 @@ import { workflowCursorPayloadSchema } from "./types/pagination.ts";
 import { StepId } from "./types/step.ts";
 
 const CURSOR_PREFIX = "wf-page:";
+
 const DEFAULT_PAGE_LIMIT = 100;
 
 export function pageItems<TItem>(
@@ -23,22 +26,29 @@ export function pageItems<TItem>(
   const pageOptions = options ?? {};
   const limit = pageOptions.limit ?? DEFAULT_PAGE_LIMIT;
   const cursor = decodeCursor(pageOptions.cursor, label);
+
   const offset =
     cursor === undefined
       ? 0
       : items.findIndex((item, index) => compareCursorKeys(cursorKey(item, index), cursor) > 0);
+
   const start = offset === -1 ? items.length : offset;
   const pageItems = items.slice(start, start + limit);
   const nextOffset = start + pageItems.length;
   const hasMore = nextOffset < items.length;
   const last = pageItems.at(-1);
-  return {
-    items: pageItems,
-    ...(hasMore && last !== undefined
-      ? { nextCursor: encodeCursor({ key: [...cursorKey(last, nextOffset - 1)] }) }
-      : {}),
-    hasMore,
-  };
+
+  const result = { items: pageItems } satisfies Partial<WorkflowPage<TItem>>;
+
+  if (hasMore && last !== undefined) {
+    Object.assign(result, {
+      nextCursor: encodeCursor({ key: [...cursorKey(last, nextOffset - 1)] }),
+    } satisfies Partial<WorkflowPage<TItem>>);
+  }
+
+  const result1 = Object.assign(result, { hasMore } satisfies Partial<WorkflowPage<TItem>>);
+
+  return result1;
 }
 
 export function makeWorkflowRunCursorKey(run: {
@@ -48,7 +58,7 @@ export function makeWorkflowRunCursorKey(run: {
   return [run.createdAt.epochMilliseconds, run.id] as const;
 }
 
-export function makeWorkflowEventCursorKey(_event: unknown, index: number): readonly [number] {
+export function makeWorkflowEventCursorKey(_event: EventRecord, index: number): readonly [number] {
   return [index] as const;
 }
 
@@ -87,30 +97,40 @@ function decodeCursor(
   if (value === undefined) {
     return undefined;
   }
+
   if (!value.startsWith(CURSOR_PREFIX)) {
     WorkflowOptionsError.cursorInvalid(label);
   }
+
   try {
     const parsed = workflowCursorPayloadSchema.safeParse(
       JSON.parse(decodeBase64UrlString(value.slice(CURSOR_PREFIX.length))),
     );
+
     if (!parsed.success) {
       WorkflowOptionsError.cursorInvalid(label);
     }
+
     return parsed.data.key;
   } catch (error) {
     if (!(error instanceof WorkflowOptionsError)) {
       WorkflowOptionsError.cursorInvalid(label);
     }
+
     throw error;
   }
 }
 
-function compareCursorKeys(left: readonly unknown[], right: readonly unknown[]): number {
+function compareCursorKeys(
+  left: readonly CursorKeyPart[],
+  right: readonly CursorKeyPart[],
+): number {
   const length = Math.max(left.length, right.length);
+
   for (let index = 0; index < length; index++) {
     const leftPart = left[index];
     const rightPart = right[index];
+
     const compared =
       leftPart === rightPart
         ? 0
@@ -118,15 +138,17 @@ function compareCursorKeys(left: readonly unknown[], right: readonly unknown[]):
           ? -1
           : rightPart === undefined
             ? 1
-            : typeof leftPart === "number" &&
+            : isNumber(leftPart) &&
                 Number.isFinite(leftPart) &&
-                typeof rightPart === "number" &&
+                isNumber(rightPart) &&
                 Number.isFinite(rightPart)
               ? leftPart - rightPart
               : String(leftPart).localeCompare(String(rightPart));
+
     if (compared !== 0) {
       return compared;
     }
   }
+
   return 0;
 }

@@ -1,7 +1,7 @@
-import "temporal-polyfill/global";
 import { z } from "zod";
+import "temporal-polyfill/global";
 
-import { durationTotal } from "../utility.ts";
+import { durationTotal } from "../temporal.ts";
 
 export const temporalInstantSchema = z.instanceof(Temporal.Instant, {
   error: "Expected a Temporal.Instant",
@@ -34,8 +34,11 @@ export const temporalNonNegativeSafeDurationSchema = temporalNonNegativeDuration
 export const nonBlankStringSchema = z
   .string()
   .refine((value) => value.trim().length > 0, "Expected a non-blank string");
+
 export const nonBlankStringListSchema = z.array(nonBlankStringSchema).readonly();
+
 export const positiveSafeIntegerSchema = z.number().int().positive();
+
 export const nonNegativeSafeIntegerSchema = z.number().int().nonnegative();
 
 /** Timer delay after validation and runtime clamping. */

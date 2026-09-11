@@ -46,7 +46,7 @@ import {
   workerOptionsFromClientOptions,
   workerOptionsFromWakeOptions,
 } from "../client/worker-options.ts";
-import { defineWorkflowFromName, defineWorkflowFromTarget } from "../definition.ts";
+import { defineWorkflowFromTarget } from "../definition.ts";
 import { resolveScheduleNextOptions } from "../engine/start-api.ts";
 import { WorkflowCapabilityError } from "../errors/capability.ts";
 import { resolveBroadcastMessageInput, resolveSendMessageInput } from "../message-options.ts";
@@ -56,16 +56,22 @@ import { WorkflowWorker } from "../worker.ts";
 type WorkflowRunHandleEngine = WorkflowRunMaintenance &
   WorkflowRunHandleReader &
   WorkflowStreamReader;
+
 type WorkflowClientRunsEngine = WorkflowStarter &
   WorkflowRunReader &
   WorkflowRunHandleEngine &
   WorkflowStepAttemptReader;
+
 type WorkflowClientAdminEngine = WorkflowCleanupAdmin &
   WorkflowRunRerunner &
   WorkflowRunHandleEngine;
+
 type WorkflowClientSchedulesEngine = WorkflowRunHandleEngine & WorkflowScheduler;
+
 type WorkflowWorkerEngineAccessor = () => WorkflowWorkerEngine | undefined;
+
 type WorkflowRegistryAccessor = () => RegistryLike;
+
 type WorkflowClockAccessor = () => Temporal.Instant;
 
 function requireWorkflowWorkerEngine(
@@ -74,6 +80,7 @@ function requireWorkflowWorkerEngine(
   if (engine === undefined) {
     WorkflowCapabilityError.unsupported("workflow worker engine");
   }
+
   return engine;
 }
 
@@ -86,10 +93,12 @@ export function createWorkflowClientRunsApi(
       workflow: WorkflowStartTarget<TInput, TOutput, TRawInput>,
       ...runArgs: WorkflowRunArguments<TRawInput, WorkflowStartOptions>
     ) {
+      // SAFETY: WorkflowRunArguments permits an omitted first argument only when TRawInput includes undefined; its second argument is always WorkflowStartOptions.
       const [input, runOptions] = runArgs as [TRawInput, WorkflowStartOptions | undefined];
       const definition = defineWorkflowFromTarget(workflow);
       const handle = await getEngine().startWorkflow(definition, input, runOptions);
-      return createWorkflowRunHandle<TOutput>(getEngine(), definition, handle.runId, now);
+
+      return createWorkflowRunHandle(getEngine(), handle, now);
     },
     async startBatch<TInput, TOutput, TRawInput = TInput>(
       workflow: WorkflowStartTarget<TInput, TOutput, TRawInput>,
@@ -97,9 +106,8 @@ export function createWorkflowClientRunsApi(
     ) {
       const definition = defineWorkflowFromTarget(workflow);
       const handles = await getEngine().startWorkflows(definition, items);
-      return handles.map((handle: { readonly runId: RunId }) =>
-        createWorkflowRunHandle<TOutput>(getEngine(), definition, handle.runId, now),
-      );
+
+      return handles.map((handle) => createWorkflowRunHandle(getEngine(), handle, now));
     },
     get: async (runId: RunId) => await getEngine().getRun(runId),
     events: async (runId: RunId) => await getEngine().getEvents(runId),
@@ -130,12 +138,8 @@ export function createWorkflowClientAdminApi(
     applyRetentionPolicy: async (options) => await getEngine().applyRetentionPolicy(options),
     rerun: async (runId, options): Promise<WorkflowRunHandle<unknown>> => {
       const handle = await getEngine().rerunWorkflow(runId, options);
-      return createWorkflowRunHandle(
-        getEngine(),
-        defineWorkflowFromName(handle.workflowName, handle.workflowVersion),
-        handle.runId,
-        now,
-      );
+
+      return createWorkflowRunHandle(getEngine(), handle, now);
     },
     reschedule: async (runId, options) => await getEngine().rescheduleRun(runId, options),
     releaseStaleLease: async (runId, options) =>
@@ -163,7 +167,8 @@ export function createWorkflowClientSchedulesApi(
       const definition = defineWorkflowFromTarget(workflow);
       const options = resolveScheduleNextOptions(scheduleOptions, now);
       const handle = await getEngine().scheduleNextWorkflow(definition, input, options.schedule);
-      return createWorkflowRunHandle<TOutput>(getEngine(), definition, handle.runId, now);
+
+      return createWorkflowRunHandle(getEngine(), handle, now);
     },
     create: async (workflow, options) => await getEngine().createSchedule(workflow, options),
     upsert: async (workflow, options) => await getEngine().upsertSchedule(workflow, options),
@@ -225,19 +230,20 @@ export function createWorkflowClientMessagesApi(
   getEngine: () => WorkflowMessageSender,
 ): WorkflowClientMessagesApi {
   return {
-    async send<TPayload, TKey = void>(
+    async send<TPayload, TRawPayload = TPayload>(
       runId: RunId,
-      messageInput: SendMessageInput | MessageChannel<TPayload, TKey>,
-      channelOptions?: SendMessageChannelOptions<TPayload, TKey>,
+      messageInput: SendMessageInput | MessageChannel<TPayload, TRawPayload>,
+      channelOptions?: SendMessageChannelOptions<TRawPayload>,
     ) {
       const options = await resolveSendMessageInput(messageInput, channelOptions);
       await getEngine().sendMessage(runId, options);
     },
-    async broadcast<TPayload, TKey = void>(
-      messageInput: BroadcastMessageInput | MessageChannel<TPayload, TKey>,
-      channelOptions?: BroadcastMessageChannelOptions<TPayload, TKey>,
+    async broadcast<TPayload, TRawPayload = TPayload>(
+      messageInput: BroadcastMessageInput | MessageChannel<TPayload, TRawPayload>,
+      channelOptions?: BroadcastMessageChannelOptions<TRawPayload>,
     ): Promise<BroadcastMessageResult> {
       const options = await resolveBroadcastMessageInput(messageInput, channelOptions);
+
       return getEngine().broadcastMessage(options);
     },
   };
@@ -251,12 +257,14 @@ export function createWorkflowClientWorkersApi(
   return {
     create: (options) => {
       const engine = requireWorkflowWorkerEngine(getEngine());
+
       return new WorkflowWorker(
         workerOptionsFromClientOptions(engine, getRegistry(), now, options),
       );
     },
     processRun: async (runId, options) => {
       const engine = requireWorkflowWorkerEngine(getEngine());
+
       const worker = new WorkflowWorker(
         workerOptionsFromClientOptions(
           engine,
@@ -265,10 +273,12 @@ export function createWorkflowClientWorkersApi(
           workerOptionsFromWakeOptions(options),
         ),
       );
+
       await worker.processRun(runId);
     },
     wakeDueRuns: async (options) => {
       const engine = requireWorkflowWorkerEngine(getEngine());
+
       const worker = new WorkflowWorker(
         workerOptionsFromClientOptions(
           engine,
@@ -277,16 +287,21 @@ export function createWorkflowClientWorkersApi(
           workerOptionsFromWakeOptions(options),
         ),
       );
+
       const filters = options === undefined ? {} : options;
+
       const maxRuns =
         resolvePositiveSafeIntegerOption(options?.maxRuns, "Workflow worker maxRuns") ?? 1;
+
       let processedRuns = 0;
 
       while (options?.signal?.aborted !== true && processedRuns < maxRuns) {
         const result = await worker.processNextRun(filters);
+
         if (result === undefined) {
           break;
         }
+
         processedRuns++;
       }
 

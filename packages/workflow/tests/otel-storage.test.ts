@@ -32,9 +32,11 @@ describe("OpenTelemetry workflow storage telemetry", () => {
 
   test("emits storage operation spans and metrics without keys or values", async () => {
     const spanExporter = new InMemorySpanExporter();
+
     const tracerProvider = new BasicTracerProvider({
       spanProcessors: [new SimpleSpanProcessor(spanExporter)],
     });
+
     const metricExporter = new InMemoryMetricExporter(AggregationTemporality.CUMULATIVE);
     const metricReader = new PeriodicExportingMetricReader({ exporter: metricExporter });
     const meterProvider = new MeterProvider({ readers: [metricReader] });
@@ -53,6 +55,7 @@ describe("OpenTelemetry workflow storage telemetry", () => {
     const storageSpans = spanExporter
       .getFinishedSpans()
       .filter((span) => span.name === WORKFLOW_SPAN_NAMES.storageOperation);
+
     expect(storageSpans.map((span) => span.attributes)).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -69,11 +72,13 @@ describe("OpenTelemetry workflow storage telemetry", () => {
         }),
       ]),
     );
+
     for (const span of storageSpans) {
       expect(span.attributes).not.toHaveProperty("storage.key");
       expect(span.attributes).not.toHaveProperty("workflow.storage.key");
       expect(span.attributes).not.toHaveProperty("workflow.storage.value");
     }
+
     expect(
       storageSpans.find(
         (span) => span.attributes[WORKFLOW_ATTRIBUTES.storageOperationStatus] === "failure",
@@ -110,6 +115,7 @@ describe("OpenTelemetry workflow storage telemetry", () => {
         }),
       ]),
     );
+
     for (const attributes of allMetricAttributes(metricData)) {
       expect(attributes).not.toHaveProperty("storage.key");
       expect(attributes).not.toHaveProperty("workflow.storage.key");
@@ -119,9 +125,11 @@ describe("OpenTelemetry workflow storage telemetry", () => {
 
   test("can record storage metrics without emitting storage operation spans", async () => {
     const spanExporter = new InMemorySpanExporter();
+
     const tracerProvider = new BasicTracerProvider({
       spanProcessors: [new SimpleSpanProcessor(spanExporter)],
     });
+
     const metricExporter = new InMemoryMetricExporter(AggregationTemporality.CUMULATIVE);
     const metricReader = new PeriodicExportingMetricReader({ exporter: metricExporter });
     const meterProvider = new MeterProvider({ readers: [metricReader] });

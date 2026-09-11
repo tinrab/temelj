@@ -26,9 +26,11 @@ export function resolveParserLimits(options: ParserLimits = {}): ResolvedParserL
     maximumNodes: options.maximumNodes ?? defaultParserLimits.maximumNodes,
     maximumSourceLength: options.maximumSourceLength ?? defaultParserLimits.maximumSourceLength,
   };
+
   validateParserLimit("maximumNestingDepth", limits.maximumNestingDepth, 1);
   validateParserLimit("maximumNodes", limits.maximumNodes, 1);
   validateParserLimit("maximumSourceLength", limits.maximumSourceLength, 0);
+
   return limits;
 }
 

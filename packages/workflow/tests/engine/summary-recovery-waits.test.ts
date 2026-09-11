@@ -47,6 +47,7 @@ describe("workflow recovery wait summary reducers", () => {
       messageId: "approved",
       timeoutAt: Temporal.Instant.from("2026-06-12T10:30:00Z"),
     } satisfies EventRecord;
+
     const messageSent = {
       kind: "message_sent",
       timestamp: Temporal.Instant.from("2026-06-12T09:05:00Z"),
@@ -54,6 +55,7 @@ describe("workflow recovery wait summary reducers", () => {
       payload: { accepted: true },
       waiterStepIds: ["message-wait:approval"],
     } satisfies EventRecord;
+
     const reducer = createWorkflowRecoveryMessageWaitSummaryReducer(
       new Map([["run_message_ready", [messageWaitStarted, messageSent]]]),
       Temporal.Instant.from("2026-06-12T10:00:00Z"),
@@ -129,6 +131,7 @@ describe("workflow recovery wait summary reducers", () => {
 
   test("summarizes due sleeps, ready messages, and terminal child workflows", () => {
     const now = Temporal.Instant.from("2026-06-12T10:00:00Z");
+
     const messageWaitStarted = {
       kind: "message_wait_started",
       timestamp: Temporal.Instant.from("2026-06-12T09:00:00Z"),
@@ -138,6 +141,7 @@ describe("workflow recovery wait summary reducers", () => {
       messageId: "approved",
       timeoutAt: Temporal.Instant.from("2026-06-12T10:30:00Z"),
     } satisfies EventRecord;
+
     const messageSent = {
       kind: "message_sent",
       timestamp: Temporal.Instant.from("2026-06-12T09:05:00Z"),
@@ -158,6 +162,7 @@ describe("workflow recovery wait summary reducers", () => {
       },
       now,
     );
+
     reducer.addSleepAttempts([
       stepAttempt("run_sleep_due", "sleep:due", "due", "sleep", {
         until: Temporal.Instant.from("2026-06-12T09:30:00Z"),
@@ -226,6 +231,7 @@ describe("workflow recovery wait summary reducers", () => {
 
   test("treats messages recorded after a wait timeout as timed out", () => {
     const now = Temporal.Instant.from("2026-06-12T10:00:00Z");
+
     const messageWaitStarted = {
       kind: "message_wait_started",
       timestamp: Temporal.Instant.from("2026-06-12T09:00:00Z"),
@@ -235,6 +241,7 @@ describe("workflow recovery wait summary reducers", () => {
       messageId: "approved",
       timeoutAt: Temporal.Instant.from("2026-06-12T09:30:00Z"),
     } satisfies EventRecord;
+
     const lateMessageSent = {
       kind: "message_sent",
       timestamp: Temporal.Instant.from("2026-06-12T09:45:00Z"),
@@ -249,6 +256,7 @@ describe("workflow recovery wait summary reducers", () => {
       },
       now,
     );
+
     reducer.addMessageWaitAttempts([
       stepAttempt("run_message_late", "message-wait:late", "late", "message-wait", {
         messageId: "approved",
@@ -273,6 +281,7 @@ function runRecord(
   patch: Partial<WorkflowRunRecord> = {},
 ): WorkflowRunRecord {
   const timestamp = Temporal.Instant.from("2026-06-12T09:00:00Z");
+
   return {
     id,
     namespace: "default",
@@ -296,6 +305,7 @@ function stepAttempt(
   patch: Partial<WorkflowStepAttemptRecord> = {},
 ): WorkflowStepAttemptRecord {
   const timestamp = Temporal.Instant.from("2026-06-12T09:00:00Z");
+
   return {
     runId,
     stepId,

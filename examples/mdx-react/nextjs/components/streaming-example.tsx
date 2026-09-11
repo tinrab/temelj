@@ -32,29 +32,38 @@ export function StreamingExample(): React.ReactNode {
         cache: "no-store",
         signal: controller.signal,
       });
+
       if (!response.ok) {
         throw new Error(`The stream returned HTTP ${response.status}`);
       }
+
       if (response.body === null) {
         throw new Error("The stream response did not include a body");
       }
 
       const decoder = new TextDecoder();
       const reader = response.body.getReader();
+
       while (true) {
         const result = await reader.read();
+
         if (result.done) {
           break;
         }
+
         const content = decoder.decode(result.value, { stream: true });
+
         if (content.length > 0) {
           setSource((current) => current + content);
         }
       }
+
       const remaining = decoder.decode();
+
       if (remaining.length > 0) {
         setSource((current) => current + remaining);
       }
+
       if (activeRequest.current === controller) {
         setState("complete");
       }

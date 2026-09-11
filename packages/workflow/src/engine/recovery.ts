@@ -62,9 +62,11 @@ export function summarizeWorkflowRecovery(
   const resources = recoveryResourceInputs(inputs);
 
   const runReducer = createWorkflowRecoveryRunSummaryReducer(now);
+
   for (const run of runs) {
     runReducer.addRun(run);
   }
+
   const runSummary = runReducer.finish();
 
   const waitReducer = createWorkflowRecoveryWaitSummaryReducer(waitInputs, now);
@@ -74,18 +76,23 @@ export function summarizeWorkflowRecovery(
   const wait = waitReducer.finish();
 
   const lockReducer = createWorkflowRecoveryLockSummaryReducer(runs, now);
+
   for (const lockRecord of resources.locks ?? []) {
     lockReducer.addLock(lockRecord);
   }
+
   for (const attempt of resources.lockWaitAttempts ?? []) {
     lockReducer.addLockWaitAttempt(attempt);
   }
+
   const lock = lockReducer.finish();
 
   const scheduleReducer = createWorkflowRecoveryScheduleSummaryReducer(now);
+
   for (const scheduleRecord of resources.schedules ?? []) {
     scheduleReducer.addSchedule(scheduleRecord);
   }
+
   const schedule = scheduleReducer.finish();
 
   const recoverableRunIds = mergeWorkflowRecoveryRunIds([
@@ -97,6 +104,7 @@ export function summarizeWorkflowRecovery(
     wait.childWorkflow.missingRunIds,
     wait.childWorkflow.timedOutRunIds,
   ]);
+
   // Recovery reports every run that can make progress now, while nextRecoveryAt below answers when a sleeping retry, lease, schedule, lock wait, or external wait should be checked again.
   const summary = {
     total: runSummary.total,
@@ -110,6 +118,7 @@ export function summarizeWorkflowRecovery(
     lock,
     wait,
   };
+
   const nextRecovery = earliestWorkflowRecoveryDeadline([
     runSummary.nextAvailable,
     runSummary.nextLeaseExpires,
@@ -121,10 +130,16 @@ export function summarizeWorkflowRecovery(
     workflowRecoveryDeadline(wait.message.nextTimeoutRunId, wait.message.nextTimeoutAt),
     workflowRecoveryDeadline(wait.childWorkflow.nextTimeoutRunId, wait.childWorkflow.nextTimeoutAt),
   ]);
-  return {
-    ...summary,
-    ...(nextRecovery === undefined ? {} : { nextRecoveryAt: nextRecovery.timestamp }),
-  };
+
+  const result1: WorkflowRecoverySummary = { ...summary };
+
+  if (nextRecovery !== undefined) {
+    Object.assign(result1, {
+      nextRecoveryAt: nextRecovery.timestamp,
+    } satisfies Partial<WorkflowRecoverySummary>);
+  }
+
+  return result1;
 }
 
 export function mergeWorkflowRecoveryRunIds(
@@ -147,9 +162,11 @@ export function earliestWorkflowRecoveryDeadline(
     if (candidate === undefined) {
       return current;
     }
+
     if (current === undefined) {
       return candidate;
     }
+
     return Temporal.Instant.compare(candidate.timestamp, current.timestamp) < 0
       ? candidate
       : current;

@@ -1,3 +1,5 @@
+import { isString } from "@temelj/value";
+
 import { encodeNumericCharacterReference } from "./utility.ts";
 
 export type FormatConstruct =
@@ -170,18 +172,22 @@ export function safeSource(state: FormatSafetyState, input: string, info: Format
   const value = info.before + input + info.after;
   const positions: number[] = [];
   const details = new Map<number, { before: boolean; after: boolean }>();
+
   for (const pattern of state.unsafe) {
     if (!patternInScope(state.stack, pattern)) {
       continue;
     }
+
     const expression = state.compilePattern(pattern);
     expression.lastIndex = 0;
     let match = expression.exec(value);
+
     while (match !== null) {
       const before = pattern.before !== undefined || pattern.atBreak === true;
       const after = pattern.after !== undefined;
       const position = match.index + (before ? (match[1]?.length ?? 0) : 0);
       const existing = details.get(position);
+
       if (existing === undefined) {
         positions.push(position);
         details.set(position, { before, after });
@@ -189,29 +195,38 @@ export function safeSource(state: FormatSafetyState, input: string, info: Format
         if (existing.before && !before) {
           existing.before = false;
         }
+
         if (existing.after && !after) {
           existing.after = false;
         }
       }
+
       match = expression.exec(value);
     }
   }
+
   positions.sort((left, right) => left - right);
 
   let start = info.before.length;
   const end = value.length - info.after.length;
   const result: string[] = [];
+
   for (let index = 0; index < positions.length; index++) {
     const position = positions[index];
+
     if (position < start || position >= end) {
       continue;
     }
+
     const detail = details.get(position);
+
     if (detail === undefined) {
       continue;
     }
+
     const next = details.get(position + 1);
     const previous = details.get(position - 1);
+
     if (
       (positions[index + 1] === position + 1 &&
         detail.after &&
@@ -224,11 +239,14 @@ export function safeSource(state: FormatSafetyState, input: string, info: Format
     ) {
       continue;
     }
+
     if (start !== position) {
       result.push(escapeBackslashes(value.slice(start, position), "\\"));
     }
+
     start = position;
     const character = value.charAt(position);
+
     if (/[!-/:-@[-`{-~]/u.test(character) && !info.encode?.includes(character)) {
       result.push("\\");
     } else {
@@ -236,15 +254,19 @@ export function safeSource(state: FormatSafetyState, input: string, info: Format
       start += character.length;
     }
   }
+
   result.push(escapeBackslashes(value.slice(start, end), info.after));
+
   return result.join("");
 }
 
 export function compileUnsafePattern(pattern: FormatUnsafePattern): RegExp {
   const before = `${pattern.atBreak === true ? "[\\r\\n][\\t ]*" : ""}${pattern.before === undefined ? "" : `(?:${pattern.before})`}`;
+
   const escaped = /[|\\{}()[\]^$+*?.]/u.test(pattern.character)
     ? `\\${pattern.character}`
     : pattern.character;
+
   return new RegExp(
     `${before.length === 0 ? "" : `(${before})`}${escaped}${pattern.after === undefined ? "" : `(?:${pattern.after})`}`,
     "gu",
@@ -266,7 +288,8 @@ function listInScope(
   if (value === undefined) {
     return whenMissing;
   }
-  return typeof value === "string"
+
+  return isString(value)
     ? stack.includes(value)
     : value.some((construct) => stack.includes(construct));
 }
@@ -276,22 +299,29 @@ function escapeBackslashes(value: string, after: string): string {
   const positions: number[] = [];
   const expression = /\\(?=[!-/:-@[-`{-~])/gu;
   let match = expression.exec(whole);
+
   while (match !== null) {
     positions.push(match.index);
     match = expression.exec(whole);
   }
+
   const results: string[] = [];
   let start = 0;
+
   for (const position of positions) {
     if (position >= value.length) {
       break;
     }
+
     if (start !== position) {
       results.push(value.slice(start, position));
     }
+
     results.push("\\");
     start = position;
   }
+
   results.push(value.slice(start));
+
   return results.join("");
 }

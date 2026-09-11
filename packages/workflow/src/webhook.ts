@@ -14,6 +14,7 @@ export interface WebhookResumer {
 /** Parses a workflow webhook resume token without resuming the hook. */
 export function parseWebhookToken(token: string): ParsedWorkflowWebhookToken {
   const webhook = parseHookWebhookToken(token);
+
   return {
     runId: webhook.runId,
     name: webhook.name,

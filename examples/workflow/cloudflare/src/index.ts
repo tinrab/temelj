@@ -1,3 +1,4 @@
+import { isObject, isString, isBoolean } from "@temelj/value";
 import {
   createCloudflareWorkflowHost,
   type CloudflareWorkflowBinding,
@@ -22,10 +23,13 @@ export default {
 
     if (request.method === "POST" && url.pathname === "/runs") {
       const input = await parseGreetingInput(request);
+
       if (input instanceof Response) {
         return input;
       }
+
       const handle = await runtime.start(greetingWorkflow, input);
+
       return Response.json(
         {
           runId: handle.runId,
@@ -36,21 +40,26 @@ export default {
     }
 
     const approvalRunId = approvalRunIdFromPath(url.pathname);
+
     if (request.method === "POST" && approvalRunId !== undefined) {
       await runtime.messages.send(approvalRunId, {
         messageId: "approval",
         payload: true,
       });
+
       return Response.json({ runId: approvalRunId, approved: true });
     }
 
     const runId = runIdFromPath(url.pathname);
+
     if (request.method === "GET" && runId !== undefined) {
       const handle = await runtime.runs.get(greetingWorkflow, runId);
       const status = await handle.status();
+
       if (status !== "completed") {
         return Response.json({ runId, status });
       }
+
       return Response.json({
         runId,
         status,
@@ -70,16 +79,18 @@ export default {
 
 async function parseGreetingInput(request: Request): Promise<GreetingInput | Response> {
   let value: unknown;
+
   try {
     value = await request.json();
   } catch {
     return Response.json({ error: "Expected a JSON request body" }, { status: 400 });
   }
+
   if (
-    typeof value !== "object" ||
+    !isObject(value) ||
     value === null ||
     !("name" in value) ||
-    typeof value.name !== "string" ||
+    !isString(value.name) ||
     value.name.trim().length === 0
   ) {
     return Response.json(
@@ -89,13 +100,16 @@ async function parseGreetingInput(request: Request): Promise<GreetingInput | Res
       },
     );
   }
+
   const waitForApproval = "waitForApproval" in value ? value.waitForApproval : undefined;
-  if (waitForApproval !== undefined && typeof waitForApproval !== "boolean") {
+
+  if (waitForApproval !== undefined && !isBoolean(waitForApproval)) {
     return Response.json(
       { error: "Expected `waitForApproval` to be a boolean when provided" },
       { status: 400 },
     );
   }
+
   return {
     name: value.name.trim(),
     waitForApproval: waitForApproval ?? false,
@@ -104,10 +118,12 @@ async function parseGreetingInput(request: Request): Promise<GreetingInput | Res
 
 function runIdFromPath(pathname: string): string | undefined {
   const match = /^\/runs\/([^/]+)$/.exec(pathname);
+
   return match?.[1];
 }
 
 function approvalRunIdFromPath(pathname: string): string | undefined {
   const match = /^\/runs\/([^/]+)\/approve$/.exec(pathname);
+
   return match?.[1];
 }

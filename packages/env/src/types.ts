@@ -1,6 +1,8 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 
-export type EnvSource = Record<string, unknown>;
+export type EnvValue = string | boolean | undefined;
+
+export type EnvSource = Record<string, EnvValue>;
 
 export type EnvSchema = Record<string, StandardSchemaV1>;
 
@@ -109,8 +111,8 @@ export interface CreateEnvOptions<
   TShared extends EnvSchema,
   TPrefix extends string,
 > extends ParseEnvOptions {
-  readonly server?: ServerSchema<TPrefix, TServer>;
-  readonly client?: ClientSchema<TPrefix, TClient>;
+  readonly server?: TServer & ServerSchema<TPrefix, TServer>;
+  readonly client?: TClient & ClientSchema<TPrefix, TClient>;
   readonly shared?: TShared;
   readonly clientPrefix?: TPrefix;
   readonly isServer?: boolean;

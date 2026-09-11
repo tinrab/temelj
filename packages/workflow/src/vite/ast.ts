@@ -1,4 +1,4 @@
-import { parseSync, type Node, type ParserOptions, type Program } from "oxc-parser";
+import { parseSync, visitorKeys, type Node, type ParserOptions, type Program } from "oxc-parser";
 
 import { workflowSourceKindForId } from "./source.ts";
 
@@ -30,9 +30,11 @@ export function parseWorkflowSource(fileName: string, text: string): WorkflowSou
     ...PARSER_OPTIONS_BY_SOURCE_KIND[workflowSourceKindForId(fileName)],
     sourceType: "module",
   });
+
   if (result.errors.length > 0) {
     throw new Error(result.errors.map((error) => error.message).join("\n"));
   }
+
   return {
     fileName,
     text,
@@ -46,18 +48,23 @@ export function spanText(sourceFile: WorkflowSourceFile, node: WorkflowSpan): st
 
 export function leadingTriviaStart(text: string, start: number): number {
   let index = start;
+
   while (index > 0 && /\s/.test(text[index - 1]!)) {
     index--;
   }
+
   return index;
 }
 
-export function lineAndColumnOfPosition(
-  text: string,
-  position: number,
-): { readonly line: number; readonly column: number } {
+export interface WorkflowSourcePosition {
+  readonly line: number;
+  readonly column: number;
+}
+
+export function lineAndColumnOfPosition(text: string, position: number): WorkflowSourcePosition {
   const prefix = text.slice(0, position);
   const lines = prefix.split(/\r\n|\r|\n/);
+
   return {
     line: lines.length,
     column: lines.at(-1)!.length + 1,
@@ -76,38 +83,34 @@ export function visitWorkflowNode(
 
 export function workflowNodeChildren(node: WorkflowAstNode): readonly WorkflowAstNode[] {
   const children: WorkflowAstNode[] = [];
+  const keys = visitorKeys[node.type] ?? [];
+
   for (const [key, value] of Object.entries(node)) {
-    if (
-      key === "parent" ||
-      key === "decorators" ||
-      key === "typeAnnotation" ||
-      key === "typeArguments" ||
-      key === "typeParameters" ||
-      key === "returnType"
-    ) {
+    if (!keys.includes(key) || NON_RUNTIME_AST_KEYS.has(key)) {
       continue;
     }
-    if (isWorkflowAstNode(value)) {
-      children.push(value);
-      continue;
-    }
-    if (Array.isArray(value)) {
-      for (const item of value) {
-        if (isWorkflowAstNode(item)) {
+
+    // SAFETY: Oxc visitor keys identify only node or node-array fields on its parsed AST.
+    const child = value as WorkflowAstNode | (WorkflowAstNode | null)[] | null | undefined;
+
+    if (Array.isArray(child)) {
+      for (const item of child) {
+        if (item !== null) {
           children.push(item);
         }
       }
+    } else if (child !== null && child !== undefined) {
+      children.push(child);
     }
   }
+
   return children;
 }
 
-function isWorkflowAstNode(value: unknown): value is WorkflowAstNode {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    typeof (value as { readonly type?: unknown }).type === "string" &&
-    typeof (value as { readonly start?: unknown }).start === "number" &&
-    typeof (value as { readonly end?: unknown }).end === "number"
-  );
-}
+const NON_RUNTIME_AST_KEYS = new Set([
+  "decorators",
+  "typeAnnotation",
+  "typeArguments",
+  "typeParameters",
+  "returnType",
+]);

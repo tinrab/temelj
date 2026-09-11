@@ -32,27 +32,37 @@ interface Scenario {
 }
 
 const runsPerScenario = readPositiveInteger("WORKFLOW_RUNS_PER_SCENARIO", 10);
+
 const batchIntervalMs = readPositiveInteger("WORKFLOW_BATCH_INTERVAL_MS", 2_000);
+
 const workerConcurrency = readPositiveInteger("WORKFLOW_WORKER_CONCURRENCY", 12);
+
 const totalRunsPerBatch = runsPerScenario * 3;
+
 const shutdown = new AbortController();
 
 const tracer = trace.getTracer("temelj.workflow.example.basic", "0.1.0");
+
 const meter = metrics.getMeter("temelj.workflow.example.basic", "0.1.0");
+
 const runCounter = meter.createCounter("temelj.workflow.example.runs", {
   description: "Workflow example runs started by benchmark.",
 });
+
 const benchmarkDuration = meter.createHistogram("temelj.workflow.example.benchmark.duration", {
   description: "Benchmark scenario duration in milliseconds.",
   unit: "ms",
 });
+
 const workflowResultDuration = meter.createHistogram("temelj.workflow.example.result.duration", {
   description: "End-to-end workflow result wait duration in milliseconds.",
   unit: "ms",
 });
+
 const batchCounter = meter.createCounter("temelj.workflow.example.batches", {
   description: "Completed workflow traffic batches.",
 });
+
 const batchLag = meter.createHistogram("temelj.workflow.example.batch.lag", {
   description: "Milliseconds a traffic batch exceeded the configured interval.",
   unit: "ms",
@@ -72,9 +82,11 @@ const client = createWorkflowClient({
     serviceNamespace: "temelj-examples",
   }),
 });
+
 client.register(reportWorkflow);
 
 process.once("SIGINT", () => requestShutdown("SIGINT"));
+
 process.once("SIGTERM", () => requestShutdown("SIGTERM"));
 
 try {
@@ -96,6 +108,7 @@ async function runLoadGenerator(signal: AbortSignal): Promise<void> {
 
   let batch = 0;
   let sequence = 0;
+
   while (!signal.aborted) {
     const batchStartedAt = performance.now();
     const result = await runBatch(batch, sequence, signal);
@@ -104,6 +117,7 @@ async function runLoadGenerator(signal: AbortSignal): Promise<void> {
 
     const elapsedMs = performance.now() - batchStartedAt;
     const lagMs = Math.max(0, elapsedMs - batchIntervalMs);
+
     if (lagMs > 0) {
       batchLag.record(lagMs);
     }
@@ -143,6 +157,7 @@ async function runBatch(
           if (signal.aborted) {
             break;
           }
+
           const sequence = sequenceOffset + handles.length;
           handles.push({
             scenario: scenario.name,
@@ -256,6 +271,7 @@ async function startCompiledWorkflow<TArgs extends readonly unknown[], TOutput>(
 ): Promise<WorkflowRunHandle<Awaited<TOutput>>> {
   const implementation = requireCompiledWorkflowDefinition(workflow);
   client.register(implementation);
+
   return await client.runs.start(implementation.definition, args, options);
 }
 
@@ -263,9 +279,11 @@ function requireCompiledWorkflowDefinition<TArgs extends readonly unknown[], TOu
   workflow: CompiledWorkflowFunction<TArgs, TOutput>,
 ): WorkflowImplementation<TArgs, Awaited<TOutput>, TArgs> {
   const definition = getWorkflowFunctionDefinition(workflow);
+
   if (definition === undefined) {
     throw new Error("Expected Rolldown workflow plugin to attach compiled workflow metadata");
   }
+
   return definition;
 }
 
@@ -274,9 +292,10 @@ async function withSpan<T>(name: string, callback: (span: Span) => Promise<T>): 
     try {
       const result = await callback(span);
       span.setStatus({ code: SpanStatusCode.OK });
+
       return result;
     } catch (error) {
-      span.recordException(error as Error);
+      span.recordException(error instanceof Error ? error : String(error));
       span.setStatus({ code: SpanStatusCode.ERROR });
       throw error;
     } finally {
@@ -289,6 +308,7 @@ async function sleep(milliseconds: number, signal: AbortSignal): Promise<void> {
   if (milliseconds <= 0 || signal.aborted) {
     return;
   }
+
   await new Promise<void>((resolve) => {
     const timeout = setTimeout(resolve, milliseconds);
     signal.addEventListener(
@@ -304,6 +324,7 @@ async function sleep(milliseconds: number, signal: AbortSignal): Promise<void> {
 
 function readPositiveInteger(name: string, fallback: number): number {
   const value = Number.parseInt(process.env[name] ?? "", 10);
+
   return Number.isFinite(value) && value > 0 ? value : fallback;
 }
 

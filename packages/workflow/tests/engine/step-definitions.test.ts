@@ -7,14 +7,41 @@ import { createWorkflowEngine } from "../../src/engine/create.ts";
 import { defineWorkflowStep } from "../../src/step-definition.ts";
 
 describe("workflow step definitions", () => {
+  test("keeps context separate from default and variadic arguments", async () => {
+    const engine = createWorkflowEngine();
+
+    const greet = defineWorkflowStep(
+      { name: "greet-default" },
+      (context, name = "Ada") => context.step.id + ":" + name,
+    );
+
+    const sum = defineWorkflowStep(
+      { name: "sum-rest" },
+      (context, ...values: number[]) =>
+        context.step.id + ":" + values.reduce((total, value) => total + value, 0),
+    );
+
+    const workflow = implementWorkflow({ name: "step-arguments" }, async ({ step }) => [
+      await step.task.call(greet),
+      await step.task.call(sum, 1, 2, 3),
+    ]);
+
+    await expect(engine.runWorkflowNow(workflow, undefined)).resolves.toMatchObject({
+      kind: "completed",
+      output: ["run:greet-default:Ada", "run:sum-rest:6"],
+    });
+  });
+
   test("calls reusable step definitions through durable step history", async () => {
     const engine = createWorkflowEngine({
       createRunId: () => "run_defined_step",
     });
+
     const greet = defineWorkflowStep(
       { name: "greet" },
-      (name: string, context: WorkflowStepContext) => `${context.step.id}:${name}`,
+      (context: WorkflowStepContext, name: string) => `${context.step.id}:${name}`,
     );
+
     const workflow = implementWorkflow<undefined, string>(
       { name: "defined-step" },
       async ({ step }) => await step.task.call(greet, "Ada"),
@@ -34,20 +61,26 @@ describe("workflow step definitions", () => {
 
   test("replays completed step definitions without rerunning handlers", async () => {
     let now = Temporal.Instant.from("2026-06-11T10:00:00Z");
+
     const engine = createWorkflowEngine({
       createRunId: () => "run_defined_step_replay",
       now: () => now,
     });
+
     let calls = 0;
+
     const load = defineWorkflowStep({ name: "load" }, () => {
       calls++;
+
       return "cached";
     });
+
     const workflow = implementWorkflow<undefined, string>(
       { name: "defined-step-replay" },
       async ({ step }) => {
         const value = await step.task.call(load);
         await step.task.sleep("pause", Temporal.Duration.from({ seconds: 1 }));
+
         return value;
       },
     );
@@ -71,17 +104,22 @@ describe("workflow step definitions", () => {
     const engine = createWorkflowEngine({
       createRunId: () => "run_defined_step_retry",
     });
+
     let attempts = 0;
+
     const flaky = defineWorkflowStep(
       { name: "flaky", retry: { maximumAttempts: 2 } },
       (_context) => {
         attempts++;
+
         if (attempts === 1) {
           throw new Error("try again");
         }
+
         return "ok";
       },
     );
+
     const workflow = implementWorkflow<undefined, string>(
       { name: "defined-step-retry" },
       async ({ step }) => await step.task.call(flaky),
@@ -102,10 +140,12 @@ describe("workflow step definitions", () => {
     const engine = createWorkflowEngine({
       createRunId: () => "run_defined_step_parallel",
     });
+
     const double = defineWorkflowStep(
       { name: "double" },
-      (value: number, _context: WorkflowStepContext) => value * 2,
+      (_context: WorkflowStepContext, value: number) => value * 2,
     );
+
     const workflow = implementWorkflow<undefined, readonly number[]>(
       { name: "defined-step-parallel" },
       async ({ step }) => await Promise.all([step.task.call(double, 2), step.task.call(double, 3)]),
@@ -129,6 +169,7 @@ describe("workflow step definitions", () => {
     const engine = createWorkflowEngine({
       createRunId: () => "run_defined_step_timeout",
     });
+
     const slow = defineWorkflowStep(
       {
         name: "slow",
@@ -139,9 +180,11 @@ describe("workflow step definitions", () => {
         await new Promise((resolve) => {
           setTimeout(resolve, 20);
         });
+
         return "late";
       },
     );
+
     const workflow = implementWorkflow<undefined, string>(
       { name: "defined-step-timeout" },
       async ({ step }) => await step.task.call(slow),
@@ -150,9 +193,11 @@ describe("workflow step definitions", () => {
     const result = await engine.runWorkflowNow(workflow, undefined);
 
     expect(result.kind).toBe("failed");
+
     if (result.kind !== "failed") {
       throw new Error("Expected workflow to fail");
     }
+
     await expect(engine.listStepAttempts("run_defined_step_timeout")).resolves.toMatchObject([
       { stepId: "run:slow", stepName: "slow", status: "failed" },
     ]);
@@ -171,16 +216,20 @@ describe("workflow step definitions", () => {
 
   test("rejects renamed step definition replay divergence", async () => {
     let now = Temporal.Instant.from("2026-06-11T10:00:00Z");
+
     const engine = createWorkflowEngine({
       createRunId: () => "run_defined_step_rename_divergence",
       now: () => now,
     });
+
     let work = defineWorkflowStep({ name: "work" }, () => "done");
+
     const workflow = implementWorkflow<undefined, string>(
       { name: "defined-step-rename-divergence" },
       async ({ step }) => {
         const value = await step.task.call(work);
         await step.task.sleep("pause", Temporal.Duration.from({ seconds: 1 }));
+
         return value;
       },
     );
@@ -195,9 +244,11 @@ describe("workflow step definitions", () => {
     const result = await engine.resumeWorkflow(workflow, "run_defined_step_rename_divergence");
 
     expect(result.kind).toBe("failed");
+
     if (result.kind !== "failed") {
       throw new Error("Expected renamed step definition replay divergence");
     }
+
     expect(result.error.name).toBe("WorkflowReplayDivergenceError");
     await expect(engine.getRun("run_defined_step_rename_divergence")).resolves.toMatchObject({
       status: "failed",
@@ -207,19 +258,24 @@ describe("workflow step definitions", () => {
 
   test("rejects reordered step definition replay divergence", async () => {
     let now = Temporal.Instant.from("2026-06-11T10:00:00Z");
+
     const engine = createWorkflowEngine({
       createRunId: () => "run_defined_step_reorder_divergence",
       now: () => now,
     });
+
     const first = defineWorkflowStep({ name: "first" }, () => "one");
     const second = defineWorkflowStep({ name: "second" }, () => "two");
     let order: "first" | "second" = "first";
+
     const workflow = implementWorkflow<undefined, string>(
       { name: "defined-step-reorder-divergence" },
       async ({ step }) => {
         const value =
           order === "first" ? await step.task.call(first) : await step.task.call(second);
+
         await step.task.sleep("pause", Temporal.Duration.from({ seconds: 1 }));
+
         return value;
       },
     );
@@ -234,9 +290,11 @@ describe("workflow step definitions", () => {
     const result = await engine.resumeWorkflow(workflow, "run_defined_step_reorder_divergence");
 
     expect(result.kind).toBe("failed");
+
     if (result.kind !== "failed") {
       throw new Error("Expected reordered step definition replay divergence");
     }
+
     expect(result.error.name).toBe("WorkflowReplayDivergenceError");
     await expect(engine.getRun("run_defined_step_reorder_divergence")).resolves.toMatchObject({
       status: "failed",

@@ -133,8 +133,8 @@ export class WorkflowHookDisposedError extends WorkflowMessageError {
     return new WorkflowHookDisposedError(options, WorkflowHookDisposedError.create);
   }
 
-  static isDisposed(error: unknown): boolean {
-    return workflowErrorRecordView(error)?.code === WorkflowErrorCode.HOOK_DISPOSED;
+  static isDisposed(cause: unknown): boolean {
+    return workflowErrorRecordView(cause)?.code === WorkflowErrorCode.HOOK_DISPOSED;
   }
 }
 

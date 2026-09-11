@@ -19,6 +19,7 @@ import type {
 import type { WorkflowErrorRecord } from "../types/error.ts";
 import type { EventRecord } from "../types/events.ts";
 import type { WorkflowResolvedStepRetryConfig } from "../types/retry.ts";
+import type { WorkflowStartOptions } from "../types/run-options.ts";
 import type { RunId, WorkflowRunRecord } from "../types/run.ts";
 import type {
   StepId,
@@ -49,15 +50,25 @@ import {
 import { requireRecordedDurableTerminalStarted } from "./replay.ts";
 import { enforceStepAttemptBudget, nextRetryAt, resolveChildWorkflowRetryConfig } from "./retry.ts";
 import { serializeError, toOptionalPersistedValue } from "./serialization.ts";
-import { requireCurrentExecutionOwner, getRequiredRun, WorkflowSuspended } from "./state.ts";
+import {
+  requireDefinitionMatchesRun,
+  requireCurrentExecutionOwner,
+  getRequiredRun,
+  WorkflowSuspended,
+} from "./state.ts";
 
 export interface WorkflowChildWorkflowEngine extends WorkflowRunStarter, WorkflowRunCanceler {}
 
 type ChildWorkflowStartedEvent = Extract<EventRecord, { readonly kind: "child_workflow_started" }>;
+
 type WorkflowRecordedIdFactory = (context: WorkflowRecordedIdContext) => string;
+
 type WorkflowDeterministicRandomFactory = (context: WorkflowDeterministicValueContext) => number;
+
 type WorkflowDeterministicUuidFactory = (context: WorkflowDeterministicValueContext) => string;
+
 type WorkflowDeterministicBytesFactory = (context: WorkflowDeterministicBytesContext) => Uint8Array;
+
 type WorkflowChildWorkflowStartedObserver = (
   runId: RunId,
   event: ChildWorkflowStartedEvent,
@@ -107,19 +118,23 @@ export async function runChildWorkflow<TInput, TOutput, TRawInput = TInput>(
 ): Promise<TOutput> {
   const { store, runId, history, now, maximumStepAttemptsPerRun, limits, executionOwner } =
     environment;
+
   const identity = resolveWorkflowCommandIdentityFromCandidates(
     history,
     "workflow",
     [options?.commandId, options?.name, definition.name],
     "Workflow child commandId, name, or definition name",
   );
+
   const started = history.startedChildWorkflow(identity.id);
   const completed = history.completedChildWorkflow(identity.id);
+
   if (completed !== undefined) {
     requireRecordedDurableTerminalStarted(
       identity,
       history.hasStartedEventBeforeTerminalEvent(completed),
     );
+
     if (started === undefined || isChildWorkflowTerminalForStartedAttempt(completed, started)) {
       requireChildWorkflowReplayMatches(
         runId,
@@ -131,35 +146,44 @@ export async function runChildWorkflow<TInput, TOutput, TRawInput = TInput>(
         limits,
       );
       recordedChildWorkflowCompletionTimestamp(identity, completed.timestamp);
+
+      // SAFETY: Replay matched the workflow name/version, input, command, and attempt; this completion records that child workflow contract's output.
       return completed.result as TOutput;
     }
   }
 
   const retry = resolveChildWorkflowRetryConfig(options);
   const failed = history.failedChildWorkflow(identity.id);
+
   if (failed !== undefined) {
     requireRecordedDurableTerminalStarted(
       identity,
       history.hasStartedEventBeforeTerminalEvent(failed),
     );
   }
+
   if (started !== undefined) {
     requireRecordedChildWorkflowStartedAttempt(identity, started);
     requireChildWorkflowReplayMatches(runId, identity, started, definition, input, options, limits);
   }
+
   const pollInterval = resolveChildWorkflowPollInterval(options);
+
   const latestFailedAttempt =
     failed !== undefined &&
     (started === undefined || isChildWorkflowTerminalForStartedAttempt(failed, started))
       ? failed
       : undefined;
+
   if (latestFailedAttempt !== undefined) {
     const failedAt = recordedChildWorkflowFailureTimestamp(identity, latestFailedAttempt.timestamp);
+
     const nextAttempt = nextChildWorkflowRetryAttempt(
       runId,
       latestFailedAttempt.attempt,
       maximumStepAttemptsPerRun,
     );
+
     if (retry.maximumAttempts !== 0 && nextAttempt > retry.maximumAttempts) {
       WorkflowStepExecutionError.failed({
         stepId: identity.id,
@@ -168,12 +192,14 @@ export async function runChildWorkflow<TInput, TOutput, TRawInput = TInput>(
         cause: workflowErrorFromRecord(latestFailedAttempt.error),
       });
     }
+
     const retryAt = nextRetryAt(
       failedAt,
       retry,
       latestFailedAttempt.attempt,
       "Workflow step retry delay",
     );
+
     if (retryAt !== undefined && Temporal.Instant.compare(retryAt, now()) > 0) {
       WorkflowSuspended.forStepRetry(retryAt, identity, nextAttempt);
     }
@@ -181,6 +207,7 @@ export async function runChildWorkflow<TInput, TOutput, TRawInput = TInput>(
 
   const attempt =
     latestFailedAttempt === undefined ? (started?.attempt ?? 1) : latestFailedAttempt.attempt + 1;
+
   const childRunId =
     started === undefined || latestFailedAttempt !== undefined
       ? await startChildWorkflow(
@@ -207,15 +234,20 @@ export async function runChildWorkflow<TInput, TOutput, TRawInput = TInput>(
           environment.observeChildWorkflowStarted,
         )
       : started.childRunId;
+
   const childRun = await getRequiredRun(store, childRunId);
   const activeStarted = history.startedChildWorkflow(identity.id);
+
   const timeoutAt =
     activeStarted?.timeoutAt === undefined
       ? undefined
       : recordedChildWorkflowTimeoutAt(identity, activeStarted.timeoutAt);
+
   if (!childRunMatchesParentStepAttempt(childRun, runId, identity, attempt)) {
     WorkflowSuspended.until(childWorkflowPollAt(now(), childRun, pollInterval));
   }
+
+  requireDefinitionMatchesRun(definition, childRun);
 
   if (
     timeoutAt !== undefined &&
@@ -230,6 +262,7 @@ export async function runChildWorkflow<TInput, TOutput, TRawInput = TInput>(
       stepId: identity.id,
       timeoutAt,
     });
+
     await appendDurableStepTerminalEvent(environment, {
       kind: "child_workflow_failed",
       timestamp: now(),
@@ -241,6 +274,7 @@ export async function runChildWorkflow<TInput, TOutput, TRawInput = TInput>(
     });
     await requireCurrentExecutionOwner(store, runId, executionOwner);
     await engine.cancelRun(childRunId);
+
     if (retry.maximumAttempts === 0 || attempt < retry.maximumAttempts) {
       suspendChildWorkflowRetry(
         runId,
@@ -251,6 +285,7 @@ export async function runChildWorkflow<TInput, TOutput, TRawInput = TInput>(
         maximumStepAttemptsPerRun,
       );
     }
+
     WorkflowStepExecutionError.failed({
       stepId: identity.id,
       stepName: identity.name,
@@ -269,6 +304,8 @@ export async function runChildWorkflow<TInput, TOutput, TRawInput = TInput>(
       childRunId,
       result: childRun.output,
     });
+
+    // SAFETY: The completed child matches the requested workflow and parent attempt; its output was validated for persistence by that workflow's completion path.
     return childRun.output as TOutput;
   }
 
@@ -281,6 +318,7 @@ export async function runChildWorkflow<TInput, TOutput, TRawInput = TInput>(
             name: "WorkflowError",
             message: `Child workflow failed: ${childRun.id}`,
           });
+
     const failedAt =
       childRun.finishedAt === undefined
         ? now()
@@ -292,6 +330,7 @@ export async function runChildWorkflow<TInput, TOutput, TRawInput = TInput>(
                 "Workflow child failure timestamp must be valid",
               );
             })();
+
     await appendDurableStepTerminalEvent(environment, {
       kind: "child_workflow_failed",
       timestamp: failedAt,
@@ -301,6 +340,7 @@ export async function runChildWorkflow<TInput, TOutput, TRawInput = TInput>(
       childRunId,
       error,
     });
+
     if (childRun.status === "canceled") {
       WorkflowStepExecutionError.failed({
         stepId: identity.id,
@@ -309,6 +349,7 @@ export async function runChildWorkflow<TInput, TOutput, TRawInput = TInput>(
         cause: workflowErrorFromRecord(error),
       });
     }
+
     if (retry.maximumAttempts === 0 || attempt < retry.maximumAttempts) {
       const nextAttempt = nextChildWorkflowRetryAttempt(runId, attempt, maximumStepAttemptsPerRun);
       WorkflowSuspended.forStepRetry(
@@ -317,6 +358,7 @@ export async function runChildWorkflow<TInput, TOutput, TRawInput = TInput>(
         nextAttempt,
       );
     }
+
     WorkflowStepExecutionError.failed({
       stepId: identity.id,
       stepName: identity.name,
@@ -337,16 +379,20 @@ export async function startBackgroundChildWorkflow<TInput, TOutput, TRawInput = 
 ): Promise<string> {
   const { store, runId, history, now, maximumStepAttemptsPerRun, limits, executionOwner } =
     environment;
+
   const identity = resolveWorkflowCommandIdentityFromCandidates(
     history,
     "workflow",
     [options?.commandId, options?.name, definition.name],
     "Workflow child commandId, name, or definition name",
   );
+
   const started = history.startedChildWorkflow(identity.id);
+
   if (started !== undefined) {
     requireRecordedChildWorkflowStartedAttempt(identity, started);
     requireChildWorkflowReplayMatches(runId, identity, started, definition, input, options, limits);
+
     return started.childRunId;
   }
 
@@ -450,31 +496,35 @@ function recordedChildWorkflowFailureTimestamp(
   );
 }
 
-function requireChildWorkflowReplayMatches(
+function requireChildWorkflowReplayMatches<TInput, TRawInput>(
   runId: RunId,
   identity: WorkflowStepIdentity,
   started: Extract<EventRecord, { readonly kind: "child_workflow_started" }> | undefined,
-  definition: WorkflowDefinition<unknown, unknown>,
-  input: unknown,
+  definition: WorkflowDefinition<TInput, unknown, TRawInput>,
+  input: TRawInput,
   options: WorkflowStepRunWorkflowOptions | undefined,
   limits: WorkflowExecutionLimits,
 ): void {
   if (started === undefined) {
     return;
   }
+
   const replayChildRunId =
     options?.id === undefined
       ? undefined
       : started.attempt === 1
         ? options.id
         : `${options.id}:attempt:${started.attempt}`;
+
   const replayIdempotencyKey = childWorkflowIdempotencyKey(
     runId,
     identity,
     options,
     started.attempt,
   );
+
   const replayCancellation = resolveChildWorkflowCancellationPolicy(options);
+
   if (
     started.workflowName === definition.name &&
     started.workflowVersion === definition.version &&
@@ -491,9 +541,12 @@ function requireChildWorkflowReplayMatches(
     started.workflowVersion === undefined
       ? started.workflowName
       : `${started.workflowName}@${started.workflowVersion}`;
+
   const replayWorkflow =
     definition.version === undefined ? definition.name : `${definition.name}@${definition.version}`;
+
   let message: string;
+
   if (recordedWorkflow !== replayWorkflow) {
     message =
       `recorded workflow step ${identity.id} targeted ${recordedWorkflow}, ` +
@@ -523,6 +576,7 @@ function requireChildWorkflowReplayMatches(
       `recorded workflow step ${identity.id} had ${String(recordedTimeout)}, ` +
       `but replay used ${replayTimeout}`;
   }
+
   WorkflowReplayDivergenceError.diverged(message, {
     expectedStepId: identity.id,
     actualStepId: identity.id,
@@ -567,9 +621,11 @@ function nextChildWorkflowRetryAttempt(
   maximumStepAttemptsPerRun: number,
 ): number {
   const nextAttempt = nextPositiveSafeInteger(failedAttempt);
+
   if (nextAttempt === undefined) {
     WorkflowStepAttemptLimitError.exceeded(runId, maximumStepAttemptsPerRun);
   }
+
   return nextAttempt;
 }
 
@@ -603,20 +659,36 @@ async function startChildWorkflow<TInput, TOutput, TRawInput = TInput>(
   const idempotencyKey = childWorkflowIdempotencyKey(runId, identity, options, attempt);
   const cancellation = resolveChildWorkflowCancellationPolicy(options);
   const persistedInput = toOptionalPersistedValue(input, "child workflow input", limits);
-  const handle = await engine.startWorkflow(definition, input, {
-    ...(options?.id === undefined
-      ? {}
-      : { id: attempt === 1 ? options.id : `${options.id}:attempt:${attempt}` }),
+
+  const result2 = {} satisfies Partial<WorkflowStartOptions>;
+
+  if (options?.id !== undefined) {
+    Object.assign(result2, {
+      id: attempt === 1 ? options.id : `${options.id}:attempt:${attempt}`,
+    } satisfies Partial<WorkflowStartOptions>);
+  }
+
+  const result3 = Object.assign(result2, {
     idempotencyKey,
-    ...(deadlineAt === undefined ? {} : { deadlineAt }),
+  } satisfies Partial<WorkflowStartOptions>);
+
+  if (deadlineAt !== undefined) {
+    Object.assign(result3, { deadlineAt } satisfies Partial<WorkflowStartOptions>);
+  }
+
+  const result4 = Object.assign(result3, {
     parent: {
       runId,
       stepId: identity.id,
       stepName: identity.name,
       stepAttempt: attempt,
     },
-  });
-  const startedEvent: ChildWorkflowStartedEvent = {
+  } satisfies Partial<WorkflowStartOptions>);
+
+  const startOptions: WorkflowStartOptions = result4;
+  const handle = await engine.startWorkflow(definition, input, startOptions);
+
+  const result = {
     kind: "child_workflow_started",
     timestamp: now(),
     stepId: identity.id,
@@ -625,12 +697,26 @@ async function startChildWorkflow<TInput, TOutput, TRawInput = TInput>(
     attempt,
     childRunId: handle.runId,
     workflowName: definition.name,
-    ...(definition.version === undefined ? {} : { workflowVersion: definition.version }),
+  } satisfies Partial<ChildWorkflowStartedEvent>;
+
+  if (definition.version !== undefined) {
+    Object.assign(result, {
+      workflowVersion: definition.version,
+    } satisfies Partial<ChildWorkflowStartedEvent>);
+  }
+
+  const result1 = Object.assign(result, {
     cancellation,
     input: persistedInput,
     idempotencyKey,
-    ...(timeoutAt === undefined ? {} : { timeoutAt }),
-  };
+  } satisfies Partial<ChildWorkflowStartedEvent>);
+
+  if (timeoutAt !== undefined) {
+    Object.assign(result1, { timeoutAt } satisfies Partial<ChildWorkflowStartedEvent>);
+  }
+
+  const startedEvent: ChildWorkflowStartedEvent = result1;
+
   await appendDurableStepStartedEvent(
     {
       store,
@@ -651,6 +737,7 @@ async function startChildWorkflow<TInput, TOutput, TRawInput = TInput>(
     startedEvent,
   );
   observeChildWorkflowStarted?.(runId, startedEvent);
+
   return handle.runId;
 }
 
@@ -662,6 +749,7 @@ function childWorkflowPollAt(
   if (hasDueChildSchedule(now, childRun)) {
     return now.add(Temporal.Duration.from({ milliseconds: Math.min(pollInterval, 100) }));
   }
+
   const future = [
     childRun.availableAt,
     childRun.retryAt,
@@ -672,6 +760,7 @@ function childWorkflowPollAt(
     .filter((value): value is Temporal.Instant => value !== undefined)
     .filter((value) => Temporal.Instant.compare(value, now) > 0)
     .sort((left, right) => Temporal.Instant.compare(left, right));
+
   return future[0] ?? now;
 }
 
@@ -680,9 +769,11 @@ function resolveChildWorkflowPollInterval(
 ): number {
   const pollInterval =
     options?.pollInterval === undefined ? 100 : options.pollInterval.total({ unit: "millisecond" });
+
   if (!isPositiveSafeInteger(pollInterval)) {
     WorkflowDurationError.childPollIntervalTimerSafe();
   }
+
   return pollInterval;
 }
 
@@ -705,13 +796,16 @@ function childWorkflowTimeoutAt(
   if (options?.timeout === undefined) {
     return undefined;
   }
+
   const timeout = safeDuration(
     options.timeout.total({ unit: "millisecond" }),
     "Workflow child timeout",
   );
+
   if (timeout <= 0) {
     WorkflowDurationError.childTimeoutPositive();
   }
+
   return now.add(options.timeout);
 }
 
@@ -719,9 +813,11 @@ function resolveChildWorkflowCancellationPolicy(
   options: WorkflowStepRunWorkflowOptions | WorkflowStepStartWorkflowOptions | undefined,
 ): WorkflowChildWorkflowCancellationPolicy {
   const policy = options?.cancellation ?? "cascade";
+
   if (policy !== "cascade" && policy !== "detach") {
     WorkflowOptionsError.childCancellationPolicy();
   }
+
   return policy;
 }
 
@@ -732,6 +828,7 @@ function childWorkflowDeadlineAt(
   const deadlines = [timeoutAt, parentDeadlineAt]
     .filter((value): value is Temporal.Instant => value !== undefined)
     .sort((left, right) => Temporal.Instant.compare(left, right));
+
   return deadlines[0];
 }
 
@@ -747,6 +844,7 @@ function childWorkflowTimeoutErrorRecord(options: {
     stepId: options.stepId,
     timeoutAt: options.timeoutAt,
   });
+
   return {
     name: error.name,
     message: error.message,
@@ -769,5 +867,6 @@ function childWorkflowIdempotencyKey(
     options?.idempotencyKey === undefined
       ? `parent:${runId}:step:${identity.id}`
       : options.idempotencyKey;
+
   return `${base}:attempt:${attempt}`;
 }

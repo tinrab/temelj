@@ -1,16 +1,15 @@
 import { z } from "zod";
 
+import type { WorkflowClient } from "../src/types/client.ts";
 import type { EventRecord } from "../src/types/events.ts";
 import type { SendMessageOptions } from "../src/types/message.ts";
 import type { RunId, WorkflowRunStatus } from "../src/types/run.ts";
 import type { StepId } from "../src/types/step.ts";
-import type { ReadStreamOptions, StreamState } from "../src/types/stream.ts";
 import type { Timeline } from "../src/types/timeline.ts";
 import type { TransformResult } from "../src/types/vite.ts";
 import type { WorkflowWakeDueRunsOptions, WorkflowWorkerRunResult } from "../src/types/worker.ts";
 
 import { nonBlankStringSchema } from "../src/types/common.ts";
-import { StreamIdOrName } from "../src/types/stream-id.ts";
 
 export const workflowDirectiveFixtureSchema = z.object({
   id: nonBlankStringSchema,
@@ -47,13 +46,7 @@ export interface WorkflowTestWebhookResumer {
 
 /** Describes the workflow test stream reader contract. */
 export interface WorkflowTestStreamReader {
-  readonly streams: {
-    read<TChunk = unknown>(
-      runId: RunId,
-      streamIdOrName: StreamIdOrName,
-      options?: ReadStreamOptions,
-    ): Promise<StreamState<TChunk>>;
-  };
+  readonly streams: Pick<WorkflowClient["streams"], "read">;
 }
 
 /** Describes the workflow test event inspector contract. */
@@ -66,7 +59,7 @@ export interface WorkflowTestEventInspector {
 /** Describes the workflow test run waker contract. */
 export interface WorkflowTestRunWaker {
   readonly workers: {
-    processRun(runId: RunId, options?: WorkflowWakeWorkflowRunOptions): Promise<unknown>;
+    processRun(runId: RunId, options?: WorkflowWakeWorkflowRunOptions): Promise<void>;
     wakeDueRuns(options?: WorkflowWakeDueRunsOptions): Promise<WorkflowWorkerRunResult>;
   };
 }

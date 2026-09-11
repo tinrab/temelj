@@ -25,20 +25,27 @@ export function directiveContainerMarker(
 ): DirectiveContainerMarker | undefined {
   const markerStart = consumeIndent(source, start, end, 3).offset;
   let markerEnd = markerStart;
+
   while (source[markerEnd] === ":") {
     markerEnd++;
   }
+
   if (markerEnd - markerStart < 3) {
     return;
   }
+
   const name = /^[A-Za-z][\w-]*/u.exec(source.slice(markerEnd, end))?.[0];
+
   if (name === undefined) {
     return;
   }
+
   const tail = directiveTail(source, markerEnd + name.length, end);
+
   if (tail === undefined) {
     return;
   }
+
   return {
     attributes: tail.attributes,
     fenceLength: markerEnd - markerStart,
@@ -57,32 +64,42 @@ interface DirectiveTail {
 function directiveTail(source: string, start: number, end: number): DirectiveTail | undefined {
   let cursor = start;
   let label: readonly InlineSegment[] | undefined;
+
   if (source[cursor] === "[") {
     const close = findUnescaped(source, "]", cursor + 1, end);
+
     if (close === undefined) {
       return;
     }
+
     label = [{ kind: "source", range: sourceRange(cursor + 1, close) }];
     cursor = close + 1;
   }
+
   let attributes: readonly DirectiveAttributeSyntax[] = [];
+
   if (source[cursor] === "{") {
     const close = findUnescaped(source, "}", cursor + 1, end);
+
     if (close === undefined) {
       return;
     }
+
     attributes = parseDirectiveAttributes(source.slice(cursor + 1, close));
     cursor = close + 1;
   }
+
   while (cursor < end && isSpaceOrTab(source[cursor])) {
     cursor++;
   }
+
   return cursor === end ? { attributes, label } : undefined;
 }
 
 function parseDirectiveAttributes(source: string): readonly DirectiveAttributeSyntax[] {
   const attributes: DirectiveAttributeSyntax[] = [];
   const pattern = /([A-Za-z_:][\w:.-]*)(?:=(?:"([^"]*)"|'([^']*)'|([^\s]+)))?|([.#])([\w-]+)/gu;
+
   for (const match of source.matchAll(pattern)) {
     const shortcut = match[5];
     attributes.push({
@@ -90,6 +107,7 @@ function parseDirectiveAttributes(source: string): readonly DirectiveAttributeSy
       value: shortcut === undefined ? (match[2] ?? match[3] ?? match[4] ?? "") : match[6],
     });
   }
+
   return attributes;
 }
 
@@ -101,15 +119,21 @@ function matchLeafDirective(
   if (!syntax.directives) {
     return;
   }
+
   const start = consumeIndent(source, line.content.start, line.content.end, 3).offset;
+
   if (!source.startsWith("::", start) || source[start + 2] === ":") {
     return;
   }
+
   const name = /^[A-Za-z][\w-]*/u.exec(source.slice(start + 2, line.content.end))?.[0];
+
   if (name === undefined) {
     return;
   }
+
   const tail = directiveTail(source, start + 2 + name.length, line.content.end);
+
   return tail === undefined
     ? undefined
     : {
@@ -127,6 +151,7 @@ export function recognizeLeafDirective(
   syntax: ResolvedSyntaxOptions,
 ): RecognizerResult<Extract<BlockSyntax, { kind: "leafDirective" }>> {
   const match = matchLeafDirective(source, line, syntax);
+
   return match === undefined ? noMatch : matched(match);
 }
 
@@ -138,9 +163,11 @@ export function isClosingDirectiveFence(
 ): boolean {
   const markerStart = consumeIndent(source, start, line.content.end, 3).offset;
   let markerEnd = markerStart;
+
   while (source[markerEnd] === ":") {
     markerEnd++;
   }
+
   return (
     markerEnd - markerStart >= minimumFenceLength &&
     isBlank(source.slice(markerEnd, line.content.end))

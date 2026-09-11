@@ -1,3 +1,4 @@
+import { isPlainObject } from "@temelj/value";
 import { z } from "zod";
 
 import type { WorkflowErrorCode } from "./error-code.ts";
@@ -18,21 +19,16 @@ const workflowRunStatuses = [
   "failed",
   "canceled",
 ] as const;
+
 const workflowTerminalRunStatuses = ["completed", "failed", "canceled"] as const;
 
 export const workflowErrorDetailSchema = z.union([z.string(), z.number(), z.boolean(), z.null()]);
 
 export const workflowErrorDetailsSchema = z
-  .record(nonBlankStringSchema, workflowErrorDetailSchema)
-  .refine(
-    (value) => {
-      const prototype = Object.getPrototypeOf(value);
-      return prototype === Object.prototype || prototype === null;
-    },
-    { error: "Expected a plain error details object" },
-  );
+  .custom<object>(isPlainObject)
+  .pipe(z.record(nonBlankStringSchema, workflowErrorDetailSchema));
 
-export const workflowErrorRecordSchema = z.looseObject({
+export const workflowErrorRecordSchema = z.object({
   code: workflowErrorCodeSchema.optional(),
   name: nonBlankStringSchema,
   message: nonBlankStringSchema,
@@ -41,30 +37,27 @@ export const workflowErrorRecordSchema = z.looseObject({
 });
 
 export const optionalWorkflowErrorStringSchema = nonBlankStringSchema.optional();
+
 export const workflowErrorRunStatusSchema: z.ZodType<WorkflowRunStatus> = z.enum(
   workflowRunStatuses,
   { error: "Expected a workflow run status" },
 );
+
 export const workflowTerminalErrorRunStatusSchema: z.ZodType<WorkflowTerminalRunStatus> = z.enum(
   workflowTerminalRunStatuses,
   { error: "Expected a terminal workflow run status" },
 );
 
 /** Returns workflow-safe error details, or undefined when the input cannot be persisted. */
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Error details may come from thrown values; this schema parser establishes the persisted detail contract.
 export function sanitizedWorkflowErrorDetails(details: unknown): WorkflowErrorDetails | undefined {
   const parsed = workflowErrorDetailsSchema.safeParse(details);
+
   if (!parsed.success) {
     return undefined;
   }
-  const sanitized = Object.fromEntries(
-    Object.entries(parsed.data).filter(([key, value]) => {
-      return (
-        nonBlankStringSchema.safeParse(key).success &&
-        workflowErrorDetailSchema.safeParse(value).success
-      );
-    }),
-  );
-  return Object.keys(sanitized).length === 0 ? undefined : sanitized;
+
+  return Object.keys(parsed.data).length === 0 ? undefined : parsed.data;
 }
 
 /** JSON-serializable detail fields attached to workflow errors. */
@@ -72,7 +65,6 @@ export type WorkflowErrorDetails = Readonly<Record<string, string | number | boo
 
 /** Persisted representation of an error captured during workflow execution. */
 export interface WorkflowErrorRecord {
-  readonly [key: string]: unknown;
   readonly code?: WorkflowErrorCode;
   readonly name: string;
   readonly message: string;
@@ -170,3 +162,9 @@ export interface WorkflowReplayDivergenceErrorOptions {
   readonly actualStepId?: string;
   readonly message: string;
 }
+
+/** Identity fields carried by implementation-not-found errors. */
+export type WorkflowImplementationErrorDetails = {
+  workflowName: string;
+  workflowVersion?: string;
+};

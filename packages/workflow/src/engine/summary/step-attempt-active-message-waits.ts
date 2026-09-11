@@ -36,6 +36,7 @@ interface WorkflowStepAttemptActiveMessageWaitAccumulator {
 
 export function createWorkflowStepAttemptActiveMessageWaitSummaryReducer(): WorkflowStepAttemptActiveMessageWaitSummaryReducer {
   const messageWait = createWorkflowStepAttemptActiveMessageWaitAccumulator();
+
   return {
     addAttempt(attempt, attemptKey) {
       if (attempt.kind === "message-wait" && attempt.status === "running") {
@@ -69,11 +70,13 @@ function addWorkflowStepAttemptActiveMessageWait(
     messageWait.oldestStartedAt,
     attempt.startedAt,
   );
+
   if (shouldReplaceWorkflowEarliestDefinedInstant(messageWait.nextTimeoutAt, attempt.timeoutAt)) {
     messageWait.nextTimeoutAt = attempt.timeoutAt;
     messageWait.nextTimeoutStepId = attempt.stepId;
     messageWait.nextTimeoutAttemptKey = attemptKey;
   }
+
   if (attempt.messageId !== undefined) {
     messageWait.messages.add(attempt.messageId);
   }

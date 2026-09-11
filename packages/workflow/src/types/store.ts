@@ -230,9 +230,7 @@ export interface WorkflowCleanupRepository {
 /** Creates workflow schedule records. */
 export interface WorkflowScheduleCreationRepository {
   /** Creates a workflow schedule record. */
-  createSchedule<TInput = StorageValue>(
-    schedule: ScheduleRecord<TInput>,
-  ): Promise<ScheduleRecord<TInput>>;
+  createSchedule(schedule: ScheduleRecord): Promise<ScheduleRecord>;
 }
 
 /** Reads workflow schedule records. */
@@ -244,10 +242,10 @@ export interface WorkflowScheduleReaderRepository {
 /** Updates workflow schedule records conditionally. */
 export interface WorkflowScheduleConditionalWriterRepository {
   /** Replaces a schedule only when the stored record still matches the current value. */
-  updateScheduleIfCurrent<TInput = StorageValue>(
+  updateScheduleIfCurrent(
     current: ScheduleRecord,
-    next: ScheduleRecord<TInput>,
-  ): Promise<ScheduleRecord<TInput> | undefined>;
+    next: ScheduleRecord,
+  ): Promise<ScheduleRecord | undefined>;
 }
 
 /** Lists workflow schedule records. */

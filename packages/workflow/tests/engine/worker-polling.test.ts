@@ -11,26 +11,32 @@ import { sequentialRunIds } from "../utility.ts";
 describe("workflow worker polling", () => {
   test("worker polling wakes at the next scheduled run before the poll interval", async () => {
     vi.useFakeTimers();
+
     try {
       let now = Temporal.Instant.from("2026-06-07T10:00:00Z");
+
       const engine = createWorkflowEngine({
         now: () => now,
         createRunId: () => "run_scheduled_wakeup",
       });
+
       const registry = new Registry();
       const client = createWorkflowClient({ engine, registry });
+
       const worker = new WorkflowWorker({
         engine,
         registry,
         now: () => now,
         pollInterval: Temporal.Duration.from({ milliseconds: 60_000 }),
       });
+
       const def = defineWorkflow<undefined, string>({ name: "scheduled-wakeup" });
       client.implementWorkflow(def, () => "done");
 
       const handle = await client.runs.start(def, undefined, {
         availableAt: Temporal.Instant.from("2026-06-07T10:00:01Z"),
       });
+
       const loop = worker.run({ maxRuns: 1 });
 
       await vi.advanceTimersByTimeAsync(999);
@@ -53,20 +59,25 @@ describe("workflow worker polling", () => {
 
   test("worker run can tick due recurring schedules before polling runs", async () => {
     vi.useFakeTimers();
+
     try {
       let now = Temporal.Instant.from("2026-06-07T10:00:00Z");
+
       const engine = createWorkflowEngine({
         now: () => now,
         createRunId: () => "run_worker_schedule_tick",
       });
+
       const registry = new Registry();
       const client = createWorkflowClient({ engine, registry });
+
       const worker = new WorkflowWorker({
         engine,
         registry,
         now: () => now,
         pollInterval: Temporal.Duration.from({ milliseconds: 60_000 }),
       });
+
       const def = defineWorkflow<undefined, string>({ name: "worker-schedule-tick" });
       client.implementWorkflow(def, () => "scheduled");
 
@@ -103,8 +114,10 @@ describe("workflow worker polling", () => {
 
   test("worker polling wakeups honor parent step attempt filters", async () => {
     vi.useFakeTimers();
+
     try {
       let now = Temporal.Instant.from("2026-06-07T10:00:00Z");
+
       const engine = createWorkflowEngine({
         now: () => now,
         createRunId: sequentialRunIds(
@@ -112,14 +125,17 @@ describe("workflow worker polling", () => {
           "run_wakeup_parent_attempt",
         ),
       });
+
       const registry = new Registry();
       const client = createWorkflowClient({ engine, registry });
+
       const worker = new WorkflowWorker({
         engine,
         registry,
         now: () => now,
         pollInterval: Temporal.Duration.from({ milliseconds: 60_000 }),
       });
+
       const def = defineWorkflow<string, string>({ name: "parent-attempt-wakeup" });
       client.implementWorkflow(def, ({ input }) => input);
 
@@ -131,6 +147,7 @@ describe("workflow worker polling", () => {
           stepAttempt: 1,
         },
       });
+
       const matchingAttempt = await client.runs.start(def, "right", {
         availableAt: Temporal.Instant.from("2026-06-07T10:00:05Z"),
         parent: {
@@ -139,6 +156,7 @@ describe("workflow worker polling", () => {
           stepAttempt: 2,
         },
       });
+
       const loop = worker.run({
         maxRuns: 1,
         parentRunId: "parent_run",
@@ -179,13 +197,16 @@ describe("workflow worker polling", () => {
     const engine = createWorkflowEngine({
       createRunId: sequentialRunIds("run_worker_filter_left", "run_worker_filter_right"),
     });
+
     const registry = new Registry();
     const client = createWorkflowClient({ engine, registry });
+
     const worker = new WorkflowWorker({
       engine,
       registry,
       workerId: "worker_filter",
     });
+
     const leftDef = defineWorkflow<undefined, string>({ name: "worker-filter-left" });
     const rightDef = defineWorkflow<undefined, string>({ name: "worker-filter-right" });
 
@@ -237,10 +258,12 @@ describe("workflow worker polling", () => {
 
   test("client wakeDueRuns processes currently due runs without polling", async () => {
     let now = Temporal.Instant.from("2026-06-11T10:00:00Z");
+
     const engine = createWorkflowEngine({
       createRunId: sequentialRunIds("run_wake_due_ready", "run_wake_due_future"),
       now: () => now,
     });
+
     const registry = new Registry();
     const client = createWorkflowClient({ engine, registry, now: () => now });
     const def = defineWorkflow<string, string>({ name: "wake-due" });
@@ -248,6 +271,7 @@ describe("workflow worker polling", () => {
     client.implementWorkflow(def, ({ input }) => input);
 
     const ready = await client.runs.start(def, "ready");
+
     const future = await client.runs.start(def, "future", {
       availableAt: Temporal.Instant.from("2026-06-11T11:00:00Z"),
     });
@@ -286,16 +310,19 @@ describe("workflow worker polling", () => {
 
   test("client wakeDueRuns resumes due parked step attempts", async () => {
     let now = Temporal.Instant.from("2026-06-11T10:00:00Z");
+
     const engine = createWorkflowEngine({
       createRunId: () => "run_wake_due_sleep",
       now: () => now,
     });
+
     const registry = new Registry();
     const client = createWorkflowClient({ engine, registry, now: () => now });
     const def = defineWorkflow<undefined, string>({ name: "wake-due-sleep" });
 
     client.implementWorkflow(def, async ({ step }) => {
       await step.task.sleep("pause", Temporal.Duration.from({ seconds: 1 }));
+
       return "done";
     });
 

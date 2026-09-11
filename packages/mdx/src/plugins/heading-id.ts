@@ -1,4 +1,6 @@
-import type { HtmlAttributeValue, HtmlDocumentNode } from "../html.ts";
+import { isString } from "@temelj/value";
+
+import type { HtmlDocumentNode } from "../html.ts";
 import type { HtmlTransformContext } from "../plugin.ts";
 
 import { HtmlTransformPlugin } from "../plugin.ts";
@@ -19,23 +21,29 @@ export class HeadingIdPlugin extends HtmlTransformPlugin {
 
   public transform(context: HtmlTransformContext): HtmlDocumentNode {
     const used = new Set<string>();
+
     for (const { node } of selectHtml(context.document, "element")) {
       const id = node.attributes.id;
-      if (typeof id === "string") {
+
+      if (isString(id)) {
         used.add(id);
       }
     }
+
     return context.rewrite({
       element: ({ node }) => {
         if (!/^h[1-6]$/u.test(node.tagName) || node.attributes.id !== undefined) {
           return node;
         }
+
         const base = this.prefix + slug(node.toString());
         const id = uniqueSlug(base, used);
-        const attributes: Record<string, HtmlAttributeValue> = {
+
+        const attributes = {
           ...node.attributes,
           id,
         };
+
         return node.with({ attributes });
       },
     });
@@ -49,15 +57,19 @@ function slug(value: string): string {
     .replace(/[^\p{Letter}\p{Number}\s_-]/gu, "")
     .replace(/[\s_-]+/gu, "-")
     .replace(/^-|-$/gu, "");
+
   return result.length === 0 ? "section" : result;
 }
 
 function uniqueSlug(base: string, used: Set<string>): string {
   let value = base;
   let index = 0;
+
   while (used.has(value)) {
     value = `${base}-${++index}`;
   }
+
   used.add(value);
+
   return value;
 }

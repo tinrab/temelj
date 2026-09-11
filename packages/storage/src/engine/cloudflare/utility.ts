@@ -1,11 +1,18 @@
 import type { ClientOptions } from "cloudflare";
 
+import { isString, isObject } from "@temelj/value";
+
 import type { StorageEngineSetOptions } from "../../types.ts";
+import type { CloudflareD1Binding } from "./d1.ts";
+import type { CloudflareKvBinding } from "./kv.ts";
+import type { CloudflareR2Binding } from "./r2.ts";
 
 /**
  * Worker environment bindings map used to resolve bindings by name.
  */
-export type CloudflareBindings = { readonly [name: string]: unknown };
+export type CloudflareBindings = Readonly<
+  Record<string, CloudflareKvBinding | CloudflareR2Binding | CloudflareD1Binding>
+>;
 
 export function cloudflareClientOptions(options: ClientOptions): ClientOptions {
   return {
@@ -23,13 +30,8 @@ export function cloudflareClientOptions(options: ClientOptions): ClientOptions {
   };
 }
 
-export function isCloudflareNotFoundError(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "status" in error &&
-    (error as { readonly status?: unknown }).status === 404
-  );
+export function isCloudflareNotFoundError(cause: unknown): boolean {
+  return isObject(cause) && "status" in cause && cause.status === 404;
 }
 
 export function resolveCloudflareBinding<TBinding>(
@@ -41,17 +43,21 @@ export function resolveCloudflareBinding<TBinding>(
   if (binding === undefined) {
     return undefined;
   }
-  if (typeof binding !== "string") {
+
+  if (!isString(binding)) {
     return binding;
   }
 
   const resolved = bindings?.[binding];
+
   if (resolved === undefined) {
     throw new TypeError(`Cloudflare binding ${binding} was not found`);
   }
+
   if (!isBinding(resolved)) {
     throw new TypeError(`Cloudflare binding ${binding} is not a ${kind} binding`);
   }
+
   return resolved;
 }
 
@@ -61,5 +67,6 @@ export function resolveCloudflareExpiresAt(
   now = Date.now(),
 ): number | undefined {
   const ttl = options?.ttl ?? defaultTtl;
+
   return ttl === undefined ? undefined : now + ttl;
 }

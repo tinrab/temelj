@@ -11,6 +11,7 @@ describe("workflow recovery summaries", () => {
     const engine = createWorkflowEngine({
       now: () => Temporal.Instant.from("2026-06-12T10:00:00Z"),
     });
+
     const client = createWorkflowClient({ engine });
     await engine.store.createRun(
       runRecord("run_due_pending", "pending", {
@@ -110,6 +111,7 @@ describe("workflow recovery summaries", () => {
     const engine = createWorkflowEngine({
       now: () => Temporal.Instant.from("2026-06-12T10:00:00Z"),
     });
+
     const client = createWorkflowClient({ engine });
     const def = defineWorkflow<undefined, string>({ name: "recovery-schedule" });
 
@@ -145,6 +147,7 @@ describe("workflow recovery summaries", () => {
     const engine = createWorkflowEngine({
       now: () => Temporal.Instant.from("2026-06-12T10:00:00Z"),
     });
+
     await engine.store.createRun(
       runRecord("run_ownerless_lease", "running", {
         leaseExpiresAt: Temporal.Instant.from("2026-06-12T10:30:00Z"),
@@ -170,6 +173,7 @@ describe("workflow recovery summaries", () => {
     const engine = createWorkflowEngine({
       now: () => Temporal.Instant.from("2026-06-12T10:00:00Z"),
     });
+
     await engine.store.createRun(
       runRecord("run_sleep_due", "waiting", {
         availableAt: Temporal.Instant.from("2026-06-12T10:30:00Z"),
@@ -370,6 +374,7 @@ describe("workflow recovery summaries", () => {
     const engine = createWorkflowEngine({
       now: () => Temporal.Instant.from("2026-06-12T10:00:00Z"),
     });
+
     await engine.store.createRun(
       runRecord("run_future_sleep_only", "waiting", {
         availableAt: Temporal.Instant.from("2026-06-12T10:30:00Z"),
@@ -405,6 +410,7 @@ function runRecord(
   patch: Partial<WorkflowRunRecord> = {},
 ): WorkflowRunRecord {
   const timestamp = Temporal.Instant.from("2026-06-12T09:00:00Z");
+
   return {
     id,
     namespace: "default",

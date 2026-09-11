@@ -1,4 +1,13 @@
-import { isPlainObject } from "@temelj/value";
+import {
+  isBoolean,
+  isNumber,
+  isString,
+  isBigInt,
+  isFunction,
+  isSymbol,
+  isObject,
+  isPlainObject,
+} from "@temelj/value";
 import { parse as parseToml, TomlDate, TomlError } from "smol-toml";
 import { parseDocument } from "yaml";
 
@@ -17,6 +26,7 @@ interface DecodeOptions {
 }
 
 const maximumYamlAliases = 100;
+
 const maximumTomlDepth = 256;
 
 export function decodeFrontmatter(options: DecodeOptions): FrontmatterObject | undefined {
@@ -25,6 +35,7 @@ export function decodeFrontmatter(options: DecodeOptions): FrontmatterObject | u
 
 function decodeYaml(options: DecodeOptions): FrontmatterObject | undefined {
   let document: ReturnType<typeof parseDocument>;
+
   try {
     document = parseDocument(options.source, {
       customTags: [],
@@ -40,6 +51,7 @@ function decodeYaml(options: DecodeOptions): FrontmatterObject | undefined {
     });
   } catch (cause) {
     addParserFailure(options, cause);
+
     return undefined;
   }
 
@@ -51,6 +63,7 @@ function decodeYaml(options: DecodeOptions): FrontmatterObject | undefined {
       span: relativeSpan(options.span, warning.pos[0], warning.pos[1]),
     });
   }
+
   for (const error of document.errors) {
     options.diagnostics.add({
       code: yamlCode(error.code),
@@ -59,22 +72,27 @@ function decodeYaml(options: DecodeOptions): FrontmatterObject | undefined {
       span: relativeSpan(options.span, error.pos[0], error.pos[1]),
     });
   }
+
   if (document.errors.length > 0) {
     return undefined;
   }
 
   let parsed: unknown;
+
   try {
     parsed = document.contents === null ? {} : document.toJS({ maxAliasCount: maximumYamlAliases });
   } catch (cause) {
     addParserFailure(options, cause);
+
     return undefined;
   }
+
   return convertRoot(parsed, options);
 }
 
 function decodeToml(options: DecodeOptions): FrontmatterObject | undefined {
   let parsed: unknown;
+
   try {
     parsed = parseToml(options.source, {
       integersAsBigInt: "asNeeded",
@@ -92,11 +110,14 @@ function decodeToml(options: DecodeOptions): FrontmatterObject | undefined {
     } else {
       addParserFailure(options, cause);
     }
+
     return undefined;
   }
+
   return convertRoot(parsed, options);
 }
 
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- YAML/TOML root input is validated here.
 function convertRoot(value: unknown, options: DecodeOptions): FrontmatterObject | undefined {
   if (!isPlainObject(value)) {
     options.diagnostics.add({
@@ -105,58 +126,68 @@ function convertRoot(value: unknown, options: DecodeOptions): FrontmatterObject 
       severity: "error",
       span: options.span,
     });
+
     return undefined;
   }
+
   return convertObject(value, options, "$", new WeakSet<object>());
 }
 
 function convertValue(
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Recursively validates parser values before producing FrontmatterValue.
   value: unknown,
   options: DecodeOptions,
   path: string,
   active: WeakSet<object>,
 ): FrontmatterValue | undefined {
-  if (
-    value === null ||
-    typeof value === "boolean" ||
-    typeof value === "number" ||
-    typeof value === "string"
-  ) {
+  if (value === null || isBoolean(value) || isNumber(value) || isString(value)) {
     return value;
   }
-  if (typeof value === "bigint") {
+
+  if (isBigInt(value)) {
     return value >= BigInt(Number.MIN_SAFE_INTEGER) && value <= BigInt(Number.MAX_SAFE_INTEGER)
       ? Number(value)
       : value;
   }
+
   if (value instanceof TomlDate) {
     return convertTemporal(value);
   }
+
   if (Array.isArray(value)) {
     if (active.has(value)) {
       return invalidValue(options, path, "cyclic alias");
     }
+
     active.add(value);
     const converted: FrontmatterValue[] = [];
+
     for (const [index, item] of value.entries()) {
       const result = convertValue(item, options, `${path}[${index}]`, active);
+
       if (result === undefined) {
         return undefined;
       }
+
       converted.push(result);
     }
+
     active.delete(value);
     Object.freeze(converted);
+
     return converted;
   }
+
   if (isPlainObject(value)) {
     return convertObject(value, options, path, active);
   }
+
   return invalidValue(options, path, describeValue(value));
 }
 
 function convertObject(
-  value: Record<string, unknown>,
+  // oxlint-disable-next-line anti-slop/no-object-parameters -- YAML/TOML mapping boundary; every entry is converted to FrontmatterValue below.
+  value: object,
   options: DecodeOptions,
   path: string,
   active: WeakSet<object>,
@@ -164,14 +195,18 @@ function convertObject(
   if (active.has(value)) {
     return invalidValue(options, path, "cyclic alias");
   }
+
   active.add(value);
   const converted: Record<string, FrontmatterValue> = {};
+
   for (const [key, item] of Object.entries(value)) {
     const itemPath = propertyPath(path, key);
     const result = convertValue(item, options, itemPath, active);
+
     if (result === undefined) {
       return undefined;
     }
+
     Object.defineProperty(converted, key, {
       configurable: false,
       enumerable: true,
@@ -179,8 +214,10 @@ function convertObject(
       writable: false,
     });
   }
+
   active.delete(value);
   Object.freeze(converted);
+
   return converted;
 }
 
@@ -191,9 +228,11 @@ function convertTemporal(value: TomlDate): FrontmatterTemporal {
       value.toISOString(),
     );
   }
+
   if (value.isDate()) {
     return new FrontmatterTemporal("local-date", value.toISOString());
   }
+
   return new FrontmatterTemporal("local-time", value.toISOString());
 }
 
@@ -204,6 +243,7 @@ function invalidValue(options: DecodeOptions, path: string, description: string)
     severity: "error",
     span: options.span,
   });
+
   return undefined;
 }
 
@@ -225,6 +265,7 @@ function relativeSpan(span: SourceSpan, start: number, end: number): SourceSpan 
   const length = span.end - span.start;
   const relativeStart = Math.max(0, Math.min(start, length));
   const relativeEnd = Math.max(relativeStart, Math.min(end, length));
+
   return Object.freeze({
     file: span.file,
     start: span.start + relativeStart,
@@ -234,6 +275,7 @@ function relativeSpan(span: SourceSpan, start: number, end: number): SourceSpan 
 
 function lineColumnOffset(source: string, line: number, column: number): number {
   const lineStart = lineStartOffsets(source)[Math.max(0, line - 1)] ?? source.length;
+
   return Math.min(source.length, lineStart + Math.max(0, column - 1));
 }
 
@@ -241,26 +283,31 @@ function propertyPath(path: string, key: string): string {
   return /^[A-Za-z_$][\w$]*$/u.test(key) ? `${path}.${key}` : `${path}[${JSON.stringify(key)}]`;
 }
 
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Describes a rejected value at the YAML/TOML validation boundary.
 function describeValue(value: unknown): string {
   if (value === undefined) {
     return "undefined";
   }
-  if (typeof value === "function") {
+
+  if (isFunction(value)) {
     return "function";
   }
-  if (typeof value === "symbol") {
+
+  if (isSymbol(value)) {
     return "symbol";
   }
+
   if (value instanceof Map) {
     return "Map";
   }
+
   if (value instanceof Set) {
     return "Set";
   }
+
   if (value instanceof Date) {
     return "Date";
   }
-  return typeof value === "object" && value !== null
-    ? (value.constructor?.name ?? "object")
-    : typeof value;
+
+  return isObject(value) ? (value.constructor?.name ?? "object") : String(value);
 }

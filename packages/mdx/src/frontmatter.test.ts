@@ -16,9 +16,11 @@ describe("frontmatter", () => {
     expect(expectParsed(parse("---\ntitle: disabled\n---")).document.frontmatter).toBeUndefined();
 
     const yaml = expectParsed(parse("---\ntitle: YAML\n---", { syntax: { frontmatter: "auto" } }));
+
     const toml = expectParsed(
       parse('+++\ntitle = "TOML"\n+++', { syntax: { frontmatter: "auto" } }),
     );
+
     expect(yaml.document.frontmatter?.format).toBe("yaml");
     expect(yaml.document.frontmatter?.data).toEqual({ title: "YAML" });
     expect(toml.document.frontmatter?.format).toBe("toml");
@@ -55,6 +57,7 @@ describe("frontmatter", () => {
       "  tags: [one, two]",
       "---",
     ].join("\n");
+
     const data = expectParsed(parse(source, { syntax: { frontmatter: "yaml" } })).document
       .frontmatter?.data;
 
@@ -75,6 +78,7 @@ describe("frontmatter", () => {
         syntax: { frontmatter: "yaml" },
       }),
     ).document.frontmatter?.data;
+
     expect(data?.__proto__).toBe("safe");
     expect(data?.constructor).toBe("ordinary");
     expect(data === undefined ? false : Object.hasOwn(data, "__proto__")).toBe(true);
@@ -105,8 +109,10 @@ describe("frontmatter", () => {
       "local_time = 07:32:00",
       "+++",
     ].join("\n");
+
     const data = expectParsed(parse(source, { syntax: { frontmatter: "toml" } })).document
       .frontmatter?.data;
+
     expect(data?.safe).toBe(42);
     expect(data?.unsafe).toBe(9_007_199_254_740_993n);
     expect(data?.nan).toBeNaN();
@@ -134,6 +140,7 @@ describe("frontmatter", () => {
         syntax: { frontmatter: "yaml" },
       }),
     );
+
     expect(duplicate.document.frontmatter?.data).toBeUndefined();
     expect(duplicate.diagnostics[0]?.code).toBe("mdx.frontmatter.yaml");
 
@@ -149,6 +156,7 @@ describe("frontmatter", () => {
         syntax: { frontmatter: "yaml" },
       }),
     ).document.frontmatter?.data;
+
     expect(aliases?.base).toEqual({ value: 1 });
     expect(aliases?.copy).toEqual({ value: 1 });
     expect(aliases?.base).not.toBe(aliases?.copy);
@@ -158,6 +166,7 @@ describe("frontmatter", () => {
         syntax: { frontmatter: "yaml" },
       }),
     );
+
     expect(cyclic.document.frontmatter?.data).toBeUndefined();
     expect(cyclic.diagnostics.some(({ code }) => code === "mdx.frontmatter.value")).toBe(true);
   });
@@ -171,11 +180,13 @@ describe("frontmatter", () => {
     }
 
     const references = Array.from({ length: 101 }, () => "*item").join(", ");
+
     const resource = expectParsed(
       parse(`---\nitem: &item [1]\nitems: [${references}]\n---`, {
         syntax: { frontmatter: "yaml" },
       }),
     );
+
     expect(resource.document.frontmatter?.data).toBeUndefined();
     expect(resource.diagnostics[0]?.code).toBe("mdx.frontmatter.yaml");
   });
@@ -205,12 +216,16 @@ describe("frontmatter", () => {
 
   it("formats from authored text and clears decoded data after structural edits", () => {
     const source = "---\n# keep this\nvalue: 1.0\n---";
+
     const node = expectParsed(parse(source, { syntax: { frontmatter: "yaml" } })).document
       .frontmatter;
+
     expect(node).toBeInstanceOf(FrontmatterNode);
+
     if (node === undefined) {
       return;
     }
+
     expect(node.toSource()).toBe(source);
     expect(
       expectParsed(parse(node.toSource(), { syntax: { frontmatter: "auto" } })).document.frontmatter
@@ -227,6 +242,7 @@ describe("frontmatter", () => {
         syntax: { frontmatter: "yaml" },
       }),
     ).document;
+
     expect(renderHtml(document).toHtml()).not.toContain("Hidden");
     expect(compileDocument(document, { outputFormat: "program" }).code).not.toContain("Hidden");
   });
@@ -243,9 +259,11 @@ describe("frontmatter", () => {
     });
     const completed = stream.complete();
     expect(completed.kind).toBe("parsed");
+
     if (completed.kind !== "parsed") {
       throw new Error(`Expected parsed outcome, received ${completed.kind}`);
     }
+
     expect(completed.document.frontmatter?.data).toEqual({ value: [] });
   });
 
@@ -270,5 +288,6 @@ function expectParsed(
   if (outcome.kind !== "parsed") {
     throw new Error(`Expected parsed outcome, received ${outcome.kind}`);
   }
+
   return outcome;
 }

@@ -69,12 +69,15 @@ function addWorkflowChildWorkflowWaitAttempt(
   if (attempt.status !== "running" || attempt.kind !== "workflow") {
     return;
   }
+
   childWorkflow.runIds.add(attempt.runId);
+
   const resolved = addResolvedWorkflowChildWorkflowWaitAttempt(
     childWorkflow,
     attempt,
     childByRunId,
   );
+
   if (!resolved) {
     addTimedOutWorkflowChildWorkflowWaitAttempt(childWorkflow, attempt, now);
   }
@@ -87,19 +90,26 @@ function addResolvedWorkflowChildWorkflowWaitAttempt(
 ): boolean {
   if (attempt.childRunId === undefined) {
     addMissingWorkflowChildWorkflowWaitAttempt(childWorkflow, attempt);
+
     return true;
   }
+
   childWorkflow.childRunIds.add(attempt.childRunId);
   const child = childByRunId.get(attempt.childRunId);
+
   if (child === undefined) {
     addMissingWorkflowChildWorkflowWaitAttempt(childWorkflow, attempt);
+
     return true;
   }
+
   if (child.status !== "completed" && child.status !== "failed" && child.status !== "canceled") {
     return false;
   }
+
   childWorkflow.terminalRunIds.add(attempt.runId);
   childWorkflow.terminalStepIds.add(attempt.stepId);
+
   if (child.status === "completed") {
     childWorkflow.completedChildRunIds.add(child.id);
   } else if (child.status === "failed") {
@@ -107,6 +117,7 @@ function addResolvedWorkflowChildWorkflowWaitAttempt(
   } else {
     childWorkflow.canceledChildRunIds.add(child.id);
   }
+
   return true;
 }
 
@@ -126,11 +137,14 @@ function addTimedOutWorkflowChildWorkflowWaitAttempt(
   if (attempt.timeoutAt === undefined) {
     return;
   }
+
   if (Temporal.Instant.compare(attempt.timeoutAt, now) <= 0) {
     childWorkflow.timedOutRunIds.add(attempt.runId);
     childWorkflow.timedOutStepIds.add(attempt.stepId);
+
     return;
   }
+
   childWorkflow.nextTimeout = earliestWorkflowRecoveryTimestamp(
     childWorkflow.nextTimeout,
     attempt.runId,
@@ -141,7 +155,7 @@ function addTimedOutWorkflowChildWorkflowWaitAttempt(
 function finishWorkflowChildWorkflowWaitSummary(
   childWorkflow: WorkflowChildWorkflowWaitAccumulator,
 ): WorkflowRecoveryChildWorkflowWaitSummary {
-  return {
+  const result1: WorkflowRecoveryChildWorkflowWaitSummary = {
     active: childWorkflow.runIds.size,
     terminal: childWorkflow.terminalRunIds.size,
     missing: childWorkflow.missingRunIds.size,
@@ -157,11 +171,19 @@ function finishWorkflowChildWorkflowWaitSummary(
     completedChildRunIds: [...childWorkflow.completedChildRunIds].sort(),
     failedChildRunIds: [...childWorkflow.failedChildRunIds].sort(),
     canceledChildRunIds: [...childWorkflow.canceledChildRunIds].sort(),
-    ...(childWorkflow.nextTimeout === undefined
-      ? {}
-      : { nextTimeoutAt: childWorkflow.nextTimeout.timestamp }),
-    ...(childWorkflow.nextTimeout === undefined
-      ? {}
-      : { nextTimeoutRunId: childWorkflow.nextTimeout.runId }),
   };
+
+  if (childWorkflow.nextTimeout !== undefined) {
+    Object.assign(result1, {
+      nextTimeoutAt: childWorkflow.nextTimeout.timestamp,
+    } satisfies Partial<WorkflowRecoveryChildWorkflowWaitSummary>);
+  }
+
+  if (childWorkflow.nextTimeout !== undefined) {
+    Object.assign(result1, {
+      nextTimeoutRunId: childWorkflow.nextTimeout.runId,
+    } satisfies Partial<WorkflowRecoveryChildWorkflowWaitSummary>);
+  }
+
+  return result1;
 }

@@ -1,3 +1,4 @@
+import { ss } from "@temelj/standard-schema";
 import { describe, expect, test } from "vitest";
 
 import { createWorkflowClient } from "../../src/client/create.ts";
@@ -18,14 +19,17 @@ import {
 describe("workflow test utilities", () => {
   test("waits for an active workflow sleep using public handle inspection", async () => {
     let now = Temporal.Instant.from("2026-06-11T10:00:00Z");
+
     const engine = createWorkflowEngine({
       createRunId: () => "run_test_utils_sleep",
       now: () => now,
     });
+
     const workflow = implementWorkflow<undefined, string>(
       { name: "test-utils-sleep" },
       async ({ step }) => {
         await step.task.sleep("pause", Temporal.Duration.from({ seconds: 1 }));
+
         return "done";
       },
     );
@@ -53,10 +57,12 @@ describe("workflow test utilities", () => {
   test("wakes one due workflow run through the client helper", async () => {
     const engine = createWorkflowEngine({ createRunId: () => "run_test_utils_wake" });
     const client = createWorkflowClient({ engine });
+
     const workflow = implementWorkflow<undefined, string>(
       { name: "test-utils-wake" },
       () => "done",
     );
+
     client.register(workflow);
 
     const handle = await client.runs.start(workflow, undefined);
@@ -72,20 +78,26 @@ describe("workflow test utilities", () => {
 
   test("wakes the supplied run handle when multiple matching runs are due", async () => {
     const runIds = ["run_test_utils_wake_first", "run_test_utils_wake_second"];
+
     const engine = createWorkflowEngine({
       createRunId: () => {
         const runId = runIds.shift();
+
         if (runId === undefined) {
           throw new Error("Unexpected run id allocation");
         }
+
         return runId;
       },
     });
+
     const client = createWorkflowClient({ engine });
+
     const workflow = implementWorkflow<undefined, string>(
       { name: "test-utils-wake-specific" },
       () => "done",
     );
+
     client.register(workflow);
 
     const first = await client.runs.start(workflow, undefined);
@@ -104,14 +116,18 @@ describe("workflow test utilities", () => {
   test("waits for and resumes an active workflow hook", async () => {
     const engine = createWorkflowEngine({ createRunId: () => "run_test_utils_hook" });
     const client = createWorkflowClient({ engine });
+
     const workflow = implementWorkflow<undefined, string>(
       { name: "test-utils-hook" },
       async ({ step }) => {
-        const hook = step.hook.create<{ readonly approved: boolean }>({
+        const hook = step.hook.create({
+          schema: ss.object({ approved: ss.boolean() }),
           name: "approval",
           messageId: "approval.received",
         });
+
         const payload = await hook;
+
         return payload.approved ? "approved" : "rejected";
       },
     );
@@ -144,19 +160,24 @@ describe("workflow test utilities", () => {
     let webhookToken: string | undefined;
     const engine = createWorkflowEngine({ createRunId: () => "run_test_utils_web_stream" });
     const client = createWorkflowClient({ engine });
+
     const workflow = implementWorkflow<undefined, string>(
       { name: "test-utils-web-stream" },
       async ({ step }) => {
         const stream = step.stream.create<{ readonly message: string }>("updates");
         await stream.write({ message: "waiting" });
-        const webhook = step.hook.createWebhook<{ readonly approved: boolean }>({
+
+        const webhook = step.hook.createWebhook({
+          schema: ss.object({ approved: ss.boolean() }),
           name: "approval",
           messageId: "approval.webhook",
         });
+
         webhookToken = webhook.token;
         const payload = await webhook;
         await stream.write({ message: payload.approved ? "approved" : "rejected" });
         await stream.close();
+
         return payload.approved ? "approved" : "rejected";
       },
     );
@@ -165,12 +186,12 @@ describe("workflow test utilities", () => {
     await expect(engine.resumeWorkflow(workflow, handle.runId)).resolves.toMatchObject({
       kind: "waiting",
     });
+
     if (webhookToken === undefined) {
       throw new Error("Expected webhook token");
     }
-    await expect(
-      readStream<{ readonly message: string }>(client, handle.runId, "updates"),
-    ).resolves.toMatchObject({
+
+    await expect(readStream(client, handle.runId, "updates")).resolves.toMatchObject({
       status: "open",
       chunks: [{ index: 0, value: { message: "waiting" } }],
     });
@@ -184,7 +205,7 @@ describe("workflow test utilities", () => {
       output: "approved",
     });
     await expect(
-      readStream<{ readonly message: string }>(client, handle.runId, "updates", {
+      readStream(client, handle.runId, "updates", {
         fromIndex: 1,
       }),
     ).resolves.toMatchObject({
@@ -196,10 +217,12 @@ describe("workflow test utilities", () => {
   test("asserts replay does not append duplicate durable events", async () => {
     const engine = createWorkflowEngine({ createRunId: () => "run_test_utils_replay" });
     const client = createWorkflowClient({ engine });
+
     const workflow = implementWorkflow<undefined, string>(
       { name: "test-utils-replay" },
       async ({ step }) => {
         await step.task.run({ name: "once" }, () => "done");
+
         return "done";
       },
     );
@@ -257,10 +280,12 @@ export async function calculate(input: number) {
 
   test("reports observed timeline state when a wait times out", async () => {
     const engine = createWorkflowEngine({ createRunId: () => "run_test_utils_timeout" });
+
     const workflow = implementWorkflow<undefined, string>(
       { name: "test-utils-timeout" },
       async ({ step }) => {
         await step.task.sleep("pause", Temporal.Duration.from({ seconds: 1 }));
+
         return "done";
       },
     );

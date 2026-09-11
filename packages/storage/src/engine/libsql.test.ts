@@ -5,8 +5,8 @@ import { createStorage } from "../storage.ts";
 import { LibSqlStorageEngine } from "./libsql.ts";
 
 function createLibSqlEngine(
-  options: ConstructorParameters<typeof LibSqlStorageEngine<string>>[0] = {},
-): LibSqlStorageEngine<string> {
+  options: Omit<ConstructorParameters<typeof LibSqlStorageEngine<"string">>[0], "format"> = {},
+): LibSqlStorageEngine<"string"> {
   const client = new Database(":memory:");
   client.exec(`
     CREATE TABLE temelj_storage (
@@ -15,10 +15,36 @@ function createLibSqlEngine(
       expires_at INTEGER
     )
   `);
-  return new LibSqlStorageEngine<string>({ ...options, client });
+
+  return new LibSqlStorageEngine({ format: "string", ...options, client });
 }
 
 describe("libSQL engine", () => {
+  test.each(["string", "number", "bytes"] as const)(
+    "checks the %s representation when reading rows",
+    async (format) => {
+      const client = new Database(":memory:");
+      client.exec(
+        "CREATE TABLE temelj_storage (key TEXT PRIMARY KEY, value NOT NULL, expires_at INTEGER)",
+      );
+      const samples = { string: "text", number: 42, bytes: new Uint8Array([0, 128, 255]) };
+      const engine = new LibSqlStorageEngine({ client, format });
+
+      try {
+        await engine.set("valid", samples[format]);
+        expect(await engine.get("valid")).toEqual(samples[format]);
+        client
+          .prepare("INSERT INTO temelj_storage (key, value) VALUES (?, ?)")
+          .run("invalid", format === "string" ? 123 : "wrong format");
+        await expect(engine.get("invalid")).rejects.toThrow(
+          "does not match the requested " + format + " format",
+        );
+        await expect(engine.getMany(["valid", "invalid"])).rejects.toThrow(TypeError);
+      } finally {
+        client.close();
+      }
+    },
+  );
   test("stores bytes, scans prefixes, and clears values", async () => {
     const storage = createStorage({
       engine: createLibSqlEngine({
@@ -49,6 +75,7 @@ describe("libSQL engine", () => {
 
   test("expires values and does not count expired deletes", async () => {
     vi.useFakeTimers();
+
     const storage = createStorage({
       engine: createLibSqlEngine(),
     });
@@ -124,6 +151,7 @@ describe("libSQL engine", () => {
 
   test("treats expired compare-and-set rows as absent", async () => {
     vi.useFakeTimers();
+
     const storage = createStorage({
       engine: createLibSqlEngine(),
     });
@@ -182,6 +210,7 @@ describe("libSQL engine", () => {
 
   test("treats expired compare-and-set-many rows as absent", async () => {
     vi.useFakeTimers();
+
     const storage = createStorage({
       engine: createLibSqlEngine(),
     });

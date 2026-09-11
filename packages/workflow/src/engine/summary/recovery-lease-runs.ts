@@ -34,16 +34,24 @@ export function createWorkflowRecoveryLeaseRunSummaryReducer(
   now: Temporal.Instant,
 ): WorkflowRecoveryLeaseRunSummaryReducer {
   const lease = createWorkflowRecoveryLeaseRunAccumulator();
+
   return {
     addRun(run) {
       addWorkflowRecoveryLeaseRun(lease, run, now);
     },
-    finish() {
-      return {
+    finish(): WorkflowRecoveryLeaseRunSummaryParts {
+      const result: WorkflowRecoveryLeaseRunSummaryParts = {
         lease: finishWorkflowRecoveryLeaseSummary(lease),
         staleRunIds: [...lease.staleRunIds].sort(),
-        ...(lease.nextExpires === undefined ? {} : { nextLeaseExpires: lease.nextExpires }),
       };
+
+      if (lease.nextExpires !== undefined) {
+        Object.assign(result, {
+          nextLeaseExpires: lease.nextExpires,
+        } satisfies Partial<WorkflowRecoveryLeaseRunSummaryParts>);
+      }
+
+      return result;
     },
   };
 }
@@ -68,24 +76,31 @@ function addWorkflowRecoveryLeaseRun(
   if (run.status !== "running") {
     return;
   }
+
   lease.runIds.add(run.id);
+
   if (run.workerId !== undefined) {
     lease.workerIds.add(run.workerId);
   } else {
     lease.staleRunIds.add(run.id);
     lease.ownerlessRunIds.add(run.id);
   }
+
   if (run.leaseExpiresAt === undefined) {
     lease.staleRunIds.add(run.id);
     lease.missingExpiresAtRunIds.add(run.id);
+
     return;
   }
+
   if (Temporal.Instant.compare(run.leaseExpiresAt, now) <= 0) {
     lease.staleRunIds.add(run.id);
     lease.expiredRunIds.add(run.id);
     lease.oldestStaleAt = earliestWorkflowRecoveryInstant(lease.oldestStaleAt, run.leaseExpiresAt);
+
     return;
   }
+
   if (run.workerId !== undefined) {
     lease.nextExpires = earliestWorkflowRecoveryTimestamp(
       lease.nextExpires,
@@ -98,7 +113,7 @@ function addWorkflowRecoveryLeaseRun(
 function finishWorkflowRecoveryLeaseSummary(
   lease: WorkflowRecoveryLeaseRunAccumulator,
 ): WorkflowRecoveryLeaseSummary {
-  return {
+  const result1: WorkflowRecoveryLeaseSummary = {
     total: lease.runIds.size,
     stale: lease.staleRunIds.size,
     runIds: [...lease.runIds].sort(),
@@ -108,9 +123,20 @@ function finishWorkflowRecoveryLeaseSummary(
     invalidExpiresAtRunIds: [...lease.invalidExpiresAtRunIds].sort(),
     expiredRunIds: [...lease.expiredRunIds].sort(),
     workerIds: [...lease.workerIds].sort(),
-    ...(lease.nextExpires === undefined
-      ? {}
-      : { nextExpiresAt: lease.nextExpires.timestamp, nextExpiringRunId: lease.nextExpires.runId }),
-    ...(lease.oldestStaleAt === undefined ? {} : { oldestStaleAt: lease.oldestStaleAt }),
   };
+
+  if (lease.nextExpires !== undefined) {
+    Object.assign(result1, {
+      nextExpiresAt: lease.nextExpires.timestamp,
+      nextExpiringRunId: lease.nextExpires.runId,
+    } satisfies Partial<WorkflowRecoveryLeaseSummary>);
+  }
+
+  if (lease.oldestStaleAt !== undefined) {
+    Object.assign(result1, {
+      oldestStaleAt: lease.oldestStaleAt,
+    } satisfies Partial<WorkflowRecoveryLeaseSummary>);
+  }
+
+  return result1;
 }

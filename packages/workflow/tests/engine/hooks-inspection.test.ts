@@ -1,3 +1,4 @@
+import { ss } from "@temelj/standard-schema";
 import { describe, expect, it } from "vitest";
 
 import { createWorkflowClient } from "../../src/client/create.ts";
@@ -10,9 +11,16 @@ describe("workflow hook inspection", () => {
     let token = "";
     const engine = createWorkflowEngine({ createRunId: () => "run-hook-inspection" });
     const client = createWorkflowClient({ engine });
+
     const workflow = implementWorkflow({ name: "hook-inspection" }, async ({ step }) => {
-      const hook = step.hook.create<string>({ name: "approval", messageId: "approved" });
+      const hook = step.hook.create({
+        schema: ss.string(),
+        name: "approval",
+        messageId: "approved",
+      });
+
       token = hook.token;
+
       return await hook;
     });
 
@@ -44,13 +52,17 @@ describe("workflow hook inspection", () => {
   it("inspects webhook token metadata", async () => {
     let token = "";
     const engine = createWorkflowEngine({ createRunId: () => "run-webhook-inspection" });
+
     const workflow = implementWorkflow({ name: "webhook-inspection" }, async ({ step }) => {
-      const webhook = step.hook.createWebhook<{ ok: true }>({
+      const webhook = step.hook.createWebhook({
+        schema: ss.object({ ok: ss.literal(true) }),
         name: "incoming",
         messageId: "posted",
         metadata: { route: "/hooks/incoming" },
       });
+
       token = webhook.token;
+
       return await webhook;
     });
 
@@ -76,16 +88,20 @@ describe("workflow hook inspection", () => {
   it("reports missing and expired hooks", async () => {
     let now = Temporal.Instant.from("2025-01-01T00:00:00Z");
     let token = "";
+
     const engine = createWorkflowEngine({
       createRunId: () => "run-expired-hook",
       now: () => now,
     });
+
     const workflow = implementWorkflow({ name: "expired-hook" }, async ({ step }) => {
       const hook = step.hook.create({
         name: "approval",
         timeout: Temporal.Duration.from({ milliseconds: 10 }),
       });
+
       token = hook.token;
+
       return await hook;
     });
 
@@ -109,16 +125,20 @@ describe("workflow hook inspection", () => {
   it("reports failed and run-terminal hooks", async () => {
     let now = Temporal.Instant.from("2025-01-01T00:00:00Z");
     let failedToken = "";
+
     const failedEngine = createWorkflowEngine({
       createRunId: () => "run-failed-hook",
       now: () => now,
     });
+
     const failedWorkflow = implementWorkflow({ name: "failed-hook" }, async ({ step }) => {
       const hook = step.hook.create({
         name: "approval",
         timeout: Temporal.Duration.from({ milliseconds: 10 }),
       });
+
       failedToken = hook.token;
+
       return await hook;
     });
 
@@ -135,9 +155,11 @@ describe("workflow hook inspection", () => {
 
     let terminalToken = "";
     const terminalEngine = createWorkflowEngine({ createRunId: () => "run-terminal-hook" });
+
     const terminalWorkflow = implementWorkflow({ name: "terminal-hook" }, async ({ step }) => {
       const hook = step.hook.create({ name: "approval" });
       terminalToken = hook.token;
+
       return await hook;
     });
 
@@ -198,5 +220,6 @@ function hookToken(runId: string, name: string, messageId: string): string {
   const payload = Buffer.from(JSON.stringify({ v: 1, runId, name, messageId })).toString(
     "base64url",
   );
+
   return `temelj-hook:v1:${payload}`;
 }

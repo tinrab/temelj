@@ -1,7 +1,8 @@
 import type { TimerDelay } from "./types/common.ts";
 
 import { WorkflowOptionsError } from "./errors/mod.ts";
-import { durationTotal, isNonNegativeSafeInteger, isPositiveSafeInteger } from "./utility.ts";
+import { durationTotal } from "./temporal.ts";
+import { isNonNegativeSafeInteger, isPositiveSafeInteger } from "./utility.ts";
 
 export const MAX_TIMER_DELAY = 2 ** 31 - 1;
 
@@ -17,9 +18,11 @@ export function nonNegativeTimerDelay(
   maximumDelay: number = MAX_TIMER_DELAY,
 ): TimerDelay {
   const delay = durationTotal(duration);
+
   if (!isNonNegativeSafeInteger(delay)) {
     WorkflowOptionsError.nonNegativeDuration(label);
   }
+
   return {
     duration,
     clampedDelay: Math.min(delay, maximumDelay),
@@ -32,9 +35,11 @@ export function positiveTimerDelay(
   maximumDelay: number = MAX_TIMER_DELAY,
 ): TimerDelay {
   const delay = durationTotal(duration);
+
   if (!isPositiveSafeInteger(delay)) {
     WorkflowOptionsError.positiveDuration(label);
   }
+
   return {
     duration,
     clampedDelay: Math.min(delay, maximumDelay),

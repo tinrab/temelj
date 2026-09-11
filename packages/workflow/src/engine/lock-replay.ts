@@ -1,18 +1,14 @@
 import type { WorkflowErrorRecord } from "../types/error.ts";
+import type { DeterministicValueRecordedEvent } from "../types/events.ts";
 import type { LockRecord } from "../types/lock.ts";
 
 import { WorkflowReplayDivergenceError, WorkflowRetryableError } from "../errors/mod.ts";
 import { RunId } from "../types/run.ts";
-import { StepId } from "../types/step.ts";
 
-export function requireLockWaitDeadlineReplayMatches(
-  recorded: {
-    readonly stepId: StepId;
-    readonly timestamp: Temporal.Instant;
-    readonly value: unknown;
-  },
+export function parseLockWaitDeadlineReplay(
+  recorded: DeterministicValueRecordedEvent,
   timeout: number,
-): void {
+): Temporal.Instant {
   if (!(recorded.value instanceof Temporal.Instant)) {
     WorkflowReplayDivergenceError.diverged(
       `recorded lock wait deadline ${recorded.stepId} is invalid`,
@@ -22,10 +18,13 @@ export function requireLockWaitDeadlineReplayMatches(
       },
     );
   }
+
   const deadlineOffset = recorded.value.since(recorded.timestamp).total({ unit: "millisecond" });
+
   if (deadlineOffset === timeout) {
-    return;
+    return recorded.value;
   }
+
   WorkflowReplayDivergenceError.diverged(
     `recorded lock wait deadline ${recorded.stepId} does not match replayed waitTimeout`,
     {
@@ -47,6 +46,7 @@ export function requireLockReplayMatches(
   const recordedLeaseDuration = recorded.leaseExpiresAt
     .since(recorded.acquiredAt)
     .total({ unit: "millisecond" });
+
   if (
     recorded.key === expected.key &&
     recorded.holderId === expected.holderId &&
@@ -55,6 +55,7 @@ export function requireLockReplayMatches(
   ) {
     return;
   }
+
   WorkflowReplayDivergenceError.diverged(
     `recorded lock step ${recorded.holderStepId ?? recorded.key} does not match replayed lock acquisition`,
     {
@@ -78,6 +79,7 @@ export function requireLockReleaseReplayMatches(
   ) {
     return;
   }
+
   WorkflowReplayDivergenceError.diverged(
     `recorded lock step ${recorded.holderStepId ?? recorded.key} does not match replayed lock release`,
     {
@@ -99,9 +101,11 @@ export function requireLockWaitReplayMatches(
   const waited = failedSteps.some((failed) =>
     WorkflowRetryableError.isLockAlreadyHeld(failed.error, expected.key),
   );
+
   if (!waited || expected.wait) {
     return;
   }
+
   WorkflowReplayDivergenceError.diverged(
     `recorded lock ${expected.key} waited but replayed lock acquisition does not allow waiting`,
     {

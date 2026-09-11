@@ -25,6 +25,7 @@ import { WorkflowRecordedIdContext } from "./types/engine-options.ts";
 /** Converts arbitrary command ID text into a stable segment safe for recorded IDs. */
 export function sanitizeRecordedIdPart(value: string): string {
   const sanitized = value.replaceAll(/[^a-zA-Z0-9_-]/g, "_");
+
   return sanitized === "" ? "run" : sanitized;
 }
 
@@ -33,6 +34,7 @@ export function formatStandardSchemaIssues(error: StandardSchemaValidationError)
   return error.issues
     .map((issue) => {
       const path = issue.path?.join(".");
+
       return path === undefined || path === "" ? issue.message : `${path}: ${issue.message}`;
     })
     .join("; ");
@@ -46,22 +48,24 @@ export function greatestOptionalNumber(
   if (next === undefined || !isPositiveSafeInteger(next)) {
     return current;
   }
+
   if (current === undefined) {
     return next;
   }
+
   return Math.max(current, next);
 }
 
 // Safe integer helpers.
 
 /** Returns whether a value is a positive safe integer. */
-export function isPositiveSafeInteger(value: unknown): value is number {
-  return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
+export function isPositiveSafeInteger(value: number): boolean {
+  return Number.isSafeInteger(value) && value > 0;
 }
 
 /** Returns whether a value is a non-negative safe integer. */
-export function isNonNegativeSafeInteger(value: unknown): value is number {
-  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+export function isNonNegativeSafeInteger(value: number): boolean {
+  return Number.isSafeInteger(value) && value >= 0;
 }
 
 /** Returns the next positive safe integer, or undefined when the input cannot be advanced. */
@@ -113,13 +117,8 @@ export function isTerminalWorkflowLifecycleEventForRun(
 /** Creates a default worker identifier using the current time and a random suffix. */
 export function createDefaultWorkerId(): WorkerId {
   const timestamp = Temporal.Now.instant().epochMilliseconds.toString(36);
-  return `worker_${timestamp}_${Math.random().toString(36).slice(2)}`;
-}
 
-/** Returns a duration's total milliseconds, or NaN when Temporal cannot represent it safely. */
-export function durationTotal(value: Temporal.Duration): number {
-  const total = value.total({ unit: "millisecond" });
-  return Number.isFinite(total) ? total : Number.NaN;
+  return `worker_${timestamp}_${Math.random().toString(36).slice(2)}`;
 }
 
 export function safeDuration(value: number, label: string): number {
@@ -129,8 +128,10 @@ export function safeDuration(value: number, label: string): number {
     if (!(error instanceof WorkflowOptionsError)) {
       throw error;
     }
+
     WorkflowDurationError.timerSafe(label);
   }
+
   return value;
 }
 
@@ -138,10 +139,13 @@ export function durationAmount(value: Temporal.Duration, label: string): number 
   if (!(value instanceof Temporal.Duration)) {
     WorkflowDurationError.temporalDuration(label);
   }
+
   const amount = value.total({ unit: "millisecond" });
+
   if (!Number.isFinite(amount)) {
     WorkflowDurationError.finite(label);
   }
+
   return amount;
 }
 
@@ -153,6 +157,7 @@ export function resolveSafeRetryDelay(
   if (value !== undefined && !Number.isSafeInteger(value)) {
     WorkflowOptionsError.safeDuration(label);
   }
+
   return value;
 }
 
@@ -160,6 +165,7 @@ export function nextRunAttempt(value: number | undefined): number {
   if (value === undefined || !isNonNegativeSafeInteger(value) || value >= Number.MAX_SAFE_INTEGER) {
     return 1;
   }
+
   return value + 1;
 }
 
@@ -170,13 +176,14 @@ export function limitWorkflowItems<T>(
   if (limit === undefined) {
     return items;
   }
+
   return items.slice(0, limit);
 }
 
-export function isAbortError(error: unknown): boolean {
+export function isAbortError(cause: unknown): boolean {
   return (
-    (error instanceof Error && error.name === "AbortError") ||
-    (error instanceof DOMException && error.name === "AbortError")
+    (cause instanceof Error && cause.name === "AbortError") ||
+    (cause instanceof DOMException && cause.name === "AbortError")
   );
 }
 
@@ -184,6 +191,7 @@ export function positiveSafeInteger(value: number, label: string): number {
   if (!isPositiveSafeInteger(value)) {
     WorkflowDurationError.positiveSafeInteger(label);
   }
+
   return value;
 }
 
@@ -194,9 +202,11 @@ export function resolvePositiveSafeIntegerOption(
   if (value === undefined) {
     return undefined;
   }
+
   if (!isPositiveSafeInteger(value)) {
     WorkflowOptionsError.positiveSafeInteger(label);
   }
+
   return value;
 }
 
@@ -205,9 +215,11 @@ export async function getRequiredRun(
   runId: RunId,
 ): Promise<WorkflowRunRecord> {
   const run = await store.getRun(runId);
+
   if (run === undefined) {
     WorkflowRunNotFoundError.notFound(runId);
   }
+
   return run;
 }
 

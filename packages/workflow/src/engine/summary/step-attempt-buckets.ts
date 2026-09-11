@@ -5,10 +5,15 @@ import type {
 } from "../../types/step-attempts.ts";
 
 type WorkflowStepAttemptStatusAttemptKeys = Record<WorkflowStepAttemptStatus, string[]>;
+
 type WorkflowStepAttemptStatusCounts = Record<WorkflowStepAttemptStatus, number>;
+
 type WorkflowStepAttemptStatusStepIds = Record<WorkflowStepAttemptStatus, string[]>;
+
 type WorkflowStepAttemptKindAttemptKeys = Record<WorkflowMaterializedStepType, string[]>;
+
 type WorkflowStepAttemptKindCounts = Record<WorkflowMaterializedStepType, number>;
+
 type WorkflowStepAttemptKindStepIds = Record<WorkflowMaterializedStepType, string[]>;
 
 export interface WorkflowStepAttemptStatusSummaryFields {
@@ -43,6 +48,7 @@ interface WorkflowStepAttemptKindAccumulator {
 export function createWorkflowStepAttemptBucketSummaryReducer(): WorkflowStepAttemptBucketSummaryReducer {
   const status = createWorkflowStepAttemptStatusAccumulator();
   const kind = createWorkflowStepAttemptKindAccumulator();
+
   return {
     addAttempt(attempt, attemptKey) {
       addWorkflowStepAttemptStatus(status, attempt, attemptKey);

@@ -74,10 +74,12 @@ function addWorkflowRunFailureError(
   run: WorkflowRunRecord,
 ): void {
   const errorName = run.error?.name ?? "Error";
+
   const current = failure.errors.get(errorName) ?? {
     count: 0,
     failedRunIds: new Set<string>(),
   };
+
   current.count++;
   current.failedRunIds.add(run.id);
   setWorkflowRunFailureErrorLatestFailure(current, run);
@@ -94,18 +96,23 @@ function setWorkflowRunFailureErrorLatestFailure(
 function finishWorkflowRunFailureSummary(
   failure: WorkflowRunFailureAccumulator,
 ): WorkflowRunFailureSummaryFields {
-  return failure.total === 0
-    ? {}
-    : {
-        failure: {
-          total: failure.total,
-          failedRunIds: [...failure.failedRunIds].sort(),
-          errors: finishWorkflowRunFailureErrors(failure.errors),
-          ...(failure.latestFailedAt === undefined
-            ? {}
-            : { latestFailedAt: failure.latestFailedAt }),
-        },
-      };
+  if (failure.total === 0) {
+    return {};
+  }
+
+  const result: NonNullable<WorkflowRunFailureSummaryFields["failure"]> = {
+    total: failure.total,
+    failedRunIds: [...failure.failedRunIds].sort(),
+    errors: finishWorkflowRunFailureErrors(failure.errors),
+  };
+
+  if (failure.latestFailedAt !== undefined) {
+    Object.assign(result, { latestFailedAt: failure.latestFailedAt } satisfies Partial<
+      NonNullable<WorkflowRunFailureSummaryFields["failure"]>
+    >);
+  }
+
+  return { failure: result };
 }
 
 function finishWorkflowRunFailureErrors(
@@ -113,10 +120,19 @@ function finishWorkflowRunFailureErrors(
 ): WorkflowRunFailureErrorSummary[] {
   return [...errors.entries()]
     .sort(([left], [right]) => left.localeCompare(right))
-    .map(([name, summary]) => ({
-      name,
-      count: summary.count,
-      failedRunIds: [...summary.failedRunIds].sort(),
-      ...(summary.latestFailedAt === undefined ? {} : { latestFailedAt: summary.latestFailedAt }),
-    }));
+    .map(([name, summary]): WorkflowRunFailureErrorSummary => {
+      const result: WorkflowRunFailureErrorSummary = {
+        name,
+        count: summary.count,
+        failedRunIds: [...summary.failedRunIds].sort(),
+      };
+
+      if (summary.latestFailedAt !== undefined) {
+        Object.assign(result, {
+          latestFailedAt: summary.latestFailedAt,
+        } satisfies Partial<WorkflowRunFailureErrorSummary>);
+      }
+
+      return result;
+    });
 }

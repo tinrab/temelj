@@ -10,6 +10,7 @@ describe("workflow run creation idempotency", () => {
   test("rolls back a non-atomic run record when event history creation fails", async () => {
     const storage = createFailingFallbackCreateRunStorage("run-create-fallback-failure");
     const store = createWorkflowStore({ storage });
+
     const run = pendingRun("run-create-fallback-failure", {
       idempotencyKey: "create-fallback-failure",
     });

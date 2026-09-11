@@ -37,6 +37,7 @@ export class WorkflowError extends Error {
     return new WorkflowError(message, options, WorkflowError.fromMessage);
   }
 }
+
 /** Error thrown for options failures. */
 export class WorkflowOptionsError extends WorkflowError {
   constructor(message: string, context?: Function, options: WorkflowErrorOptions = {}) {
@@ -254,6 +255,7 @@ export class WorkflowOptionsError extends WorkflowError {
     );
   }
 }
+
 /** Error thrown for state failures. */
 export class WorkflowStateError extends WorkflowError {
   constructor(message: string, context?: Function, options: WorkflowErrorOptions = {}) {

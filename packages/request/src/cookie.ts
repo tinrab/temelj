@@ -46,6 +46,7 @@ export interface Cookie {
  */
 export function parseCookie(source: string): Cookie | undefined {
   const parsed = cookieUtility.parse(source);
+
   if (!parsed) {
     return undefined;
   }
@@ -56,9 +57,11 @@ export function parseCookie(source: string): Cookie | undefined {
   };
 
   const js = parsed.toJSON();
+
   if ("secure" in js) {
     cookie.secure = js.secure === true;
   }
+
   if ("httpOnly" in js) {
     cookie.httpOnly = js.httpOnly === true;
   }
@@ -66,9 +69,11 @@ export function parseCookie(source: string): Cookie | undefined {
   if (parsed.domain !== null) {
     cookie.domain = parsed.domain;
   }
+
   if (parsed.path !== null) {
     cookie.path = parsed.path;
   }
+
   if (parsed.expires && parsed.expires !== "Infinity") {
     cookie.expires = new Date(parsed.expires);
   }
@@ -81,7 +86,7 @@ export function parseCookie(source: string): Cookie | undefined {
     cookie.sameSite = "none";
   }
 
-  if (typeof parsed.maxAge === "number") {
+  if (parsed.maxAge !== null && parsed.maxAge !== "Infinity" && parsed.maxAge !== "-Infinity") {
     cookie.maxAge = parsed.maxAge;
   } else if (parsed.maxAge === "-Infinity") {
     cookie.maxAge = -1;
@@ -90,6 +95,7 @@ export function parseCookie(source: string): Cookie | undefined {
   if (parsed.extensions) {
     for (const extension of parsed.extensions) {
       const parts = extension.toLowerCase().split("=");
+
       if (parts.length === 2) {
         if (parts[0] === "priority") {
           if (parts[1] === "low" || parts[1] === "medium" || parts[1] === "high") {
@@ -109,6 +115,7 @@ export function parseCookie(source: string): Cookie | undefined {
           if (cookie.extra === undefined) {
             cookie.extra = {};
           }
+
           cookie.extra[parts[0]] = parts[1];
         }
       } else if (parts.length === 1) {
@@ -118,6 +125,7 @@ export function parseCookie(source: string): Cookie | undefined {
           if (cookie.extra === undefined) {
             cookie.extra = {};
           }
+
           cookie.extra[parts[0]] = "true";
         }
       } else {
@@ -134,12 +142,15 @@ export function parseCookie(source: string): Cookie | undefined {
  */
 export function serializeCookie(cookie: Cookie): string {
   const extensions: string[] = [];
+
   if (cookie.priority !== undefined) {
     extensions.push(`Priority=${cookie.priority};`);
   }
+
   if (cookie.partitioned !== undefined) {
     extensions.push("Partitioned;");
   }
+
   return new cookieUtility.Cookie({
     key: cookie.name,
     value: cookie.value,
@@ -148,12 +159,7 @@ export function serializeCookie(cookie: Cookie): string {
     httpOnly: cookie.httpOnly,
     maxAge: cookie.maxAge ?? null,
     path: cookie.path ?? null,
-    sameSite:
-      typeof cookie.sameSite === "boolean"
-        ? cookie.sameSite
-          ? "true"
-          : undefined
-        : cookie.sameSite,
+    sameSite: cookie.sameSite,
     secure: cookie.secure,
     extensions,
   }).toString();
@@ -219,11 +225,13 @@ export async function parseEncryptedCookie(
   options: CookieEncryptionOptions,
 ): Promise<Cookie | undefined> {
   const cookie = parseCookie(source);
+
   if (cookie === undefined) {
     return undefined;
   }
 
   const cookieValue = await decryptCookieValue(cookie.value, options);
+
   if (cookieValue === undefined) {
     return undefined;
   }
@@ -241,6 +249,7 @@ export async function serializeEncryptedCookie(
   options: CookieEncryptionOptions,
 ): Promise<string> {
   const cookieValue = await encryptCookieValue(cookie.value, options);
+
   return serializeCookie({ ...cookie, value: cookieValue });
 }
 
@@ -252,12 +261,15 @@ export async function serializeEncryptedCookie(
  */
 export function parseCookieHeader(header: string): Cookie[] {
   const cookies: Cookie[] = [];
+
   for (const cookie of header.split(";")) {
     const parsed = parseCookie(cookie);
+
     if (parsed !== undefined) {
       cookies.push(parsed);
     }
   }
+
   return cookies;
 }
 
@@ -279,6 +291,7 @@ export function serializeCookieHeader(cookies: Cookie[]): string {
 }
 
 const VERSION: string = "1";
+
 const SEPARATOR: string = "|";
 
 /**
@@ -302,12 +315,13 @@ export async function encryptCookieValue(
   };
 
   const encryptionKey = await generateKey(keyOptions);
+
   const encrypted = new Uint8Array(
     await crypto.subtle.encrypt(
       {
         name: keyOptions.algorithm,
         iv: encryptionKey.iv,
-      } as AesCbcParams,
+      } satisfies AesCbcParams,
       encryptionKey.key,
       new TextEncoder().encode(value),
     ),
@@ -336,11 +350,13 @@ export async function decryptCookieValue(
   options: CookieEncryptionOptions,
 ): Promise<string | undefined> {
   const parts = value.split(SEPARATOR);
+
   if (parts.length !== 6) {
     return undefined;
   }
 
   const [version, iv, salt, encrypted, signDigest, signSalt] = parts;
+
   if (version !== VERSION || !iv || !salt || !encrypted || !signDigest || !signSalt) {
     return undefined;
   }
@@ -358,23 +374,27 @@ export async function decryptCookieValue(
     ...keyOptions,
     salt: signSalt,
   });
+
   const textEncoder = new TextEncoder();
+
   if (!timingSafeEqual(textEncoder.encode(signature.digest), textEncoder.encode(signDigest))) {
     return undefined;
   }
 
   const textDecoder = new TextDecoder();
+
   const { key } = await generateKey({
     ...keyOptions,
     // salt: textDecoder.decode(decodeBase64Url(salt)),
     salt: textDecoder.decode(Buffer.from(salt, "base64")),
   });
+
   const decrypted = await crypto.subtle.decrypt(
     {
       name: keyOptions.algorithm,
       // iv: decodeBase64Url(iv),
       iv: Buffer.from(iv, "base64"),
-    } as AesCbcParams,
+    } satisfies AesCbcParams,
     key,
     // decodeBase64Url(encrypted),
     Buffer.from(encrypted, "base64"),
@@ -385,7 +405,7 @@ export async function decryptCookieValue(
 
 interface EncryptionKey {
   key: CryptoKey;
-  iv: Uint8Array;
+  iv: Uint8Array<ArrayBuffer>;
   salt: string;
 }
 
@@ -399,6 +419,7 @@ async function generateKey(options: GenerateKeyOptions): Promise<EncryptionKey> 
   const iv = crypto.getRandomValues(new Uint8Array(Math.ceil(options.ivBits / 8)));
 
   const passwordBytes = new TextEncoder().encode(options.password);
+
   const importedKey = await crypto.subtle.importKey(
     "raw",
     passwordBytes,
@@ -408,6 +429,7 @@ async function generateKey(options: GenerateKeyOptions): Promise<EncryptionKey> 
   );
 
   let randomSalt = options.salt;
+
   if (!randomSalt) {
     const bytes = new Uint8Array(Math.ceil(options.saltsBits / 8));
     crypto.getRandomValues(bytes);

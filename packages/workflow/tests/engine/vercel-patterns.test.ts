@@ -1,3 +1,4 @@
+import { ss } from "@temelj/standard-schema";
 import { describe, expect, test } from "vitest";
 
 import { createWorkflowClient } from "../../src/client/create.ts";
@@ -10,9 +11,11 @@ describe("Vercel workflow patterns on Temelj primitives", () => {
   test("starts a workflow and tracks it through the run handle", async () => {
     const engine = createWorkflowEngine({ createRunId: () => "run_pattern_start" });
     const client = createWorkflowClient({ engine });
+
     const def = defineWorkflow<string, { readonly message: string }>({
       name: "pattern-start",
     });
+
     const workflow = client.workflow(def, ({ input }) => ({
       message: `hello ${input}`,
     }));
@@ -35,18 +38,22 @@ describe("Vercel workflow patterns on Temelj primitives", () => {
 
   test("fans out independent step definitions with Promise.allSettled", async () => {
     const engine = createWorkflowEngine({ createRunId: () => "run_pattern_fan_out" });
+
     const sendSlack = defineWorkflowStep(
       { name: "send-slack" },
-      (incidentId: string, _message: string) => ({ incidentId, channel: "slack" }),
+      (_context, incidentId: string, _message: string) => ({ incidentId, channel: "slack" }),
     );
+
     const sendEmail = defineWorkflowStep(
       { name: "send-email" },
-      (incidentId: string, _message: string) => ({ incidentId, channel: "email" }),
+      (_context, incidentId: string, _message: string) => ({ incidentId, channel: "email" }),
     );
+
     const sendSms = defineWorkflowStep(
       { name: "send-sms" },
-      (incidentId: string, _message: string) => ({ incidentId, channel: "sms" }),
+      (_context, incidentId: string, _message: string) => ({ incidentId, channel: "sms" }),
     );
+
     const workflow = implementWorkflow<
       { readonly incidentId: string; readonly message: string },
       { readonly incidentId: string; readonly delivered: number; readonly failed: number }
@@ -56,7 +63,9 @@ describe("Vercel workflow patterns on Temelj primitives", () => {
         step.task.call(sendEmail, input.incidentId, input.message),
         step.task.call(sendSms, input.incidentId, input.message),
       ]);
+
       const delivered = settled.filter((result) => result.status === "fulfilled").length;
+
       return {
         incidentId: input.incidentId,
         delivered,
@@ -87,41 +96,53 @@ describe("Vercel workflow patterns on Temelj primitives", () => {
 
   test("models saga compensation with ordinary try/catch control flow", async () => {
     const engine = createWorkflowEngine({ createRunId: () => "run_pattern_saga" });
-    const reserve = defineWorkflowStep({ name: "reserve-inventory" }, (orderId: string) => ({
-      orderId,
-      reservationId: `res_${orderId}`,
-    }));
-    const charge = defineWorkflowStep({ name: "charge-payment" }, (orderId: string) => ({
+
+    const reserve = defineWorkflowStep(
+      { name: "reserve-inventory" },
+      (_context, orderId: string) => ({
+        orderId,
+        reservationId: `res_${orderId}`,
+      }),
+    );
+
+    const charge = defineWorkflowStep({ name: "charge-payment" }, (_context, orderId: string) => ({
       orderId,
       chargeId: `ch_${orderId}`,
     }));
+
     const ship = defineWorkflowStep(
       { name: "ship-order", retry: { maximumAttempts: 1 } },
-      (_orderId: string) => {
+      (_context, _orderId: string) => {
         throw new Error("carrier unavailable");
       },
     );
+
     const refund = defineWorkflowStep(
       { name: "refund-payment" },
-      (chargeId: string) => `refunded:${chargeId}`,
+      (_context, chargeId: string) => `refunded:${chargeId}`,
     );
+
     const release = defineWorkflowStep(
       { name: "release-inventory" },
-      (reservationId: string) => `released:${reservationId}`,
+      (_context, reservationId: string) => `released:${reservationId}`,
     );
+
     const workflow = implementWorkflow<string, { readonly status: "compensated" | "shipped" }>(
       { name: "pattern-saga" },
       async ({ input: orderId, step }) => {
         const reservation = await step.task.call(reserve, orderId);
         const payment = await step.task.call(charge, orderId);
+
         try {
           await step.task.call(ship, orderId);
+
           return { status: "shipped" };
         } catch {
           await Promise.all([
             step.task.call(refund, payment.chargeId),
             step.task.call(release, reservation.reservationId),
           ]);
+
           return { status: "compensated" };
         }
       },
@@ -142,15 +163,19 @@ describe("Vercel workflow patterns on Temelj primitives", () => {
     const engine = createWorkflowEngine({ createRunId: () => "run_pattern_hook" });
     const client = createWorkflowClient({ engine });
     let token = "";
+
     const workflow = implementWorkflow<string, string>(
       { name: "pattern-human-approval" },
       async ({ input: documentId, step }) => {
-        const approval = step.hook.create<{ readonly approved: boolean }>({
+        const approval = step.hook.create({
+          schema: ss.object({ approved: ss.boolean() }),
           name: `approve:${documentId}`,
           messageId: "document.approved",
         });
+
         token = approval.token;
         const payload = await approval;
+
         return payload.approved ? "approved" : "rejected";
       },
     );
@@ -174,7 +199,9 @@ describe("Vercel workflow patterns on Temelj primitives", () => {
       createRunId: sequentialRunIds("run_pattern_schedule"),
       now: () => Temporal.Instant.from("2026-06-11T10:00:00Z"),
     });
+
     const client = createWorkflowClient({ engine });
+
     const reminder = defineWorkflow<{ readonly userId: string }, string>({
       name: "pattern-reminder",
     });

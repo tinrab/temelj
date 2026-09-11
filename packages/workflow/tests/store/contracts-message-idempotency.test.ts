@@ -34,6 +34,7 @@ function describeWorkflowMessageIdempotencyContract(options: WorkflowStoreContra
     test("enforces messageId idempotency and detects conflicting duplicates", async () => {
       const store = await options.createStore();
       const run = await store.createRun(pendingRun(store, "run-messageId"));
+
       const messageId: EventRecord = {
         kind: "message_sent",
         timestamp: Temporal.Instant.from("2025-01-01T00:00:00Z"),
@@ -56,6 +57,7 @@ function describeWorkflowMessageIdempotencyContract(options: WorkflowStoreContra
     test("reports conflicts for incomparable calendar-duration payloads", async () => {
       const store = await options.createStore();
       const run = await store.createRun(pendingRun(store, "run-calendar-duration-message"));
+
       const message: EventRecord = {
         kind: "message_sent",
         timestamp: Temporal.Instant.from("2025-01-01T00:00:00Z"),
@@ -77,6 +79,7 @@ function describeWorkflowMessageIdempotencyContract(options: WorkflowStoreContra
     test("does not roll back existing events when duplicate message index repair conflicts", async () => {
       const store = await options.createStore();
       const run = await store.createRun(pendingRun(store, "run-messageId-index-conflict"));
+
       const messageId: EventRecord = {
         kind: "message_sent",
         timestamp: Temporal.Instant.from("2025-01-01T00:00:00Z"),
@@ -104,6 +107,7 @@ function describeWorkflowMessageIdempotencyContract(options: WorkflowStoreContra
     test("repairs message idempotency indexes from durable event history", async () => {
       const store = await options.createStore();
       const run = await store.createRun(pendingRun(store, "run-messageId-repair"));
+
       const messageId: EventRecord = {
         kind: "message_sent",
         timestamp: Temporal.Instant.from("2025-01-01T00:00:00Z"),
@@ -111,6 +115,7 @@ function describeWorkflowMessageIdempotencyContract(options: WorkflowStoreContra
         payload: "one",
         idempotencyKey: "messageId-key",
       };
+
       const indexKey = makeMessageIdempotencyKey(store.namespace, run.id, "messageId-key");
 
       await store.appendEvent(run.id, messageId);
@@ -134,6 +139,7 @@ function describeWorkflowMessageIdempotencyContract(options: WorkflowStoreContra
     test("repairs message idempotency indexes to the latest durable event for each key", async () => {
       const store = await options.createStore();
       const run = await store.createRun(pendingRun(store, "run-messageId-repair-latest"));
+
       const first: EventRecord = {
         kind: "message_sent",
         timestamp: Temporal.Instant.from("2025-01-01T00:00:00Z"),
@@ -141,6 +147,7 @@ function describeWorkflowMessageIdempotencyContract(options: WorkflowStoreContra
         payload: "one",
         idempotencyKey: "messageId-key",
       };
+
       const latest: EventRecord = {
         kind: "message_sent",
         timestamp: Temporal.Instant.from("2025-01-01T00:00:01Z"),
@@ -148,6 +155,7 @@ function describeWorkflowMessageIdempotencyContract(options: WorkflowStoreContra
         payload: "two",
         idempotencyKey: "messageId-key",
       };
+
       const indexKey = makeMessageIdempotencyKey(store.namespace, run.id, "messageId-key");
       await store.storage.set(
         makeEventsKey(store.namespace, run.id),
@@ -182,6 +190,7 @@ describeWorkflowMessageIdempotencyContract({
   name: "workflow message idempotency contract: filesystem storage adapter",
   createStore: async () => {
     const directory = await temporaryDirectory();
+
     return createWorkflowStore({
       namespace: `contract-${Temporal.Now.instant().epochMilliseconds.toString(36)}-${Math.random()}`,
       storage: createStorage({
@@ -198,6 +207,7 @@ describeWorkflowMessageIdempotencyContract({
 async function temporaryDirectory(): Promise<string> {
   const directory = await mkdtemp(join(tmpdir(), "temelj-workflow-store-"));
   temporaryDirectories.push(directory);
+
   return directory;
 }
 
@@ -207,6 +217,7 @@ function pendingRun(
   options: Partial<WorkflowRunRecord> = {},
 ): WorkflowRunRecord {
   const { id: _id, namespace: _namespace, ...patch } = options;
+
   return {
     id,
     namespace: store.namespace,

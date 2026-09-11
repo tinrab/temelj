@@ -20,7 +20,7 @@
   },
   "scripts": {
     "script:scrape": "node --import tsx/esm ./scripts/scrape.ts",
-    "script:generate": "node --import tsx/esm ./scripts/generate.ts",
+    "script:generate": "node --import tsx/esm ./scripts/generate.ts && pnpm exec oxfmt src/generated/options.ts src/generated/serialize.ts && pnpm exec oxlint --fix src/generated/options.ts src/generated/serialize.ts",
     "build": "tsdown",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",

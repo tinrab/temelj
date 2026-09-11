@@ -16,10 +16,12 @@ type WorkflowTestUpdateRunIfCurrent = (
 describe("workflow run metadata", () => {
   test("updates run metadata through engine and client", async () => {
     let now = Temporal.Instant.from("2026-06-11T10:00:00Z");
+
     const engine = createWorkflowEngine({
       createRunId: () => "run_metadata",
       now: () => now,
     });
+
     const client = createWorkflowClient({ engine });
     const def = defineWorkflow<undefined, string>({ name: "metadata" });
     const handle = await engine.startWorkflow(def, undefined);
@@ -40,6 +42,7 @@ describe("workflow run metadata", () => {
     });
 
     now = Temporal.Instant.from("2026-06-11T10:06:00Z");
+
     const updated = await client.admin.updateMetadata(handle.runId, {
       status: "done",
       progress: 100,
@@ -65,10 +68,12 @@ describe("workflow run metadata", () => {
       createRunId: () => "run_metadata_validation",
       maximumPersistedValueBytes: 16,
     });
+
     const def = defineWorkflow<undefined, string>({ name: "metadata-validation" });
     const handle = await engine.startWorkflow(def, undefined);
 
     await expect(
+      // @ts-expect-error Functions are excluded from metadata; untyped callers are also rejected at runtime.
       engine.updateRunMetadata(handle.runId, { callback: () => "not persisted" }),
     ).rejects.toThrow(WorkflowSerializationError);
     await expect(
@@ -80,11 +85,14 @@ describe("workflow run metadata", () => {
   test("preserves concurrent run state when updating metadata", async () => {
     let now = Temporal.Instant.from("2026-06-11T10:00:00Z");
     let firstMetadataAttempt = true;
+
     class ConcurrentMetadataStore extends WorkflowStore {
       constructor() {
         super();
+
         const updateRunIfCurrent: WorkflowTestUpdateRunIfCurrent =
           this.updateRunIfCurrent.bind(this);
+
         this.updateRunIfCurrent = async (current, next) => {
           if (firstMetadataAttempt && next.metadata !== undefined) {
             firstMetadataAttempt = false;
@@ -93,24 +101,31 @@ describe("workflow run metadata", () => {
               updatedAt: Temporal.Instant.from("2026-06-11T10:01:00Z"),
               leaseExpiresAt: Temporal.Instant.from("2026-06-11T10:02:00Z"),
             });
+
             return undefined;
           }
+
           return await updateRunIfCurrent(current, next);
         };
       }
     }
+
     const store = new ConcurrentMetadataStore();
+
     const engine = createWorkflowEngine({
       createRunId: () => "run_metadata_race",
       now: () => now,
       store,
     });
+
     const def = defineWorkflow<undefined, string>({ name: "metadata-race" });
     const handle = await engine.startWorkflow(def, undefined);
     const run = await engine.getRun(handle.runId);
+
     if (run === undefined) {
       throw new Error("Expected metadata race run");
     }
+
     await store.updateRunIfCurrent(run, {
       ...run,
       status: "running",
@@ -135,6 +150,7 @@ describe("workflow run metadata", () => {
       createRunId: () => "run_step_metadata",
       now: () => Temporal.Instant.from("2026-06-11T10:00:00Z"),
     });
+
     const workflow = implementWorkflow<undefined, string>(
       { name: "step-metadata" },
       async ({ step }) => {
@@ -142,6 +158,7 @@ describe("workflow run metadata", () => {
           status: "importing",
           progress: 50,
         });
+
         return "done";
       },
     );
@@ -194,10 +211,12 @@ describe("workflow run metadata", () => {
       createRunId: () => "run_step_metadata_attempts",
       now: () => Temporal.Instant.from("2026-06-11T10:00:00Z"),
     });
+
     const workflow = implementWorkflow<undefined, string>(
       { name: "step-metadata-attempts" },
       async ({ step }) => {
         await step.runData.setMetadata("progress", { status: "importing" });
+
         return "done";
       },
     );
@@ -237,11 +256,14 @@ describe("workflow run metadata", () => {
 
   test("replays in-workflow metadata without appending duplicate events", async () => {
     let now = Temporal.Instant.from("2026-06-11T10:00:00Z");
+
     const engine = createWorkflowEngine({
       createRunId: () => "run_step_metadata_replay",
       now: () => now,
     });
+
     let attempts = 0;
+
     const workflow = implementWorkflow<undefined, string>(
       {
         name: "step-metadata-replay",
@@ -250,11 +272,13 @@ describe("workflow run metadata", () => {
       async ({ step }) => {
         attempts++;
         await step.runData.setMetadata("progress", { status: "retrying" });
+
         if (attempts === 1) {
           WorkflowRetryableError.failed("retry", {
             retryDelay: Temporal.Duration.from({ seconds: 1 }),
           });
         }
+
         return "done";
       },
     );
@@ -274,6 +298,7 @@ describe("workflow run metadata", () => {
     const metadataEvents = (await engine.getEvents("run_step_metadata_replay")).filter(
       (event) => event.kind === "metadata_set",
     );
+
     expect(metadataEvents).toHaveLength(1);
     await expect(engine.getRun("run_step_metadata_replay")).resolves.toMatchObject({
       metadata: { status: "retrying" },
@@ -282,11 +307,14 @@ describe("workflow run metadata", () => {
 
   test("rejects replayed in-workflow metadata divergence", async () => {
     let now = Temporal.Instant.from("2026-06-11T10:00:00Z");
+
     const engine = createWorkflowEngine({
       createRunId: () => "run_step_metadata_divergence",
       now: () => now,
     });
+
     let metadata = { status: "first" };
+
     const workflow = implementWorkflow<undefined, string>(
       {
         name: "step-metadata-divergence",
@@ -309,9 +337,11 @@ describe("workflow run metadata", () => {
     const result = await engine.resumeWorkflow(workflow, "run_step_metadata_divergence");
 
     expect(result.kind).toBe("failed");
+
     if (result.kind !== "failed") {
       throw new Error("Expected metadata replay divergence to fail the workflow");
     }
+
     expect(result.error.name).toBe("WorkflowReplayDivergenceError");
     await expect(engine.getRun("run_step_metadata_divergence")).resolves.toMatchObject({
       status: "failed",

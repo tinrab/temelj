@@ -12,6 +12,7 @@ import { createWorkflowRunTransitionSummaryReducer } from "../../src/engine/summ
 describe("workflow run state summary reducer", () => {
   test("summarizes run state, retries, failures, leases, workflows, and cleanup", () => {
     const now = Temporal.Instant.from("2026-06-12T10:00:00Z");
+
     const reducer = createWorkflowRunStateSummaryReducer(
       now,
       Temporal.Instant.from("2026-06-12T09:59:00Z"),
@@ -463,6 +464,7 @@ function runRecord(
   patch: Partial<WorkflowRunRecord> = {},
 ): WorkflowRunRecord {
   const timestamp = Temporal.Instant.from("2026-06-12T09:00:00Z");
+
   return {
     id,
     namespace: "default",

@@ -19,6 +19,7 @@ import { workflow as viteWorkflow } from "../../src/vite.ts";
 import { workflow as webpackWorkflow } from "../../src/webpack.ts";
 
 const CALL_WORKFLOW_STEP_FUNCTION_NAME = "callWorkflowStepFunction";
+
 const CALL_WORKFLOW_STEP_INVOCATION_TEXT = "callWorkflowStepFunction(__temelj_context.step";
 
 describe("workflow bundler plugins", () => {
@@ -45,6 +46,7 @@ describe("workflow bundler plugins", () => {
         external: ["@temelj/workflow"],
         plugins: [rollupWorkflow({ root: fixture.root })],
       });
+
       const output = await bundle.generate({ format: "esm" });
       await bundle.close();
 
@@ -59,6 +61,7 @@ describe("workflow bundler plugins", () => {
         external: ["@temelj/workflow"],
         plugins: [rolldownWorkflow({ root: fixture.root })],
       });
+
       const output = await bundle.generate({ format: "esm" });
       await bundle.close();
 
@@ -174,6 +177,7 @@ async function withWorkflowFixture(
   callback: (fixture: WorkflowFixture) => Promise<void>,
 ): Promise<void> {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "temelj-workflow-bundler-"));
+
   try {
     await fs.writeFile(
       path.join(root, "steps.js"),
@@ -208,6 +212,7 @@ async function withTypeScriptEsmWorkflowFixture(
   callback: (fixture: WorkflowFixture) => Promise<void>,
 ): Promise<void> {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "temelj-workflow-bundler-"));
+
   try {
     await fs.writeFile(
       path.join(root, "steps.ts"),
@@ -242,6 +247,7 @@ async function withConflictingEsmWorkflowFixture(
   callback: (fixture: WorkflowFixture) => Promise<void>,
 ): Promise<void> {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "temelj-workflow-bundler-"));
+
   try {
     await fs.writeFile(
       path.join(root, "steps.js"),
@@ -295,6 +301,7 @@ async function runWebpackLikeBuild(options: WebpackLikeBuildOptions): Promise<st
       ...webpackLikeBaseConfig(options, outputPath),
       plugins: [webpackWorkflow({ root: options.root })],
     };
+
     await new Promise<void>((resolve, reject) => {
       webpack(config, (error, stats) => {
         handleWebpackLikeResult(error, stats, resolve, reject);
@@ -305,6 +312,7 @@ async function runWebpackLikeBuild(options: WebpackLikeBuildOptions): Promise<st
       ...webpackLikeBaseConfig(options, outputPath),
       plugins: [rspackWorkflow({ root: options.root })],
     };
+
     await new Promise<void>((resolve, reject) => {
       rspack(config, (error, stats) => {
         handleWebpackLikeResult(error, stats, resolve, reject);
@@ -352,15 +360,19 @@ function handleWebpackLikeResult(
   error: Error | null | undefined,
   stats: RspackStats | WebpackStats | undefined,
   resolve: () => void,
-  reject: (reason?: unknown) => void,
+  reject: (reason: Error) => void,
 ): void {
   if (error !== null && error !== undefined) {
     reject(error);
+
     return;
   }
+
   if (stats?.hasErrors() === true) {
     reject(new Error(stats.toString({ all: false, errors: true })));
+
     return;
   }
+
   resolve();
 }

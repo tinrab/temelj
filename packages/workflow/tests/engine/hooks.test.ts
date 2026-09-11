@@ -1,3 +1,4 @@
+import { ss } from "@temelj/standard-schema";
 import { describe, expect, test } from "vitest";
 
 import { createWorkflowClient } from "../../src/client/create.ts";
@@ -15,18 +16,23 @@ describe("workflow hooks", () => {
       createRunId: () => "run_hook",
       now: () => Temporal.Instant.from("2026-06-11T10:00:00Z"),
     });
+
     const client = createWorkflowClient({ engine });
     let hookToken = "";
+
     const workflow = implementWorkflow<undefined, string>(
       { name: "hook-resume" },
       async ({ step }) => {
-        const hook = step.hook.create<{ readonly approved: boolean }>({
+        const hook = step.hook.create({
+          schema: ss.object({ approved: ss.boolean() }),
           name: "approval",
           messageId: "approval.received",
           timeout: Temporal.Duration.from({ hours: 1 }),
         });
+
         hookToken = hook.token;
         const payload = await hook.wait();
+
         return payload.approved ? "approved" : "rejected";
       },
     );
@@ -92,18 +98,23 @@ describe("workflow hooks", () => {
       createRunId: () => "run_dispose_hook",
       now: () => Temporal.Instant.from("2026-06-11T10:00:00Z"),
     });
+
     const client = createWorkflowClient({ engine });
     let hookToken = "";
+
     const workflow = implementWorkflow<undefined, string>(
       { name: "dispose-hook" },
       async ({ step }) => {
-        const hook = step.hook.create<{ readonly approved: boolean }>({
+        const hook = step.hook.create({
+          schema: ss.object({ approved: ss.boolean() }),
           name: "approval",
           messageId: "approval.received",
           timeout: Temporal.Duration.from({ hours: 1 }),
         });
+
         hookToken = hook.token;
         const payload = await hook.wait();
+
         return payload.approved ? "approved" : "rejected";
       },
     );
@@ -124,9 +135,11 @@ describe("workflow hooks", () => {
     const failed = await engine.resumeWorkflow(workflow, "run_dispose_hook");
 
     expect(failed.kind).toBe("failed");
+
     if (failed.kind !== "failed") {
       throw new Error("Expected disposed hook to fail the run");
     }
+
     expect(failed.error.name).toBe("WorkflowHookDisposedError");
     expect(failed.error.message).toContain("Workflow hook disposed");
     expect(await engine.getRun("run_dispose_hook")).toMatchObject({
@@ -155,6 +168,7 @@ describe("workflow hooks", () => {
     const engine = createWorkflowEngine({ createRunId: () => "run_dispose_hook_idempotent" });
     const client = createWorkflowClient({ engine });
     let hookToken = "";
+
     const workflow = implementWorkflow<undefined, void>(
       { name: "dispose-hook-idempotent" },
       async ({ step }) => {
@@ -170,6 +184,7 @@ describe("workflow hooks", () => {
     const failedWaits = (await engine.getEvents("run_dispose_hook_idempotent")).filter(
       (event) => event.kind === "message_wait_failed",
     );
+
     expect(failedWaits).toHaveLength(1);
     expect(failedWaits[0]).toMatchObject({
       error: { name: "WorkflowHookDisposedError" },
@@ -179,6 +194,7 @@ describe("workflow hooks", () => {
   test("reports missing hooks as not found during disposal", async () => {
     const engine = createWorkflowEngine();
     const client = createWorkflowClient({ engine });
+
     const token =
       "temelj-hook:v1:eyJ2IjoxLCJydW5JZCI6InJ1bl9taXNzaW5nX2hvb2siLCJuYW1lIjoiYXBwcm92YWwiLCJtZXNzYWdlSWQiOiJhcHByb3ZhbCJ9";
 
@@ -204,15 +220,20 @@ describe("workflow hooks", () => {
       createRunId: () => "run_encoded_hook",
       now: () => Temporal.Instant.from("2026-06-11T10:00:00Z"),
     });
+
     const client = createWorkflowClient({ engine });
+
     const workflow = implementWorkflow<undefined, string>(
       { name: "encoded-hook-resume" },
       async ({ step }) => {
-        const hook = step.hook.create<{ readonly approved: boolean }>({
+        const hook = step.hook.create({
+          schema: ss.object({ approved: ss.boolean() }),
           name: "approval",
           messageId: "approval.received",
         });
+
         const payload = await hook.wait();
+
         return payload.approved ? "approved" : "rejected";
       },
     );
@@ -233,16 +254,21 @@ describe("workflow hooks", () => {
     const engine = createWorkflowEngine({
       createRunId: () => "run_awaitable_hook",
     });
+
     const client = createWorkflowClient({ engine });
     let hookToken = "";
+
     const workflow = implementWorkflow<undefined, string>(
       { name: "awaitable-hook" },
       async ({ step }) => {
-        const hook = step.hook.create<{ readonly approved: boolean }>({
+        const hook = step.hook.create({
+          schema: ss.object({ approved: ss.boolean() }),
           name: "approval",
         });
+
         hookToken = hook.token;
         const payload = await hook;
+
         return payload.approved ? "approved" : "rejected";
       },
     );
@@ -263,18 +289,23 @@ describe("workflow hooks", () => {
       createRunId: () => "run_hook_summary",
       now: () => Temporal.Instant.from("2026-06-11T10:00:00Z"),
     });
+
     const workflow = implementWorkflow<undefined, void>(
       { name: "hook-summary" },
       async ({ step }) => {
-        const hook = step.hook.create<{ readonly approved: boolean }>({
+        const hook = step.hook.create({
+          schema: ss.object({ approved: ss.boolean() }),
           name: "approval",
           messageId: "approval.received",
           timeout: Temporal.Duration.from({ hours: 1 }),
         });
-        const webhook = step.hook.createWebhook<{ readonly ok: boolean }>({
+
+        const webhook = step.hook.createWebhook({
+          schema: ss.object({ ok: ss.boolean() }),
           name: "callback",
           messageId: "callback.received",
         });
+
         await Promise.all([hook.wait(), webhook.wait()]);
       },
     );
@@ -305,11 +336,13 @@ describe("workflow hooks", () => {
     const engine = createWorkflowEngine({
       createRunId: () => "run_duplicate_hook_token",
     });
+
     const workflow = implementWorkflow<undefined, string>(
       { name: "duplicate-hook-token" },
       async ({ step }) => {
         step.hook.create({ name: "approval", messageId: "approval.received" });
         step.hook.create({ name: "approval", messageId: "approval.received" });
+
         return "unreachable";
       },
     );
@@ -317,9 +350,11 @@ describe("workflow hooks", () => {
     const failed = await engine.runWorkflowNow(workflow, undefined);
 
     expect(failed.kind).toBe("failed");
+
     if (failed.kind !== "failed") {
       throw new Error("Expected duplicate hook token to fail");
     }
+
     expect(failed.error.message).toBe("Workflow hook token must be unique within a run: approval");
   });
 
@@ -327,17 +362,22 @@ describe("workflow hooks", () => {
     const engine = createWorkflowEngine({
       createRunId: () => "run_hook_idempotency",
     });
+
     const client = createWorkflowClient({ engine });
     let hookToken = "";
+
     const workflow = implementWorkflow<undefined, string>(
       { name: "hook-idempotency" },
       async ({ step }) => {
-        const hook = step.hook.create<{ readonly approved: boolean }>({
+        const hook = step.hook.create({
+          schema: ss.object({ approved: ss.boolean() }),
           name: "approval",
           messageId: "approval.received",
         });
+
         hookToken = hook.token;
         const payload = await hook;
+
         return payload.approved ? "approved" : "rejected";
       },
     );
@@ -358,9 +398,11 @@ describe("workflow hooks", () => {
       kind: "completed",
       output: "approved",
     });
+
     const messageEvents = (await engine.getEvents("run_hook_idempotency")).filter(
       (event) => event.kind === "message_sent",
     );
+
     expect(messageEvents).toHaveLength(1);
   });
 
@@ -368,18 +410,23 @@ describe("workflow hooks", () => {
     const engine = createWorkflowEngine({
       createRunId: () => "run_hook_name_divergence",
     });
+
     const client = createWorkflowClient({ engine });
     let hookName = "approval";
     let hookToken = "";
+
     const workflow = implementWorkflow<undefined, string>(
       { name: "hook-name-divergence" },
       async ({ step }) => {
-        const hook = step.hook.create<{ readonly approved: boolean }>({
+        const hook = step.hook.create({
+          schema: ss.object({ approved: ss.boolean() }),
           name: hookName,
           messageId: "approval.received",
         });
+
         hookToken = hook.token;
         const payload = await hook.wait();
+
         return payload.approved ? "approved" : "rejected";
       },
     );
@@ -393,9 +440,11 @@ describe("workflow hooks", () => {
     const result = await engine.resumeWorkflow(workflow, "run_hook_name_divergence");
 
     expect(result.kind).toBe("failed");
+
     if (result.kind !== "failed") {
       throw new Error("Expected hook name replay divergence");
     }
+
     expect(result.error.name).toBe("WorkflowReplayDivergenceError");
   });
 
@@ -403,18 +452,23 @@ describe("workflow hooks", () => {
     const engine = createWorkflowEngine({
       createRunId: () => "run_hook_message_divergence",
     });
+
     const client = createWorkflowClient({ engine });
     let messageId = "approval.received";
     let hookToken = "";
+
     const workflow = implementWorkflow<undefined, string>(
       { name: "hook-message-divergence" },
       async ({ step }) => {
-        const hook = step.hook.create<{ readonly approved: boolean }>({
+        const hook = step.hook.create({
+          schema: ss.object({ approved: ss.boolean() }),
           name: "approval",
           messageId: messageId,
         });
+
         hookToken = hook.token;
         const payload = await hook.wait();
+
         return payload.approved ? "approved" : "rejected";
       },
     );
@@ -428,9 +482,11 @@ describe("workflow hooks", () => {
     const result = await engine.resumeWorkflow(workflow, "run_hook_message_divergence");
 
     expect(result.kind).toBe("failed");
+
     if (result.kind !== "failed") {
       throw new Error("Expected hook message replay divergence");
     }
+
     expect(result.error.name).toBe("WorkflowReplayDivergenceError");
   });
 });

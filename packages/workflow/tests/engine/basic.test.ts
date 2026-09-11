@@ -18,6 +18,7 @@ describe("createWorkflowEngine", () => {
     const engine = createWorkflowEngine({
       createRunId: () => "run_basic",
     });
+
     const workflow = implementWorkflow<undefined, string>(
       { name: "basic" },
       async ({ step }) => await step.task.run({ name: "work" }, () => "done"),
@@ -41,6 +42,7 @@ describe("createWorkflowEngine", () => {
       createRunId: () => "run_grouped_step_facets",
       now: () => Temporal.Instant.from("2026-06-11T10:00:00Z"),
     });
+
     const workflow = implementWorkflow<
       undefined,
       {
@@ -50,9 +52,11 @@ describe("createWorkflowEngine", () => {
       }
     >({ name: "grouped-step-facets" }, async ({ step }) => {
       const task = await step.task.run({ name: "task" }, () => "task");
+
       const lock = await step.lock.acquire("guard", "lock:grouped-step-facets", {
         leaseDuration: Temporal.Duration.from({ minutes: 1 }),
       });
+
       await step.lock.release("release-guard", lock.key);
       await step.runData.setMetadata("metadata", { task });
       await step.runData.setAttributes("attributes", { phase: "grouped" });
@@ -60,6 +64,7 @@ describe("createWorkflowEngine", () => {
       const stream = step.stream.create<string>("log");
       await stream.write("chunk");
       await stream.close();
+
       return {
         id,
         streamId: stream.id,
@@ -68,9 +73,11 @@ describe("createWorkflowEngine", () => {
     });
 
     const result = await engine.runWorkflowNow(workflow, undefined);
+
     if (result.kind === "failed") {
       throw result.error;
     }
+
     expect(result).toMatchObject({
       kind: "completed",
       output: {
@@ -105,6 +112,7 @@ describe("createWorkflowEngine", () => {
     const engine = createWorkflowEngine({
       createRunId: () => "run_command_id",
     });
+
     const workflow = implementWorkflow<undefined, string>(
       { name: "command-id" },
       async ({ step }) => {
@@ -113,6 +121,7 @@ describe("createWorkflowEngine", () => {
           messageId: "approved",
           timeout: Temporal.Duration.from({ minutes: 1 }),
         });
+
         return await step.task.run({ commandId: "work-command" }, () => "done");
       },
     );
@@ -160,7 +169,9 @@ describe("createWorkflowEngine", () => {
     const engine = createWorkflowEngine({
       createRunId: () => "run_grouped_client_facets",
     });
+
     const client = createWorkflowClient({ engine });
+
     const workflow = client.workflow<undefined, string>(
       defineWorkflow({ name: "grouped-client-facets" }),
       async ({ step }) => await step.task.run({ name: "work" }, () => "done"),

@@ -1,10 +1,13 @@
 import { z } from "zod";
 
 export const workflowCursorSchema = z.string({ error: "Workflow cursor is invalid" });
+
 export const workflowPageDirectionSchema = z.literal("forward", {
   error: "Workflow page direction is invalid",
 });
+
 export const workflowCursorKeyPartSchema = z.union([z.string(), z.number(), z.boolean(), z.null()]);
+
 export const workflowCursorPayloadSchema = z.object({
   key: z.array(workflowCursorKeyPartSchema).nonempty(),
 });

@@ -117,7 +117,7 @@ function toTimelineEntry(event: EventRecord): TimelineEntryRecord {
         event,
       };
     case "sleep_started":
-      return {
+      const result1 = {
         kind: "sleep",
         status: "started",
         timestamp: event.timestamp,
@@ -125,9 +125,15 @@ function toTimelineEntry(event: EventRecord): TimelineEntryRecord {
         stepName: event.stepName,
         count: event.count,
         until: event.until,
-        ...(event.duration === undefined ? {} : { duration: event.duration }),
-        event,
-      };
+      } satisfies Partial<TimelineEntryRecord>;
+
+      if (event.duration !== undefined) {
+        Object.assign(result1, { duration: event.duration } satisfies Partial<TimelineEntryRecord>);
+      }
+
+      const result2 = Object.assign(result1, { event } satisfies Partial<TimelineEntryRecord>);
+
+      return result2;
     case "sleep_completed":
       return {
         kind: "sleep",
@@ -138,7 +144,7 @@ function toTimelineEntry(event: EventRecord): TimelineEntryRecord {
         event,
       };
     case "child_workflow_started":
-      return {
+      const result3 = {
         kind: "child_workflow",
         status: "started",
         timestamp: event.timestamp,
@@ -147,11 +153,27 @@ function toTimelineEntry(event: EventRecord): TimelineEntryRecord {
         count: event.count,
         childRunId: event.childRunId,
         workflowName: event.workflowName,
-        ...(event.workflowVersion === undefined ? {} : { workflowVersion: event.workflowVersion }),
-        ...(event.input === undefined ? {} : { input: event.input }),
-        ...(event.timeoutAt === undefined ? {} : { timeoutAt: event.timeoutAt }),
-        event,
-      };
+      } satisfies Partial<TimelineEntryRecord>;
+
+      if (event.workflowVersion !== undefined) {
+        Object.assign(result3, {
+          workflowVersion: event.workflowVersion,
+        } satisfies Partial<TimelineEntryRecord>);
+      }
+
+      if (event.input !== undefined) {
+        Object.assign(result3, { input: event.input } satisfies Partial<TimelineEntryRecord>);
+      }
+
+      if (event.timeoutAt !== undefined) {
+        Object.assign(result3, {
+          timeoutAt: event.timeoutAt,
+        } satisfies Partial<TimelineEntryRecord>);
+      }
+
+      const result4 = Object.assign(result3, { event } satisfies Partial<TimelineEntryRecord>);
+
+      return result4;
     case "child_workflow_completed":
       return {
         kind: "child_workflow",
@@ -175,7 +197,7 @@ function toTimelineEntry(event: EventRecord): TimelineEntryRecord {
         event,
       };
     case "message_send_started":
-      return {
+      const result5 = {
         kind: "message",
         status: "send_started",
         timestamp: event.timestamp,
@@ -184,9 +206,15 @@ function toTimelineEntry(event: EventRecord): TimelineEntryRecord {
         count: event.count,
         targetRunId: event.targetRunId,
         messageId: event.messageId,
-        ...(event.payload === undefined ? {} : { payload: event.payload }),
-        event,
-      };
+      } satisfies Partial<TimelineEntryRecord>;
+
+      if (event.payload !== undefined) {
+        Object.assign(result5, { payload: event.payload } satisfies Partial<TimelineEntryRecord>);
+      }
+
+      const result6 = Object.assign(result5, { event } satisfies Partial<TimelineEntryRecord>);
+
+      return result6;
     case "message_send_completed":
       return {
         kind: "message",
@@ -221,7 +249,7 @@ function toTimelineEntry(event: EventRecord): TimelineEntryRecord {
         event,
       };
     case "message_wait_started":
-      return {
+      const result7 = {
         kind: "message",
         status: "waiting",
         timestamp: event.timestamp,
@@ -229,9 +257,17 @@ function toTimelineEntry(event: EventRecord): TimelineEntryRecord {
         stepName: event.stepName,
         count: event.count,
         messageId: event.messageId,
-        ...(event.timeoutAt === undefined ? {} : { timeoutAt: event.timeoutAt }),
-        event,
-      };
+      } satisfies Partial<TimelineEntryRecord>;
+
+      if (event.timeoutAt !== undefined) {
+        Object.assign(result7, {
+          timeoutAt: event.timeoutAt,
+        } satisfies Partial<TimelineEntryRecord>);
+      }
+
+      const result8 = Object.assign(result7, { event } satisfies Partial<TimelineEntryRecord>);
+
+      return result8;
     case "message_wait_completed":
       return {
         kind: "message",
@@ -256,7 +292,7 @@ function toTimelineEntry(event: EventRecord): TimelineEntryRecord {
         event,
       };
     case "stream_started":
-      return {
+      const result9 = {
         kind: "stream",
         status: "started",
         timestamp: event.timestamp,
@@ -264,10 +300,21 @@ function toTimelineEntry(event: EventRecord): TimelineEntryRecord {
         stepName: event.stepName,
         count: event.count,
         streamId: event.streamId,
-        ...(event.contentType === undefined ? {} : { contentType: event.contentType }),
-        ...(event.metadata === undefined ? {} : { metadata: event.metadata }),
-        event,
-      };
+      } satisfies Partial<TimelineEntryRecord>;
+
+      if (event.contentType !== undefined) {
+        Object.assign(result9, {
+          contentType: event.contentType,
+        } satisfies Partial<TimelineEntryRecord>);
+      }
+
+      if (event.metadata !== undefined) {
+        Object.assign(result9, { metadata: event.metadata } satisfies Partial<TimelineEntryRecord>);
+      }
+
+      const result10 = Object.assign(result9, { event } satisfies Partial<TimelineEntryRecord>);
+
+      return result10;
     case "stream_chunk":
       return {
         kind: "stream",

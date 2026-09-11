@@ -17,19 +17,22 @@ describe("workflow message fan-out", () => {
       createRunId: sequentialRunIds("run_channel_first", "run_channel_second"),
       now: () => Temporal.Instant.from("2026-06-11T10:00:00Z"),
     });
+
     const client = createWorkflowClient({ engine });
-    const approval = defineMessageChannel<
-      { readonly approved: boolean },
-      { readonly requestId: string }
-    >({
-      name: "approval",
-      resolveMessageId: (key) => `approval.${key.requestId}`,
-    });
+
+    const approval = (key: { readonly requestId: string }) =>
+      defineMessageChannel({
+        schema: ss.object({ approved: ss.boolean() }),
+        name: `approval.${key.requestId}`,
+      });
+
     const schema = ss.object({ approved: ss.boolean() });
+
     const refresh = defineMessageChannel({
       name: "refresh",
       schema,
     });
+
     const workflow = implementWorkflow<undefined, boolean>(
       { name: "channel-messageIds" },
       async ({ run, step }) => {
@@ -37,10 +40,11 @@ describe("workflow message fan-out", () => {
           payload: { approved: true },
           idempotencyKey: "refresh:1",
         });
-        const payload = await step.message.wait(approval, {
-          key: { requestId: "123" },
+
+        const payload = await step.message.wait(approval({ requestId: "123" }), {
           timeout: Temporal.Duration.from({ minutes: 1 }),
         });
+
         return payload.approved;
       },
     );
@@ -65,8 +69,7 @@ describe("workflow message fan-out", () => {
     );
 
     await expect(
-      client.messages.send("run_channel_first", approval, {
-        key: { requestId: "123" },
+      client.messages.send("run_channel_first", approval({ requestId: "123" }), {
         payload: { approved: true },
       }),
     ).resolves.toBeUndefined();
@@ -79,6 +82,7 @@ describe("workflow message fan-out", () => {
       defineWorkflow({ name: "channel-messageIds" }),
       undefined,
     );
+
     await expect(
       client.messages.broadcast({
         channel: refresh,
@@ -99,7 +103,7 @@ describe("workflow message fan-out", () => {
     ]);
     await expect(
       client.messages.send("run_channel_second", refresh, {
-        payload: { approved: "yes" as unknown as boolean },
+        payload: { approved: "yes" },
       }),
     ).rejects.toBeInstanceOf(StandardSchemaValidationError);
   });
@@ -114,9 +118,11 @@ describe("workflow message fan-out", () => {
       ),
       now: () => Temporal.Instant.from("2026-06-11T10:00:00Z"),
     });
+
     const client = createWorkflowClient({ engine });
     const targetDef = defineWorkflow<undefined, string>({ name: "broadcast-target" });
     const otherDef = defineWorkflow<undefined, string>({ name: "broadcast-other" });
+
     const completedWorkflow = implementWorkflow<undefined, string>(
       { name: "broadcast-target" },
       () => "done",
@@ -189,10 +195,12 @@ describe("workflow message fan-out", () => {
 
   test("message wait timeouts fail with a typed timeout error", async () => {
     let now = Temporal.Instant.from("2026-06-11T10:00:00Z");
+
     const engine = createWorkflowEngine({
       createRunId: () => "run_message_wait_timeout",
       now: () => now,
     });
+
     const workflow = implementWorkflow<undefined, string>(
       { name: "message-wait-timeout" },
       async ({ step }) => {
@@ -201,6 +209,7 @@ describe("workflow message fan-out", () => {
           messageId: "approval.received",
           timeout: Temporal.Duration.from({ seconds: 1 }),
         });
+
         return "approved";
       },
     );
@@ -208,18 +217,22 @@ describe("workflow message fan-out", () => {
     const waiting = await engine.runWorkflowNow(workflow, undefined);
 
     expect(waiting.kind).toBe("waiting");
+
     if (waiting.kind !== "waiting") {
       throw new Error("Expected message wait workflow to wait");
     }
+
     expect(waiting.availableAt.toString()).toBe("2026-06-11T10:00:01Z");
 
     now = Temporal.Instant.from("2026-06-11T10:00:01Z");
     const failed = await engine.resumeWorkflow(workflow, "run_message_wait_timeout");
 
     expect(failed.kind).toBe("failed");
+
     if (failed.kind !== "failed") {
       throw new Error("Expected message wait timeout to fail");
     }
+
     expect(workflowErrorFromRecord(failed.error)).toBeInstanceOf(WorkflowMessageWaitTimeoutError);
     await expect(engine.getEvents("run_message_wait_timeout")).resolves.toMatchObject([
       { kind: "workflow_started" },
@@ -249,18 +262,22 @@ describe("workflow message fan-out", () => {
 
   test("message wait timeout is the supported message-versus-sleep race equivalent", async () => {
     let now = Temporal.Instant.from("2026-06-11T10:00:00Z");
+
     const engine = createWorkflowEngine({
       createRunId: () => "run_message_timeout_race",
       now: () => now,
     });
+
     const workflow = implementWorkflow<undefined, string>(
       { name: "messageId-timeout-race" },
       async ({ step }) => {
-        const payload = await step.message.wait<{ readonly approved: boolean }>({
+        const payload = await step.message.wait({
+          schema: ss.object({ approved: ss.boolean() }),
           name: "approval",
           messageId: "approval.received",
           timeout: Temporal.Duration.from({ minutes: 1 }),
         });
+
         return payload.approved ? "approved" : "rejected";
       },
     );
@@ -268,9 +285,11 @@ describe("workflow message fan-out", () => {
     const waiting = await engine.runWorkflowNow(workflow, undefined);
 
     expect(waiting.kind).toBe("waiting");
+
     if (waiting.kind !== "waiting") {
       throw new Error("Expected message timeout race workflow to wait");
     }
+
     expect(waiting.availableAt.toString()).toBe("2026-06-11T10:01:00Z");
 
     now = Temporal.Instant.from("2026-06-11T10:00:30Z");

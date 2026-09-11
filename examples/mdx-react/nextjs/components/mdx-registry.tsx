@@ -6,6 +6,7 @@ import type {
 import type React from "react";
 
 import { HighlightedCode, defineMdxRegistry } from "@temelj/mdx-react";
+import { isString } from "@temelj/value";
 
 import { InlineCode } from "@/components/inline-code";
 import { MdxCodeBlock } from "@/components/mdx-code-block";
@@ -107,7 +108,7 @@ export const mdxRegistry = defineMdxRegistry({
   pending: {
     jsx: ({ children, name, props }) => (
       <aside aria-busy="true" className="mb-4 animate-pulse rounded-md border p-4">
-        <strong>{typeof props.title === "string" ? props.title : `Loading ${name}...`}</strong>
+        <strong>{isString(props.title) ? props.title : `Loading ${name}...`}</strong>
         {children}
       </aside>
     ),

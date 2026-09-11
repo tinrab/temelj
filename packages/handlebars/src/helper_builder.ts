@@ -1,12 +1,20 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
+import type { HelperOptions } from "handlebars";
+
+import { isObject, isString } from "@temelj/value";
 
 import type { HelperDelegate } from "./types";
 
-type HelperContext = any;
-type HelperResult = any; // `JsonValue | SafeString`
+export interface HelperContext extends Pick<HelperOptions, "hash" | "data"> {
+  readonly name: string;
+}
+
 type Schema = StandardSchemaV1;
+
 type SchemaOutput<TSchema extends Schema> = StandardSchemaV1.InferOutput<TSchema>;
+
 type ParamSchemas = [] | [Schema, ...Schema[]];
+
 type ParamOutputs<TParams extends ParamSchemas> = TParams extends []
   ? []
   : { [K in keyof TParams]: SchemaOutput<TParams[K]> };
@@ -57,13 +65,13 @@ export class HandlebarsHelperError extends Error {
 interface HelperBuilderContract {
   params: <TParams extends ParamSchemas>(...schemas: TParams) => HelperBuilderWithParams<TParams>;
   hash: <THash extends Schema>(schema: THash) => HelperBuilderWithHash<THash>;
-  handle: (handler: (context: HelperContext) => HelperResult) => HelperDelegate;
+  handle: <TResult>(handler: (context: HelperContext) => TResult) => HelperDelegate;
 }
 
 interface HelperBuilderWithParams<TParams extends ParamSchemas> {
   hash: <THash extends Schema>(schema: THash) => HelperBuilderWithParamsAndHash<TParams, THash>;
-  handle: (
-    handler: (params: ParamOutputs<TParams>, context: HelperContext) => HelperResult,
+  handle: <TResult>(
+    handler: (params: ParamOutputs<TParams>, context: HelperContext) => TResult,
   ) => HelperDelegate;
 }
 
@@ -71,93 +79,113 @@ interface HelperBuilderWithHash<THash extends Schema> {
   params: <TParams extends ParamSchemas>(
     ...schemas: TParams
   ) => HelperBuilderWithParamsAndHash<TParams, THash>;
-  handle: (
-    handler: (hash: SchemaOutput<THash>, context: HelperContext) => HelperResult,
+  handle: <TResult>(
+    handler: (hash: SchemaOutput<THash>, context: HelperContext) => TResult,
   ) => HelperDelegate;
 }
 
 interface HelperBuilderWithParamsAndHash<TParams extends ParamSchemas, THash extends Schema> {
-  handle: (
+  handle: <TResult>(
     handler: (
       params: ParamOutputs<TParams>,
       hash: SchemaOutput<THash>,
       context: HelperContext,
-    ) => HelperResult,
+    ) => TResult,
   ) => HelperDelegate;
 }
 
-class HelperBuilder implements HelperBuilderContract {
-  private _paramsSchemas?: readonly Schema[];
-  private _hashSchema?: Schema;
+function withParams<TParams extends ParamSchemas>(
+  schemas: TParams,
+): HelperBuilderWithParams<TParams> {
+  return {
+    hash: (schema) => withParamsAndHash(schemas, schema),
+    handle(handler) {
+      return (...args) => {
+        const context = helperContext(args);
 
-  constructor(paramsSchemas?: readonly Schema[], hashSchema?: Schema) {
-    this._paramsSchemas = paramsSchemas;
-    this._hashSchema = hashSchema;
-  }
-
-  params<TParams extends ParamSchemas>(...schemas: TParams): HelperBuilderWithParams<TParams> {
-    return new HelperBuilder(
-      schemas,
-      this._hashSchema,
-    ) as unknown as HelperBuilderWithParams<TParams>;
-  }
-
-  hash<THash extends Schema>(schema: THash): HelperBuilderWithHash<THash> {
-    return new HelperBuilder(
-      this._paramsSchemas,
-      schema,
-    ) as unknown as HelperBuilderWithHash<THash>;
-  }
-
-  handle(handler: (...args: any[]) => HelperResult): HelperDelegate {
-    return (...args: any[]) => {
-      const context = args[args.length - 1] as HelperContext;
-
-      let params: unknown[] | undefined;
-      if (this._paramsSchemas !== undefined) {
-        const paramArgs = args.slice(0, -1);
-        if (paramArgs.length < this._paramsSchemas.length) {
-          paramArgs.push(...Array.from({ length: this._paramsSchemas.length - paramArgs.length }));
-        }
-        params = validateParams(this._paramsSchemas, paramArgs, context);
-      }
-
-      let hash: unknown;
-      if (this._hashSchema !== undefined) {
-        hash = validateSchema(this._hashSchema, context?.hash, context, "hash");
-      }
-
-      return params === undefined
-        ? hash === undefined
-          ? handler(context)
-          : handler(hash, context)
-        : hash === undefined
-          ? handler(params, context)
-          : handler(params, hash, context);
-    };
-  }
+        return handler(validateParams(schemas, args.slice(0, -1), context), context);
+      };
+    },
+  };
 }
 
-function validateParams(
-  schemas: readonly Schema[],
+function withHash<THash extends Schema>(schema: THash): HelperBuilderWithHash<THash> {
+  return {
+    params: (...schemas) => withParamsAndHash(schemas, schema),
+    handle(handler) {
+      return (...args) => {
+        const context = helperContext(args);
+
+        return handler(validateSchema(schema, context.hash, context, "hash"), context);
+      };
+    },
+  };
+}
+
+function withParamsAndHash<TParams extends ParamSchemas, THash extends Schema>(
+  schemas: TParams,
+  schema: THash,
+): HelperBuilderWithParamsAndHash<TParams, THash> {
+  return {
+    handle(handler) {
+      return (...args) => {
+        const context = helperContext(args);
+        const params = validateParams(schemas, args.slice(0, -1), context);
+        const hash = validateSchema(schema, context.hash, context, "hash");
+
+        return handler(params, hash, context);
+      };
+    },
+  };
+}
+
+function helperContext(args: readonly unknown[]): HelperContext {
+  const context = args.at(-1);
+
+  if (!isHelperContext(context)) {
+    throw new TypeError("Invalid Handlebars helper context");
+  }
+
+  return context;
+}
+
+function isHelperContext(value: unknown): value is HelperContext {
+  return (
+    isObject(value) &&
+    "name" in value &&
+    isString(value.name) &&
+    "hash" in value &&
+    isObject(value.hash)
+  );
+}
+
+function validateParams<TParams extends ParamSchemas>(
+  schemas: TParams,
   values: readonly unknown[],
   context: HelperContext,
-): unknown[] {
-  return schemas.map((schema, index) => validateSchema(schema, values[index], context, index));
+): ParamOutputs<TParams> {
+  // SAFETY: map preserves the schema tuple length and validates each output at the same index.
+  return schemas.map((schema, index) =>
+    validateSchema(schema, values[index], context, index),
+  ) as ParamOutputs<TParams>;
 }
 
-function validateSchema(
-  schema: Schema,
+function validateSchema<TSchema extends Schema>(
+  schema: TSchema,
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Standard Schema validates the untrusted helper argument at this boundary.
   value: unknown,
   context: HelperContext,
   path: PropertyKey,
-): unknown {
+): SchemaOutput<TSchema> {
   const result = schema["~standard"].validate(value);
+
   if (result instanceof Promise) {
     HandlebarsHelperError.asyncSchemaUnsupported(context.name);
   }
+
   if (!result.issues) {
-    return result.value;
+    // SAFETY: A successful Standard Schema result contains the output promised by this schema.
+    return result.value as SchemaOutput<TSchema>;
   }
 
   StandardSchemaValidationError.failed(
@@ -176,5 +204,12 @@ function validateSchema(
 }
 
 export function createHelper(): HelperBuilderContract {
-  return new HelperBuilder();
+  return {
+    params: (...schemas) => withParams(schemas),
+    hash: withHash,
+    handle:
+      (handler) =>
+      (...args) =>
+        handler(helperContext(args)),
+  };
 }

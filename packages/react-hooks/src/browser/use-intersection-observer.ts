@@ -14,14 +14,17 @@ export function useIntersectionObserver<T extends Element>(
     (node: T | null) => {
       observerRef.current?.disconnect();
       observerRef.current = null;
+
       if (!node || typeof IntersectionObserver === "undefined") {
         return;
       }
+
       const observer = new IntersectionObserver(([nextEntry]) => setEntry(nextEntry ?? null), {
         threshold,
         root,
         rootMargin,
       });
+
       observer.observe(node);
       observerRef.current = observer;
     },
@@ -29,5 +32,6 @@ export function useIntersectionObserver<T extends Element>(
   );
 
   React.useEffect(() => () => observerRef.current?.disconnect(), []);
+
   return [ref, entry];
 }

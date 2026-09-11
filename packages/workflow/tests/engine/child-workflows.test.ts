@@ -13,7 +13,9 @@ describe("child workflows", () => {
       createRunId: () => "run_background_parent",
       now: () => Temporal.Instant.from("2026-06-11T10:00:00Z"),
     });
+
     const child = implementWorkflow<undefined, string>({ name: "background-child" }, () => "child");
+
     const parent = implementWorkflow<undefined, string>(
       { name: "background-parent" },
       async ({ step }) => {
@@ -60,12 +62,15 @@ describe("child workflows", () => {
       createRunId: sequentialRunIds("run_cancel_parent", "run_cancel_child"),
       now: () => Temporal.Instant.from("2026-06-11T10:00:00Z"),
     });
+
     const child = implementWorkflow<undefined, string>({ name: "cascade-child" }, () => "child");
+
     const parent = implementWorkflow<undefined, string>(
       { name: "cascade-parent" },
       async ({ step }) => {
         await step.workflow.start(child, undefined, { name: "child" });
         await step.task.sleep("pause", Temporal.Duration.from({ hours: 1 }));
+
         return "parent";
       },
     );
@@ -87,7 +92,9 @@ describe("child workflows", () => {
       createRunId: sequentialRunIds("run_detach_parent", "run_detach_child"),
       now: () => Temporal.Instant.from("2026-06-11T10:00:00Z"),
     });
+
     const child = implementWorkflow<undefined, string>({ name: "detach-child" }, () => "child");
+
     const parent = implementWorkflow<undefined, string>(
       { name: "detach-parent" },
       async ({ step }) => {
@@ -96,6 +103,7 @@ describe("child workflows", () => {
           cancellation: "detach",
         });
         await step.task.sleep("pause", Temporal.Duration.from({ hours: 1 }));
+
         return "parent";
       },
     );
@@ -136,11 +144,14 @@ describe("child workflows", () => {
 
   test("rejects replay when child workflow cancellation policy changes", async () => {
     let now = Temporal.Instant.from("2026-06-11T10:00:00Z");
+
     const engine = createWorkflowEngine({
       createRunId: sequentialRunIds("run_child_policy_parent", "run_child_policy_child"),
       now: () => now,
     });
+
     const child = implementWorkflow<undefined, string>({ name: "policy-child" }, () => "child");
+
     const originalParent = implementWorkflow<undefined, string>(
       { name: "policy-parent" },
       async ({ step }) => {
@@ -149,14 +160,17 @@ describe("child workflows", () => {
           cancellation: "detach",
         });
         await step.task.sleep("pause", Temporal.Duration.from({ hours: 1 }));
+
         return "parent";
       },
     );
+
     const changedParent = implementWorkflow<undefined, string>(
       { name: "policy-parent" },
       async ({ step }) => {
         await step.workflow.start(child, undefined, { name: "child" });
         await step.task.sleep("pause", Temporal.Duration.from({ hours: 1 }));
+
         return "parent";
       },
     );
@@ -181,6 +195,7 @@ describe("child workflows", () => {
 
   test("stale worker executions do not append child workflow events after reclaim", async () => {
     let now = Temporal.Instant.from("2026-06-07T10:00:00Z");
+
     const engine = createWorkflowEngine({
       createRunId: sequentialRunIds(
         "run_stale_child_append",
@@ -189,8 +204,10 @@ describe("child workflows", () => {
       ),
       now: () => now,
     });
+
     const registry = new Registry();
     const client = createWorkflowClient({ engine, registry });
+
     const firstWorker = new WorkflowWorker({
       engine,
       registry,
@@ -199,6 +216,7 @@ describe("child workflows", () => {
       heartbeatInterval: Temporal.Duration.from({ milliseconds: 0 }),
       now: () => now,
     });
+
     const secondWorker = new WorkflowWorker({
       engine,
       registry,
@@ -207,14 +225,18 @@ describe("child workflows", () => {
       heartbeatInterval: Temporal.Duration.from({ milliseconds: 0 }),
       now: () => now,
     });
+
     const childDef = defineWorkflow<undefined, string>({
       name: "stale-child-append-child",
     });
+
     const parentDef = defineWorkflow<undefined, string>({
       name: "stale-child-append-parent",
     });
+
     let executions = 0;
     let finishFirstExecution!: () => void;
+
     const firstExecutionCanContinue = new Promise<void>((resolve) => {
       finishFirstExecution = resolve;
     });
@@ -222,13 +244,17 @@ describe("child workflows", () => {
     client.implementWorkflow(parentDef, async ({ step }) => {
       executions++;
       const execution = executions;
+
       if (execution === 1) {
         await firstExecutionCanContinue;
       }
+
       if (execution === 1) {
         await step.workflow.run(childDef, undefined, { name: "child" });
+
         return "stale";
       }
+
       return "fresh";
     });
 
@@ -237,6 +263,7 @@ describe("child workflows", () => {
 
     await waitFor(async () => {
       const run = await engine.getRun("run_stale_child_append");
+
       return run?.workerId === "worker_stale_child_a";
     });
 

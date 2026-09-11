@@ -16,10 +16,12 @@ export class TreeCursor<TRoot, TNode extends TRoot = TRoot> {
   public ancestors(): readonly TRoot[] {
     const result: TRoot[] = [];
     let cursor = this.parent;
+
     while (cursor !== undefined) {
       result.unshift(cursor.node);
       cursor = cursor.parent;
     }
+
     return result;
   }
 }
@@ -59,6 +61,7 @@ function* walkTreeNode<TRoot, TNode extends TRoot>(
   const cursor = new TreeCursor<TRoot, TNode>(node, parent, index);
   yield cursor;
   const childNodes = children(node);
+
   for (let childIndex = 0; childIndex < childNodes.length; childIndex++) {
     yield* walkTreeNode(childNodes[childIndex], children, cursor, childIndex);
   }

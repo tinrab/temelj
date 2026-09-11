@@ -4,6 +4,36 @@ import { implementWorkflow } from "../../src/definition.ts";
 import { createWorkflowEngine } from "../../src/engine/create.ts";
 
 describe("workflow deterministic helpers", () => {
+  test.each(["clock", "id"] as const)("rejects replaying a random value as %s", async (helper) => {
+    let now = Temporal.Instant.from("2026-06-11T10:00:00Z");
+    let replay = false;
+    const engine = createWorkflowEngine({ now: () => now, createDeterministicRandom: () => 0.5 });
+
+    const workflow = implementWorkflow(
+      { name: "changed-deterministic-kind" },
+      async ({ deterministic, step }) => {
+        const value = replay
+          ? helper === "clock"
+            ? await deterministic.now("shared")
+            : await deterministic.recordedId("shared")
+          : await deterministic.random("shared");
+
+        await step.task.sleep("pause", Temporal.Duration.from({ seconds: 1 }));
+
+        return value;
+      },
+    );
+
+    const initial = await engine.runWorkflowNow(workflow, undefined);
+    expect(initial.kind).toBe("waiting");
+    now = now.add({ seconds: 1 });
+    replay = true;
+    await expect(engine.resumeWorkflow(workflow, initial.run.id)).resolves.toMatchObject({
+      kind: "failed",
+      error: { name: "WorkflowReplayDivergenceError" },
+    });
+  });
+
   test("exposes typed deterministic helper outputs", () => {
     const workflow = implementWorkflow<undefined, void>(
       { name: "deterministic-types" },
@@ -23,10 +53,12 @@ describe("workflow deterministic helpers", () => {
 
   test("replays deterministic now, random, and recorded ID values from history", async () => {
     let now = Temporal.Instant.from("2026-06-11T10:00:00Z");
+
     const engine = createWorkflowEngine({
       createRunId: () => "run_deterministic_replay",
       now: () => now,
     });
+
     const workflow = implementWorkflow<
       undefined,
       {
@@ -49,6 +81,7 @@ describe("workflow deterministic helpers", () => {
       const secondRandom = await deterministic.random("roll-after");
       const secondUuid = await deterministic.uuid("uuid-after");
       const secondBytes = await deterministic.bytes("nonce-after", 4);
+
       return {
         firstNow: firstNow.toString(),
         secondNow: secondNow.toString(),
@@ -75,9 +108,11 @@ describe("workflow deterministic helpers", () => {
         secondNow: "2026-06-11T10:00:01Z",
       },
     });
+
     if (result.kind !== "completed") {
       throw new Error("Expected workflow to complete");
     }
+
     expect(result.output.firstRandom).toBeGreaterThanOrEqual(0);
     expect(result.output.firstRandom).toBeLessThan(1);
     expect(result.output.secondRandom).toBeGreaterThanOrEqual(0);
@@ -153,6 +188,7 @@ describe("workflow deterministic helpers", () => {
         `${runId}:${commandId}:${commandName}:${commandCount}`,
       createRunId: () => "run_configured_recorded_id",
     });
+
     const workflow = implementWorkflow<undefined, string>(
       { name: "configured-recorded-id" },
       async ({ deterministic }) => await deterministic.recordedId("token"),
@@ -178,18 +214,22 @@ describe("workflow deterministic helpers", () => {
     let now = Temporal.Instant.from("2026-06-11T10:00:00Z");
     let uuidCalls = 0;
     let bytesCalls = 0;
+
     const engine = createWorkflowEngine({
       createDeterministicUuid: () => {
         uuidCalls++;
+
         return "11111111-1111-4111-8111-111111111111";
       },
       createDeterministicBytes: ({ length }) => {
         bytesCalls++;
+
         return Uint8Array.from({ length }, (_, index) => index + 1);
       },
       createRunId: () => "run_configured_uuid_bytes",
       now: () => now,
     });
+
     const workflow = implementWorkflow<
       undefined,
       { readonly uuid: string; readonly bytes: readonly number[] }
@@ -197,6 +237,7 @@ describe("workflow deterministic helpers", () => {
       const uuid = await deterministic.uuid("uuid");
       const bytes = await deterministic.bytes("bytes", 3);
       await step.task.sleep("pause", Temporal.Duration.from({ milliseconds: 1 }));
+
       return { uuid, bytes: [...bytes] };
     });
 
@@ -236,12 +277,14 @@ describe("workflow deterministic helpers", () => {
       createDeterministicBytes: () => new Uint8Array([1, 2]),
       createRunId: () => "run_fresh_bytes",
     });
+
     const workflow = implementWorkflow<undefined, readonly number[]>(
       { name: "fresh-bytes" },
       async ({ deterministic }) => {
         const first = await deterministic.bytes("bytes", 2);
         first[0] = 9;
         const second = await deterministic.bytes("bytes", 2);
+
         return [...second];
       },
     );
@@ -264,16 +307,19 @@ describe("workflow deterministic helpers", () => {
   test("rejects deterministic bytes replay length changes", async () => {
     let now = Temporal.Instant.from("2026-06-11T10:00:00Z");
     let length = 2;
+
     const engine = createWorkflowEngine({
       createDeterministicBytes: ({ length }) => new Uint8Array(length),
       createRunId: () => "run_bytes_length_divergence",
       now: () => now,
     });
+
     const workflow = implementWorkflow<undefined, number>(
       { name: "bytes-length-divergence" },
       async ({ deterministic, step }) => {
         const bytes = await deterministic.bytes("bytes", length);
         await step.task.sleep("pause", Temporal.Duration.from({ milliseconds: 1 }));
+
         return bytes.byteLength;
       },
     );
@@ -287,9 +333,11 @@ describe("workflow deterministic helpers", () => {
     const result = await engine.resumeWorkflow(workflow, "run_bytes_length_divergence");
 
     expect(result.kind).toBe("failed");
+
     if (result.kind !== "failed") {
       throw new Error("Expected workflow to fail");
     }
+
     expect(result.error.name).toBe("WorkflowReplayDivergenceError");
   });
 
@@ -299,6 +347,7 @@ describe("workflow deterministic helpers", () => {
       createRunId: () => "run_bytes_size_limit",
       maximumPersistedValueBytes: 1,
     });
+
     const workflow = implementWorkflow<undefined, Uint8Array>(
       { name: "bytes-size-limit" },
       async ({ deterministic }) => await deterministic.bytes("bytes", 16),
@@ -307,9 +356,11 @@ describe("workflow deterministic helpers", () => {
     const result = await engine.runWorkflowNow(workflow, undefined);
 
     expect(result.kind).toBe("failed");
+
     if (result.kind !== "failed") {
       throw new Error("Expected workflow to fail");
     }
+
     expect(result.error.name).toBe("WorkflowSerializationError");
   });
 
@@ -317,10 +368,12 @@ describe("workflow deterministic helpers", () => {
     const engine = createWorkflowEngine({
       createRunId: () => "run_large_default_bytes",
     });
+
     const workflow = implementWorkflow<undefined, number>(
       { name: "large-default-bytes" },
       async ({ deterministic }) => {
         const bytes = await deterministic.bytes("bytes", 70_000);
+
         return bytes.byteLength;
       },
     );
@@ -345,6 +398,7 @@ describe("workflow deterministic helpers", () => {
       createRecordedId: ({ commandId, runId }) => `${runId}:${commandId}`,
       createRunId: () => "run_recorded_id_alias",
     });
+
     const workflow = implementWorkflow<undefined, string>(
       { name: "recorded-id-alias" },
       async ({ deterministic }) => await deterministic.id("token"),
@@ -358,16 +412,20 @@ describe("workflow deterministic helpers", () => {
 
   test("rejects renamed deterministic helper replay divergence", async () => {
     let now = Temporal.Instant.from("2026-06-11T10:00:00Z");
+
     const engine = createWorkflowEngine({
       createRunId: () => "run_deterministic_rename_divergence",
       now: () => now,
     });
+
     let name = "clock";
+
     const workflow = implementWorkflow<undefined, string>(
       { name: "deterministic-rename-divergence" },
       async ({ deterministic, step }) => {
         const value = await deterministic.now(name);
         await step.task.sleep("pause", Temporal.Duration.from({ seconds: 1 }));
+
         return value.toString();
       },
     );
@@ -381,19 +439,24 @@ describe("workflow deterministic helpers", () => {
     const result = await engine.resumeWorkflow(workflow, "run_deterministic_rename_divergence");
 
     expect(result.kind).toBe("failed");
+
     if (result.kind !== "failed") {
       throw new Error("Expected workflow to fail");
     }
+
     expect(result.error.name).toBe("WorkflowReplayDivergenceError");
   });
 
   test("rejects reordered deterministic helper replay divergence", async () => {
     let now = Temporal.Instant.from("2026-06-11T10:00:00Z");
+
     const engine = createWorkflowEngine({
       createRunId: () => "run_deterministic_reorder_divergence",
       now: () => now,
     });
+
     let reverse = false;
+
     const workflow = implementWorkflow<undefined, readonly string[]>(
       { name: "deterministic-reorder-divergence" },
       async ({ deterministic, step }) => {
@@ -401,11 +464,14 @@ describe("workflow deterministic helpers", () => {
           const right = await deterministic.recordedId("right");
           const left = await deterministic.recordedId("left");
           await step.task.sleep("pause", Temporal.Duration.from({ seconds: 1 }));
+
           return [right, left];
         }
+
         const left = await deterministic.recordedId("left");
         const right = await deterministic.recordedId("right");
         await step.task.sleep("pause", Temporal.Duration.from({ seconds: 1 }));
+
         return [left, right];
       },
     );
@@ -419,26 +485,33 @@ describe("workflow deterministic helpers", () => {
     const result = await engine.resumeWorkflow(workflow, "run_deterministic_reorder_divergence");
 
     expect(result.kind).toBe("failed");
+
     if (result.kind !== "failed") {
       throw new Error("Expected workflow to fail");
     }
+
     expect(result.error.name).toBe("WorkflowReplayDivergenceError");
   });
 
   test("rejects nondurable control-flow changes across replay", async () => {
     let now = Temporal.Instant.from("2026-06-11T10:00:00Z");
+
     const engine = createWorkflowEngine({
       createRunId: () => "run_nondurable_branch_divergence",
       now: () => now,
     });
+
     let includeStep = true;
+
     const workflow = implementWorkflow<undefined, string>(
       { name: "nondurable-branch-divergence" },
       async ({ step }) => {
         if (includeStep) {
           await step.task.run({ name: "branch" }, () => "branch");
         }
+
         await step.task.sleep("pause", Temporal.Duration.from({ seconds: 1 }));
+
         return "done";
       },
     );
@@ -452,9 +525,11 @@ describe("workflow deterministic helpers", () => {
     const result = await engine.resumeWorkflow(workflow, "run_nondurable_branch_divergence");
 
     expect(result.kind).toBe("failed");
+
     if (result.kind !== "failed") {
       throw new Error("Expected workflow to fail");
     }
+
     expect(result.error.name).toBe("WorkflowReplayDivergenceError");
     await expect(engine.getRun("run_nondurable_branch_divergence")).resolves.toMatchObject({
       status: "failed",
@@ -464,21 +539,28 @@ describe("workflow deterministic helpers", () => {
 
   test("passes deterministic values into durable task callbacks", async () => {
     let now = Temporal.Instant.from("2026-06-11T10:00:00Z");
+
     const engine = createWorkflowEngine({
       createRunId: () => "run_deterministic_task_input",
       createDeterministicUuid: () => "22222222-2222-4222-8222-222222222222",
       now: () => now,
     });
+
     let taskCalls = 0;
+
     const workflow = implementWorkflow<undefined, string>(
       { name: "deterministic-task-input" },
       async ({ deterministic, step }) => {
         const id = await deterministic.uuid("task-id");
+
         const result = await step.task.run({ name: "task" }, () => {
           taskCalls++;
+
           return `saved:${id}`;
         });
+
         await step.task.sleep("pause", Temporal.Duration.from({ milliseconds: 1 }));
+
         return result;
       },
     );

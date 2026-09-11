@@ -1,3 +1,5 @@
+import { isString } from "@temelj/value";
+
 import type { WorkflowErrorDetails, WorkflowErrorRecord } from "../types/error.ts";
 import type { WorkflowRunStatus, WorkflowTerminalRunStatus } from "../types/run.ts";
 
@@ -26,35 +28,39 @@ export function unprefixWorkflowErrorCauseDetails(
       .filter(([key]) => /^cause[A-Z]/.test(key))
       .map(([key, value]) => {
         const unprefixedKey = key.slice("cause".length);
+
         return [`${unprefixedKey[0]?.toLowerCase() ?? ""}${unprefixedKey.slice(1)}`, value];
       }),
   );
+
   const name =
-    typeof unprefixed.name === "string" && unprefixed.name.trim() !== ""
-      ? unprefixed.name
-      : "WorkflowError";
+    isString(unprefixed.name) && unprefixed.name.trim() !== "" ? unprefixed.name : "WorkflowError";
+
   const message =
-    typeof unprefixed.message === "string" && unprefixed.message.trim() !== ""
-      ? unprefixed.message
-      : name;
+    isString(unprefixed.message) && unprefixed.message.trim() !== "" ? unprefixed.message : name;
+
   const stack =
-    typeof unprefixed.stack === "string" && unprefixed.stack.trim() !== ""
-      ? unprefixed.stack
-      : undefined;
+    isString(unprefixed.stack) && unprefixed.stack.trim() !== "" ? unprefixed.stack : undefined;
+
   const code = workflowErrorCodeSchema.safeParse(unprefixed.code);
+
   const publicDetails = Object.fromEntries(
     Object.entries(unprefixed).filter(
       ([key]) => key !== "code" && key !== "name" && key !== "message" && key !== "stack",
     ),
   );
+
   const sanitizedDetails = sanitizedWorkflowErrorDetails(publicDetails);
-  return {
-    ...(code.success ? { code: code.data } : {}),
-    name,
-    message,
-    ...(stack === undefined ? {} : { stack }),
-    ...(sanitizedDetails === undefined ? {} : { details: sanitizedDetails }),
-  };
+
+  const record: WorkflowErrorRecord = { name, message };
+
+  if (code.success) Object.assign(record, { code: code.data });
+
+  if (stack !== undefined) Object.assign(record, { stack });
+
+  if (sanitizedDetails !== undefined) Object.assign(record, { details: sanitizedDetails });
+
+  return record;
 }
 
 export function workflowErrorDetailString(
@@ -62,10 +68,13 @@ export function workflowErrorDetailString(
   key: string,
 ): string | undefined {
   const parsed = workflowErrorDetailsSchema.safeParse(details);
+
   if (!parsed.success) {
     return undefined;
   }
+
   const result = optionalWorkflowErrorStringSchema.safeParse(parsed.data[key]);
+
   return result.success ? result.data : undefined;
 }
 
@@ -74,22 +83,29 @@ export function workflowErrorDetailPositiveSafeInteger(
   key: string,
 ): number | undefined {
   const parsed = workflowErrorDetailsSchema.safeParse(details);
+
   if (!parsed.success) {
     return undefined;
   }
+
   const result = positiveSafeIntegerSchema.optional().safeParse(parsed.data[key]);
+
   return result.success ? result.data : undefined;
 }
 
-export function workflowErrorRunStatusOrUndefined(value: unknown): WorkflowRunStatus | undefined {
+export function workflowErrorRunStatusOrUndefined(
+  value: WorkflowErrorDetails[string] | undefined,
+): WorkflowRunStatus | undefined {
   const result = workflowErrorRunStatusSchema.safeParse(value);
+
   return result.success ? result.data : undefined;
 }
 
 export function workflowTerminalErrorRunStatusOrUndefined(
-  value: unknown,
+  value: WorkflowErrorDetails[string] | undefined,
 ): WorkflowTerminalRunStatus | undefined {
   const result = workflowTerminalErrorRunStatusSchema.safeParse(value);
+
   return result.success ? result.data : undefined;
 }
 
@@ -98,9 +114,11 @@ export function workflowErrorDetailTimestamp(
   key: string,
 ): Temporal.Instant | undefined {
   const value = workflowErrorDetailString(details, key);
+
   if (value === undefined) {
     return undefined;
   }
+
   try {
     return Temporal.Instant.from(value);
   } catch {
@@ -113,9 +131,11 @@ export function workflowErrorDetailDuration(
   key: string,
 ): Temporal.Duration | undefined {
   const value = workflowErrorDetailString(details, key);
+
   if (value === undefined) {
     return undefined;
   }
+
   try {
     return Temporal.Duration.from(value);
   } catch {

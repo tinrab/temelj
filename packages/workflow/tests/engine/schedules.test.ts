@@ -1,18 +1,58 @@
 import { describe, expect, test } from "vitest";
+import { z } from "zod";
 
 import { createWorkflowClient } from "../../src/client/create.ts";
-import { defineWorkflow } from "../../src/definition.ts";
+import { defineWorkflow, implementWorkflow } from "../../src/definition.ts";
 import { createWorkflowEngine } from "../../src/engine/create.ts";
 import { sequentialRunIds } from "../utility.ts";
 
 describe("workflow schedules", () => {
+  test.each(["createSchedule", "upsertSchedule"] as const)(
+    "%s prepares transformed input before a scheduled run starts",
+    async (operation) => {
+      let now = Temporal.Instant.from("2026-06-11T10:00:00Z");
+      const engine = createWorkflowEngine({ now: () => now, createRunId: () => "transformed" });
+      const parsedInputs: string[] = [];
+
+      const workflow = implementWorkflow(
+        {
+          name: "scheduled-transform",
+          schema: z.string().transform((value) => {
+            parsedInputs.push(value);
+
+            return Number(value) + 1;
+          }),
+        },
+        ({ input }) => input + 1,
+      );
+
+      const schedule = await engine[operation](workflow, {
+        id: "transform",
+        every: Temporal.Duration.from({ hours: 1 }),
+        input: "40",
+      });
+
+      expect(schedule.input).toBe(41);
+      now = now.add({ hours: 1 });
+      await engine.tickSchedules();
+      await expect(engine.resumeWorkflow(workflow, "transformed")).resolves.toMatchObject({
+        kind: "completed",
+        output: 42,
+      });
+      expect(parsedInputs).toEqual(["40"]);
+    },
+  );
+
   test("creates and ticks recurring fixed-interval schedules", async () => {
     let now = Temporal.Instant.from("2026-06-11T10:00:00Z");
+
     const engine = createWorkflowEngine({
       createRunId: sequentialRunIds("run_recurring_first", "run_recurring_second"),
       now: () => now,
     });
+
     const client = createWorkflowClient({ engine });
+
     const def = defineWorkflow<{ readonly userId: string }, string>({
       name: "recurring-reminder",
       version: "v1",
@@ -99,10 +139,12 @@ describe("workflow schedules", () => {
 
   test("pauses resumes archives deletes and filters recurring schedules", async () => {
     let now = Temporal.Instant.from("2026-06-11T10:00:00Z");
+
     const engine = createWorkflowEngine({
       createRunId: () => "run_paused_schedule",
       now: () => now,
     });
+
     const client = createWorkflowClient({ engine });
     const def = defineWorkflow<undefined, string>({ name: "pause-schedule" });
 
@@ -146,15 +188,19 @@ describe("workflow schedules", () => {
 
   test("upserts recurring schedules without resetting tick history", async () => {
     let now = Temporal.Instant.from("2026-06-11T10:00:00Z");
+
     const engine = createWorkflowEngine({
       createRunId: () => "run_upsert_schedule",
       now: () => now,
     });
+
     const client = createWorkflowClient({ engine });
+
     const firstSpec = defineWorkflow<{ readonly userId: string }, string>({
       name: "upsert-schedule",
       version: "v1",
     });
+
     const nextSpec = defineWorkflow<{ readonly userId: string }, string>({
       name: "upsert-schedule",
       version: "v2",
@@ -249,7 +295,9 @@ describe("workflow schedules", () => {
       createRunId: sequentialRunIds("run_schedule_next", "run_schedule_duplicate"),
       now: () => Temporal.Instant.from("2026-06-11T10:00:00Z"),
     });
+
     const client = createWorkflowClient({ engine });
+
     const def = defineWorkflow<{ readonly userId: string }, string>({
       name: "scheduled-reminder",
     });
@@ -293,6 +341,7 @@ describe("workflow schedules", () => {
     const engine = createWorkflowEngine({
       createRunId: () => "run_invalid_schedule",
     });
+
     const client = createWorkflowClient({ engine });
     const def = defineWorkflow<undefined, string>({ name: "invalid-schedule" });
 

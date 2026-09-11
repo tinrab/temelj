@@ -1,4 +1,4 @@
-import type { TemplateDelegate } from "handlebars";
+import type { TemplateDelegate, Template } from "handlebars";
 
 import hbs from "handlebars";
 
@@ -6,7 +6,7 @@ export type { HelperDeclareSpec, HelperDelegate, Template } from "handlebars";
 
 export type { TemplateDelegate };
 
-export type PartialSpec = Record<string, TemplateDelegate>;
+export type PartialSpec = Record<string, Template>;
 
 export class SafeString extends hbs.SafeString {}
 

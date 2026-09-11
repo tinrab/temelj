@@ -26,19 +26,24 @@ export class ExpressionBoundaryScanner {
     for (let index = 0; index < text.length; index++) {
       const character = text[index];
       const next = text[index + 1];
+
       if (this.#state === "lineComment") {
         if (character === "\n" || character === "\r") {
           this.#state = "code";
         }
+
         continue;
       }
+
       if (this.#state === "blockComment") {
         if (character === "*" && next === "/") {
           this.#state = "code";
           index++;
         }
+
         continue;
       }
+
       if (this.#state === "singleQuotedString" || this.#state === "doubleQuotedString") {
         if (this.#escaped) {
           this.#escaped = false;
@@ -50,8 +55,10 @@ export class ExpressionBoundaryScanner {
         ) {
           this.#state = "code";
         }
+
         continue;
       }
+
       if (this.#state === "template") {
         if (this.#escaped) {
           this.#escaped = false;
@@ -64,6 +71,7 @@ export class ExpressionBoundaryScanner {
           this.#state = "code";
           index++;
         }
+
         continue;
       }
 
@@ -87,18 +95,23 @@ export class ExpressionBoundaryScanner {
         this.#delimiters.push({ character: "}", resumesTemplate: false });
       } else if (character === ")" || character === "]" || character === "}") {
         const delimiter = this.#delimiters.at(-1);
+
         if (delimiter?.character !== character) {
           return { kind: "invalid", offset: index };
         }
+
         this.#delimiters.pop();
+
         if (this.#delimiters.length === 0) {
           return { kind: "closed", offset: index + 1 };
         }
+
         if (delimiter.resumesTemplate) {
           this.#state = "template";
         }
       }
     }
+
     return { kind: "open" };
   }
 
@@ -107,6 +120,7 @@ export class ExpressionBoundaryScanner {
     copy.#delimiters.splice(0, copy.#delimiters.length, ...this.#delimiters);
     copy.#escaped = this.#escaped;
     copy.#state = this.#state;
+
     return copy;
   }
 }
@@ -126,18 +140,23 @@ export class JsxBoundaryScanner {
   public append(text: string): EmbeddedScannerResult {
     for (let index = 0; index < text.length; index++) {
       const character = text[index];
+
       if (this.#expression !== undefined) {
         const expression = this.#expression.append(text.slice(index));
+
         if (expression.kind === "invalid") {
           return { kind: "invalid", offset: index + expression.offset };
         }
+
         if (expression.kind === "open") {
           return expression;
         }
+
         index += expression.offset - 1;
         this.#expression = undefined;
         continue;
       }
+
       if (this.#state === "singleQuotedAttribute" || this.#state === "doubleQuotedAttribute") {
         if (
           (this.#state === "singleQuotedAttribute" && character === "'") ||
@@ -145,8 +164,10 @@ export class JsxBoundaryScanner {
         ) {
           this.#state = "tag";
         }
+
         continue;
       }
+
       if (this.#state === "children") {
         if (character === "{") {
           this.#expression = new ExpressionBoundaryScanner();
@@ -155,10 +176,12 @@ export class JsxBoundaryScanner {
           this.#closing = text[index + 1] === "/";
           this.#name = "";
           this.#readingName = true;
+
           if (this.#closing) {
             index++;
           }
         }
+
         continue;
       }
 
@@ -168,16 +191,20 @@ export class JsxBoundaryScanner {
         this.#expression = new ExpressionBoundaryScanner();
       } else if (character === ">") {
         const selfClosing = text[index - 1] === "/";
+
         if (this.#closing) {
           const expected = this.#elements.pop();
+
           if (expected === undefined || expected !== this.#name) {
             return { kind: "invalid", offset: index };
           }
         } else if (!selfClosing) {
           this.#elements.push(this.#name);
         }
+
         this.#rootOpened = true;
         this.#state = "children";
+
         if (this.#elements.length === 0) {
           return { kind: "closed", offset: index + 1 };
         }
@@ -189,6 +216,7 @@ export class JsxBoundaryScanner {
         return { kind: "invalid", offset: index };
       }
     }
+
     return { kind: "open" };
   }
 
@@ -201,6 +229,7 @@ export class JsxBoundaryScanner {
     copy.#readingName = this.#readingName;
     copy.#rootOpened = this.#rootOpened;
     copy.#state = this.#state;
+
     return copy;
   }
 

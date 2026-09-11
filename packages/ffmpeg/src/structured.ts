@@ -3,6 +3,7 @@ import type {
   OutputMetadataOptions as GeneratedOutputMetadataOptions,
   OutputOptions as GeneratedOutputOptions,
 } from "./generated/options.ts";
+import type { OutputMetadataOptions, OutputOptions } from "./types.ts";
 
 import { FFmpegDefinitionError } from "./errors.ts";
 
@@ -59,43 +60,58 @@ export type ForceKeyFramesDefinition =
   | { mode: "scd_metadata" };
 
 export type MetadataValue = OneOrMany<MetadataAssignment | UnsafeValue>;
+
 export type MetadataMapValue = OneOrMany<MetadataMap | UnsafeValue>;
+
 export type ProgramValue = OneOrMany<ProgramDefinition | UnsafeValue>;
+
 export type StreamGroupValue = OneOrMany<StreamGroupDefinition | UnsafeValue>;
+
 export type StreamIdValue = OneOrMany<StreamIdDefinition | UnsafeValue>;
+
 export type DispositionValue = OneOrMany<DispositionDefinition | UnsafeValue>;
+
 export type ForceKeyFramesValue = ForceKeyFramesDefinition | UnsafeValue;
 
-function isUnsafeValue(value: unknown): value is UnsafeValue {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "raw" in value &&
-    typeof (value as { raw: unknown }).raw === "string"
-  );
+type StructuredDefinition =
+  | MetadataAssignment
+  | MetadataMap
+  | ProgramDefinition
+  | StreamGroupDefinition
+  | StreamIdDefinition
+  | DispositionDefinition
+  | ForceKeyFramesDefinition;
+
+function isUnsafeValue(value: StructuredDefinition | UnsafeValue): value is UnsafeValue {
+  return "raw" in value;
+}
+
+function isMany<T>(value: OneOrMany<T>): value is readonly T[] {
+  return Array.isArray(value);
 }
 
 function ensureNonEmpty(value: string, label: string): string {
   if (value.length === 0) {
     FFmpegDefinitionError.nonEmpty(label);
   }
+
   return value;
 }
 
 function toArray<T>(value: OneOrMany<T>): readonly T[] {
-  return Array.isArray(value) ? value : ([value] as readonly T[]);
+  return isMany(value) ? value : [value];
 }
 
-function serializeOneOrMany<T>(
-  value: OneOrMany<T> | undefined,
-  serialize: (item: Exclude<T, UnsafeValue>) => string,
+function serializeOneOrMany<T extends StructuredDefinition>(
+  value: OneOrMany<T | UnsafeValue> | undefined,
+  serialize: (item: T) => string,
 ): string | string[] | undefined {
   if (value === undefined) {
     return undefined;
   }
 
   const serialized = toArray(value).map((item) =>
-    isUnsafeValue(item) ? item.raw : serialize(item as Exclude<T, UnsafeValue>),
+    isUnsafeValue(item) ? item.raw : serialize(item),
   );
 
   return serialized.length === 1 ? serialized[0] : serialized;
@@ -119,10 +135,13 @@ export function serializeMetadataMaps(
 ): string | string[] | undefined {
   return serializeOneOrMany(value, (item) => {
     const parts = [String(item.inputFileIndex)];
+
     if (item.inputScope) {
       parts.push(item.inputScope);
     }
+
     const source = parts.join(":");
+
     return item.outputScope ? `${source}:${item.outputScope}` : source;
   });
 }
@@ -136,11 +155,15 @@ export function serializeProgramDefinitions(
     }
 
     const parts: string[] = [];
+
     if (item.title !== undefined) parts.push(`title=${item.title}`);
+
     if (item.programNum !== undefined) parts.push(`program_num=${item.programNum}`);
+
     for (const stream of item.streams) {
       parts.push(`st=${stream}`);
     }
+
     return parts.join(":");
   });
 }
@@ -155,12 +178,14 @@ export function serializeStreamGroupDefinitions(
       if (item.inputFileId === undefined || item.inputGroupId === undefined) {
         FFmpegDefinitionError.streamGroupInputMappingIncomplete();
       }
+
       parts.push(`map=${item.inputFileId}=${item.inputGroupId}`);
     }
 
     if (item.type !== undefined) {
       parts.push(`type=${item.type}`);
     }
+
     if (item.id !== undefined) {
       parts.push(`id=${item.id}`);
     }
@@ -236,55 +261,36 @@ export function serializeForceKeyFrames(
 }
 
 export function normalizeOutputMetadataOptions(
-  options: GeneratedOutputMetadataOptions,
+  options: OutputMetadataOptions,
 ): GeneratedOutputMetadataOptions {
   return {
     ...options,
-    metadata: serializeMetadataAssignments(
-      options.metadata as MetadataValue | undefined,
-    ) as GeneratedOutputMetadataOptions["metadata"],
-    mapMetadata: serializeMetadataMaps(
-      options.mapMetadata as MetadataMapValue | undefined,
-    ) as GeneratedOutputMetadataOptions["mapMetadata"],
+    metadata: serializeMetadataAssignments(options.metadata),
+    mapMetadata: serializeMetadataMaps(options.mapMetadata),
   };
 }
 
-export function normalizeOutputOptions(options: GeneratedOutputOptions): GeneratedOutputOptions {
+export function normalizeOutputOptions(options: OutputOptions): GeneratedOutputOptions {
   const metadataScopes =
     options.metadataScopes === undefined
       ? undefined
       : Object.fromEntries(
-          Object.entries(options.metadataScopes)
-            .filter(([, scopeOptions]) => scopeOptions !== undefined)
-            .map(([scope, scopeOptions]) => [
-              scope,
-              normalizeOutputMetadataOptions(scopeOptions as GeneratedOutputMetadataOptions),
-            ]),
+          Object.entries(options.metadataScopes).flatMap(([scope, scopeOptions]) =>
+            scopeOptions === undefined
+              ? []
+              : [[scope, normalizeOutputMetadataOptions(scopeOptions)]],
+          ),
         );
 
   return {
     ...options,
-    metadata: serializeMetadataAssignments(
-      options.metadata as MetadataValue | undefined,
-    ) as GeneratedOutputOptions["metadata"],
-    mapMetadata: serializeMetadataMaps(
-      options.mapMetadata as MetadataMapValue | undefined,
-    ) as GeneratedOutputOptions["mapMetadata"],
-    disposition: serializeDispositions(
-      options.disposition as DispositionValue | undefined,
-    ) as GeneratedOutputOptions["disposition"],
-    forceKeyFrames: serializeForceKeyFrames(
-      options.forceKeyFrames as ForceKeyFramesValue | undefined,
-    ) as GeneratedOutputOptions["forceKeyFrames"],
-    program: serializeProgramDefinitions(
-      options.program as ProgramValue | undefined,
-    ) as GeneratedOutputOptions["program"],
-    streamGroup: serializeStreamGroupDefinitions(
-      options.streamGroup as StreamGroupValue | undefined,
-    ) as GeneratedOutputOptions["streamGroup"],
-    streamid: serializeStreamIds(
-      options.streamid as StreamIdValue | undefined,
-    ) as GeneratedOutputOptions["streamid"],
+    metadata: serializeMetadataAssignments(options.metadata),
+    mapMetadata: serializeMetadataMaps(options.mapMetadata),
+    disposition: serializeDispositions(options.disposition),
+    forceKeyFrames: serializeForceKeyFrames(options.forceKeyFrames),
+    program: serializeProgramDefinitions(options.program),
+    streamGroup: serializeStreamGroupDefinitions(options.streamGroup),
+    streamid: serializeStreamIds(options.streamid),
     metadataScopes,
   };
 }

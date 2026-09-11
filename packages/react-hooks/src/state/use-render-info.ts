@@ -1,43 +1,46 @@
 import * as React from "react";
 
-function useRenderCount(): number {
-  const count = React.useRef(0);
-  count.current++;
-  return count.current;
-}
-
-/**
- * Development-only render diagnostic information.
- */
+/** Measurements for a committed render of a React Profiler subtree. */
 export interface RenderInfo {
-  /** Diagnostic label. */
-  name: string;
-  /** Number of renders observed. */
-  renders: number;
-  /** Elapsed time since the previous render. */
-  sinceLastRender: number;
-  /** Timestamp for the reported value. */
-  timestamp: number;
+  /** Profiler identifier. */
+  readonly id: string;
+  /** React's phase for this commit. */
+  readonly phase: Parameters<React.ProfilerOnRenderCallback>[1];
+  /** Number of commits observed by this callback. */
+  readonly renders: number;
+  /** Milliseconds since the previous commit, or zero on mount. */
+  readonly sinceLastRender: number;
+  /** Time spent rendering the subtree in this update. */
+  readonly actualDuration: number;
+  /** Estimated time to render the whole subtree without memoization. */
+  readonly baseDuration: number;
+  /** Time when React began this render. */
+  readonly startTime: number;
+  /** Time when React committed this update. */
+  readonly commitTime: number;
 }
 
-/**
- * Logs and returns render diagnostics in non-production environments.
- */
-export function useRenderInfo(name = "Unknown"): RenderInfo | undefined {
-  const renders = useRenderCount();
-  const lastRender = React.useRef<number | undefined>(undefined);
-  const timestamp = Date.now();
-  const sinceLastRender = lastRender.current === undefined ? 0 : timestamp - lastRender.current;
+/** Returns a Profiler callback that reports committed renders without mutating state during render. */
+export function useRenderInfo(report: (info: RenderInfo) => void): React.ProfilerOnRenderCallback {
+  const history = React.useRef({ renders: 0, commitTime: 0 });
 
-  React.useEffect(() => {
-    lastRender.current = Date.now();
-  });
-
-  const isProduction = typeof process !== "undefined" && process.env?.NODE_ENV === "production";
-  if (isProduction) {
-    return undefined;
-  }
-  const info = { name, renders, sinceLastRender, timestamp };
-  console.log(info);
-  return info;
+  return React.useCallback(
+    (id, phase, actualDuration, baseDuration, startTime, commitTime) => {
+      const previous = history.current;
+      const renders = previous.renders + 1;
+      const sinceLastRender = previous.renders === 0 ? 0 : commitTime - previous.commitTime;
+      history.current = { renders, commitTime };
+      report({
+        id,
+        phase,
+        renders,
+        sinceLastRender,
+        actualDuration,
+        baseDuration,
+        startTime,
+        commitTime,
+      });
+    },
+    [report],
+  );
 }

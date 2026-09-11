@@ -2,6 +2,7 @@ import type { Logger } from "@temelj/log";
 
 import type { TimeoutHandle } from "../timer.ts";
 import type { WorkflowExecutionEnvironment } from "../types/engine.ts";
+import type { WorkflowStepStartedEvent, WorkflowStepCompletedEvent } from "../types/events.ts";
 import type { WorkflowResolvedStepRetryConfig } from "../types/retry.ts";
 import type { RunId } from "../types/run.ts";
 import type {
@@ -11,6 +12,7 @@ import type {
   WorkflowStepTaskApi,
   WorkflowStepRunConfig,
 } from "../types/step.ts";
+import type { StepTelemetryContext } from "../types/telemetry.ts";
 
 import {
   WorkflowDurationError,
@@ -53,6 +55,7 @@ export function createWorkflowStepTaskApi(
       [config.commandId, config.name],
       "Workflow step name or commandId",
     );
+
     const timeout =
       config.timeout === undefined
         ? undefined
@@ -61,13 +64,17 @@ export function createWorkflowStepTaskApi(
               config.timeout.total({ unit: "millisecond" }),
               "Workflow step timeout",
             );
+
             if (value <= 0) {
               WorkflowDurationError.stepTimeoutPositive();
             }
+
             return value;
           })();
+
     const started = history.startedStep(identity.id);
     const completed = history.completedStep(identity.id);
+
     if (
       completed !== undefined &&
       (started === undefined || isRunStepTerminalForStartedAttempt(completed, started))
@@ -78,9 +85,13 @@ export function createWorkflowStepTaskApi(
       );
       requireRunStepReplayTimeoutMatches(identity, started, config);
       recordedStepCompletionTimestamp(identity, completed.timestamp);
+
+      // SAFETY: The checked completion belongs to this command and started attempt; this workflow version owns the callback/result contract across replay.
       return completed.result as TOutput;
     }
+
     const orphanFailed = history.unstartedFailedStep(identity.id);
+
     if (orphanFailed !== undefined) {
       requireRecordedDurableStepStarted(identity, false);
     }
@@ -93,38 +104,50 @@ export function createWorkflowStepTaskApi(
       },
       "Workflow step retry",
     );
+
     let attempt = history.nextStepAttempt(identity.id);
 
     while (retry.maximumAttempts === 0 || attempt <= retry.maximumAttempts) {
       const startedAt = now();
       const timestamp = startedAt;
+
       const timeoutAt =
         timeout === undefined
           ? undefined
           : startedAt.add(Temporal.Duration.from({ milliseconds: timeout }));
-      await appendDurableStepStartedEvent(environment, {
+
+      const startedEvent: WorkflowStepStartedEvent = {
         kind: "step_started",
         timestamp,
         stepId: identity.id,
         stepName: identity.name,
         count: identity.count,
         attempt,
-        ...(timeoutAt === undefined ? {} : { timeoutAt }),
-      });
+      };
+
+      if (timeoutAt !== undefined) {
+        Object.assign(startedEvent, { timeoutAt } satisfies Partial<WorkflowStepStartedEvent>);
+      }
+
+      await appendDurableStepStartedEvent(environment, startedEvent);
+
+      const telemetryContext: StepTelemetryContext = {
+        run: executionOwner,
+        step: {
+          id: identity.id,
+          name: identity.name,
+          count: identity.count,
+          kind: "run" as const,
+        },
+        attempt,
+        retry,
+      };
+
+      if (timeoutAt !== undefined) {
+        Object.assign(telemetryContext, { timeoutAt } satisfies Partial<StepTelemetryContext>);
+      }
 
       try {
-        const telemetryContext = {
-          run: executionOwner,
-          step: {
-            id: identity.id,
-            name: identity.name,
-            count: identity.count,
-            kind: "run" as const,
-          },
-          attempt,
-          retry,
-          ...(timeoutAt === undefined ? {} : { timeoutAt }),
-        };
         const result = await withStepTelemetry(telemetry, telemetryContext, async () => {
           return await runStepCallbackWithTimeout(
             callback,
@@ -151,20 +174,31 @@ export function createWorkflowStepTaskApi(
             },
           );
         });
+
         try {
           telemetry?.recordStepExecution?.(telemetryContext);
         } catch {
           // Telemetry failures must not affect durable step execution.
         }
+
         const persistedResult = toOptionalPersistedValue(result, "step result", limits);
-        await appendDurableStepTerminalEvent(environment, {
+
+        const completedEvent: WorkflowStepCompletedEvent = {
           kind: "step_completed",
           timestamp: now(),
           stepId: identity.id,
           stepName: identity.name,
           attempt,
-          ...(persistedResult === undefined ? {} : { result: persistedResult }),
-        });
+        };
+
+        if (persistedResult !== undefined) {
+          Object.assign(completedEvent, {
+            result: persistedResult,
+          } satisfies Partial<WorkflowStepCompletedEvent>);
+        }
+
+        await appendDurableStepTerminalEvent(environment, completedEvent);
+
         return result;
       } catch (error) {
         if (executionSignal.aborted && isAbortError(error)) {
@@ -172,19 +206,7 @@ export function createWorkflowStepTaskApi(
         }
 
         try {
-          telemetry?.recordStepExecution?.({
-            run: executionOwner,
-            step: {
-              id: identity.id,
-              name: identity.name,
-              count: identity.count,
-              kind: "run",
-            },
-            attempt,
-            retry,
-            ...(timeoutAt === undefined ? {} : { timeoutAt }),
-            error,
-          });
+          telemetry?.recordStepExecution?.({ ...telemetryContext, error });
         } catch {
           // Telemetry failures must not affect durable step execution.
         }
@@ -214,6 +236,7 @@ export function createWorkflowStepTaskApi(
         const retryAt =
           retryClassificationRetryAt(failedAt, error, "Workflow step retry classification") ??
           nextRetryAt(failedAt, retry, attempt, "Workflow step retry delay");
+
         if (retryAt !== undefined) {
           WorkflowSuspended.forStepRetry(retryAt, identity, attempt + 1);
         }
@@ -239,7 +262,7 @@ export function createWorkflowStepTaskApi(
 
     async call(definition, ...args) {
       return await run(definition.config, async (context) => {
-        return await definition.handler(...args, context);
+        return await definition.handler(context, ...args);
       });
     },
 
@@ -306,9 +329,11 @@ async function runStepCallbackWithTimeout<TOutput>(
 
   const timeoutAt = timeout.timeoutAt;
   const timeoutAbort = new AbortController();
+
   const abortFromParent = () => {
     timeoutAbort.abort(context.signal.reason);
   };
+
   if (context.signal.aborted) {
     timeoutAbort.abort(context.signal.reason);
   } else {
@@ -316,6 +341,7 @@ async function runStepCallbackWithTimeout<TOutput>(
   }
 
   let timeoutHandle: TimeoutHandle | undefined;
+
   const timeoutPromise = new Promise<never>((_resolve, reject) => {
     timeoutHandle = setTimeout(() => {
       const error = WorkflowStepTimeoutError.create({
@@ -325,6 +351,7 @@ async function runStepCallbackWithTimeout<TOutput>(
         attempt: timeout.attempt,
         timeoutAt,
       });
+
       timeoutAbort.abort(error);
       reject(error);
     }, timeout.timeout);
@@ -342,6 +369,7 @@ async function runStepCallbackWithTimeout<TOutput>(
     if (timeoutHandle !== undefined) {
       clearTimeout(timeoutHandle);
     }
+
     context.signal.removeEventListener("abort", abortFromParent);
   }
 }

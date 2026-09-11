@@ -31,16 +31,24 @@ export function createWorkflowRecoveryDueRunSummaryReducer(
   now: Temporal.Instant,
 ): WorkflowRecoveryDueRunSummaryReducer {
   const due = createWorkflowRecoveryDueRunAccumulator();
+
   return {
     addRun(run) {
       addWorkflowRecoveryDueRun(due, run, now);
     },
-    finish() {
-      return {
+    finish(): WorkflowRecoveryDueRunSummaryParts {
+      const result: WorkflowRecoveryDueRunSummaryParts = {
         due: finishWorkflowRecoveryDueSummary(due),
         dueRunIds: [...due.runIds].sort(),
-        ...(due.nextAvailable === undefined ? {} : { nextAvailable: due.nextAvailable }),
       };
+
+      if (due.nextAvailable !== undefined) {
+        Object.assign(result, {
+          nextAvailable: due.nextAvailable,
+        } satisfies Partial<WorkflowRecoveryDueRunSummaryParts>);
+      }
+
+      return result;
     },
   };
 }
@@ -62,16 +70,21 @@ function addWorkflowRecoveryDueRun(
   if (!isScheduledWorkflowRunStatus(run.status)) {
     return;
   }
+
   const availableAt = run.availableAt;
+
   if (isWorkflowRecoveryRunDueAt(availableAt, now)) {
     due.runIds.add(run.id);
+
     if (run.status === "pending") {
       due.pendingRunIds.add(run.id);
     } else {
       due.waitingRunIds.add(run.id);
     }
+
     return;
   }
+
   if (availableAt !== undefined) {
     due.nextAvailable = earliestWorkflowRecoveryTimestamp(due.nextAvailable, run.id, availableAt);
   }
@@ -80,17 +93,20 @@ function addWorkflowRecoveryDueRun(
 function finishWorkflowRecoveryDueSummary(
   due: WorkflowRecoveryDueRunAccumulator,
 ): WorkflowRecoveryDueSummary {
-  return {
+  const result1: WorkflowRecoveryDueSummary = {
     total: due.runIds.size,
     runIds: [...due.runIds].sort(),
     pendingRunIds: [...due.pendingRunIds].sort(),
     waitingRunIds: [...due.waitingRunIds].sort(),
     invalidScheduleRunIds: [...due.invalidScheduleRunIds].sort(),
-    ...(due.nextAvailable === undefined
-      ? {}
-      : {
-          nextAvailableAt: due.nextAvailable.timestamp,
-          nextAvailableRunId: due.nextAvailable.runId,
-        }),
   };
+
+  if (due.nextAvailable !== undefined) {
+    Object.assign(result1, {
+      nextAvailableAt: due.nextAvailable.timestamp,
+      nextAvailableRunId: due.nextAvailable.runId,
+    } satisfies Partial<WorkflowRecoveryDueSummary>);
+  }
+
+  return result1;
 }

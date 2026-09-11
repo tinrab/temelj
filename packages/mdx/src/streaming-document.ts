@@ -238,8 +238,10 @@ function renderStreamingNode(node: StreamingNode): string {
     case "codeBlock": {
       const language = escapeHtml(node.codeBlock.language);
       const code = escapeHtml(node.codeBlock.code.length === 0 ? "" : `${node.codeBlock.code}\n`);
+
       return `<pre><code class="language-${language}">${code}</code></pre>`;
     }
+
     case "math":
       return renderMathFallback(node.math);
     case "pendingFencedCode":
@@ -260,10 +262,13 @@ function renderStreamingNode(node: StreamingNode): string {
       const attributes = Object.entries(node.attributes)
         .map(([name, value]) => ` ${name}="${escapeHtml(String(value))}"`)
         .join("");
+
       return `<${node.tagName}${attributes}>${node.children.map(renderStreamingNode).join("")}</${node.tagName}>`;
     }
+
     default: {
       const exhaustive: never = node;
+
       return exhaustive;
     }
   }
@@ -271,11 +276,14 @@ function renderStreamingNode(node: StreamingNode): string {
 
 function renderMathFallback(math: MathRenderInput): string {
   const source = escapeHtml(math.source);
+
   if (math.style === "inline") {
     return `<code class="language-math math-inline">${source}</code>`;
   }
+
   const metadata = math.meta === undefined ? "" : ` data-math-meta="${escapeHtml(math.meta)}"`;
   const value = source.length === 0 ? "" : `${source}\n`;
+
   return `<pre${metadata}><code class="language-math math-display">${value}</code></pre>`;
 }
 

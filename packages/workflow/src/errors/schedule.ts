@@ -118,8 +118,9 @@ export class WorkflowScheduleAlreadyExistsError extends WorkflowStateError {
     );
   }
 
-  static isAlreadyExists(error: unknown, scheduleId?: ScheduleId): boolean {
-    const record = workflowErrorRecordView(error);
+  static isAlreadyExists(cause: unknown, scheduleId?: ScheduleId): boolean {
+    const record = workflowErrorRecordView(cause);
+
     return (
       record?.code === WorkflowErrorCode.SCHEDULE_ALREADY_EXISTS &&
       (scheduleId === undefined || record.details?.scheduleId === scheduleId)

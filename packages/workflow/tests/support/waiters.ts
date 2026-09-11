@@ -1,3 +1,4 @@
+import type { SendMessageOptions } from "../../src/types/message.ts";
 import type { RunId } from "../../src/types/run.ts";
 import type { ReadStreamOptions, StreamState } from "../../src/types/stream.ts";
 import type {
@@ -34,10 +35,12 @@ interface WorkflowTestRunReference {
 
 export async function waitFor(callback: () => Promise<boolean>): Promise<void> {
   const startedAt = Temporal.Now.instant();
+
   while (!(await callback())) {
     if (Temporal.Now.instant().epochMilliseconds - startedAt.epochMilliseconds > 1_000) {
       throw new Error("Timed out while waiting for workflow test condition");
     }
+
     await delay(1);
   }
 }
@@ -54,6 +57,7 @@ export async function waitForWorkflowSleep(
   options: WorkflowTestWaitOptions = {},
 ): Promise<TimelineSleepEntry> {
   requireWorkflowTestWaitOptions(options, "Workflow sleep wait options");
+
   return await waitForTimelineEntry(handle, options, "sleep", findActiveSleepEntry);
 }
 
@@ -63,6 +67,7 @@ export async function waitForHook(
   options: WorkflowTestWaitOptions = {},
 ): Promise<TimelineMessageEntry & { readonly status: "waiting" }> {
   requireWorkflowTestWaitOptions(options, "Workflow hook wait options");
+
   return await waitForTimelineEntry(handle, options, "hook", findActiveHookEntry);
 }
 
@@ -73,6 +78,7 @@ export async function wakeWorkflowRun(
   options: WorkflowWakeWorkflowRunOptions = {},
 ): Promise<WorkflowWorkerRunResult> {
   await waker.workers.processRun(handle.runId, options);
+
   return { processedRuns: 1 };
 }
 
@@ -83,11 +89,19 @@ export async function resumeHook(
   runId: RunId,
   options: WorkflowResumeWorkflowHookOptions = {},
 ): Promise<void> {
-  await sender.messages.send(runId, {
-    messageId: hook.messageId,
-    ...(options.payload === undefined ? {} : { payload: options.payload }),
-    ...(options.idempotencyKey === undefined ? {} : { idempotencyKey: options.idempotencyKey }),
-  });
+  const message: SendMessageOptions = { messageId: hook.messageId };
+
+  if (options.payload !== undefined) {
+    Object.assign(message, { payload: options.payload } satisfies Partial<SendMessageOptions>);
+  }
+
+  if (options.idempotencyKey !== undefined) {
+    Object.assign(message, {
+      idempotencyKey: options.idempotencyKey,
+    } satisfies Partial<SendMessageOptions>);
+  }
+
+  await sender.messages.send(runId, message);
 }
 
 /** Resumes a test workflow webhook through a webhook resumer. */
@@ -100,28 +114,30 @@ export async function resumeWebhook(
 }
 
 /** Reads a durable stream from a test workflow run. */
-export async function readStream<TChunk = unknown>(
+export async function readStream(
   reader: WorkflowTestStreamReader,
   runId: RunId,
   streamIdOrName: StreamIdOrName,
   options?: ReadStreamOptions,
-): Promise<StreamState<TChunk>> {
-  return await reader.streams.read<TChunk>(runId, streamIdOrName, options);
+): Promise<StreamState> {
+  return await reader.streams.read(runId, streamIdOrName, options);
 }
 
 /** Validates no duplicate workflow events after replay and throws when the requirement is not met. */
-export async function requireNoDuplicateWorkflowEventsAfterReplay(
+export async function requireNoDuplicateWorkflowEventsAfterReplay<TResult>(
   inspector: WorkflowTestEventInspector,
   handle: WorkflowTestRunReference,
-  replay: () => Promise<unknown>,
+  replay: () => Promise<TResult>,
   options: WorkflowTestReplayOptions = {},
 ): Promise<void> {
   const before = await inspector.runs.events(handle.runId);
   await replay();
   const after = await inspector.runs.events(handle.runId);
+
   if (after.length === before.length) {
     return;
   }
+
   const label = options.label ?? "workflow replay";
   throw new Error(
     `${label} appended ${after.length - before.length} workflow event(s) for run ` +
@@ -142,12 +158,15 @@ async function waitForTimelineEntry<TEntry>(
   const pollDelay = nonNegativeTimerDelay(pollInterval, `Workflow ${label} wait pollInterval`);
 
   let latestTimeline: Timeline | undefined;
+
   while (true) {
     latestTimeline = await handle.timeline();
     const entry = findEntry(latestTimeline, options);
+
     if (entry !== undefined) {
       return entry;
     }
+
     if (Temporal.Instant.compare(Temporal.Now.instant(), deadlineAt) >= 0) {
       const status = await handle.status();
       throw new Error(
@@ -156,6 +175,7 @@ async function waitForTimelineEntry<TEntry>(
           `observed ${describeTimeline(latestTimeline)}`,
       );
     }
+
     await delay(pollDelay.clampedDelay);
   }
 }
@@ -216,11 +236,13 @@ function matchesStepFilter(
   );
 }
 
-function requireWorkflowTestWaitOptions(options: unknown, label: string): void {
-  const value = options as WorkflowTestWaitOptions;
+function requireWorkflowTestWaitOptions(options: WorkflowTestWaitOptions, label: string): void {
+  const value = options;
+
   if (value.timeout !== undefined) {
     nonNegativeTimerDelay(value.timeout, `${label} timeout`);
   }
+
   if (value.pollInterval !== undefined) {
     nonNegativeTimerDelay(value.pollInterval, `${label} pollInterval`);
   }
@@ -241,11 +263,13 @@ function describeTimeline(timeline: Timeline): string {
   if (timeline.entries.length === 0) {
     return "no timeline entries";
   }
+
   return timeline.entries
     .map((entry) => {
       if ("stepId" in entry && entry.stepId !== undefined) {
         return `${entry.kind}:${entry.status}:${entry.stepId}`;
       }
+
       return `${entry.kind}:${entry.status}`;
     })
     .join(", ");

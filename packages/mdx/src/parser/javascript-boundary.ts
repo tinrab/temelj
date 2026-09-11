@@ -1,5 +1,6 @@
 import type { Node, Options } from "acorn";
 
+import { isObject, isString, isNumber } from "@temelj/value";
 import { Parser } from "acorn";
 import acornJsx from "acorn-jsx";
 
@@ -23,6 +24,7 @@ export type JavaScriptBoundaryResult =
   | Readonly<{ kind: "invalid"; offset: number }>;
 
 const JavaScriptParser = Parser.extend(acornJsx());
+
 const options: Options = { ecmaVersion: "latest", sourceType: "module" };
 
 /** A parsed embedded range. Its Acorn node never crosses the parser boundary. */
@@ -58,23 +60,28 @@ export function parseJavaScriptBoundary(
   sourceOffset = 0,
 ): JavaScriptBoundaryResult {
   const scanner = scanJavaScript(source);
+
   if (scanner.invalidOffset !== undefined) {
     return { kind: "invalid", offset: sourceOffset + scanner.invalidOffset };
   }
+
   try {
     const node =
       kind === "esm"
         ? JavaScriptParser.parse(source, options)
         : JavaScriptParser.parseExpressionAt(source, 0, options);
+
     if (kind !== "esm" && hasTrailingToken(source, node.end)) {
       return { kind: "invalid", offset: sourceOffset + node.end };
     }
+
     return {
       kind: "valid",
       boundary: JavaScriptBoundary.parsed(kind, node, sourceOffset),
     };
   } catch (cause) {
     const offset = acornFailureOffset(cause);
+
     if (scanner.incomplete || offset >= source.length) {
       return {
         kind: "incompleteAtPhysicalEof",
@@ -82,6 +89,7 @@ export function parseJavaScriptBoundary(
         state: scanner.state,
       };
     }
+
     return { kind: "invalid", offset: sourceOffset + offset };
   }
 }
@@ -102,22 +110,28 @@ function scanJavaScript(source: string): ScanResult {
   let state: JavaScriptScannerState = "code";
   let escaped = false;
   let invalidOffset: number | undefined;
+
   for (let offset = 0; offset < source.length; offset++) {
     const character = source[offset];
     const next = source[offset + 1];
+
     if (state === "lineComment") {
       if (character === "\n" || character === "\r") {
         state = "code";
       }
+
       continue;
     }
+
     if (state === "blockComment") {
       if (character === "*" && next === "/") {
         state = "code";
         offset++;
       }
+
       continue;
     }
+
     if (state === "singleQuotedString" || state === "doubleQuotedString") {
       if (escaped) {
         escaped = false;
@@ -129,8 +143,10 @@ function scanJavaScript(source: string): ScanResult {
       ) {
         state = "code";
       }
+
       continue;
     }
+
     if (state === "template") {
       if (escaped) {
         escaped = false;
@@ -143,6 +159,7 @@ function scanJavaScript(source: string): ScanResult {
         state = "code";
         offset++;
       }
+
       continue;
     }
 
@@ -166,8 +183,10 @@ function scanJavaScript(source: string): ScanResult {
       delimiters.push({ character: "}", resumesTemplate: false });
     } else if (character === ")" || character === "]" || character === "}") {
       const delimiter = delimiters.at(-1);
+
       if (delimiter?.character === character) {
         delimiters.pop();
+
         if (delimiter.resumesTemplate) {
           state = "template";
         }
@@ -176,9 +195,11 @@ function scanJavaScript(source: string): ScanResult {
       }
     }
   }
+
   if (state === "lineComment") {
     state = "code";
   }
+
   return {
     incomplete: state !== "code" || delimiters.length > 0,
     invalidOffset,
@@ -191,39 +212,47 @@ function hasTrailingToken(source: string, offset: number): boolean {
 }
 
 function acornFailureOffset(cause: unknown): number {
-  if (typeof cause !== "object" || cause === null) {
+  if (!isObject(cause) || !("pos" in cause)) {
     throw cause;
   }
-  const position: unknown = Reflect.get(cause, "pos");
-  if (typeof position !== "number") {
+
+  const position = cause.pos;
+
+  if (!isNumber(position)) {
     throw cause;
   }
-  const raisedAt: unknown = Reflect.get(cause, "raisedAt");
-  return typeof raisedAt === "number" ? Math.max(position, raisedAt) : position;
+
+  const raisedAt = "raisedAt" in cause ? cause.raisedAt : undefined;
+
+  return isNumber(raisedAt) ? Math.max(position, raisedAt) : position;
 }
 
 function nodeIncludesAwait(node: Node): boolean {
   if (node.type === "AwaitExpression") {
     return true;
   }
+
   for (const value of Object.values(node)) {
     if (Array.isArray(value)) {
-      if (value.some((entry: unknown) => isNode(entry) && nodeIncludesAwait(entry))) {
+      if (value.some((entry) => isNode(entry) && nodeIncludesAwait(entry))) {
         return true;
       }
     } else if (isNode(value) && nodeIncludesAwait(value)) {
       return true;
     }
   }
+
   return false;
 }
 
 function isNode(value: unknown): value is Node {
   return (
-    typeof value === "object" &&
-    value !== null &&
-    typeof Reflect.get(value, "type") === "string" &&
-    typeof Reflect.get(value, "start") === "number" &&
-    typeof Reflect.get(value, "end") === "number"
+    isObject(value) &&
+    "type" in value &&
+    isString(value.type) &&
+    "start" in value &&
+    isNumber(value.start) &&
+    "end" in value &&
+    isNumber(value.end)
   );
 }

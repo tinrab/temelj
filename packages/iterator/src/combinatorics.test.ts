@@ -23,10 +23,12 @@ test("cartesianProduct() works with generators", () => {
     yield 1;
     yield 2;
   }
+
   function* genB() {
     yield "x";
     yield "y";
   }
+
   const result = cartesianProduct(genA(), genB());
   expect(result).toEqual([
     [1, "x"],

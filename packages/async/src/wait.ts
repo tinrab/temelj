@@ -35,6 +35,7 @@ export async function wait(
     }
 
     const result = await predicate();
+
     if (result) {
       return;
     }
@@ -42,6 +43,7 @@ export async function wait(
     await new Promise<void>((resolve, reject) => {
       if (signal?.aborted) {
         reject(AbortError.create());
+
         return;
       }
 

@@ -3,6 +3,7 @@ import type { Logger } from "@temelj/log";
 import { createNoopLogger } from "@temelj/log";
 import { describe, expect, expectTypeOf, test } from "vitest";
 
+import type { ObservationEventArgs, MessageObservationEvent } from "../../src/types/observation.ts";
 import type { RunTelemetryContext, Telemetry } from "../../src/types/telemetry.ts";
 
 import { createWorkflowClient } from "../../src/client/create.ts";
@@ -10,12 +11,23 @@ import { implementWorkflow } from "../../src/definition.ts";
 import { createWorkflowEngine } from "../../src/engine/create.ts";
 
 describe("workflow telemetry", () => {
+  test("keeps telemetry event names paired with their payload types", () => {
+    expectTypeOf<
+      ["workflow:message-sent", MessageObservationEvent]
+    >().toExtend<ObservationEventArgs>();
+    expectTypeOf<
+      ["workflow:cleanup-completed", MessageObservationEvent]
+    >().not.toExtend<ObservationEventArgs>();
+  });
+
   test("runs without telemetry and with telemetry disabled", async () => {
     const noTelemetryEngine = createWorkflowEngine({ createRunId: () => "run-no-telemetry" });
+
     const disabledEngine = createWorkflowEngine({
       createRunId: () => "run-disabled-telemetry",
       telemetry: false,
     });
+
     const workflow = implementWorkflow({ name: "telemetry-disabled" }, () => "done");
 
     await expect(noTelemetryEngine.runWorkflowNow(workflow, undefined)).resolves.toMatchObject({
@@ -31,23 +43,28 @@ describe("workflow telemetry", () => {
   test("wraps workflow and task execution and stores captured trace context", async () => {
     const runContexts: RunTelemetryContext[] = [];
     const stepNames: string[] = [];
+
     const telemetry: Telemetry = {
       captureContext: () => ({
         traceparent: "00-11111111111111111111111111111111-2222222222222222-01",
       }),
       withRunExecution: async (context, callback) => {
         runContexts.push(context);
+
         return await callback();
       },
       withStepExecution: async (context, callback) => {
         stepNames.push(context.step.name);
+
         return await callback();
       },
     };
+
     const engine = createWorkflowEngine({
       createRunId: () => "run-telemetry-context",
       telemetry,
     });
+
     const workflow = implementWorkflow({ name: "telemetry-context" }, async ({ step }) => {
       return await step.task.run({ name: "work" }, () => "done");
     });
@@ -71,17 +88,21 @@ describe("workflow telemetry", () => {
 
   test("uses claimed run ownership for workflow execution telemetry", async () => {
     const runContexts: RunTelemetryContext[] = [];
+
     const telemetry: Telemetry = {
       withRunExecution: async (context, callback) => {
         runContexts.push(context);
+
         return await callback();
       },
     };
+
     const engine = createWorkflowEngine({
       createRunId: () => "run-claimed-telemetry",
       now: () => Temporal.Instant.from("2026-06-15T10:00:00Z"),
       telemetry,
     });
+
     const workflow = implementWorkflow({ name: "claimed-telemetry" }, () => "done");
 
     await engine.runWorkflow(workflow, undefined);
@@ -111,6 +132,7 @@ describe("workflow telemetry", () => {
 
   test("records step errors without swallowing workflow failure", async () => {
     const stepErrors: unknown[] = [];
+
     const telemetry: Telemetry = {
       withStepExecution: async (context, callback) => {
         try {
@@ -121,11 +143,14 @@ describe("workflow telemetry", () => {
         }
       },
     };
+
     const engine = createWorkflowEngine({
       createRunId: () => "run-step-error-telemetry",
       telemetry,
     });
+
     const error = new Error("task failed");
+
     const workflow = implementWorkflow({ name: "step-error-telemetry" }, async ({ step }) => {
       await step.task.run({ name: "explode" }, () => {
         throw error;
@@ -144,16 +169,19 @@ describe("workflow telemetry", () => {
 
   test("forwards observations after public subscribers and isolates telemetry failures", async () => {
     const order: string[] = [];
+
     const telemetry: Telemetry = {
-      observe: (name) => {
+      observe: (...[name]) => {
         order.push(`telemetry:${name}`);
         throw new Error("telemetry observer failed");
       },
     };
+
     const engine = createWorkflowEngine({
       createRunId: () => "run-observed-telemetry",
       telemetry,
     });
+
     const workflow = implementWorkflow({ name: "observed-telemetry" }, () => "done");
 
     engine.on("workflow:*", (_, name) => {
@@ -179,10 +207,12 @@ describe("workflow telemetry", () => {
         throw new Error("wrapper failed");
       },
     };
+
     const engine = createWorkflowEngine({
       createRunId: () => "run-wrapper-failure",
       telemetry,
     });
+
     const workflow = implementWorkflow({ name: "wrapper-failure" }, () => "done");
 
     await expect(engine.runWorkflowNow(workflow, undefined)).resolves.toMatchObject({
@@ -204,17 +234,20 @@ describe("workflow telemetry", () => {
   test("engine close flushes logger resources and shuts down telemetry", async () => {
     const order: string[] = [];
     const logger = createNoopLogger().child({});
+
     const closingLogger: Logger = {
       ...logger,
       close: async () => {
         order.push("logger");
       },
     };
+
     const telemetry: Telemetry = {
       shutdown: async () => {
         order.push("telemetry");
       },
     };
+
     const engine = createWorkflowEngine({ logger: closingLogger, telemetry });
 
     await engine.close();
@@ -225,6 +258,7 @@ describe("workflow telemetry", () => {
   test("client close delegates to engines that support close", async () => {
     let closed = false;
     const engine = createWorkflowEngine();
+
     const client = createWorkflowClient({
       engine: {
         ...engine,

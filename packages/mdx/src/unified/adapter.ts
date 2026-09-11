@@ -1,4 +1,6 @@
-import type { Preset, Processor as UnifiedProcessor } from "unified";
+import type { Preset, Plugin, Transformer } from "unified";
+
+import { isFunction } from "@temelj/value";
 
 import type { DocumentTransformContext, HtmlTransformContext } from "../plugin.ts";
 import type { UnifiedAttach } from "./runtime.ts";
@@ -6,20 +8,31 @@ import type { UnifiedAttach } from "./runtime.ts";
 import { DocumentTransformPlugin, HtmlTransformPlugin } from "../plugin.ts";
 import { runRehypePlugin, runRemarkPlugin } from "./runtime.ts";
 
-export type UnifiedAttacher<TParameters extends unknown[] = []> = (
-  this: UnifiedProcessor,
-  ...parameters: TParameters
-) => unknown;
+type UnifiedNode = Parameters<Transformer>[0];
+
+export type UnifiedAttacher<
+  TParameters extends unknown[] = [],
+  TInput extends UnifiedNode = UnifiedNode,
+  TOutput extends UnifiedNode = TInput,
+> = Plugin<TParameters, TInput, TOutput>;
 
 export class RemarkPluginAdapter<
   TParameters extends unknown[] = [],
+  TInput extends UnifiedNode = UnifiedNode,
+  TOutput extends UnifiedNode = TInput,
 > extends DocumentTransformPlugin {
   public readonly name: string;
   readonly #attach: UnifiedAttach;
 
   public constructor(preset: Preset);
-  public constructor(plugin: UnifiedAttacher<TParameters>, ...parameters: TParameters);
-  public constructor(plugin: UnifiedAttacher<TParameters> | Preset, ...parameters: TParameters) {
+  public constructor(
+    plugin: UnifiedAttacher<TParameters, TInput, TOutput>,
+    ...parameters: TParameters
+  );
+  public constructor(
+    plugin: UnifiedAttacher<TParameters, TInput, TOutput> | Preset,
+    ...parameters: TParameters
+  ) {
     super();
     this.#attach = createAttach(plugin, parameters);
     this.name = `unified:remark:${pluginName(plugin)}`;
@@ -30,13 +43,23 @@ export class RemarkPluginAdapter<
   }
 }
 
-export class RehypePluginAdapter<TParameters extends unknown[] = []> extends HtmlTransformPlugin {
+export class RehypePluginAdapter<
+  TParameters extends unknown[] = [],
+  TInput extends UnifiedNode = UnifiedNode,
+  TOutput extends UnifiedNode = TInput,
+> extends HtmlTransformPlugin {
   public readonly name: string;
   readonly #attach: UnifiedAttach;
 
   public constructor(preset: Preset);
-  public constructor(plugin: UnifiedAttacher<TParameters>, ...parameters: TParameters);
-  public constructor(plugin: UnifiedAttacher<TParameters> | Preset, ...parameters: TParameters) {
+  public constructor(
+    plugin: UnifiedAttacher<TParameters, TInput, TOutput>,
+    ...parameters: TParameters
+  );
+  public constructor(
+    plugin: UnifiedAttacher<TParameters, TInput, TOutput> | Preset,
+    ...parameters: TParameters
+  ) {
     super();
     this.#attach = createAttach(plugin, parameters);
     this.name = `unified:rehype:${pluginName(plugin)}`;
@@ -47,28 +70,35 @@ export class RehypePluginAdapter<TParameters extends unknown[] = []> extends Htm
   }
 }
 
-function createAttach<TParameters extends unknown[]>(
-  plugin: UnifiedAttacher<TParameters> | Preset,
+function createAttach<
+  TParameters extends unknown[],
+  TInput extends UnifiedNode,
+  TOutput extends UnifiedNode,
+>(
+  plugin: UnifiedAttacher<TParameters, TInput, TOutput> | Preset,
   parameters: TParameters,
 ): UnifiedAttach {
   if (isPreset(plugin)) {
     if (parameters.length !== 0) {
       throw new TypeError("Unified presets do not accept plugin parameters");
     }
+
     return (processor) => processor.use(plugin);
   }
+
   return (processor) => {
-    // eslint-disable-next-line typescript/unbound-method
-    Reflect.apply(processor.use, processor, [plugin, ...parameters]);
+    processor.use(plugin, ...parameters);
   };
 }
 
-function isPreset<TParameters extends unknown[]>(
-  value: UnifiedAttacher<TParameters> | Preset,
-): value is Preset {
-  return typeof value !== "function";
+function isPreset<
+  TParameters extends unknown[],
+  TInput extends UnifiedNode,
+  TOutput extends UnifiedNode,
+>(value: UnifiedAttacher<TParameters, TInput, TOutput> | Preset): value is Preset {
+  return !isFunction(value);
 }
 
 function pluginName(plugin: Function | Preset): string {
-  return typeof plugin === "function" && plugin.name.length > 0 ? plugin.name : "preset";
+  return isFunction(plugin) && plugin.name.length > 0 ? plugin.name : "preset";
 }

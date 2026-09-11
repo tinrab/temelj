@@ -1,3 +1,5 @@
+import type { WorkflowImplementationErrorDetails } from "../types/error.ts";
+
 import { WorkflowErrorCode } from "../types/error-code.ts";
 import { WorkflowError } from "./base.ts";
 
@@ -7,16 +9,16 @@ export class WorkflowImplementationNotFoundError extends WorkflowError {
   public readonly workflowVersion: string | undefined;
 
   constructor(workflowName: string, workflowVersion?: string, context?: Function) {
+    const details: WorkflowImplementationErrorDetails = { workflowName };
+
+    if (workflowVersion !== undefined) details.workflowVersion = workflowVersion;
     super(
       workflowVersion === undefined
         ? `Workflow implementation not found: ${workflowName}`
         : `Workflow implementation not found: ${workflowName}@${workflowVersion}`,
       {
         code: WorkflowErrorCode.IMPLEMENTATION_NOT_FOUND,
-        details: {
-          workflowName,
-          ...(workflowVersion === undefined ? {} : { workflowVersion }),
-        },
+        details,
       },
       context,
     );

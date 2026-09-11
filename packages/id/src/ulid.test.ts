@@ -14,9 +14,11 @@ test("generateUlid() works", () => {
   expect(id).toMatch(/^[0-9A-Z]{26}$/);
 
   const ids = new Set<string>();
+
   for (let i = 0; i < 5; i++) {
     ids.add(generateUlid());
   }
+
   expect(ids.size).toStrictEqual(5);
 
   id = generateUlid({

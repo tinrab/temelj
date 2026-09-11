@@ -126,7 +126,10 @@ const outcome = await processor.process(source);
 
 `compileTrustedMdx()` restores the direct server workflow for executable MDX.
 It parses, validates, compiles, and evaluates once, then returns a discriminated
-outcome containing the module:
+outcome containing the module. The typed result exposes the validated default
+component. Named exports remain on the runtime module and need their own validation
+before use. Import resolvers return module objects, and scope bindings retain the
+type of the supplied object:
 
 ```tsx
 const outcome = await compileTrustedMdx(source, {

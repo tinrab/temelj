@@ -47,6 +47,7 @@ import { serializeError, toOptionalPersistedValue, toPersistedValue } from "./se
 import { getRequiredRun } from "./state.ts";
 
 const DEFAULT_MAXIMUM_STREAM_CHUNKS = 1_000;
+
 const DEFAULT_STREAM_FOLLOW_POLL_INTERVAL = Temporal.Duration.from({ milliseconds: 100 });
 
 interface WorkflowStreamReader<TChunk> {
@@ -79,6 +80,7 @@ export async function getStreamInfoForRun(
   streamIdOrName: StreamIdOrName,
 ): Promise<StreamInfo> {
   await getRequiredRun(service.store, runId);
+
   return getStreamInfoFromHistory(
     runId,
     new WorkflowHistory(await service.store.getEvents(runId)),
@@ -86,14 +88,15 @@ export async function getStreamInfoForRun(
   );
 }
 
-export async function readStreamForRun<TChunk = unknown>(
+export async function readStreamForRun(
   service: WorkflowStreamServiceOptions,
   runId: RunId,
   streamIdOrName: StreamIdOrName,
   readOptions?: ReadStreamOptions,
-): Promise<StreamState<TChunk>> {
+): Promise<StreamState> {
   await getRequiredRun(service.store, runId);
-  return readStreamFromHistory<TChunk>(
+
+  return readStreamFromHistory(
     runId,
     new WorkflowHistory(await service.store.getEvents(runId)),
     streamIdOrName,
@@ -101,28 +104,28 @@ export async function readStreamForRun<TChunk = unknown>(
   );
 }
 
-export async function readStreamPageForRun<TChunk = unknown>(
+export async function readStreamPageForRun(
   service: WorkflowStreamServiceOptions,
   runId: RunId,
   streamIdOrName: StreamIdOrName,
   readOptions?: ReadStreamPageOptions,
-): Promise<StreamPage<TChunk>> {
-  const stream = await readStreamForRun<TChunk>(service, runId, streamIdOrName, readOptions);
+): Promise<StreamPage> {
+  const stream = await readStreamForRun(service, runId, streamIdOrName, readOptions);
+
   return {
     ...stream,
     chunks: pageItems(stream.chunks, readOptions, "Workflow stream page", makeStreamChunkCursorKey),
   };
 }
 
-export function followStreamForRun<TChunk = unknown>(
+export function followStreamForRun(
   service: WorkflowStreamServiceOptions,
   runId: RunId,
   streamIdOrName: StreamIdOrName,
   followOptions?: FollowStreamOptions,
-): AsyncIterable<StreamUpdate<TChunk>> {
-  return followStream<TChunk>(
-    async (readOptions) =>
-      await readStreamForRun<TChunk>(service, runId, streamIdOrName, readOptions),
+): AsyncIterable<StreamUpdate> {
+  return followStream(
+    async (readOptions) => await readStreamForRun(service, runId, streamIdOrName, readOptions),
     followOptions,
     {
       waitForChange: async ({ signal }) => await waitForStreamStorageChange(service, runId, signal),
@@ -145,16 +148,15 @@ export async function waitForStreamForRun(
   );
 }
 
-export async function waitForStreamChunkForRun<TChunk = unknown>(
+export async function waitForStreamChunkForRun(
   service: WorkflowStreamServiceOptions,
   runId: RunId,
   streamIdOrName: StreamIdOrName,
   afterIndex: number,
   waitOptions?: WaitStreamOptions,
-): Promise<StreamChunk<TChunk> | undefined> {
-  return await waitForStreamChunk<TChunk>(
-    async (readOptions) =>
-      await readStreamForRun<TChunk>(service, runId, streamIdOrName, readOptions),
+): Promise<StreamChunk | undefined> {
+  return await waitForStreamChunk(
+    async (readOptions) => await readStreamForRun(service, runId, streamIdOrName, readOptions),
     afterIndex,
     waitOptions,
     {
@@ -190,9 +192,11 @@ export function createWorkflowStepStreamApi(
   environment: WorkflowExecutionEnvironment,
 ): WorkflowStepStreamApi {
   const { history } = environment;
+
   return {
     create<TChunk = unknown>(commandId: string, options: CreateStreamOptions = {}): Stream<TChunk> {
       const identity = resolveWorkflowCommandIdentity(history, "stream", commandId);
+
       return createStream<TChunk>(environment, identity, commandId, options);
     },
   };
@@ -211,7 +215,7 @@ class Stream<TChunk> implements StreamContract<TChunk> {
   readonly id: string;
   readonly name: string;
   readonly contentType?: string;
-  readonly metadata?: unknown;
+  readonly metadata?: StorageValue;
 
   readonly #environment: WorkflowExecutionEnvironment;
   readonly #identity: WorkflowStepIdentity<"stream">;
@@ -226,16 +230,20 @@ class Stream<TChunk> implements StreamContract<TChunk> {
     options: CreateStreamOptions = {},
   ) {
     const streamId = options.id ?? name;
+
     const maximumChunks =
       options.maximumChunks !== undefined
         ? options.maximumChunks
         : (environment.limits.maximumStreamChunks ?? DEFAULT_MAXIMUM_STREAM_CHUNKS);
+
     const persistedMetadata = toOptionalPersistedValue(
       options.metadata,
       `workflow stream ${streamId} metadata`,
       environment.limits,
     );
+
     const started = environment.history.startedStream(identity.id);
+
     if (started !== undefined) {
       requireStreamReplayMatches(identity, started, {
         streamId,
@@ -248,12 +256,15 @@ class Stream<TChunk> implements StreamContract<TChunk> {
     this.#identity = identity;
     this.id = streamId;
     this.name = name;
+
     if (options.contentType !== undefined) {
       this.contentType = options.contentType;
     }
+
     if (options.metadata !== undefined) {
       this.metadata = options.metadata;
     }
+
     this.#maximumChunks = maximumChunks;
     this.#persistedMetadata = persistedMetadata;
   }
@@ -266,14 +277,17 @@ class Stream<TChunk> implements StreamContract<TChunk> {
       this.contentType,
       this.#persistedMetadata,
     );
+
     const persistedChunk = toPersistedValue(
       chunk,
       `workflow stream ${this.id} chunk`,
       this.#environment.limits,
     );
+
     const existing = this.#environment.history.streamChunk(this.#identity.id, this.#nextChunkIndex);
     const index = this.#nextChunkIndex;
     this.#nextChunkIndex++;
+
     if (existing !== undefined) {
       requireStreamChunkReplayMatches(
         this.#identity,
@@ -281,12 +295,16 @@ class Stream<TChunk> implements StreamContract<TChunk> {
         existing.chunk,
         persistedChunk,
       );
+
       return;
     }
+
     requireStreamOpen(this.#environment, this.#identity.id, this.id);
+
     if (index >= this.#maximumChunks) {
       WorkflowStreamError.chunkLimitExceeded(this.id, this.#maximumChunks);
     }
+
     await appendDurableStepTerminalEvent(this.#environment, {
       kind: "stream_chunk",
       timestamp: this.#environment.now(),
@@ -307,9 +325,11 @@ class Stream<TChunk> implements StreamContract<TChunk> {
       this.#persistedMetadata,
     );
     const closed = this.#environment.history.closedStream(this.#identity.id);
+
     if (closed !== undefined) {
       return;
     }
+
     requireStreamOpen(this.#environment, this.#identity.id, this.id);
     await appendDurableStepTerminalEvent(this.#environment, {
       kind: "stream_closed",
@@ -320,7 +340,7 @@ class Stream<TChunk> implements StreamContract<TChunk> {
     });
   }
 
-  async error(error: unknown) {
+  async error(cause: unknown) {
     await ensureStreamStarted(
       this.#environment,
       this.#identity,
@@ -329,9 +349,11 @@ class Stream<TChunk> implements StreamContract<TChunk> {
       this.#persistedMetadata,
     );
     const failed = this.#environment.history.failedStream(this.#identity.id);
+
     if (failed !== undefined) {
       return;
     }
+
     requireStreamOpen(this.#environment, this.#identity.id, this.id);
     await appendDurableStepTerminalEvent(this.#environment, {
       kind: "stream_failed",
@@ -339,44 +361,48 @@ class Stream<TChunk> implements StreamContract<TChunk> {
       stepId: this.#identity.id,
       stepName: this.#identity.name,
       streamId: this.id,
-      error: serializeError(error),
+      error: serializeError(cause),
     });
   }
 }
 
-export function readStream<TChunk = unknown>(
+export function readStream(
   runId: RunId,
   events: readonly EventRecord[],
   streamIdOrName: StreamIdOrName,
   options: ReadStreamOptions = {},
-): StreamState<TChunk> {
-  return readStreamFromHistory<TChunk>(runId, new WorkflowHistory(events), streamIdOrName, options);
+): StreamState {
+  return readStreamFromHistory(runId, new WorkflowHistory(events), streamIdOrName, options);
 }
 
-function readStreamFromHistory<TChunk = unknown>(
+function readStreamFromHistory(
   runId: RunId,
   history: WorkflowHistory,
   streamIdOrName: StreamIdOrName,
   options: ReadStreamOptions = {},
-): StreamState<TChunk> {
+): StreamState {
   if (options.fromIndex !== undefined && options.fromTail !== undefined) {
     WorkflowStreamError.readOffsetConflict();
   }
+
   const projection = requireStreamProjectionFromHistory(history, streamIdOrName);
   const info = getStreamInfoFromProjection(runId, projection);
+
   const fromIndex =
     options.fromTail === undefined
       ? (options.fromIndex ?? 0)
       : Math.max(0, info.chunkCount - options.fromTail);
+
   const chunks = projection.chunks
     .filter((chunk) => chunk.event.index >= fromIndex)
-    .map((chunk): StreamChunk<TChunk> => ({
+    .map((chunk): StreamChunk => ({
       index: chunk.event.index,
       timestamp: chunk.event.timestamp,
-      value: chunk.event.chunk as TChunk,
+      value: chunk.event.chunk,
     }))
     .sort((left, right) => left.index - right.index)
     .slice(0, options.maxChunks);
+
   return {
     ...info,
     chunks,
@@ -391,6 +417,7 @@ export async function* followStream<TChunk = unknown>(
   if (options.fromIndex !== undefined && options.fromTail !== undefined) {
     WorkflowStreamError.readOffsetConflict();
   }
+
   const pollInterval = options.pollInterval ?? DEFAULT_STREAM_FOLLOW_POLL_INTERVAL;
   const maxChunks = options.pageSize ?? options.maxChunks;
   let nextIndex: number | undefined = options.fromIndex;
@@ -400,19 +427,32 @@ export async function* followStream<TChunk = unknown>(
     if (options.signal?.aborted) {
       return;
     }
-    const stream = await read({
-      ...(nextIndex === undefined ? {} : { fromIndex: nextIndex }),
-      ...(nextIndex === undefined && initialFromTail !== undefined
-        ? { fromTail: initialFromTail }
-        : {}),
-      ...(maxChunks === undefined ? {} : { maxChunks }),
-    });
+
+    const readOptions: ReadStreamOptions = {};
+
+    if (nextIndex !== undefined) {
+      Object.assign(readOptions, { fromIndex: nextIndex } satisfies Partial<ReadStreamOptions>);
+    }
+
+    if (nextIndex === undefined && initialFromTail !== undefined) {
+      Object.assign(readOptions, {
+        fromTail: initialFromTail,
+      } satisfies Partial<ReadStreamOptions>);
+    }
+
+    if (maxChunks !== undefined) {
+      Object.assign(readOptions, { maxChunks } satisfies Partial<ReadStreamOptions>);
+    }
+
+    const stream = await read(readOptions);
+
     initialFromTail = undefined;
 
     for (const chunk of stream.chunks) {
       if (options.signal?.aborted) {
         return;
       }
+
       nextIndex = chunk.index + 1;
       yield {
         kind: "chunk",
@@ -429,26 +469,45 @@ export async function* followStream<TChunk = unknown>(
 
     if (stream.status !== "open") {
       if (options.includeTerminal !== false) {
+        const result = {
+          runId: stream.runId,
+          id: stream.id,
+          name: stream.name,
+          status: stream.status,
+          createdAt: stream.createdAt,
+          updatedAt: stream.updatedAt,
+        } satisfies Partial<StreamInfo>;
+
+        if (stream.contentType !== undefined) {
+          Object.assign(result, { contentType: stream.contentType } satisfies Partial<StreamInfo>);
+        }
+
+        if (stream.metadata !== undefined) {
+          Object.assign(result, { metadata: stream.metadata } satisfies Partial<StreamInfo>);
+        }
+
+        const result1 = Object.assign(result, {
+          chunkCount: stream.chunkCount,
+        } satisfies Partial<StreamInfo>);
+
+        if (stream.lastIndex !== undefined) {
+          Object.assign(result1, { lastIndex: stream.lastIndex } satisfies Partial<StreamInfo>);
+        }
+
+        if (stream.error !== undefined) {
+          Object.assign(result1, { error: stream.error } satisfies Partial<StreamInfo>);
+        }
+
+        const info: StreamInfo = result1;
         yield {
           kind: stream.status,
           runId: stream.runId,
           streamId: stream.id,
           streamName: stream.name,
-          info: {
-            runId: stream.runId,
-            id: stream.id,
-            name: stream.name,
-            status: stream.status,
-            createdAt: stream.createdAt,
-            updatedAt: stream.updatedAt,
-            ...(stream.contentType === undefined ? {} : { contentType: stream.contentType }),
-            ...(stream.metadata === undefined ? {} : { metadata: stream.metadata }),
-            chunkCount: stream.chunkCount,
-            ...(stream.lastIndex === undefined ? {} : { lastIndex: stream.lastIndex }),
-            ...(stream.error === undefined ? {} : { error: stream.error }),
-          },
+          info,
         };
       }
+
       return;
     }
 
@@ -469,6 +528,7 @@ export async function waitForStream(
     if (options.signal?.aborted) {
       return undefined;
     }
+
     try {
       return await readInfo();
     } catch (error) {
@@ -476,6 +536,7 @@ export async function waitForStream(
         throw error;
       }
     }
+
     await waitForStreamChangeOrPoll(
       nonNegativeTimerDelay(
         options.pollInterval ?? DEFAULT_STREAM_FOLLOW_POLL_INTERVAL,
@@ -496,18 +557,23 @@ export async function waitForStreamChunk<TChunk = unknown>(
   if (!isNonNegativeSafeInteger(afterIndex)) {
     WorkflowOptionsError.nonNegativeSafeInteger("Workflow stream chunk wait afterIndex");
   }
+
   while (true) {
     if (options.signal?.aborted) {
       return undefined;
     }
+
     const stream = await read({ fromIndex: afterIndex + 1 });
     const chunk = stream.chunks[0];
+
     if (chunk !== undefined) {
       return chunk;
     }
+
     if (stream.status !== "open") {
       return undefined;
     }
+
     await waitForStreamChangeOrPoll(
       nonNegativeTimerDelay(
         options.pollInterval ?? DEFAULT_STREAM_FOLLOW_POLL_INTERVAL,
@@ -528,10 +594,13 @@ export async function waitForStreamTerminal(
     if (options.signal?.aborted === true) {
       return undefined;
     }
+
     const info = await readInfo();
+
     if (info.status !== "open") {
       return info;
     }
+
     await waitForStreamChangeOrPoll(
       nonNegativeTimerDelay(
         options.pollInterval ?? DEFAULT_STREAM_FOLLOW_POLL_INTERVAL,
@@ -567,9 +636,11 @@ function requireStreamProjectionFromHistory(
   streamIdOrName: StreamIdOrName,
 ): StreamEventProjection {
   const projection = history.streamProjection(streamIdOrName);
+
   if (projection === undefined) {
     WorkflowStreamNotFoundError.notFound(streamIdOrName);
   }
+
   return projection;
 }
 
@@ -577,7 +648,8 @@ function getStreamInfoFromProjection(runId: RunId, projection: StreamEventProjec
   const { started, chunks, closed, failed } = projection;
   requireStreamEventOrder(projection);
   const latestChunk = chunks.at(-1)?.event;
-  return {
+
+  const result = {
     runId,
     id: started.streamId,
     name: started.stepName,
@@ -588,26 +660,48 @@ function getStreamInfoFromProjection(runId: RunId, projection: StreamEventProjec
       closed?.event.timestamp ??
       latestChunk?.timestamp ??
       started.timestamp,
-    ...(started.contentType === undefined ? {} : { contentType: started.contentType }),
-    ...(started.metadata === undefined ? {} : { metadata: started.metadata }),
+  } satisfies Partial<StreamInfo>;
+
+  if (started.contentType !== undefined) {
+    Object.assign(result, { contentType: started.contentType } satisfies Partial<StreamInfo>);
+  }
+
+  if (started.metadata !== undefined) {
+    Object.assign(result, { metadata: started.metadata } satisfies Partial<StreamInfo>);
+  }
+
+  const result1 = Object.assign(result, {
     chunkCount: chunks.length,
-    ...(latestChunk === undefined ? {} : { lastIndex: latestChunk.index }),
-    ...(failed === undefined ? {} : { error: failed.event.error }),
-  };
+  } satisfies Partial<StreamInfo>);
+
+  if (latestChunk !== undefined) {
+    Object.assign(result1, { lastIndex: latestChunk.index } satisfies Partial<StreamInfo>);
+  }
+
+  if (failed !== undefined) {
+    Object.assign(result1, { error: failed.event.error } satisfies Partial<StreamInfo>);
+  }
+
+  return result1;
 }
 
 function requireStreamEventOrder(projection: StreamEventProjection): void {
   const { started, chunks, closed, failed } = projection;
+
   for (const [index, chunk] of chunks.entries()) {
     if (chunk.event.index !== index) {
       WorkflowStreamError.nonContiguousChunkIndex(started.streamId, chunk.event.index, index);
     }
   }
+
   const terminal = earliestStreamTerminalEvent(closed, failed);
+
   if (terminal === undefined) {
     return;
   }
+
   const lateChunk = chunks.find((chunk) => chunk.index > terminal.index);
+
   if (lateChunk !== undefined) {
     WorkflowStreamError.chunkAfterTerminal(
       started.streamId,
@@ -624,9 +718,11 @@ function earliestStreamTerminalEvent(
   if (closed === undefined) {
     return failed;
   }
+
   if (failed === undefined) {
     return closed;
   }
+
   return closed.index <= failed.index ? closed : failed;
 }
 
@@ -640,16 +736,25 @@ async function ensureStreamStarted(
   if (environment.history.startedStream(identity.id) !== undefined) {
     return;
   }
-  await appendDurableStepStartedEvent(environment, {
+
+  const event: StreamStartedEvent = {
     kind: "stream_started",
     timestamp: environment.now(),
     stepId: identity.id,
     stepName: identity.name,
     count: identity.count,
     streamId,
-    ...(contentType === undefined ? {} : { contentType }),
-    ...(metadata === undefined ? {} : { metadata }),
-  });
+  };
+
+  if (contentType !== undefined) {
+    Object.assign(event, { contentType } satisfies Partial<StreamStartedEvent>);
+  }
+
+  if (metadata !== undefined) {
+    Object.assign(event, { metadata } satisfies Partial<StreamStartedEvent>);
+  }
+
+  await appendDurableStepStartedEvent(environment, event);
 }
 
 async function sleepForStreamFollow(
@@ -659,6 +764,7 @@ async function sleepForStreamFollow(
   if (milliseconds === 0 || signal?.aborted) {
     return;
   }
+
   await new Promise<void>((resolve) => {
     const timer = setTimeout(resolve, milliseconds);
     signal?.addEventListener(
@@ -679,17 +785,23 @@ async function waitForStreamChangeOrPoll(
 ): Promise<void> {
   if (waitForChange === undefined) {
     await sleepForStreamFollow(milliseconds, signal);
+
     return;
   }
+
   const controller = new AbortController();
+
   const abort = () => {
     controller.abort();
   };
+
   signal?.addEventListener("abort", abort, { once: true });
+
   try {
     if (signal?.aborted === true) {
       return;
     }
+
     await Promise.race([
       sleepForStreamFollow(milliseconds, controller.signal),
       waitForChange({ signal: controller.signal }),
@@ -731,6 +843,7 @@ function requireStreamReplayMatches(
   ) {
     return;
   }
+
   WorkflowReplayDivergenceError.diverged(
     `recorded stream ${recorded.stepId} does not match replayed stream ${identity.id}`,
     {
@@ -749,6 +862,7 @@ function requireStreamChunkReplayMatches(
   if (deepEquals(recorded, next)) {
     return;
   }
+
   WorkflowReplayDivergenceError.diverged(
     `recorded stream ${identity.id} chunk ${index} does not match replayed chunk`,
     {

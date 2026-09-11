@@ -45,13 +45,21 @@ export class WorkflowLifecycleEmitter implements WorkflowLifecycleEmitterContrac
       reason: run.lastTransitionReason,
       timestamp: run.lastTransitionAt,
       workflowName: run.workflowName,
-      ...(run.workflowVersion === undefined ? {} : { workflowVersion: run.workflowVersion }),
     };
+
+    if (run.workflowVersion !== undefined) {
+      Object.assign(event, {
+        workflowVersion: run.workflowVersion,
+      } satisfies Partial<WorkflowLifecycleEvent>);
+    }
+
     this.#observation?.emitRunEvent(run, previousRun);
     const callbacks: WorkflowLifecycleCallback[] = [];
+
     if (this.#options.onLifecycleEvent !== undefined) {
       callbacks.push(this.#options.onLifecycleEvent);
     }
+
     if (run.status === "completed" && this.#options.onRunCompleted !== undefined) {
       callbacks.push(this.#options.onRunCompleted);
     } else if (run.status === "failed" && this.#options.onRunFailed !== undefined) {
@@ -67,6 +75,7 @@ export class WorkflowLifecycleEmitter implements WorkflowLifecycleEmitterContrac
     } else if (run.status === "waiting" && this.#options.onRunWaiting !== undefined) {
       callbacks.push(this.#options.onRunWaiting);
     }
+
     for (const callback of callbacks) {
       await callback(event);
     }
@@ -84,8 +93,9 @@ export class WorkflowLifecycleEmitter implements WorkflowLifecycleEmitterContrac
       result.run.lastTransitionReason === "retry" ||
       result.run.lastTransitionReason === "canceled"
     ) {
-      await this.emitLifecycleEvent(result.run as WorkflowRunRecord, previousRun);
+      await this.emitLifecycleEvent(result.run, previousRun);
     }
+
     return result;
   };
 }

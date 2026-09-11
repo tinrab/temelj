@@ -31,6 +31,7 @@ export function createPubSub<Events extends EventMap, E = unknown>(): PubSub<Eve
 
     return () => {
       const index = subscriptions.indexOf(subscription);
+
       if (index >= 0) {
         subscriptions.splice(index, 1);
       }
@@ -60,8 +61,10 @@ export function createPubSub<Events extends EventMap, E = unknown>(): PubSub<Eve
 
         try {
           const result = subscription.handler(payload, event);
+
           if (result?.kind === "error") {
             failures.push({
+              kind: "returned",
               event,
               pattern: subscription.pattern,
               error: result.error,
@@ -70,15 +73,17 @@ export function createPubSub<Events extends EventMap, E = unknown>(): PubSub<Eve
           }
         } catch (error) {
           failures.push({
+            kind: "thrown",
             event,
             pattern: subscription.pattern,
-            error: error as E,
+            cause: error,
             index,
           });
         }
 
         if (subscription.once) {
           const subscriptionIndex = subscriptions.indexOf(subscription);
+
           if (subscriptionIndex >= 0) {
             subscriptions.splice(subscriptionIndex, 1);
           }
@@ -104,6 +109,7 @@ export function createPubSub<Events extends EventMap, E = unknown>(): PubSub<Eve
     clear(pattern) {
       if (pattern === undefined) {
         subscriptions.splice(0);
+
         return;
       }
 

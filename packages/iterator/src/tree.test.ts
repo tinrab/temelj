@@ -82,6 +82,7 @@ test("traverseDfs() handles linear tree", () => {
       },
     ],
   };
+
   const nodes: TreeNode[] = Array.from(traverseDfs(tree, (n: TreeNode) => n.children));
   const values = nodes.map((n) => n.value);
   expect(values).toEqual([1, 2, 3]);

@@ -1,12 +1,12 @@
 import type { Processor as UnifiedProcessor } from "unified";
 
-import { isPlainObject, isPromise } from "@temelj/value";
+import { isString, isPlainObject, isPromise } from "@temelj/value";
 import { unified } from "unified";
 import { VFile } from "vfile";
 
 type VFileMessage = VFile["messages"][number];
 
-import type { DiagnosticReporter } from "../diagnostics.ts";
+import type { Diagnostic, DiagnosticReporter } from "../diagnostics.ts";
 import type { HtmlDocumentNode } from "../html.ts";
 import type { DocumentNode, SourceFile } from "../model.ts";
 import type { DocumentTransformContext, HtmlTransformContext } from "../plugin.ts";
@@ -32,6 +32,7 @@ export function runRemarkPlugin(
   attach: UnifiedAttach,
 ): DocumentNode | Promise<DocumentNode> {
   const bridge = new UnifiedTreeBridge(context.file);
+
   return runUnifiedTransform(context.document, context, attach, {
     ecosystem: "Remark",
     decode: (tree) => bridge.fromMdast(tree),
@@ -44,6 +45,7 @@ export function runRehypePlugin(
   attach: UnifiedAttach,
 ): HtmlDocumentNode | Promise<HtmlDocumentNode> {
   const bridge = new UnifiedTreeBridge(context.file);
+
   return runUnifiedTransform(context.document, context, attach, {
     ecosystem: "Rehype",
     decode: (tree) => bridge.fromHast(tree),
@@ -61,12 +63,14 @@ function runUnifiedTransform<TDocument>(
   const processor = unified();
   attach(processor);
   processor.freeze();
+
   if (processor.parser !== undefined || processor.compiler !== undefined) {
     ConfigurationError.unsupportedUnifiedPlugin();
   }
 
   try {
     const result = runPossiblyAsync(processor, codec.encode(original), file, codec.ecosystem);
+
     return mapPossiblePromise(
       result,
       (tree) =>
@@ -83,24 +87,29 @@ function runPossiblyAsync(
   tree: Readonly<{ type: string }>,
   file: VFile,
   ecosystem: string,
-): Record<string, unknown> | Promise<Record<string, unknown>> {
+): Readonly<{ type: string }> | Promise<Readonly<{ type: string }>> {
   let complete = false;
   let failure: Error | undefined;
   let result = stageRoot(tree, ecosystem);
+
   let finish = (error: Error | null | undefined, transformed: unknown): void => {
     failure = error ?? undefined;
     result = stageRoot(transformed, ecosystem);
     complete = true;
   };
+
   processor.run(tree, file, (error, transformed) => {
     finish(error, transformed);
   });
+
   if (complete) {
     if (failure !== undefined) {
       throw failure;
     }
+
     return result;
   }
+
   return new Promise((resolve, reject) => {
     finish = (error, transformed) => {
       if (error === undefined || error === null) {
@@ -129,22 +138,33 @@ function recoverFromFailure<TDocument>(
   if (recordMessages(file, context.diagnostics, context.file)) {
     return original;
   }
+
   throw cause;
 }
 
-function stageRoot(node: unknown, ecosystem: string): Record<string, unknown> {
-  if (!isPlainObject(node)) {
+function stageRoot(node: unknown, ecosystem: string): Readonly<{ type: string }> {
+  if (isRoot(node)) {
+    return node;
+  }
+
+  if (!isPlainObject(node) || !("type" in node)) {
     throw new TypeError(`${ecosystem} returned a malformed tree instead of root`);
   }
+
   const type = node.type;
-  if (typeof type !== "string") {
+
+  if (!isString(type)) {
     throw new TypeError(`${ecosystem} returned a malformed tree instead of root`);
   }
-  if (type !== "root") {
-    throw new TypeError(`${ecosystem} returned ${JSON.stringify(type)} instead of root`);
-  }
-  return node;
+
+  throw new TypeError(`${ecosystem} returned ${JSON.stringify(type)} instead of root`);
 }
+
+function isRoot(node: unknown): node is Readonly<{ type: "root" }> {
+  return isPlainObject(node) && "type" in node && node.type === "root";
+}
+
+type UnifiedDiagnostic = { -readonly [K in keyof Diagnostic]: Diagnostic[K] };
 
 function recordMessages(
   file: VFile,
@@ -152,25 +172,42 @@ function recordMessages(
   sourceFile: SourceFile,
 ): boolean {
   let fatal = false;
+
   for (const message of file.messages) {
     fatal ||= message.fatal === true;
     const span = messageSpan(message, sourceFile);
-    diagnostics.add({
+
+    const diagnostic: UnifiedDiagnostic = {
       severity: message.fatal === true ? "error" : message.fatal === false ? "warning" : "info",
       code: "mdx.plugin.unified",
       message: message.reason,
-      ...(span === undefined ? {} : { span }),
-      ...(message.note === undefined && message.source === undefined && message.ruleId === undefined
-        ? {}
-        : {
-            notes: [
-              ...(message.source === undefined ? [] : [`source: ${message.source}`]),
-              ...(message.ruleId === undefined ? [] : [`rule: ${message.ruleId}`]),
-              ...(message.note === undefined ? [] : [message.note]),
-            ],
-          }),
-    });
+    };
+
+    if (span !== undefined) {
+      diagnostic.span = span;
+    }
+
+    const notes: string[] = [];
+
+    if (message.source !== undefined) {
+      notes.push(`source: ${message.source}`);
+    }
+
+    if (message.ruleId !== undefined) {
+      notes.push(`rule: ${message.ruleId}`);
+    }
+
+    if (message.note !== undefined) {
+      notes.push(message.note);
+    }
+
+    if (notes.length > 0) {
+      diagnostic.notes = notes;
+    }
+
+    diagnostics.add(diagnostic);
   }
+
   return fatal;
 }
 
@@ -179,14 +216,18 @@ function messageSpan(
   file: SourceFile,
 ): { file: SourceFile; start: number; end: number } | undefined {
   const place = message.place;
+
   if (place === undefined) {
     return undefined;
   }
+
   const startPoint = "start" in place ? place.start : place;
   const endPoint = "end" in place ? place.end : place;
+
   if (startPoint.offset === undefined || endPoint.offset === undefined) {
     return undefined;
   }
+
   if (
     startPoint.offset < 0 ||
     endPoint.offset < startPoint.offset ||
@@ -194,5 +235,6 @@ function messageSpan(
   ) {
     return undefined;
   }
+
   return { file, start: startPoint.offset, end: endPoint.offset };
 }

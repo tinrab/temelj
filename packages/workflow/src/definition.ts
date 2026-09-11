@@ -13,8 +13,8 @@ import type {
   SendMessageChannelOptions,
   MessageChannel,
   MessageChannelConfig,
-  MessageChannelKeyArgs,
   WaitForMessageChannelOptions,
+  WaitForMessageOptions,
   MessageId,
 } from "./types/message.ts";
 
@@ -41,12 +41,23 @@ export function defineWorkflow<
   TOutput,
   WorkflowRawInputFromSchema<TSchema, TRawInput>
 > {
-  return {
-    kind: "definition",
-    config,
-    name: config.name,
-    ...(config.version === undefined ? {} : { version: config.version }),
-  };
+  const summary: WorkflowDefinition<
+    WorkflowInputFromSchema<TSchema, TInput>,
+    TOutput,
+    WorkflowRawInputFromSchema<TSchema, TRawInput>
+  > = { kind: "definition", config, name: config.name };
+
+  if (config.version !== undefined) {
+    Object.assign(summary, { version: config.version } satisfies Partial<
+      WorkflowDefinition<
+        WorkflowInputFromSchema<TSchema, TInput>,
+        TOutput,
+        WorkflowRawInputFromSchema<TSchema, TRawInput>
+      >
+    >);
+  }
+
+  return summary;
 }
 
 /** Creates a workflow definition from a resolved name and optional version. */
@@ -54,10 +65,13 @@ export function defineWorkflowFromName<TInput = unknown, TOutput = unknown, TRaw
   name: string,
   version?: string,
 ): WorkflowDefinition<TInput, TOutput, TRawInput> {
-  return defineWorkflow<TInput, TOutput, TRawInput>({
-    name,
-    ...(version === undefined ? {} : { version }),
-  });
+  const config: WorkflowDefinitionConfig = { name };
+
+  if (version !== undefined) {
+    Object.assign(config, { version } satisfies Partial<WorkflowDefinitionConfig>);
+  }
+
+  return defineWorkflow<TInput, TOutput, TRawInput>(config);
 }
 
 /** Returns the durable definition for a workflow definition or implementation. */
@@ -101,104 +115,113 @@ export function implementWorkflow<
     WorkflowInputFromSchema<TSchema, TInput>,
     TOutput,
     WorkflowRawInputFromSchema<TSchema, TRawInput>
-  > = {
-    kind: "definition",
-    config,
-    name: config.name,
-    ...(config.version === undefined ? {} : { version: config.version }),
-  };
-  return {
+  > = { kind: "definition", config, name: config.name };
+
+  if (config.version !== undefined) {
+    Object.assign(definition, { version: config.version } satisfies Partial<
+      WorkflowDefinition<
+        WorkflowInputFromSchema<TSchema, TInput>,
+        TOutput,
+        WorkflowRawInputFromSchema<TSchema, TRawInput>
+      >
+    >);
+  }
+
+  const result = {
     kind: "implementation",
     definition,
     config: definition.config,
     name: definition.name,
-    ...(definition.version === undefined ? {} : { version: definition.version }),
-    handler,
-  };
+  } satisfies Partial<
+    WorkflowImplementation<
+      WorkflowInputFromSchema<TSchema, TInput>,
+      TOutput,
+      WorkflowRawInputFromSchema<TSchema, TRawInput>
+    >
+  >;
+
+  if (definition.version !== undefined) {
+    Object.assign(result, { version: definition.version } satisfies Partial<
+      WorkflowImplementation<
+        WorkflowInputFromSchema<TSchema, TInput>,
+        TOutput,
+        WorkflowRawInputFromSchema<TSchema, TRawInput>
+      >
+    >);
+  }
+
+  const result1 = Object.assign(result, { handler } satisfies Partial<
+    WorkflowImplementation<
+      WorkflowInputFromSchema<TSchema, TInput>,
+      TOutput,
+      WorkflowRawInputFromSchema<TSchema, TRawInput>
+    >
+  >);
+
+  return result1;
 }
 
-/** Defines workflow message channel for durable workflow use. */
-export function defineMessageChannel<
-  TPayload = unknown,
-  TKey = void,
-  const TSchema extends Schema | undefined = undefined,
->(
-  config: MessageChannelConfig<TKey, TSchema>,
-): MessageChannel<WorkflowInputFromSchema<TSchema, TPayload>, TKey> {
-  const name = config.name;
-
+/** Defines a message channel whose schema validates incoming payloads. */
+export function defineMessageChannel<TPayload, TRawPayload = unknown>(
+  config: MessageChannelConfig<TPayload, TRawPayload>,
+): MessageChannel<TPayload, TRawPayload> {
   return {
-    name,
-    ...(config.schema === undefined ? {} : { schema: config.schema }),
-    resolveMessageId: (...args: MessageChannelKeyArgs<TKey>) => {
-      const messageId = config.resolveMessageId?.(...args) ?? name;
-      return messageId;
-    },
+    name: config.name,
+    schema: config.schema,
   };
 }
 
-/** Normalizes and parses workflow message channel send. */
-export async function resolveMessageChannelSend<TPayload, TKey>(
-  channel: MessageChannel<TPayload, TKey>,
-  options: SendMessageChannelOptions<TPayload, TKey> = {},
-): Promise<{
+interface ResolvedMessageChannelSend<TPayload> {
   readonly messageId: MessageId;
   readonly payload?: TPayload;
   readonly idempotencyKey?: string;
-}> {
-  const payload =
-    channel.schema === undefined
-      ? options.payload
-      : ((await validateStandardSchema(
-          channel.schema,
-          options.payload,
-          "Workflow message validation failed",
-        )) as TPayload);
-  return {
-    messageId: resolveMessageChannelMessageId(channel, options.key),
-    ...(payload === undefined ? {} : { payload }),
-    ...(options.idempotencyKey === undefined ? {} : { idempotencyKey: options.idempotencyKey }),
+}
+
+/** Validates a channel send and preserves its raw payload for the receiving schema. */
+export async function resolveMessageChannelSend<TPayload, TRawPayload>(
+  channel: MessageChannel<TPayload, TRawPayload>,
+  options: SendMessageChannelOptions<TRawPayload> = {},
+): Promise<ResolvedMessageChannelSend<TRawPayload>> {
+  const payload = options.payload;
+  await validateStandardSchema(channel.schema, payload, "Workflow message validation failed");
+
+  const result: ResolvedMessageChannelSend<TRawPayload> = {
+    messageId: channel.name,
   };
+
+  if (payload !== undefined) {
+    Object.assign(result, { payload } satisfies Partial<ResolvedMessageChannelSend<TRawPayload>>);
+  }
+
+  if (options.idempotencyKey !== undefined) {
+    Object.assign(result, { idempotencyKey: options.idempotencyKey } satisfies Partial<
+      ResolvedMessageChannelSend<TRawPayload>
+    >);
+  }
+
+  return result;
 }
 
 /** Normalizes and parses workflow message channel wait. */
-export function resolveMessageChannelWait<TKey>(
-  channel: MessageChannel<unknown, TKey>,
-  options: WaitForMessageChannelOptions<TKey> = {},
-) {
-  return {
+export function resolveMessageChannelWait<TPayload>(
+  channel: MessageChannel<TPayload, unknown>,
+  options: WaitForMessageChannelOptions = {},
+): WaitForMessageOptions<Schema<unknown, TPayload>> {
+  const result = {
     commandId: options.commandId ?? options.name ?? channel.name,
     name: options.name ?? channel.name,
-    messageId: resolveMessageChannelMessageId(channel, options.key),
-    ...(options.timeout === undefined ? {} : { timeout: options.timeout }),
-    ...(channel.schema === undefined ? {} : { schema: channel.schema }),
-  };
-}
+    messageId: channel.name,
+  } satisfies Partial<WaitForMessageOptions<Schema<unknown, TPayload>>>;
 
-function resolveMessageChannelMessageId<TKey>(
-  channel: MessageChannel<unknown, TKey>,
-  key: TKey | undefined,
-): string {
-  return channel.resolveMessageId(...workflowMessageChannelKeyArgs(key));
-}
-
-function workflowMessageChannelKeyArgs<TKey>(key: TKey | undefined): MessageChannelKeyArgs<TKey> {
-  // TKey decides whether the channel resolver accepts an optional or required tuple.
-  return (key === undefined ? [] : [key]) as MessageChannelKeyArgs<TKey>;
-}
-
-/** Parses raw workflow input against the definition schema when one is configured. */
-export async function parseWorkflowInput<TInput>(
-  definition: WorkflowDefinition<TInput, unknown, unknown>,
-  input: unknown,
-): Promise<TInput> {
-  const schema = definition.config.schema;
-  if (schema === undefined) {
-    return input as TInput;
+  if (options.timeout !== undefined) {
+    Object.assign(result, { timeout: options.timeout } satisfies Partial<
+      WaitForMessageOptions<Schema<unknown, TPayload>>
+    >);
   }
-  return (await validateStandardSchema(
-    schema,
-    input,
-    "Workflow input validation failed",
-  )) as TInput;
+
+  const result1 = Object.assign(result, { schema: channel.schema } satisfies Partial<
+    WaitForMessageOptions<Schema<unknown, TPayload>>
+  >);
+
+  return result1;
 }

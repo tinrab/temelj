@@ -33,10 +33,13 @@ type BlockRecognizer = (source: string, line: PhysicalLine) => RecognizerResult<
 export const recognizeRawHtml: BlockRecognizer = (source, line) => {
   const content = source.slice(line.content.start, line.content.end);
   const indent = leadingIndent(content);
+
   if (indent > 3) {
     return noMatch;
   }
+
   const value = content.slice(indent);
+
   const closing = value.startsWith("<!--")
     ? "-->"
     : value.startsWith("<?")
@@ -46,10 +49,13 @@ export const recognizeRawHtml: BlockRecognizer = (source, line) => {
         : /^<![A-Z]/u.test(value)
           ? ">"
           : undefined;
+
   if (closing === undefined) {
     return noMatch;
   }
+
   const range = sourceRange(line.range.start, line.range.end);
+
   return value.includes(closing, 2)
     ? matched({
         kind: "block",
@@ -73,9 +79,11 @@ function matchFrontmatter(
 ): Extract<OpenLeaf, { kind: "frontmatter" }> | undefined {
   const value = source.slice(line.content.start, line.content.end).trim();
   const format = value === "---" ? "yaml" : value === "+++" ? "toml" : undefined;
+
   if (format === undefined || !syntax.frontmatter.includes(format)) {
     return;
   }
+
   return {
     kind: "frontmatter",
     start: line.range.start,
@@ -93,6 +101,7 @@ export function recognizeFrontmatter(
   syntax: ResolvedSyntaxOptions,
 ): RecognizerResult<Extract<OpenLeaf, { kind: "frontmatter" }>> {
   const match = matchFrontmatter(source, line, syntax);
+
   return match === undefined ? noMatch : matched(match);
 }
 
@@ -103,9 +112,11 @@ function matchMathFence(
 ): Extract<OpenLeaf, { kind: "math" }> | undefined {
   const content = source.slice(line.content.start, line.content.end);
   const indent = leadingIndent(content);
+
   if (indent > 3) {
     return;
   }
+
   if (syntax.math.includes("tex") && content.slice(indent).trim() === "\\[") {
     return {
       kind: "math",
@@ -118,21 +129,29 @@ function matchMathFence(
       meta: undefined,
     };
   }
+
   if (!syntax.math.includes("dollar") || content[indent] !== "$") {
     return;
   }
+
   let markerEnd = indent;
+
   while (content[markerEnd] === "$") {
     markerEnd++;
   }
+
   const fenceLength = markerEnd - indent;
+
   if (fenceLength < 2) {
     return;
   }
+
   let metaStart = markerEnd;
+
   while (isSpaceOrTab(content[metaStart])) {
     metaStart++;
   }
+
   return {
     kind: "math",
     start: line.range.start,
@@ -154,6 +173,7 @@ export function recognizeMathFence(
   syntax: ResolvedSyntaxOptions,
 ): RecognizerResult<Extract<OpenLeaf, { kind: "math" }>> {
   const match = matchMathFence(source, line, syntax);
+
   return match === undefined ? noMatch : matched(match);
 }
 
@@ -164,11 +184,14 @@ function matchSameLineMath(
 ): Extract<BlockSyntax, { kind: "math" }> | undefined {
   const content = source.slice(line.content.start, line.content.end);
   const indent = leadingIndent(content);
+
   if (indent > 3) {
     return;
   }
+
   const value = content.slice(indent);
   const trimmed = value.trimEnd();
+
   if (
     syntax.math.includes("tex") &&
     trimmed.startsWith("\\[") &&
@@ -191,20 +214,27 @@ function matchSameLineMath(
       meta: undefined,
     };
   }
+
   if (!syntax.math.includes("dollar") || !value.startsWith("$$")) {
     return;
   }
+
   let fenceLength = 0;
+
   while (value[fenceLength] === "$") {
     fenceLength++;
   }
+
   let closingStart = value.length;
+
   while (value[closingStart - 1] === "$") {
     closingStart--;
   }
+
   if (value.length - closingStart < fenceLength || closingStart <= fenceLength) {
     return;
   }
+
   return {
     kind: "math",
     range: sourceRange(line.range.start, line.content.end),
@@ -228,6 +258,7 @@ export function recognizeSameLineMath(
   syntax: ResolvedSyntaxOptions,
 ): RecognizerResult<Extract<BlockSyntax, { kind: "math" }>> {
   const match = matchSameLineMath(source, line, syntax);
+
   return match === undefined ? noMatch : matched(match);
 }
 
@@ -246,22 +277,29 @@ export function isClosingMathFence(
 ): boolean {
   const content = source.slice(line.content.start, line.content.end);
   const indent = leadingIndent(content);
+
   if (indent > 3) {
     return false;
   }
+
   if (active.fence === "tex") {
     return content.slice(indent).trim() === "\\]";
   }
+
   let markerEnd = indent;
+
   while (content[markerEnd] === "$") {
     markerEnd++;
   }
+
   if (markerEnd - indent < active.fenceLength) {
     return false;
   }
+
   while (isSpaceOrTab(content[markerEnd])) {
     markerEnd++;
   }
+
   return markerEnd === content.length;
 }
 
@@ -269,10 +307,13 @@ export const recognizeDefinition: BlockRecognizer = (source, line) => {
   const end = line.content.end;
   const indent = consumeIndent(source, line.content.start, end, 3);
   const labelStart = indent.offset;
+
   if (source[labelStart] !== "[") {
     return noMatch;
   }
+
   const labelEnd = findUnescaped(source, "]", labelStart + 1, end);
+
   if (
     labelEnd === undefined ||
     labelEnd === labelStart + 1 ||
@@ -282,42 +323,58 @@ export const recognizeDefinition: BlockRecognizer = (source, line) => {
   ) {
     return noMatch;
   }
+
   let cursor = labelEnd + 2;
+
   while (cursor < end && isSpaceOrTab(source[cursor])) {
     cursor++;
   }
+
   const destination = definitionDestination(source, cursor, end);
+
   if (destination === undefined) {
     return noMatch;
   }
+
   cursor = destination.next;
   const beforeTitle = cursor;
+
   while (cursor < end && isSpaceOrTab(source[cursor])) {
     cursor++;
   }
+
   let title: SourceRange | undefined;
+
   if (cursor < end) {
     if (cursor === beforeTitle) {
       return noMatch;
     }
+
     const opener = source[cursor];
     const closer = opener === "(" ? ")" : opener === '"' ? '"' : opener === "'" ? "'" : undefined;
+
     if (closer === undefined) {
       return noMatch;
     }
+
     const titleEnd = findUnescaped(source, closer, cursor + 1, end);
+
     if (titleEnd === undefined) {
       return noMatch;
     }
+
     title = sourceRange(cursor + 1, titleEnd);
     cursor = titleEnd + 1;
+
     while (cursor < end && isSpaceOrTab(source[cursor])) {
       cursor++;
     }
   }
+
   if (cursor !== end) {
     return noMatch;
   }
+
   return matched({
     kind: "block",
     block: {
@@ -342,16 +399,21 @@ function definitionDestination(
 ): DefinitionDestination | undefined {
   if (source[start] === "<") {
     const close = findUnescaped(source, ">", start + 1, end);
+
     return close === undefined
       ? undefined
       : { range: sourceRange(start + 1, close), next: close + 1 };
   }
+
   let cursor = start;
   let depth = 0;
+
   while (cursor < end && !isSpaceOrTab(source[cursor])) {
     const character = source[cursor];
+
     if (character === "(" && !isEscaped(source, cursor, start)) {
       depth++;
+
       if (depth > 32) {
         return;
       }
@@ -359,10 +421,13 @@ function definitionDestination(
       if (depth === 0) {
         break;
       }
+
       depth--;
     }
+
     cursor++;
   }
+
   return cursor === start || depth !== 0
     ? undefined
     : { range: sourceRange(start, cursor), next: cursor };
@@ -371,39 +436,54 @@ function definitionDestination(
 export const recognizeAtxHeading: BlockRecognizer = (source, line) => {
   const content = source.slice(line.content.start, line.content.end);
   const indent = leadingIndent(content);
+
   if (indent > 3 || content[indent] !== "#") {
     return noMatch;
   }
+
   let markerEnd = indent;
+
   while (content[markerEnd] === "#") {
     markerEnd++;
   }
+
   const depth = markerEnd - indent;
+
   if (depth > 6 || (markerEnd < content.length && !isSpaceOrTab(content[markerEnd]))) {
     return noMatch;
   }
+
   let valueStart = markerEnd;
+
   while (isSpaceOrTab(content[valueStart])) {
     valueStart++;
   }
+
   let valueEnd = content.length;
+
   while (valueEnd > valueStart && isSpaceOrTab(content[valueEnd - 1])) {
     valueEnd--;
   }
+
   let closingStart = valueEnd;
+
   while (content[closingStart - 1] === "#") {
     closingStart--;
   }
+
   if (
     closingStart < valueEnd &&
     (closingStart === valueStart || isSpaceOrTab(content[closingStart - 1]))
   ) {
     valueEnd = closingStart;
+
     while (valueEnd > valueStart && isSpaceOrTab(content[valueEnd - 1])) {
       valueEnd--;
     }
   }
+
   const inputRange = sourceRange(line.content.start + valueStart, line.content.start + valueEnd);
+
   return matched({
     kind: "block",
     block: {
@@ -419,18 +499,23 @@ export const recognizeThematicBreak: BlockRecognizer = (source, line) => {
   const content = source.slice(line.content.start, line.content.end);
   const indent = leadingIndent(content);
   const marker = content[indent];
+
   if (indent > 3 || (marker !== "*" && marker !== "-" && marker !== "_")) {
     return noMatch;
   }
+
   let count = 0;
+
   for (let index = indent; index < content.length; index++) {
     const character = content[index];
+
     if (character === marker) {
       count++;
     } else if (!isSpaceOrTab(character)) {
       return noMatch;
     }
   }
+
   return count < 3
     ? noMatch
     : matched({
@@ -446,29 +531,41 @@ export const recognizeFence: BlockRecognizer = (source, line) => {
   const content = source.slice(line.content.start, line.content.end);
   const indent = leadingIndent(content);
   const marker = content[indent];
+
   if (indent > 3 || (marker !== "`" && marker !== "~")) {
     return noMatch;
   }
+
   let markerEnd = indent;
+
   while (content[markerEnd] === marker) {
     markerEnd++;
   }
+
   const fenceLength = markerEnd - indent;
+
   if (fenceLength < 3 || (marker === "`" && content.slice(markerEnd).includes("`"))) {
     return noMatch;
   }
+
   let infoStart = markerEnd;
+
   while (isSpaceOrTab(content[infoStart])) {
     infoStart++;
   }
+
   let languageEnd = infoStart;
+
   while (languageEnd < content.length && !isSpaceOrTab(content[languageEnd])) {
     languageEnd++;
   }
+
   let metaStart = languageEnd;
+
   while (isSpaceOrTab(content[metaStart])) {
     metaStart++;
   }
+
   return matched({
     kind: "openLeaf",
     leaf: {
@@ -498,25 +595,35 @@ export function recognizeTable(
   if (paragraph.lines.length !== 1) {
     return noMatch;
   }
+
   const headerSegment = paragraph.lines[0];
+
   if (headerSegment.kind !== "source") {
     return noMatch;
   }
+
   const header = tableRow(source, headerSegment.range);
   const delimiterCells = tableCellRanges(source, line.content);
+
   if (header.cells.length !== delimiterCells.length || delimiterCells.length === 0) {
     return noMatch;
   }
+
   const alignments: TableAlignmentSyntax[] = [];
+
   for (const segments of delimiterCells) {
     const segment = segments[0];
+
     if (segment?.kind !== "source") {
       return noMatch;
     }
+
     const value = source.slice(segment.range.start, segment.range.end);
+
     if (!/^:?-+:?$/u.test(value)) {
       return noMatch;
     }
+
     alignments.push(
       value.startsWith(":")
         ? value.endsWith(":")
@@ -527,6 +634,7 @@ export function recognizeTable(
           : "none",
     );
   }
+
   return matched({
     kind: "table",
     start: paragraph.start,
@@ -546,48 +654,62 @@ function tableCellRanges(
 ): readonly (readonly InlineSegment[])[] {
   let start = range.start;
   let end = range.end;
+
   while (start < end && isSpaceOrTab(source[start])) {
     start++;
   }
+
   while (end > start && isSpaceOrTab(source[end - 1])) {
     end--;
   }
+
   if (source[start] === "|") {
     start++;
   }
+
   if (source[end - 1] === "|" && !isEscaped(source, end - 1, start)) {
     end--;
   }
+
   const cells: (readonly InlineSegment[])[] = [];
   let cellStart = start;
   let codeFence = 0;
+
   for (let offset = start; offset <= end; offset++) {
     const character = source[offset];
+
     if (character === "`" && !isEscaped(source, offset, start)) {
       let runEnd = offset;
+
       while (source[runEnd] === "`") {
         runEnd++;
       }
+
       const run = runEnd - offset;
       codeFence = codeFence === 0 ? run : codeFence === run ? 0 : codeFence;
       offset = runEnd - 1;
     }
+
     if (
       offset === end ||
       (character === "|" && codeFence === 0 && !isEscaped(source, offset, start))
     ) {
       let valueStart = cellStart;
       let valueEnd = offset;
+
       while (valueStart < valueEnd && isSpaceOrTab(source[valueStart])) {
         valueStart++;
       }
+
       while (valueEnd > valueStart && isSpaceOrTab(source[valueEnd - 1])) {
         valueEnd--;
       }
+
       cells.push([{ kind: "source", range: sourceRange(valueStart, valueEnd) }]);
       cellStart = offset + 1;
     }
   }
+
   return cells;
 }
 
@@ -599,19 +721,25 @@ export function recognizeSetext(
   const content = source.slice(line.content.start, line.content.end);
   const indent = leadingIndent(content);
   const marker = content[indent];
+
   if (indent > 3 || (marker !== "=" && marker !== "-")) {
     return noMatch;
   }
+
   let index = indent;
+
   while (content[index] === marker) {
     index++;
   }
+
   while (isSpaceOrTab(content[index])) {
     index++;
   }
+
   if (index !== content.length) {
     return noMatch;
   }
+
   return matched({
     kind: "heading",
     range: sourceRange(paragraph.start, line.content.end),
@@ -627,19 +755,25 @@ export function isClosingFence(
 ): boolean {
   const content = source.slice(line.content.start, line.content.end);
   const indent = leadingIndent(content);
+
   if (indent > 3 || content[indent] !== active.marker) {
     return false;
   }
+
   let markerEnd = indent;
+
   while (content[markerEnd] === active.marker) {
     markerEnd++;
   }
+
   if (markerEnd - indent < active.fenceLength) {
     return false;
   }
+
   while (isSpaceOrTab(content[markerEnd])) {
     markerEnd++;
   }
+
   return markerEnd === content.length;
 }
 
@@ -653,13 +787,16 @@ function headingDepth(value: number): 1 | 2 | 3 | 4 | 5 | 6 {
   if (value === 1 || value === 2 || value === 3 || value === 4 || value === 5 || value === 6) {
     return value;
   }
+
   throw new Error(`Invalid ATX heading depth ${value}`);
 }
 
 function leadingIndent(value: string): number {
   let index = 0;
+
   while (value[index] === " ") {
     index++;
   }
+
   return index;
 }

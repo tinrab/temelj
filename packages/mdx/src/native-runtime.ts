@@ -16,10 +16,12 @@ export async function runDocumentTransforms(
   options: DocumentTransformOptions,
 ): Promise<DocumentNode> {
   let document = options.document;
+
   for (const plugin of options.documentPlugins) {
     options.signal?.throwIfAborted();
     const original = document;
     const diagnosticStart = options.diagnostics.size;
+
     try {
       const result = await plugin.transform(
         documentTransformContext(
@@ -30,44 +32,56 @@ export async function runDocumentTransforms(
           options.signal,
         ),
       );
+
       if (!(result instanceof DocumentNode)) {
         throw new TypeError("Document plugin returned a value that is not a DocumentNode");
       }
+
       document = options.diagnostics.hasErrorsSince(diagnosticStart) ? original : result;
     } catch (cause) {
       options.signal?.throwIfAborted();
+
       if (cause instanceof ConfigurationError) {
         throw cause;
       }
+
       TransformError.pluginDocumentTransformFailed(plugin.name, cause, document.origin);
     }
   }
+
   return document;
 }
 
 export function runDocumentTransformsSync(options: DocumentTransformOptions): DocumentNode {
   let document = options.document;
+
   for (const plugin of options.documentPlugins) {
     const original = document;
     const diagnosticStart = options.diagnostics.size;
+
     try {
       const result = plugin.transform(
         documentTransformContext(document, options.file, options.syntax, options.diagnostics),
       );
+
       if (isPromise(result)) {
         ConfigurationError.asynchronousPluginInSynchronousProcessor();
       }
+
       if (!(result instanceof DocumentNode)) {
         throw new TypeError("Document plugin returned a value that is not a DocumentNode");
       }
+
       document = options.diagnostics.hasErrorsSince(diagnosticStart) ? original : result;
     } catch (cause) {
       if (cause instanceof ConfigurationError) {
         throw cause;
       }
+
       TransformError.pluginDocumentTransformFailed(plugin.name, cause, document.origin);
     }
   }
+
   return document;
 }
 
@@ -77,10 +91,12 @@ export async function runNativePipeline(
   const document = await runDocumentTransforms(options);
 
   let html = renderHtml(document, options.htmlOptions);
+
   for (const plugin of options.htmlPlugins) {
     options.signal?.throwIfAborted();
     const original = html;
     const diagnosticStart = options.diagnostics.size;
+
     try {
       const result = await plugin.transform(
         htmlTransformContext(
@@ -91,18 +107,23 @@ export async function runNativePipeline(
           options.signal,
         ),
       );
+
       if (!(result instanceof HtmlDocumentNode)) {
         throw new TypeError("HTML plugin returned a value that is not an HtmlDocumentNode");
       }
+
       html = options.diagnostics.hasErrorsSince(diagnosticStart) ? original : result;
     } catch (cause) {
       options.signal?.throwIfAborted();
+
       if (cause instanceof ConfigurationError) {
         throw cause;
       }
+
       TransformError.pluginHtmlTransformFailed(plugin.name, cause, html.origin);
     }
   }
+
   return { document, html };
 }
 
@@ -110,26 +131,33 @@ export function runNativePipelineSync(options: PluginPipelineOptions): PluginPip
   const document = runDocumentTransformsSync(options);
 
   let html = renderHtml(document, options.htmlOptions);
+
   for (const plugin of options.htmlPlugins) {
     const original = html;
     const diagnosticStart = options.diagnostics.size;
+
     try {
       const result = plugin.transform(
         htmlTransformContext(html, options.file, options.syntax, options.diagnostics),
       );
+
       if (isPromise(result)) {
         ConfigurationError.asynchronousPluginInSynchronousProcessor();
       }
+
       if (!(result instanceof HtmlDocumentNode)) {
         throw new TypeError("HTML plugin returned a value that is not an HtmlDocumentNode");
       }
+
       html = options.diagnostics.hasErrorsSince(diagnosticStart) ? original : result;
     } catch (cause) {
       if (cause instanceof ConfigurationError) {
         throw cause;
       }
+
       TransformError.pluginHtmlTransformFailed(plugin.name, cause, html.origin);
     }
   }
+
   return { document, html };
 }

@@ -5,19 +5,24 @@ export const dynamic = "force-dynamic";
 export function GET(request: Request): Response {
   const encoder = new TextEncoder();
   let cancelled = false;
+
   const body = new ReadableStream<Uint8Array>({
     async start(controller) {
       for (const content of streamedMdxChunks) {
         const delayMilliseconds = streamDelayMilliseconds(content);
         const ready = await waitForChunk(delayMilliseconds, request.signal);
+
         if (!ready || cancelled) {
           if (!cancelled) {
             controller.close();
           }
+
           return;
         }
+
         controller.enqueue(encoder.encode(content));
       }
+
       controller.close();
     },
     cancel() {
@@ -39,12 +44,14 @@ function waitForChunk(milliseconds: number, signal: AbortSignal): Promise<boolea
   if (signal.aborted) {
     return Promise.resolve(false);
   }
+
   return new Promise((resolve) => {
     const finish = (completed: boolean): void => {
       clearTimeout(timeout);
       signal.removeEventListener("abort", abort);
       resolve(completed);
     };
+
     const abort = (): void => finish(false);
     const timeout = setTimeout(() => finish(true), milliseconds);
     signal.addEventListener("abort", abort, { once: true });

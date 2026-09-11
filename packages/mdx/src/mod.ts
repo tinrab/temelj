@@ -1,4 +1,5 @@
 export * from "./compiler.ts";
+
 export {
   formatDiagnostic,
   hasErrorDiagnostics,
@@ -8,6 +9,7 @@ export {
   type DiagnosticSeverity,
   type RelatedInformation,
 } from "./diagnostics.ts";
+
 export {
   CompileError,
   ConfigurationError,
@@ -21,6 +23,7 @@ export {
   type TransformIssue,
   type TransformTarget,
 } from "./errors.ts";
+
 export {
   HtmlCodeBlockNode,
   HtmlCommentNode,
@@ -49,7 +52,9 @@ export {
   type MathRenderInput,
   type MathRenderStyle,
 } from "./html.ts";
+
 export type { HeadingDepth } from "./heading.ts";
+
 export type {
   FrontmatterFormat,
   FrontmatterMode,
@@ -57,7 +62,9 @@ export type {
   MathMode,
   SyntaxOptions,
 } from "./syntax-options.ts";
+
 export * from "./model.ts";
+
 export {
   defaultParserLimits,
   parse,
@@ -66,9 +73,15 @@ export {
   type ParserLimit,
   type ParserLimits,
 } from "./parser.ts";
+
 export * from "./processor.ts";
+
 export * from "./source.ts";
+
 export type { SourceMap } from "./source-map.ts";
+
 export * from "./stream.ts";
+
 export * from "./streaming-document.ts";
+
 export * from "./traversal.ts";

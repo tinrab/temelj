@@ -95,8 +95,9 @@ export class WorkflowStreamNotFoundError extends WorkflowOptionsError {
     return new WorkflowStreamNotFoundError(streamIdOrName, WorkflowStreamNotFoundError.create);
   }
 
-  static isNotFound(error: unknown, streamIdOrName?: StreamIdOrName): boolean {
-    const record = workflowErrorRecordView(error);
+  static isNotFound(cause: unknown, streamIdOrName?: StreamIdOrName): boolean {
+    const record = workflowErrorRecordView(cause);
+
     return (
       record?.code === WorkflowErrorCode.STREAM_NOT_FOUND &&
       (streamIdOrName === undefined || record.details?.streamIdOrName === streamIdOrName)

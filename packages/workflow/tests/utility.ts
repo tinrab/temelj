@@ -13,6 +13,7 @@ import type { RunId } from "../src/types/run.ts";
 import type { WorkflowStorage } from "../src/types/store.ts";
 
 import { makeEventsKey, makeRunKey } from "../src/store-keys.ts";
+import { workflowRunRecordSchema } from "../src/types/run.ts";
 import { disableStorageEngineMethod } from "./support/storage-races.ts";
 import {
   eventHistoryStorageValue,
@@ -21,6 +22,7 @@ import {
 } from "./support/storage-values.ts";
 
 export { isMessageSentEventList } from "./support/events.ts";
+
 export {
   importSpecifiers,
   isConcreteBackendSpecifier,
@@ -30,6 +32,7 @@ export {
   storageBackendPackageDependencies,
   workflowRuntimeSourceFiles,
 } from "./support/metadata.ts";
+
 export {
   createDelayedCompareAndSetStorage,
   createDelayedMessageAppendStorage,
@@ -39,6 +42,7 @@ export {
   createTerminalMessageAppendRaceStorage,
   disableStorageEngineMethod,
 } from "./support/storage-races.ts";
+
 export {
   delay,
   readStream,
@@ -50,6 +54,7 @@ export {
   waitForWorkflowSleep,
   wakeWorkflowRun,
 } from "./support/waiters.ts";
+
 export { createMockWebStorage } from "./support/web-storage.ts";
 
 type WorkflowTestStorageCompareAndSet = (
@@ -58,6 +63,7 @@ type WorkflowTestStorageCompareAndSet = (
   value: StorageValue | undefined,
   options?: StorageSetOptions,
 ) => Promise<boolean>;
+
 type WorkflowTestStorageGet = (key: string) => Promise<StorageValue | undefined>;
 
 export async function eventTypes(
@@ -69,6 +75,7 @@ export async function eventTypes(
 
 export function sequentialRunIds(...ids: readonly string[]): () => string {
   let index = 0;
+
   return () => ids[index++] ?? `run_${index}`;
 }
 
@@ -81,8 +88,10 @@ export function createHiddenFirstRunScanStorage() {
   storage.entries = async (options?: StorageKeyOptions) => {
     if (!hidden && options?.prefix === runPrefix) {
       hidden = true;
+
       return [];
     }
+
     return await entries(options);
   };
 
@@ -93,12 +102,14 @@ export function createBestEffortStorage() {
   const engine: StorageEngine<string> = new InMemoryStorageEngine<string>();
   disableStorageEngineMethod(engine, "compareAndSet");
   disableStorageEngineMethod(engine, "compareAndSetMany");
+
   return createStorage({ engine });
 }
 
 export function createSingleKeyConditionalStorage() {
   const engine: StorageEngine<string> = new InMemoryStorageEngine<string>();
   disableStorageEngineMethod(engine, "compareAndSetMany");
+
   return createStorage({ engine });
 }
 
@@ -111,11 +122,14 @@ export function createPollutedCleanupStepAttemptKeysStorage(extraKeys: readonly 
   const keys = storage.keys.bind(storage);
   storage.keys = async (options?: StorageKeyOptions) => {
     const found = await keys(options);
+
     if (options?.prefix?.startsWith("workflow:default:step-attempt:run_cleanup_") === true) {
       return [...found, ...extraKeys];
     }
+
     return found;
   };
+
   return storage;
 }
 
@@ -124,11 +138,13 @@ export function corruptRunDuringNextEventHistoryRead(storage: WorkflowStorage, r
   let corrupted = false;
   storage.get = async (key: string) => {
     const value = await get(key);
+
     if (!corrupted && key === makeEventsKey("default", runId)) {
       corrupted = true;
       const run = await get(makeRunKey("default", runId));
-      if (typeof run === "object" && run !== null) {
-        const runRecord = run as Record<string, unknown>;
+
+      if (run !== undefined) {
+        const runRecord = workflowRunRecordSchema.parse(run);
         await storage.set(
           makeRunKey("default", runId),
           runRecordStorageValue({
@@ -138,6 +154,7 @@ export function corruptRunDuringNextEventHistoryRead(storage: WorkflowStorage, r
         );
       }
     }
+
     return value;
   };
 }
@@ -161,6 +178,7 @@ export function createRepointingMessageCleanupStorage(messageKey: string) {
         timestamp: "2026-06-07T10:01:00.000Z",
       });
     }
+
     return await compareAndSet(key, expected, value, options);
   };
 
@@ -182,6 +200,7 @@ export function createRepointingCleanupStorage(idempotencyKey: string) {
       repointed = true;
       await storage.set(key, "run_elsewhere");
     }
+
     return await compareAndSet(key, expected, value, options);
   };
 
@@ -216,6 +235,7 @@ export function createRepointingRunCleanupStorage(runId: RunId) {
         lastTransitionReason: "external cleanup race",
       });
     }
+
     return await compareAndSet(key, expected, value, options);
   };
 
@@ -231,11 +251,13 @@ export function createFailingCreateRunStorage(runId: RunId) {
   if (compareAndSetMany === undefined) {
     throw new Error("Expected in-memory storage engine to support conditional batches");
   }
+
   engine.compareAndSetMany = async (items) => {
     if (!failed && items.some((item) => item.key === makeEventsKey("default", runId))) {
       failed = true;
       throw new Error("workflow event history write failed");
     }
+
     return await compareAndSetMany(items);
   };
 
@@ -244,6 +266,7 @@ export function createFailingCreateRunStorage(runId: RunId) {
       failed = true;
       throw new Error("workflow event history write failed");
     }
+
     await set(key, value, options);
   };
 
@@ -262,6 +285,7 @@ export function createFailingFallbackCreateRunStorage(runId: RunId) {
       failed = true;
       throw new Error("workflow event history write failed");
     }
+
     await set(key, value, options);
   };
 
@@ -277,8 +301,10 @@ export function createFailingStepAttemptStorage() {
     if (key.includes(":step-attempt:")) {
       throw new Error("step attempt write failed");
     }
+
     await set(key, value, options);
   };
+
   return createStorage({ engine });
 }
 
@@ -308,8 +334,10 @@ export function createConcurrentEventAppendOnStepAttemptFailureStorage(runId: Ru
       );
       throw new Error("step attempt write failed after concurrent event append");
     }
+
     await set(key, value, options);
   };
+
   return storage;
 }
 
@@ -321,16 +349,20 @@ export function createFailingMessageIdempotencyStorage() {
     if (key.includes(":message-idempotency:")) {
       throw new Error("messageId idempotency write failed");
     }
+
     await set(key, value, options);
   };
+
   if (compareAndSet !== undefined) {
     engine.compareAndSet = async (key, expected, value, options) => {
       if (key.includes(":message-idempotency:")) {
         throw new Error("messageId idempotency write failed");
       }
+
       return await compareAndSet(key, expected, value, options);
     };
   }
+
   return createStorage({ engine });
 }
 
@@ -356,8 +388,10 @@ export function createConcurrentMessageIdempotencyClaimStorage(messageKey: strin
         },
         options,
       );
+
       return false;
     }
+
     return await compareAndSet(key, expected, value, options);
   };
 
@@ -389,8 +423,10 @@ export function createConcurrentMessageReplacementOnIdempotencyFailureStorage(ru
       );
       throw new Error("messageId idempotency write failed after concurrent replacement");
     }
+
     await set(key, value, options);
   };
+
   return storage;
 }
 
@@ -420,7 +456,9 @@ export function createConcurrentMalformedMessageWaitersOnIdempotencyFailureStora
       );
       throw new Error("messageId idempotency write failed after malformed waiter replacement");
     }
+
     await set(key, value, options);
   };
+
   return storage;
 }

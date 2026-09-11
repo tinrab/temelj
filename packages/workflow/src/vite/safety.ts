@@ -4,7 +4,6 @@ import type {
   Expression,
   FunctionBody,
   ImportDeclaration,
-  MemberExpression,
   MetaProperty,
   NewExpression,
   Node,
@@ -40,9 +39,11 @@ export function rejectObviousNondeterministicGlobals(
     if (isIdentifier(node) && unsafeImports.has(node.name)) {
       throwNondeterministicGlobalError(entry.name, unsafeImports.get(node.name)!, node, sourceFile);
     }
+
     if (isNewExpression(node) && isIdentifier(node.callee) && node.callee.name === "Date") {
       throwNondeterministicGlobalError(entry.name, "Date", node, sourceFile);
     }
+
     if (
       isCallExpression(node) &&
       isIdentifier(node.callee) &&
@@ -50,8 +51,10 @@ export function rejectObviousNondeterministicGlobals(
     ) {
       throwNondeterministicGlobalError(entry.name, node.callee.name, node, sourceFile);
     }
+
     if (isStaticMemberExpression(node)) {
       const unsafeGlobal = unsafeGlobalPropertyAccessName(node);
+
       if (unsafeGlobal !== undefined) {
         throwNondeterministicGlobalError(entry.name, unsafeGlobal, node, sourceFile);
       }
@@ -61,26 +64,33 @@ export function rejectObviousNondeterministicGlobals(
 
 function collectUnsafeWorkflowImportBindings(sourceFile: Program): ReadonlyMap<string, string> {
   const bindings = new Map<string, string>();
+
   for (const statement of sourceFile.body) {
     if (statement.type !== "ImportDeclaration") {
       continue;
     }
+
     const specifier = statement.source.value;
+
     if (!isNodeBuiltinSpecifier(specifier)) {
       continue;
     }
+
     for (const importSpecifier of statement.specifiers) {
       if (importSpecifier.type === "ImportDefaultSpecifier") {
         bindings.set(importSpecifier.local.name, specifier);
         continue;
       }
+
       if (importSpecifier.type === "ImportNamespaceSpecifier") {
         bindings.set(importSpecifier.local.name, specifier);
         continue;
       }
+
       bindings.set(importSpecifier.local.name, `${specifier}.${importName(importSpecifier)}`);
     }
   }
+
   return bindings;
 }
 
@@ -88,6 +98,7 @@ function importName(importSpecifier: ImportDeclaration["specifiers"][number]): s
   if (importSpecifier.type !== "ImportSpecifier") {
     return importSpecifier.local.name;
   }
+
   return importSpecifier.imported.type === "Literal"
     ? String(importSpecifier.imported.value)
     : importSpecifier.imported.name;
@@ -96,6 +107,7 @@ function importName(importSpecifier: ImportDeclaration["specifiers"][number]): s
 function isNodeBuiltinSpecifier(specifier: string): boolean {
   const normalized = specifier.startsWith("node:") ? specifier.slice("node:".length) : specifier;
   const root = normalized.split("/", 1)[0]!;
+
   return builtinModules.includes(normalized) || builtinModules.includes(root);
 }
 
@@ -116,10 +128,13 @@ function throwNondeterministicGlobalError(
 
 function unsafeGlobalPropertyAccessName(node: StaticMemberExpression): string | undefined {
   const path = propertyAccessPath(node);
+
   if (path === undefined) {
     return undefined;
   }
+
   const normalized = stripGlobalQualifier(path);
+
   if (
     normalized === "Date.now" ||
     normalized === "Math.random" ||
@@ -131,6 +146,7 @@ function unsafeGlobalPropertyAccessName(node: StaticMemberExpression): string | 
   ) {
     return normalized;
   }
+
   if (
     normalized === "setTimeout" ||
     normalized === "setInterval" ||
@@ -139,11 +155,13 @@ function unsafeGlobalPropertyAccessName(node: StaticMemberExpression): string | 
   ) {
     return normalized;
   }
+
   return undefined;
 }
 
 function propertyAccessPath(node: StaticMemberExpression): string | undefined {
   const left = propertyAccessExpressionPath(node.object);
+
   return left === undefined ? undefined : `${left}.${node.property.name}`;
 }
 
@@ -151,12 +169,15 @@ function propertyAccessExpressionPath(expression: Expression): string | undefine
   if (isIdentifier(expression)) {
     return expression.name;
   }
+
   if (isMetaProperty(expression)) {
     return `${expression.meta.name}.${expression.property.name}`;
   }
+
   if (isStaticMemberExpression(expression)) {
     return propertyAccessPath(expression);
   }
+
   return undefined;
 }
 
@@ -164,12 +185,15 @@ function stripGlobalQualifier(path: string): string {
   if (path.startsWith("globalThis.")) {
     return path.slice("globalThis.".length);
   }
+
   if (path.startsWith("global.")) {
     return path.slice("global.".length);
   }
+
   if (path.startsWith("window.")) {
     return path.slice("window.".length);
   }
+
   return path;
 }
 
@@ -190,5 +214,5 @@ function isMetaProperty(node: Node): node is MetaProperty {
 }
 
 function isStaticMemberExpression(node: Node): node is StaticMemberExpression {
-  return node.type === "MemberExpression" && (node as MemberExpression).computed === false;
+  return node.type === "MemberExpression" && node.computed === false;
 }

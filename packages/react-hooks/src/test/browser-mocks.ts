@@ -1,70 +1,89 @@
 /* oxlint-disable vitest/require-mock-type-parameters */
 import { vi } from "vitest";
 
-export interface MockMediaQueryList extends MediaQueryList {
-  setMatches: (matches: boolean) => void;
+class MockMediaChangeEvent extends Event implements MediaQueryListEvent {
+  readonly matches: boolean;
+  readonly media: string;
+  constructor(matches: boolean, media: string) {
+    super("change");
+    this.matches = matches;
+    this.media = media;
+  }
 }
 
-/**
- * Installs a controllable matchMedia mock.
- */
+/** Controllable matchMedia result backed by native EventTarget dispatch. */
+export class MockMediaQueryList extends EventTarget {
+  readonly media: string;
+  matches: boolean;
+  constructor(media: string, matches: boolean) {
+    super();
+    this.media = media;
+    this.matches = matches;
+  }
+  setMatches(matches: boolean): void {
+    this.matches = matches;
+    this.dispatchEvent(new MockMediaChangeEvent(matches, this.media));
+  }
+}
+
+/** Installs controllable media query lists. */
 export function mockMatchMedia(
   matchesFor: (query: string) => boolean,
 ): Map<string, MockMediaQueryList> {
   const lists = new Map<string, MockMediaQueryList>();
-
   vi.stubGlobal("matchMedia", (query: string) => {
-    const existing = lists.get(query);
-    if (existing) return existing;
+    let list = lists.get(query);
 
-    const listeners = new Set<(event: MediaQueryListEvent) => void>();
-    const list = {
-      media: query,
-      matches: matchesFor(query),
-      onchange: null,
-      addEventListener: (_type: string, listener: (event: MediaQueryListEvent) => void) => {
-        listeners.add(listener);
-      },
-      removeEventListener: (_type: string, listener: (event: MediaQueryListEvent) => void) => {
-        listeners.delete(listener);
-      },
-      addListener: (listener: (event: MediaQueryListEvent) => void) => listeners.add(listener),
-      removeListener: (listener: (event: MediaQueryListEvent) => void) =>
-        listeners.delete(listener),
-      dispatchEvent: () => true,
-      setMatches(matches: boolean) {
-        Object.defineProperty(this, "matches", {
-          configurable: true,
-          value: matches,
-        });
-        const event = { matches, media: query } as MediaQueryListEvent;
-        for (const listener of listeners) listener(event);
-      },
-    } as MockMediaQueryList;
-    lists.set(query, list);
+    if (!list) {
+      list = new MockMediaQueryList(query, matchesFor(query));
+      lists.set(query, list);
+    }
+
     return list;
   });
 
   return lists;
 }
 
-/**
- * Installs a ResizeObserver mock and returns observed callbacks.
- */
-export function mockResizeObserver() {
-  const callbacks: ResizeObserverCallback[] = [];
-
-  class MockResizeObserver {
-    readonly callback: ResizeObserverCallback;
-    constructor(callback: ResizeObserverCallback) {
-      this.callback = callback;
-      callbacks.push(callback);
-    }
-    observe = vi.fn();
-    unobserve = vi.fn();
-    disconnect = vi.fn();
+/** A ResizeObserver mock that emits complete entries through its actual callback. */
+export class MockResizeObserver implements ResizeObserver {
+  readonly callback: ResizeObserverCallback;
+  constructor(callback: ResizeObserverCallback) {
+    this.callback = callback;
   }
+  observe = vi.fn<(target: Element, options?: ResizeObserverOptions) => void>();
+  unobserve = vi.fn<(target: Element) => void>();
+  disconnect = vi.fn<() => void>();
+  emit(target: Element): ResizeObserverEntry {
+    const contentRect = target.getBoundingClientRect();
+    const size = [{ inlineSize: contentRect.width, blockSize: contentRect.height }];
 
-  vi.stubGlobal("ResizeObserver", MockResizeObserver);
-  return callbacks;
+    const entry: ResizeObserverEntry = {
+      target,
+      contentRect,
+      borderBoxSize: size,
+      contentBoxSize: size,
+      devicePixelContentBoxSize: size,
+    };
+
+    this.callback([entry], this);
+
+    return entry;
+  }
+}
+
+/** Installs ResizeObserver mocks and returns the instances created by hooks. */
+export function mockResizeObserver(): MockResizeObserver[] {
+  const instances: MockResizeObserver[] = [];
+  vi.stubGlobal(
+    "ResizeObserver",
+    class extends MockResizeObserver {
+      constructor(callback: ResizeObserverCallback) {
+        super(callback);
+        instances.push(this);
+      }
+    },
+  );
+
+  return instances;
 }

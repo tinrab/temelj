@@ -5,6 +5,7 @@ import { SafeString } from "./types";
 
 test("switch helper", () => {
   const r = new Registry();
+
   const template = `
     {{#switch x}}
     {{#case 1}}A{{/case}}
@@ -12,6 +13,7 @@ test("switch helper", () => {
     {{#default}}C{{/default}}
     {{/switch}}
   `;
+
   expect(r.render(template, { x: 1 }).trim()).toBe("A");
   expect(r.render(template, { x: 2 }).trim()).toBe("B");
 

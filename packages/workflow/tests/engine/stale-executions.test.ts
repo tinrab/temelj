@@ -19,12 +19,15 @@ type WorkflowTestUpdateRunIfCurrent = (
 describe("stale workflow executions", () => {
   test("stale worker executions do not append sleep events after reclaim", async () => {
     let now = Temporal.Instant.from("2026-06-07T10:00:00Z");
+
     const engine = createWorkflowEngine({
       createRunId: () => "run_stale_sleep_append",
       now: () => now,
     });
+
     const registry = new Registry();
     const client = createWorkflowClient({ engine, registry });
+
     const firstWorker = new WorkflowWorker({
       engine,
       registry,
@@ -33,6 +36,7 @@ describe("stale workflow executions", () => {
       heartbeatInterval: Temporal.Duration.from({ milliseconds: 0 }),
       now: () => now,
     });
+
     const secondWorker = new WorkflowWorker({
       engine,
       registry,
@@ -41,9 +45,11 @@ describe("stale workflow executions", () => {
       heartbeatInterval: Temporal.Duration.from({ milliseconds: 0 }),
       now: () => now,
     });
+
     const def = defineWorkflow<undefined, string>({ name: "stale-sleep-append" });
     let executions = 0;
     let finishFirstExecution!: () => void;
+
     const firstExecutionCanContinue = new Promise<void>((resolve) => {
       finishFirstExecution = resolve;
     });
@@ -51,13 +57,17 @@ describe("stale workflow executions", () => {
     client.implementWorkflow(def, async ({ step }) => {
       executions++;
       const execution = executions;
+
       if (execution === 1) {
         await firstExecutionCanContinue;
       }
+
       if (execution === 1) {
         await step.task.sleep("pause", Temporal.Duration.from({ seconds: 1 }));
+
         return "stale";
       }
+
       return "fresh";
     });
 
@@ -66,6 +76,7 @@ describe("stale workflow executions", () => {
 
     await waitFor(async () => {
       const run = await engine.getRun("run_stale_sleep_append");
+
       return run?.workerId === "worker_stale_sleep_a";
     });
 
@@ -111,12 +122,15 @@ describe("stale workflow executions", () => {
 
   test("stale worker executions do not append message-send events after reclaim", async () => {
     let now = Temporal.Instant.from("2026-06-07T10:00:00Z");
+
     const engine = createWorkflowEngine({
       createRunId: sequentialRunIds("run_stale_message_target", "run_stale_message_append"),
       now: () => now,
     });
+
     const registry = new Registry();
     const client = createWorkflowClient({ engine, registry });
+
     const firstWorker = new WorkflowWorker({
       engine,
       registry,
@@ -125,6 +139,7 @@ describe("stale workflow executions", () => {
       heartbeatInterval: Temporal.Duration.from({ milliseconds: 0 }),
       now: () => now,
     });
+
     const secondWorker = new WorkflowWorker({
       engine,
       registry,
@@ -133,12 +148,16 @@ describe("stale workflow executions", () => {
       heartbeatInterval: Temporal.Duration.from({ milliseconds: 0 }),
       now: () => now,
     });
+
     const target = implementWorkflow({ name: "stale-message-target" }, () => "target");
+
     const def = defineWorkflow<{ readonly targetRunId: RunId }, string>({
       name: "stale-message-append",
     });
+
     let executions = 0;
     let finishFirstExecution!: () => void;
+
     const firstExecutionCanContinue = new Promise<void>((resolve) => {
       finishFirstExecution = resolve;
     });
@@ -146,16 +165,20 @@ describe("stale workflow executions", () => {
     client.implementWorkflow(def, async ({ input, step }) => {
       executions++;
       const execution = executions;
+
       if (execution === 1) {
         await firstExecutionCanContinue;
       }
+
       if (execution === 1) {
         await step.message.send(input.targetRunId, {
           messageId: "message",
           payload: { message: "stale" },
         });
+
         return "stale";
       }
+
       return "fresh";
     });
 
@@ -165,6 +188,7 @@ describe("stale workflow executions", () => {
 
     await waitFor(async () => {
       const run = await engine.getRun("run_stale_message_append");
+
       return run?.workerId === "worker_stale_message_a";
     });
 
@@ -212,12 +236,15 @@ describe("stale workflow executions", () => {
 
   test("stale worker executions do not append message-wait events after reclaim", async () => {
     let now = Temporal.Instant.from("2026-06-07T10:00:00Z");
+
     const engine = createWorkflowEngine({
       createRunId: () => "run_stale_message_wait_append",
       now: () => now,
     });
+
     const registry = new Registry();
     const client = createWorkflowClient({ engine, registry });
+
     const firstWorker = new WorkflowWorker({
       engine,
       registry,
@@ -226,6 +253,7 @@ describe("stale workflow executions", () => {
       heartbeatInterval: Temporal.Duration.from({ milliseconds: 0 }),
       now: () => now,
     });
+
     const secondWorker = new WorkflowWorker({
       engine,
       registry,
@@ -234,9 +262,11 @@ describe("stale workflow executions", () => {
       heartbeatInterval: Temporal.Duration.from({ milliseconds: 0 }),
       now: () => now,
     });
+
     const def = defineWorkflow<undefined, string>({ name: "stale-message-wait-append" });
     let executions = 0;
     let finishFirstExecution!: () => void;
+
     const firstExecutionCanContinue = new Promise<void>((resolve) => {
       finishFirstExecution = resolve;
     });
@@ -244,17 +274,21 @@ describe("stale workflow executions", () => {
     client.implementWorkflow(def, async ({ step }) => {
       executions++;
       const execution = executions;
+
       if (execution === 1) {
         await firstExecutionCanContinue;
       }
+
       if (execution === 1) {
         await step.message.wait({
           name: "message",
           messageId: "message",
           timeout: Temporal.Duration.from({ hours: 1 }),
         });
+
         return "stale";
       }
+
       return "fresh";
     });
 
@@ -263,6 +297,7 @@ describe("stale workflow executions", () => {
 
     await waitFor(async () => {
       const run = await engine.getRun("run_stale_message_wait_append");
+
       return run?.workerId === "worker_stale_message_wait_a";
     });
 
@@ -314,17 +349,22 @@ describe("stale workflow executions", () => {
     let staleUpdateStarted!: () => void;
     let releaseStaleUpdate!: () => void;
     let delayNextMissingImplementationUpdate = true;
+
     const staleUpdateWasStarted = new Promise<void>((resolve) => {
       staleUpdateStarted = resolve;
     });
+
     const staleUpdateCanContinue = new Promise<void>((resolve) => {
       releaseStaleUpdate = resolve;
     });
+
     class DelayedMissingImplementationStore extends WorkflowStore {
       constructor() {
         super();
+
         const updateRunIfCurrent: WorkflowTestUpdateRunIfCurrent =
           this.updateRunIfCurrent.bind(this);
+
         this.updateRunIfCurrent = async (current, next) => {
           if (
             delayNextMissingImplementationUpdate &&
@@ -334,18 +374,23 @@ describe("stale workflow executions", () => {
             staleUpdateStarted();
             await staleUpdateCanContinue;
           }
+
           return await updateRunIfCurrent(current, next);
         };
       }
     }
+
     const store = new DelayedMissingImplementationStore();
+
     const engine = createWorkflowEngine({
       store,
       now: () => now,
       createRunId: () => "run_stale_missing_implementation",
     });
+
     const registry = new Registry();
     const client = createWorkflowClient({ engine, registry });
+
     const firstWorker = new WorkflowWorker({
       engine,
       registry: new Registry(),
@@ -354,6 +399,7 @@ describe("stale workflow executions", () => {
       heartbeatInterval: Temporal.Duration.from({ milliseconds: 0 }),
       now: () => now,
     });
+
     const secondWorker = new WorkflowWorker({
       engine,
       registry,
@@ -362,9 +408,11 @@ describe("stale workflow executions", () => {
       heartbeatInterval: Temporal.Duration.from({ milliseconds: 0 }),
       now: () => now,
     });
+
     const def = defineWorkflow<undefined, string>({
       name: "stale-missing-implementation",
     });
+
     client.implementWorkflow(def, () => "fresh");
 
     const handle = await client.runs.start(def, undefined);

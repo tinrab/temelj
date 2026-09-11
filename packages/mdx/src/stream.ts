@@ -43,6 +43,7 @@ export type {
 } from "./stream-types.ts";
 
 const defaultMaximumPendingBlockLength = 4 * 1024 * 1024;
+
 const emptyDependencies = Object.freeze({
   definitions: Object.freeze([]),
   footnotes: Object.freeze([]),
@@ -65,9 +66,11 @@ export class MdxStream {
   public constructor(options: MdxStreamOptions = {}) {
     this.#limits = resolveParserLimits(options.limits);
     const maximum = options.maximumPendingBlockLength ?? defaultMaximumPendingBlockLength;
+
     if (!Number.isSafeInteger(maximum) || maximum < 1) {
       ConfigurationError.invalidStreamLimit("maximumPendingBlockLength", maximum, 1);
     }
+
     this.#maximumPendingBlockLength = maximum;
     this.#file =
       options.source instanceof SourceFile ? options.source : new SourceFile(options.source ?? "");
@@ -82,11 +85,13 @@ export class MdxStream {
   public append(text: string): MdxStreamSnapshot {
     this.assertOpen();
     const start = this.#file.text.length;
+
     return this.applyEdit({ start, end: start, text }, true);
   }
 
   public edit(edit: MdxEdit): MdxStreamSnapshot {
     this.assertOpen();
+
     if (
       !Number.isSafeInteger(edit.start) ||
       !Number.isSafeInteger(edit.end) ||
@@ -96,6 +101,7 @@ export class MdxStream {
     ) {
       InputError.replacementRangeOutsideSource(edit.start, edit.end, this.#file.text.length);
     }
+
     return this.applyEdit(edit, false);
   }
 
@@ -111,15 +117,19 @@ export class MdxStream {
     if (this.#file.text.length > this.#limits.maximumSourceLength) {
       return this.limitCompletion("maximumSourceLength", this.#file.text.length);
     }
+
     const draft = this.#session.finalDraft();
+
     const parsed = materializeStrictDocument(
       draft.file,
       draft.blocks,
       this.#session.syntax,
       this.#session.limits,
     );
+
     if (parsed.kind === "parsed") {
       const blocks = this.materializeBlocks(parsed.document, parsed.blocks);
+
       const completion: Extract<MdxStreamCompletion, { kind: "parsed" }> = Object.freeze({
         kind: "parsed",
         file: draft.file,
@@ -136,11 +146,14 @@ export class MdxStream {
         ),
         diagnostics: parsed.diagnostics,
       });
+
       this.#blocks = blocks;
       this.#session.makeTerminal();
       this.#completion = completion;
+
       return completion;
     }
+
     return parsed.kind === "invalid"
       ? Object.freeze({ kind: "invalid", file: draft.file, diagnostics: parsed.diagnostics })
       : Object.freeze({
@@ -154,16 +167,21 @@ export class MdxStream {
   private applyEdit(edit: MdxEdit, append: boolean): MdxStreamSnapshot {
     const previous = this.#file;
     const text = previous.text.slice(0, edit.start) + edit.text + previous.text.slice(edit.end);
+
     if (append) {
       this.#session.append(edit.text);
     } else {
       this.#session.edit(edit);
     }
+
     this.#file = new SourceFile({ text, name: previous.name });
+
     if (append && this.appendPlainTextPreview(edit)) {
       return this.#current;
     }
+
     this.#current = this.parseStreaming({ edit, append });
+
     return this.#current;
   }
 
@@ -175,19 +193,27 @@ export class MdxStream {
     ) {
       return false;
     }
+
     const active = this.#blocks.at(-1);
+
     if (active === undefined || active.range.end !== edit.start) {
       return false;
     }
+
     const extended = extendPlainParagraph(active, this.#file, edit.text);
+
     if (extended === undefined) {
       return false;
     }
+
     const range = extended.range;
+
     if (range.end - range.start > this.#maximumPendingBlockLength) {
       this.#current = this.limitSnapshot("maximumPendingBlockLength", range.end);
+
       return true;
     }
+
     const blocks = [...this.#blocks];
     blocks[blocks.length - 1] = extended;
     this.#blocks = blocks;
@@ -202,6 +228,7 @@ export class MdxStream {
       diagnostics: this.#current.diagnostics,
       status: "valid",
     });
+
     return true;
   }
 
@@ -209,21 +236,27 @@ export class MdxStream {
     if (this.#file.text.length > this.#limits.maximumSourceLength) {
       return this.limitSnapshot("maximumSourceLength", this.#file.text.length);
     }
+
     const draft = this.#session.finalDraft();
+
     const parsed = materializeStrictDocument(
       draft.file,
       draft.blocks,
       this.#session.syntax,
       this.#session.limits,
     );
+
     if (parsed.kind === "parsed") {
       let blocks = this.materializeBlocks(parsed.document, parsed.blocks, change);
+
       if (draft.pending !== undefined) {
         blocks = applyPendingBlock(blocks, draft.pending, this.#file, this.#session.syntax);
       }
+
       blocks = applyAmbiguousMarkerBlock(blocks, this.#file);
       this.#pendingLineage = undefined;
       const active = blocks.at(-1);
+
       if (
         draft.pending !== undefined &&
         active !== undefined &&
@@ -231,8 +264,10 @@ export class MdxStream {
       ) {
         return this.limitSnapshot("maximumPendingBlockLength", active.range.end);
       }
+
       this.#blocks = blocks;
       const blockSnapshots = blocks.map(streamingBlock);
+
       return Object.freeze({
         file: this.#file,
         document: new StreamingDocument([
@@ -244,19 +279,23 @@ export class MdxStream {
         status: "valid",
       });
     }
+
     if (parsed.kind === "limitExceeded") {
       return this.limitSnapshot(parsed.limit, this.#file.text.length);
     }
+
     const incomplete = draft.blocks.filter(
       (block): block is Extract<BlockSyntax, { kind: "invalidMdx" }> =>
         block.kind === "invalidMdx" && block.state === "incomplete",
     );
+
     if (
       incomplete.length > 0 &&
       incomplete.length === draft.blocks.filter((block) => block.kind === "invalidMdx").length
     ) {
       return this.pendingDraftSnapshot(draft.blocks, incomplete, change);
     }
+
     return Object.freeze({
       file: this.#file,
       document: this.#current?.document ?? new StreamingDocument([]),
@@ -280,40 +319,51 @@ export class MdxStream {
     this.#footnoteSignatures = nextFootnotes;
     const streaming = streamingDocuments(document, materializedBlocks, this.#file.text);
     this.#streamingSupplement = streaming.supplement;
+
     const delta =
       change === undefined ? 0 : change.edit.text.length - (change.edit.end - change.edit.start);
+
     const retainedByRange = new Map<string, OwnedBlock>();
+
     for (const block of old) {
       if (change === undefined) {
         retainedByRange.set(rangeKey(block.range.start, block.range.end), block);
         continue;
       }
+
       const insertionInside =
         change.edit.start === change.edit.end &&
         change.edit.start > block.range.start &&
         change.edit.start < block.range.end;
+
       if (insertionInside || rangesIntersect(block.range, change.edit)) {
         continue;
       }
+
       const translated =
         block.range.start >= change.edit.end
           ? { start: block.range.start + delta, end: block.range.end + delta }
           : block.range.end <= change.edit.start
             ? block.range
             : undefined;
+
       if (translated !== undefined) {
         retainedByRange.set(rangeKey(translated.start, translated.end), block);
       }
     }
+
     const candidatesByNode = new Map(
       materializedBlocks.map((block) => [block.node, block.candidates] as const),
     );
+
     const next: OwnedBlock[] = [];
+
     for (const node of document.children) {
       const origin = node.origin;
       const start = this.#file.lineAt(origin?.start ?? 0).range.start;
       const end = origin?.end ?? start;
       const range = Object.freeze({ start, end });
+
       const activeAppend =
         change?.append === true &&
         old.at(-1)?.range.start === start &&
@@ -321,15 +371,20 @@ export class MdxStream {
         end >= change.edit.start
           ? old.at(-1)
           : undefined;
+
       const retained = activeAppend ?? retainedByRange.get(rangeKey(start, end));
+
       const id =
         retained?.id ??
         (this.#pendingLineage?.start === start ? this.#pendingLineage.id : this.newBlockId());
+
       const candidates = candidatesByNode.get(node) ?? Object.freeze([]);
       const dependencies = dependenciesFor(node, candidates);
+
       const dependencyChanged =
         dependencies.definitions.some((identifier) => changedDefinitions.has(identifier)) ||
         dependencies.footnotes.some((identifier) => changedFootnotes.has(identifier));
+
       next.push({
         id,
         range,
@@ -343,6 +398,7 @@ export class MdxStream {
               streamingDocument(strictBlockDocument(node, document), this.#file.text, candidates)),
       });
     }
+
     return next;
   }
 
@@ -353,7 +409,9 @@ export class MdxStream {
       message: `${limit} was exceeded at source offset ${offset}`,
       span: { file: this.#file, start: offset, end: offset },
     });
+
     const diagnostics: readonly [Diagnostic] = Object.freeze([diagnostic]);
+
     return Object.freeze({
       kind: "limitExceeded",
       file: this.#file,
@@ -369,6 +427,7 @@ export class MdxStream {
       message: `${limit} was exceeded at source offset ${offset}`,
       span: { file: this.#file, start: offset, end: offset },
     });
+
     return Object.freeze({
       file: this.#file,
       document: this.#current?.document ?? new StreamingDocument([]),
@@ -380,9 +439,11 @@ export class MdxStream {
 
   private newBlockId(): BlockId {
     const value = `block-${this.#nextId++}`;
+
     if (!isBlockId(value)) {
       throw new Error("Internal block identity invariant failed");
     }
+
     return value;
   }
 
@@ -392,32 +453,40 @@ export class MdxStream {
     change: Readonly<{ edit: MdxEdit; append: boolean }> | undefined,
   ): MdxStreamSnapshot {
     const settledDrafts = drafts.filter((block) => block.kind !== "invalidMdx");
+
     const settled = materializeStrictDocument(
       this.#file,
       settledDrafts,
       this.#session.syntax,
       this.#session.limits,
     );
+
     const owned =
       settled.kind === "parsed"
         ? this.materializeBlocks(settled.document, settled.blocks, change)
         : [];
+
     this.#blocks = owned;
+
     const pending = incomplete.map((block) => {
       if (block.range.end - block.range.start > this.#maximumPendingBlockLength) {
         return;
       }
+
       const id =
         this.#pendingLineage?.start === block.range.start
           ? this.#pendingLineage.id
           : this.newBlockId();
+
       this.#pendingLineage = { id, start: block.range.start };
+
       const document = pendingStreamingDocument(
         block,
         this.#file,
         this.#session.syntax,
         this.#session.limits,
       );
+
       return Object.freeze({
         id,
         range: block.range,
@@ -425,11 +494,14 @@ export class MdxStream {
         dependencies: emptyDependencies,
       });
     });
+
     if (pending.some((block) => block === undefined)) {
       return this.limitSnapshot("maximumPendingBlockLength", this.#file.text.length);
     }
+
     const pendingBlocks = pending.filter((block) => block !== undefined);
     const blocks = Object.freeze([...owned.map(streamingBlock), ...pendingBlocks]);
+
     return Object.freeze({
       file: this.#file,
       document: new StreamingDocument([
@@ -460,6 +532,7 @@ function extendPlainParagraph(
 ): OwnedBlock | undefined {
   const paragraph = block.streaming.children.length === 1 ? block.streaming.children[0] : undefined;
   const strictChild = block.node.kind === "paragraph" ? block.node.children[0] : undefined;
+
   if (
     paragraph?.kind !== "element" ||
     paragraph.tagName !== "p" ||
@@ -470,10 +543,12 @@ function extendPlainParagraph(
   ) {
     return;
   }
+
   const child = paragraph.children[0];
   const end = file.text.length;
   const nodeOrigin = block.node.origin;
   const childOrigin = strictChild.origin;
+
   const node = new ParagraphNode(
     [
       new TextNode(
@@ -483,6 +558,7 @@ function extendPlainParagraph(
     ],
     nodeOrigin === undefined ? undefined : { file, start: nodeOrigin.start, end },
   );
+
   return {
     ...block,
     range: Object.freeze({ start: block.range.start, end }),
@@ -520,21 +596,25 @@ function streamingBlock(block: OwnedBlock): StreamingBlockSnapshot {
 
 function definitionSignatures(document: DocumentNode): ReadonlyMap<string, string> {
   const result = new Map<string, string>();
+
   for (const node of document.children) {
     if (node.kind === "definition" && !result.has(node.identifier)) {
       result.set(node.identifier, dependencyWinnerSignature(node));
     }
   }
+
   return result;
 }
 
 function footnoteSignatures(document: DocumentNode): ReadonlyMap<string, string> {
   const result = new Map<string, string>();
+
   for (const node of document.children) {
     if (node.kind === "footnoteDefinition" && !result.has(node.identifier)) {
       result.set(node.identifier, dependencyWinnerSignature(node));
     }
   }
+
   return result;
 }
 
@@ -542,7 +622,7 @@ function dependencyWinnerSignature(node: MdxNode): string {
   return JSON.stringify(node, omitSourceOrigin);
 }
 
-function omitSourceOrigin(key: string, value: unknown): unknown {
+function omitSourceOrigin<T>(key: string, value: T): T | undefined {
   return key === "origin" ? undefined : value;
 }
 
@@ -551,11 +631,13 @@ function changedIdentifiers(
   next: ReadonlyMap<string, string>,
 ): ReadonlySet<string> {
   const changed = new Set<string>();
+
   for (const identifier of new Set([...previous.keys(), ...next.keys()])) {
     if (previous.get(identifier) !== next.get(identifier)) {
       changed.add(identifier);
     }
   }
+
   return changed;
 }
 

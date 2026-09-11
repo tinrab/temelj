@@ -27,6 +27,7 @@ export function useResultReducer<S, A, E>(
       setState((current) => {
         const next = reducer(current, action);
         setResult(next);
+
         return next.kind === "ok" ? next.value : current;
       });
     },

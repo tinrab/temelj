@@ -1,3 +1,5 @@
+import { isNumber } from "@temelj/value";
+
 import type { HtmlAttributeValue, HtmlElementNode, HtmlFormatOptions, HtmlNode } from "./html.ts";
 
 import { encodeNumericCharacterReference } from "./utility.ts";
@@ -56,6 +58,7 @@ class HtmlFormatter {
         return node.children.map((child) => this.format(child)).join("");
       default: {
         const exhaustive: never = node;
+
         return exhaustive;
       }
     }
@@ -66,30 +69,40 @@ class HtmlFormatter {
       .map(([name, value]) => this.attribute(name, value))
       .filter((value) => value.length > 0)
       .join(" ");
+
     const opening = `<${node.tagName}${attributes.length === 0 ? "" : ` ${attributes}`}`;
     const isVoid = this.voids.has(node.tagName.toLowerCase()) && node.children.length === 0;
+
     if (isVoid) {
       if (this.options.closeSelfClosing !== true) {
         return `${opening}>`;
       }
+
       return `${opening}${this.options.tightSelfClosing === true ? "/" : " /"}>`;
     }
+
     const content = node.children.map((child) => this.format(child)).join("");
+
     return `${opening}>${content}</${node.tagName}>`;
   }
 
   private attribute(name: string, value: HtmlAttributeValue): string {
-    if (value === false || (typeof value === "number" && Number.isNaN(value))) {
+    if (value === false || (isNumber(value) && Number.isNaN(value))) {
       return "";
     }
+
     const encodedName = escapeAttributeName(name);
+
     if (value === true) {
       return encodedName;
     }
+
     const serialized = Array.isArray(value) ? value.join(" ") : String(value);
+
     if (this.options.collapseEmptyAttributes === true && serialized.length === 0) {
       return encodedName;
     }
+
     if (
       this.options.preferUnquotedAttributes === true &&
       serialized.length > 0 &&
@@ -97,13 +110,16 @@ class HtmlFormatter {
     ) {
       return `${encodedName}=${escapeUnquotedAttribute(serialized)}`;
     }
+
     const preferred = this.options.quote ?? '"';
     const alternative = preferred === '"' ? "'" : '"';
+
     const quote =
       this.options.quoteSmart === true &&
       count(serialized, alternative) < count(serialized, preferred)
         ? alternative
         : preferred;
+
     return `${encodedName}=${quote}${escapeQuotedAttribute(serialized, quote)}${quote}`;
   }
 }
@@ -140,10 +156,12 @@ function encodeCharacterReference(character: string): string {
 
 function count(value: string, character: string): number {
   let result = 0;
+
   for (const candidate of value) {
     if (candidate === character) {
       result++;
     }
   }
+
   return result;
 }

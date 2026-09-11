@@ -11,12 +11,14 @@ describe("workflow locks", () => {
       createRunId: () => "run_step_lock",
       now: () => Temporal.Instant.from("2026-06-11T10:00:00Z"),
     });
+
     const workflow = implementWorkflow<undefined, number>(
       { name: "step-lock" },
       async ({ step }) => {
         const lock = await step.lock.acquire("customer-lock", "customer:step", {
           leaseDuration: Temporal.Duration.from({ minutes: 1 }),
         });
+
         return lock.fencingToken;
       },
     );
@@ -60,6 +62,7 @@ describe("workflow locks", () => {
       createRunId: () => "run_step_release_lock",
       now: () => Temporal.Instant.from("2026-06-11T10:00:00Z"),
     });
+
     const workflow = implementWorkflow<undefined, number>(
       { name: "step-release-lock" },
       async ({ step }) => {
@@ -67,9 +70,11 @@ describe("workflow locks", () => {
           leaseDuration: Temporal.Duration.from({ minutes: 1 }),
         });
         const released = await step.lock.release("release-lock", "lock:step-release");
+
         const reacquired = await step.lock.acquire("reacquire-lock", "lock:step-release", {
           leaseDuration: Temporal.Duration.from({ minutes: 1 }),
         });
+
         return released.fencingToken + reacquired.fencingToken;
       },
     );
@@ -101,6 +106,7 @@ describe("workflow locks", () => {
       createRunId: () => "run_step_with_lock",
       now: () => Temporal.Instant.from("2026-06-11T10:00:00Z"),
     });
+
     const workflow = implementWorkflow<undefined, number>(
       { name: "step-with-lock" },
       async ({ step }) => {
@@ -141,14 +147,17 @@ describe("workflow locks", () => {
 
   test("waits durably for contended lock acquisition", async () => {
     let now = Temporal.Instant.from("2026-06-11T10:00:00Z");
+
     const engine = createWorkflowEngine({
       createRunId: () => "run_waiting_lock",
       now: () => now,
     });
+
     await engine.acquireLock("lock:contended", {
       holderId: "other-run",
       leaseDuration: Temporal.Duration.from({ minutes: 1 }),
     });
+
     const workflow = implementWorkflow<undefined, number>(
       { name: "step-waiting-lock" },
       async ({ step }) => {
@@ -156,6 +165,7 @@ describe("workflow locks", () => {
           leaseDuration: Temporal.Duration.from({ minutes: 1 }),
           wait: true,
         });
+
         return lock.fencingToken;
       },
     );
@@ -196,14 +206,17 @@ describe("workflow locks", () => {
 
   test("wakes durable lock waiters when locks are released early", async () => {
     let now = Temporal.Instant.from("2026-06-11T10:00:00Z");
+
     const engine = createWorkflowEngine({
       createRunId: () => "run_early_lock_waiter",
       now: () => now,
     });
+
     await engine.acquireLock("lock:early-release", {
       holderId: "other-run",
       leaseDuration: Temporal.Duration.from({ hours: 1 }),
     });
+
     const workflow = implementWorkflow<undefined, number>(
       { name: "step-early-lock-waiter" },
       async ({ step }) => {
@@ -211,6 +224,7 @@ describe("workflow locks", () => {
           leaseDuration: Temporal.Duration.from({ minutes: 1 }),
           wait: true,
         });
+
         return lock.fencingToken;
       },
     );
@@ -239,14 +253,17 @@ describe("workflow locks", () => {
 
   test("times out durable lock waiters without extending deadlines on retry", async () => {
     let now = Temporal.Instant.from("2026-06-11T10:00:00Z");
+
     const engine = createWorkflowEngine({
       createRunId: () => "run_timeout_lock_waiter",
       now: () => now,
     });
+
     await engine.acquireLock("lock:timeout", {
       holderId: "other-run",
       leaseDuration: Temporal.Duration.from({ hours: 1 }),
     });
+
     const workflow = implementWorkflow(
       { name: "step-timeout-lock-waiter" },
       async ({ step }): Promise<void> => {
@@ -296,9 +313,11 @@ describe("workflow locks", () => {
     });
     const timedOut = await engine.resumeWorkflow(workflow, "run_timeout_lock_waiter");
     expect(timedOut.kind).toBe("failed");
+
     if (timedOut.kind !== "failed") {
       throw new Error("Expected workflow to fail");
     }
+
     expect(timedOut.error).toMatchObject({
       name: "WorkflowStepExecutionError",
       message: "Workflow step failed: guard",
@@ -325,10 +344,13 @@ describe("workflow locks", () => {
         async (lock) => {
           expectTypeOf(lock.fencingToken).toEqualTypeOf<number>();
           expectTypeOf(lock.holderRunId).toEqualTypeOf<string | undefined>();
+
           return { token: lock.fencingToken };
         },
       );
+
       expectTypeOf(output).toEqualTypeOf<{ token: number }>();
+
       return output;
     }
 
@@ -340,6 +362,7 @@ describe("workflow locks", () => {
       createRunId: () => "run_step_with_lock_failed",
       now: () => Temporal.Instant.from("2026-06-11T10:00:00Z"),
     });
+
     const workflow = implementWorkflow(
       { name: "step-with-lock-failed" },
       async ({ step }): Promise<void> => {
@@ -366,10 +389,12 @@ describe("workflow locks", () => {
 
   test("keeps durable lock helpers held while callbacks are suspended", async () => {
     let now = Temporal.Instant.from("2026-06-11T10:00:00Z");
+
     const engine = createWorkflowEngine({
       createRunId: () => "run_step_with_lock_waiting",
       now: () => now,
     });
+
     const workflow = implementWorkflow(
       { name: "step-with-lock-waiting" },
       async ({ step }): Promise<void> => {
@@ -409,6 +434,7 @@ describe("workflow locks", () => {
       createRunId: () => "run_failed_lock",
       now: () => Temporal.Instant.from("2026-06-11T10:00:00Z"),
     });
+
     const failingWorkflow = implementWorkflow(
       { name: "failed-lock" },
       async ({ step }): Promise<void> => {
@@ -429,10 +455,12 @@ describe("workflow locks", () => {
     });
 
     let now = Temporal.Instant.from("2026-06-11T11:00:00Z");
+
     const waitingEngine = createWorkflowEngine({
       createRunId: () => "run_canceled_lock",
       now: () => now,
     });
+
     const waitingWorkflow = implementWorkflow(
       { name: "canceled-lock" },
       async ({ step }): Promise<void> => {
@@ -468,6 +496,7 @@ describe("workflow locks", () => {
       createRunId: () => "run_invalid_lock_timeout",
       now: () => Temporal.Instant.from("2026-06-11T10:00:00Z"),
     });
+
     const workflow = implementWorkflow(
       { name: "invalid-lock-timeout" },
       async ({ step }): Promise<void> => {

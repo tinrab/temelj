@@ -1,3 +1,5 @@
+import { isObject } from "@temelj/value";
+
 import {
   type StorageEngine,
   type StorageEngineCompareAndSetManyItem,
@@ -59,7 +61,9 @@ export class InMemoryStorageEngine<
     if (this.#removeExpired(key)) {
       return undefined;
     }
+
     const record = this.#records.get(key);
+
     return record === undefined ? undefined : copyValue(record.value);
   }
 
@@ -78,6 +82,7 @@ export class InMemoryStorageEngine<
     }
 
     const current = this.#records.get(key)?.value;
+
     if (!storedValuesEqual(current, expected)) {
       return false;
     }
@@ -85,10 +90,12 @@ export class InMemoryStorageEngine<
     if (value === undefined) {
       this.#clearExpiry(key);
       this.#records.delete(key);
+
       return true;
     }
 
     this.#setRecord(key, value, options);
+
     return true;
   }
 
@@ -113,8 +120,10 @@ export class InMemoryStorageEngine<
         this.#records.delete(item.key);
         continue;
       }
+
       this.#setRecord(item.key, item.value, item.options);
     }
+
     return true;
   }
 
@@ -126,17 +135,21 @@ export class InMemoryStorageEngine<
 
   async delete(key: string): Promise<boolean> {
     this.#clearExpiry(key);
+
     return this.#records.delete(key);
   }
 
   async deleteMany(keys: readonly string[]): Promise<number> {
     let deleted = 0;
+
     for (const key of keys) {
       this.#clearExpiry(key);
+
       if (this.#records.delete(key)) {
         deleted++;
       }
     }
+
     return deleted;
   }
 
@@ -144,11 +157,13 @@ export class InMemoryStorageEngine<
     if (this.#removeExpired(key)) {
       return false;
     }
+
     return this.#records.has(key);
   }
 
   async keys(options?: StorageEngineKeyOptions): Promise<readonly string[]> {
     this.#removeExpiredRecords();
+
     return [...this.#records.keys()].filter((key) => matchesPrefix(key, options));
   }
 
@@ -157,8 +172,10 @@ export class InMemoryStorageEngine<
       for (const timer of this.#timers.values()) {
         clearTimeout(timer);
       }
+
       this.#timers.clear();
       this.#records.clear();
+
       return;
     }
 
@@ -172,12 +189,15 @@ export class InMemoryStorageEngine<
 
   async getMany(keys: readonly string[]): Promise<ReadonlyMap<string, TStoredValue>> {
     const values = new Map<string, TStoredValue>();
+
     for (const key of keys) {
       const value = await this.get(key);
+
       if (value !== undefined) {
         values.set(key, value);
       }
     }
+
     return values;
   }
 
@@ -187,6 +207,7 @@ export class InMemoryStorageEngine<
 
   snapshot(): ReadonlyMap<string, TStoredValue> {
     this.#removeExpiredRecords();
+
     return new Map(
       [...this.#records.entries()].map(([key, record]) => [key, copyValue(record.value)]),
     );
@@ -196,12 +217,15 @@ export class InMemoryStorageEngine<
     this.#clearExpiry(key);
 
     const expiresAt = options?.ttl === undefined ? undefined : Date.now() + options.ttl;
+
     if (expiresAt !== undefined && expiresAt <= Date.now()) {
       this.#records.delete(key);
+
       return;
     }
 
     this.#records.set(key, { value: copyValue(value), expiresAt });
+
     if (options?.ttl !== undefined) {
       this.#scheduleExpiry(key, options.ttl);
     }
@@ -211,9 +235,11 @@ export class InMemoryStorageEngine<
     const timer = setTimeout(
       () => {
         const record = this.#records.get(key);
+
         if (record?.expiresAt !== undefined && record.expiresAt <= Date.now()) {
           this.#records.delete(key);
           this.#timers.delete(key);
+
           return;
         }
 
@@ -224,7 +250,7 @@ export class InMemoryStorageEngine<
       Math.min(ttl, MAX_TIMEOUT),
     );
 
-    if (typeof timer === "object" && "unref" in timer) {
+    if (isObject(timer) && "unref" in timer) {
       timer.unref();
     }
 
@@ -233,25 +259,31 @@ export class InMemoryStorageEngine<
 
   #clearExpiry(key: string): void {
     const timer = this.#timers.get(key);
+
     if (timer === undefined) {
       return;
     }
+
     clearTimeout(timer);
     this.#timers.delete(key);
   }
 
   #removeExpired(key: string): boolean {
     const record = this.#records.get(key);
+
     if (record?.expiresAt === undefined || record.expiresAt > Date.now()) {
       return false;
     }
+
     this.#clearExpiry(key);
     this.#records.delete(key);
+
     return true;
   }
 
   #removeExpiredRecords(): void {
     const now = Date.now();
+
     for (const [key, record] of this.#records) {
       if (record.expiresAt !== undefined && record.expiresAt <= now) {
         this.#clearExpiry(key);
@@ -266,7 +298,7 @@ function matchesPrefix(key: string, options: StorageEngineKeyOptions | undefined
 }
 
 function copyValue<TValue extends StoredValue>(value: TValue): TValue {
-  return (value instanceof Uint8Array ? value.slice() : value) as TValue;
+  return value instanceof Uint8Array ? structuredClone(value) : value;
 }
 
 /**

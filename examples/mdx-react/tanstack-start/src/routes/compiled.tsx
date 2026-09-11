@@ -17,15 +17,18 @@ const loadCompiledMdx = createServerFn({ method: "GET" }).handler(async () => {
     outputFormat: "functionBody",
     syntax: mdxSyntax,
   });
+
   if (outcome.kind !== "compiled") {
     return {
       kind: "invalid" as const,
       diagnostics: outcome.diagnostics.map(({ code, message }) => ({ code, message })),
     };
   }
+
   if (outcome.artifact.format !== "functionBody") {
     throw new Error("Expected a function-body MDX artifact");
   }
+
   return { kind: "compiled" as const, artifact: outcome.artifact };
 });
 
@@ -41,6 +44,7 @@ export const Route = createFileRoute("/compiled")({
 
 function CompiledRoute(): React.ReactNode {
   const result = Route.useLoaderData();
+
   if (result.kind === "invalid") {
     return (
       <pre className="border-error text-error rounded border p-4 whitespace-pre-wrap">
@@ -50,6 +54,7 @@ function CompiledRoute(): React.ReactNode {
   }
 
   const evaluation = React.use(evaluationFor(result.artifact));
+
   if (evaluation.kind !== "evaluated") {
     return (
       <pre className="border-error text-error rounded border p-4 whitespace-pre-wrap">
@@ -57,6 +62,7 @@ function CompiledRoute(): React.ReactNode {
       </pre>
     );
   }
+
   return (
     <article className="typeset">
       <CompiledContent registry={mdxRegistry} math={KaTeXMath} module={evaluation.module} />
@@ -68,10 +74,13 @@ function evaluationFor(
   artifact: FunctionBodyCompileArtifact,
 ): Promise<TrustedMdxEvaluationOutcome> {
   const existing = evaluations.get(artifact);
+
   if (existing !== undefined) {
     return existing;
   }
+
   const evaluation = evaluateTrustedMdx(artifact);
   evaluations.set(artifact, evaluation);
+
   return evaluation;
 }

@@ -41,6 +41,7 @@ export async function appendEventWithProjections(
   const appendProjectionPipeline =
     projectionPipeline ??
     (await createWorkflowAppendProjectionPipeline(storage, namespace, runId, event));
+
   const outcome = await appendEventWithAtomicProjectionPlan(
     storage,
     namespace,
@@ -49,7 +50,9 @@ export async function appendEventWithProjections(
     appendProjectionPipeline.planAtomicProjections,
     duplicateMessageAppendOutcome,
   );
+
   await appendProjectionPipeline.finalizePostCommit(outcome);
+
   return outcome;
 }
 
@@ -60,6 +63,7 @@ export async function appendEventWithProjectionPipelineIfRunCurrent(
   event: EventRecord,
 ): Promise<WorkflowEventAppendProjectionOutcome> {
   const runId = currentRun.id;
+
   if (isWorkflowRunStaleForAppend(currentRun, event)) {
     return { outcome: makeStaleRunAppendOutcome() };
   }
@@ -70,6 +74,7 @@ export async function appendEventWithProjectionPipelineIfRunCurrent(
     runId,
     event,
   );
+
   if (event.kind === "message_sent" && !supportsWorkflowAtomicBatchWrite(storage)) {
     return await appendMessageEventIfRunCurrent(
       storage,
@@ -79,6 +84,7 @@ export async function appendEventWithProjectionPipelineIfRunCurrent(
       projectionPipeline,
     );
   }
+
   if (!supportsWorkflowAtomicBatchWrite(storage) || projectionPipeline.materializesAtomically) {
     const outcome = await appendEventIfRunRevisionCurrentWithPostAppendGuard(
       storage,
@@ -87,6 +93,7 @@ export async function appendEventWithProjectionPipelineIfRunCurrent(
       event,
       projectionPipeline,
     );
+
     return workflowEventAppendProjectionOutcome(outcome, projectionPipeline);
   }
 
@@ -97,6 +104,7 @@ export async function appendEventWithProjectionPipelineIfRunCurrent(
     event,
     duplicateMessageAppendOutcome,
   );
+
   return workflowEventAppendProjectionOutcome(outcome, projectionPipeline);
 }
 
@@ -107,6 +115,7 @@ function workflowEventAppendProjectionOutcome(
   if (projectionPipeline === undefined) {
     return { outcome };
   }
+
   return { outcome, projectionPipeline };
 }
 
@@ -118,9 +127,11 @@ async function appendEventIfRunRevisionCurrentWithPostAppendGuard(
   projectionPipeline?: WorkflowAppendProjectionPipeline,
 ): Promise<WorkflowEventAppendOutcome> {
   const runId = currentRun.id;
+
   if (!(await isStoredWorkflowRunRevisionCurrent(storage, namespace, currentRun))) {
     return makeStaleRunAppendOutcome();
   }
+
   const outcome = await appendEventWithProjections(
     storage,
     namespace,
@@ -128,9 +139,11 @@ async function appendEventIfRunRevisionCurrentWithPostAppendGuard(
     event,
     projectionPipeline,
   );
+
   if (outcome.status !== "appended") {
     return outcome;
   }
+
   return await guardAppendedEventAgainstStaleRun(storage, namespace, runId, event, outcome);
 }
 
@@ -142,6 +155,7 @@ async function appendMessageEventIfRunCurrent(
   projectionPipeline: WorkflowAppendProjectionPipeline,
 ): Promise<WorkflowEventAppendProjectionOutcome> {
   const runId = currentRun.id;
+
   if (!(await isStoredWorkflowRunRevisionCurrent(storage, namespace, currentRun))) {
     return { outcome: makeStaleRunAppendOutcome() };
   }
@@ -154,9 +168,11 @@ async function appendMessageEventIfRunCurrent(
       event,
       projectionPipeline,
     );
+
     if (outcome.status !== "appended") {
       return { outcome, projectionPipeline };
     }
+
     return {
       outcome: await guardAppendedEventAgainstStaleRun(storage, namespace, runId, event, outcome),
       projectionPipeline,
@@ -166,14 +182,18 @@ async function appendMessageEventIfRunCurrent(
   const outcome = await appendEventIfCurrent(storage, namespace, runId, event, {
     detectDuplicate: duplicateMessageAppendOutcome,
   });
+
   if (outcome.status !== "appended") {
     if (!(await isStoredWorkflowRunRevisionCurrent(storage, namespace, currentRun))) {
       return { outcome: makeStaleRunAppendOutcome(), projectionPipeline };
     }
+
     return { outcome, projectionPipeline };
   }
+
   if (!(await isStoredWorkflowRunRevisionCurrent(storage, namespace, currentRun))) {
     await guardAppendedEventAgainstStaleRun(storage, namespace, runId, event, outcome);
+
     return { outcome: makeStaleRunAppendOutcome(), projectionPipeline };
   }
 
@@ -193,5 +213,6 @@ async function guardAppendedEventAgainstStaleRun(
   if (await rollbackAppendedEventIfRunStale(storage, namespace, runId, event, outcome.events)) {
     return makeStaleRunAppendOutcome();
   }
+
   return outcome;
 }

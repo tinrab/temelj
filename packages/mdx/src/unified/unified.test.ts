@@ -1,6 +1,7 @@
 import type { Plugin, Preset } from "unified";
 
 import rehypeShikiFromHighlighter from "@shikijs/rehype/core";
+import { isString } from "@temelj/value";
 import rehypeSlug from "rehype-slug";
 import remarkToc from "remark-toc";
 import { createHighlighter } from "shiki";
@@ -8,7 +9,6 @@ import { describe, expect, it } from "vitest";
 
 import { ConfigurationError, HtmlTextNode, Processor, TextNode } from "../mod.ts";
 import {
-  DocumentPlugin,
   DocumentTransformPlugin,
   HtmlTransformPlugin,
   type DocumentTransformContext,
@@ -25,7 +25,6 @@ declare module "unified" {
 interface TestNode {
   readonly type: string;
   children?: TestNode[];
-  data?: Record<string, unknown>;
   value?: string;
 }
 
@@ -76,17 +75,23 @@ describe("Unified plugin adapters", () => {
       type: "root",
       children: [{ type: "paragraph", children: [{ type: "text", value: options.value }] }],
     });
+
     const callback: Plugin<[], TestRoot, TestRoot> = () => (tree, _file, done) => {
       const paragraph = tree.children[0];
+
       if (paragraph?.type === "paragraph") {
         paragraph.children?.push({ type: "text", value: " callback" });
       }
+
       done();
     };
+
     const promise: Plugin<[], TestRoot, TestRoot> = () => async (tree) => {
       await Promise.resolve();
+
       return tree;
     };
+
     const processor = new Processor({
       documentPlugins: [
         new RemarkPluginAdapter(replace, { value: "replacement" }),
@@ -107,10 +112,12 @@ describe("Unified plugin adapters", () => {
     const append: Plugin<[string], TestRoot, TestRoot> = (suffix) => (tree) => {
       const paragraph = tree.children[0];
       const text = paragraph?.type === "paragraph" ? paragraph.children?.[0] : undefined;
-      if (text?.type === "text" && typeof text.value === "string") {
+
+      if (text?.type === "text" && isString(text.value)) {
         text.value += suffix;
       }
     };
+
     const preset: Preset = { plugins: [[append, " preset"]] };
 
     const result = processed(
@@ -126,19 +133,26 @@ describe("Unified plugin adapters", () => {
     const setProcessorData: Plugin<[], TestRoot, TestRoot> = function () {
       this.data("shared-setting", "ready");
     };
+
     const useProcessorData: Plugin<[], TestRoot, TestRoot> = function () {
       const setting = this.data("shared-setting");
+
       return (tree, file) => {
         file.data.stageValue = setting;
         file.info("remark note", { line: 1, column: 1, offset: 0 }, "fixture:remark");
+
         return tree;
       };
     };
+
     const rehypeMessage: Plugin<[], TestRoot, TestRoot> = () => (tree, file) => {
       file.message("rehype note");
+
       return tree;
     };
+
     const preset: Preset = { plugins: [setProcessorData, useProcessorData] };
+
     const report = new Processor({
       documentPlugins: [new RemarkPluginAdapter(preset)],
       htmlPlugins: [new RehypePluginAdapter(rehypeMessage)],
@@ -158,11 +172,14 @@ describe("Unified plugin adapters", () => {
         start: { line: 2, column: 1, offset: 3 },
         end: { line: 2, column: 3, offset: 5 },
       });
+
       return tree;
     };
+
     const report = new Processor({
       documentPlugins: [new RemarkPluginAdapter(position)],
     }).processSync("a\r\n😀b");
+
     const span = report.diagnostics[0]?.span;
 
     expect(span).toMatchObject({ start: 3, end: 5 });
@@ -173,10 +190,12 @@ describe("Unified plugin adapters", () => {
     const observe: Plugin<[], TestRoot, TestRoot> = () => (tree) => {
       const paragraph = tree.children[0];
       const text = paragraph?.type === "paragraph" ? paragraph.children?.[0] : undefined;
-      if (text?.type === "text" && typeof text.value === "string") {
+
+      if (text?.type === "text" && isString(text.value)) {
         text.value += "?";
       }
     };
+
     const result = processed(
       new Processor({
         documentPlugins: [new NativeTextPlugin(), new RemarkPluginAdapter(observe)],
@@ -190,10 +209,12 @@ describe("Unified plugin adapters", () => {
     const external: Plugin<[], TestRoot, TestRoot> = () => (tree) => {
       const paragraph = tree.children[0];
       const text = paragraph?.type === "element" ? paragraph.children?.[0] : undefined;
-      if (text?.type === "text" && typeof text.value === "string") {
+
+      if (text?.type === "text" && isString(text.value)) {
         text.value += "?";
       }
     };
+
     const result = processed(
       new Processor({
         htmlPlugins: [new RehypePluginAdapter(external), new NativeHtmlTextPlugin()],
@@ -227,6 +248,7 @@ describe("Unified plugin adapters", () => {
         },
       ],
     });
+
     const html = processed(
       new Processor({
         htmlPlugins: [new RehypePluginAdapter(properties)],
@@ -244,6 +266,7 @@ describe("Unified plugin adapters", () => {
         addLanguageClass: true,
         themes: { light: "github-light", dark: "github-dark" },
       });
+
     const processor = new Processor({
       htmlPlugins: [new RehypePluginAdapter(shiki)],
     });
@@ -251,7 +274,9 @@ describe("Unified plugin adapters", () => {
     const highlighted = processed(
       processor.processSync("```ts\nconst answer = 42\n```"),
     ).html.toHtml();
+
     const fallback = processed(processor.processSync("```unknown\nplain text\n```")).html.toHtml();
+
     const math = processed(
       new Processor({
         htmlPlugins: [new RehypePluginAdapter(shiki)],
@@ -273,6 +298,7 @@ describe("Unified plugin adapters", () => {
     const custom: Plugin<[], TestRoot, TestRoot> = () => (tree) => {
       Reflect.set(tree, "children", [{ type: "custom" }]);
     };
+
     const cyclic: Plugin<[], TestRoot, TestRoot> = () => (tree) => {
       Reflect.set(tree, "children", [tree]);
     };
@@ -294,6 +320,7 @@ describe("Unified plugin adapters", () => {
       tree.children = [];
       file.fail("stop here");
     };
+
     const report = new Processor({
       documentPlugins: [new RemarkPluginAdapter(fatal)],
     }).processSync("original");
@@ -306,6 +333,7 @@ describe("Unified plugin adapters", () => {
 
   it("round-trips owned extension nodes through a remark stage", () => {
     const noop: Plugin<[], TestRoot, TestRoot> = () => {};
+
     const source = [
       "---",
       "title: Fixture",
@@ -337,6 +365,7 @@ describe("Unified plugin adapters", () => {
       "y",
       "$$",
     ].join("\n");
+
     const result = processed(
       new Processor({
         syntax: { directives: true, frontmatter: "yaml", math: "dollar" },
@@ -353,9 +382,11 @@ describe("Unified plugin adapters", () => {
     const parser: Plugin<[], string, TestRoot> = function () {
       this.parser = () => ({ type: "root", children: [] });
     };
+
     const compiler: Plugin<[], TestRoot, string> = function () {
       this.compiler = () => "html";
     };
+
     expect(() =>
       new Processor({
         documentPlugins: [new RemarkPluginAdapter(parser)],
@@ -378,14 +409,15 @@ describe("Unified plugin adapters", () => {
       // @ts-expect-error Unified presets do not accept plugin parameters.
       new RemarkPluginAdapter({ plugins: [] }, "option");
     }
+
     void rejectInvalidTypes;
 
     const wrongStage = new RehypePluginAdapter(rehypeSlug);
     expect(
       () =>
         new Processor({
-          // eslint-disable-next-line typescript/no-unsafe-type-assertion -- Deliberately forges invalid JavaScript input.
-          documentPlugins: [wrongStage as unknown as DocumentPlugin],
+          // @ts-expect-error Deliberately supplies a plugin for the wrong stage to verify the runtime boundary.
+          documentPlugins: [wrongStage],
         }),
     ).toThrow(ConfigurationError);
   });
@@ -395,5 +427,6 @@ function processed(outcome: ReturnType<Processor["processSync"]>) {
   if (outcome.kind !== "processed") {
     throw new Error(`Expected processed outcome, received ${outcome.kind}`);
   }
+
   return outcome.value;
 }

@@ -18,39 +18,81 @@ export function workerOptionsFromClientOptions(
   now: () => Temporal.Instant,
   options: WorkflowClientWorkerOptions | undefined,
 ): CreateWorkflowWorkerOptions {
-  return {
-    engine,
-    registry,
-    now,
-    ...(options?.workerId === undefined ? {} : { workerId: options.workerId }),
-    ...(options?.leaseDuration === undefined ? {} : { leaseDuration: options.leaseDuration }),
-    ...(options?.pollInterval === undefined ? {} : { pollInterval: options.pollInterval }),
-    ...(options?.heartbeatInterval === undefined
-      ? {}
-      : { heartbeatInterval: options.heartbeatInterval }),
-    ...(options?.stopDrainTimeout === undefined
-      ? {}
-      : { stopDrainTimeout: options.stopDrainTimeout }),
-    ...(options?.missingImplementationRetry === undefined
-      ? {}
-      : { missingImplementationRetry: options.missingImplementationRetry }),
-  };
+  const summary: CreateWorkflowWorkerOptions = { engine, registry, now };
+
+  if (options?.workerId !== undefined) {
+    Object.assign(summary, {
+      workerId: options.workerId,
+    } satisfies Partial<CreateWorkflowWorkerOptions>);
+  }
+
+  if (options?.leaseDuration !== undefined) {
+    Object.assign(summary, {
+      leaseDuration: options.leaseDuration,
+    } satisfies Partial<CreateWorkflowWorkerOptions>);
+  }
+
+  if (options?.pollInterval !== undefined) {
+    Object.assign(summary, {
+      pollInterval: options.pollInterval,
+    } satisfies Partial<CreateWorkflowWorkerOptions>);
+  }
+
+  if (options?.heartbeatInterval !== undefined) {
+    Object.assign(summary, {
+      heartbeatInterval: options.heartbeatInterval,
+    } satisfies Partial<CreateWorkflowWorkerOptions>);
+  }
+
+  if (options?.stopDrainTimeout !== undefined) {
+    Object.assign(summary, {
+      stopDrainTimeout: options.stopDrainTimeout,
+    } satisfies Partial<CreateWorkflowWorkerOptions>);
+  }
+
+  if (options?.missingImplementationRetry !== undefined) {
+    Object.assign(summary, {
+      missingImplementationRetry: options.missingImplementationRetry,
+    } satisfies Partial<CreateWorkflowWorkerOptions>);
+  }
+
+  return summary;
 }
 
 export function workerOptionsFromWakeOptions(
   options: WorkflowWorkerFacetOptions | undefined,
 ): WorkflowClientWorkerOptions {
-  return {
-    ...(options?.workerId === undefined ? {} : { workerId: options.workerId }),
-    ...(options?.leaseDuration === undefined ? {} : { leaseDuration: options.leaseDuration }),
-    ...(options?.heartbeatInterval === undefined
-      ? {}
-      : { heartbeatInterval: options.heartbeatInterval }),
-    ...(options?.stopDrainTimeout === undefined
-      ? {}
-      : { stopDrainTimeout: options.stopDrainTimeout }),
-    ...(options?.missingImplementationRetry === undefined
-      ? {}
-      : { missingImplementationRetry: options.missingImplementationRetry }),
-  };
+  const result1: WorkflowClientWorkerOptions = {};
+
+  if (options?.workerId !== undefined) {
+    Object.assign(result1, {
+      workerId: options.workerId,
+    } satisfies Partial<WorkflowClientWorkerOptions>);
+  }
+
+  if (options?.leaseDuration !== undefined) {
+    Object.assign(result1, {
+      leaseDuration: options.leaseDuration,
+    } satisfies Partial<WorkflowClientWorkerOptions>);
+  }
+
+  if (options?.heartbeatInterval !== undefined) {
+    Object.assign(result1, {
+      heartbeatInterval: options.heartbeatInterval,
+    } satisfies Partial<WorkflowClientWorkerOptions>);
+  }
+
+  if (options?.stopDrainTimeout !== undefined) {
+    Object.assign(result1, {
+      stopDrainTimeout: options.stopDrainTimeout,
+    } satisfies Partial<WorkflowClientWorkerOptions>);
+  }
+
+  if (options?.missingImplementationRetry !== undefined) {
+    Object.assign(result1, {
+      missingImplementationRetry: options.missingImplementationRetry,
+    } satisfies Partial<WorkflowClientWorkerOptions>);
+  }
+
+  return result1;
 }

@@ -84,7 +84,9 @@ export async function getChildRunsForAttempts(
       attempts.flatMap((attempt) => (attempt.childRunId === undefined ? [] : [attempt.childRunId])),
     ),
   ];
+
   const childRuns = await Promise.all(childRunIds.map(async (runId) => await store.getRun(runId)));
+
   return childRuns.filter(
     (run): run is WorkflowRunRecord =>
       run !== undefined &&
@@ -105,13 +107,16 @@ export function createWorkflowChildWorkflowRunSummaryReducer(): WorkflowChildWor
       if (!isWorkflowRunStatus(run.status)) {
         return;
       }
+
       const runStatus = run.status;
       childStatus[runStatus]++;
       addWorkflowChildWorkflowRunRetry(retry, run, runStatus);
+
       if (runStatus === "failed") {
         addWorkflowChildWorkflowRunFailure(failure, run);
         failedChildRunIds.add(run.id);
       }
+
       if (runStatus === "canceled") {
         canceledChildRunIds.add(run.id);
       }
@@ -133,9 +138,11 @@ export function summarizeChildWorkflowRuns(
   runs: readonly WorkflowRunRecord[],
 ): WorkflowChildWorkflowRunSummaryFields {
   const reducer = createWorkflowChildWorkflowRunSummaryReducer();
+
   for (const run of runs) {
     reducer.addRun(run);
   }
+
   return reducer.finish();
 }
 
@@ -179,9 +186,11 @@ function addWorkflowChildWorkflowRunRetry(
   runStatus: WorkflowRunStatus,
 ): void {
   const retryReason = workflowChildWorkflowRunRetryReason(run);
+
   if (!isScheduledWorkflowRunStatus(runStatus) || retryReason === undefined) {
     return;
   }
+
   retry.total++;
   retry.retryRunIds.add(run.id);
   addWorkflowChildWorkflowRunRetryMetadata(retry, run);
@@ -204,6 +213,7 @@ function addWorkflowChildWorkflowRunRetryMetadata(
   if (run.retryStepId !== undefined) {
     retry.retryStepIds.add(run.retryStepId);
   }
+
   if (run.retryStepName !== undefined) {
     retry.retryStepNames.add(run.retryStepName);
   }
@@ -220,6 +230,7 @@ function setWorkflowChildWorkflowRunNextRetry(
   ) {
     return;
   }
+
   retry.nextRetryAt = run.retryAt;
   retry.nextRetryRunId = run.id;
 }
@@ -249,10 +260,12 @@ function addWorkflowChildWorkflowRunFailureError(
   run: WorkflowRunRecord,
 ): void {
   const errorName = run.error?.name ?? "Error";
+
   const current = failure.errors.get(errorName) ?? {
     count: 0,
     failedRunIds: new Set<string>(),
   };
+
   current.count++;
   current.failedRunIds.add(run.id);
   current.latestFailedAt = latestOptionalTimestamp(current.latestFailedAt, run.finishedAt);
@@ -262,24 +275,30 @@ function addWorkflowChildWorkflowRunFailureError(
 function finishWorkflowChildWorkflowRunRetrySummary(
   retry: WorkflowChildWorkflowRunRetryAccumulator,
 ): WorkflowChildWorkflowRunRetrySummaryFields {
-  return retry.total === 0
-    ? {}
-    : {
-        childRetry: {
-          total: retry.total,
-          retryRunIds: sortedStringSet(retry.retryRunIds),
-          retryStepIds: sortedStringSet(retry.retryStepIds),
-          retryStepNames: sortedStringSet(retry.retryStepNames),
-          reason: retry.reason,
-          ...(retry.nextRetryAt === undefined
-            ? {}
-            : {
-                nextRetryAt: retry.nextRetryAt,
-                ...optionalProperty("nextRetryRunId", retry.nextRetryRunId),
-              }),
-          ...optionalProperty("highestAttempt", retry.highestAttempt),
-        },
-      };
+  if (retry.total === 0) {
+    return {};
+  }
+
+  const result = {
+    total: retry.total,
+    retryRunIds: sortedStringSet(retry.retryRunIds),
+    retryStepIds: sortedStringSet(retry.retryStepIds),
+    retryStepNames: sortedStringSet(retry.retryStepNames),
+    reason: retry.reason,
+  } satisfies Partial<NonNullable<WorkflowChildWorkflowRunRetrySummaryFields["childRetry"]>>;
+
+  if (retry.nextRetryAt !== undefined) {
+    Object.assign(result, {
+      nextRetryAt: retry.nextRetryAt,
+      ...optionalProperty("nextRetryRunId", retry.nextRetryRunId),
+    } satisfies Partial<NonNullable<WorkflowChildWorkflowRunRetrySummaryFields["childRetry"]>>);
+  }
+
+  const result1 = Object.assign(result, {
+    ...optionalProperty("highestAttempt", retry.highestAttempt),
+  } satisfies Partial<NonNullable<WorkflowChildWorkflowRunRetrySummaryFields["childRetry"]>>);
+
+  return { childRetry: result1 };
 }
 
 function finishWorkflowChildWorkflowRunFailureSummary(

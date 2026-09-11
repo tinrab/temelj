@@ -9,6 +9,7 @@ const macros = Object.freeze({
 
 export function KaTeXMath({ source, style }: MathComponentProps): React.ReactNode {
   let html: string | undefined;
+
   try {
     html = katex.renderToString(source, {
       displayMode: style === "display",
@@ -19,6 +20,7 @@ export function KaTeXMath({ source, style }: MathComponentProps): React.ReactNod
   } catch {
     html = undefined;
   }
+
   if (html === undefined) {
     return style === "display" ? (
       <pre>
@@ -28,6 +30,7 @@ export function KaTeXMath({ source, style }: MathComponentProps): React.ReactNod
       <code>{source}</code>
     );
   }
+
   return style === "display" ? (
     <div dangerouslySetInnerHTML={{ __html: html }} />
   ) : (

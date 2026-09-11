@@ -57,10 +57,15 @@ import {
   requireWorkflowTerminalEventsAreUnique,
   requireWorkflowTerminalEventsHaveStartedEvents,
 } from "./validator.ts";
+
 export { applyWorkflowStepAttemptEvent } from "./projection.ts";
+
 export { createTimeline } from "./timeline.ts";
+
 export { makeWorkflowStepAttemptKey as workflowStepAttemptKey } from "./attempt-key.ts";
+
 export type { WorkflowStepIdentity } from "../types/run.ts";
+
 export type { StreamEventProjection } from "./replay-projection.ts";
 
 /** Runtime class for workflow history. */
@@ -88,12 +93,15 @@ export class WorkflowHistory {
     appendEvents: () => Promise<readonly EventRecord[]>,
   ): Promise<readonly EventRecord[]> {
     let appendedEvents: readonly EventRecord[] = [];
+
     const operation = this.#appendQueue.then(async () => {
       appendedEvents = await appendEvents();
       this.#replaceEvents(appendedEvents);
     });
+
     this.#appendQueue = operation.catch(() => {});
     await operation;
+
     return appendedEvents;
   }
 
@@ -137,6 +145,7 @@ export class WorkflowHistory {
         },
       );
     }
+
     return this.#projection.nextStepAttemptByStepId.get(stepId) ?? 1;
   }
 
@@ -325,6 +334,7 @@ export class WorkflowHistory {
 
   #replaceEvents(events: readonly EventRecord[]): void {
     const previousLength = this.#events.length;
+
     if (eventsPreservePrefix(this.#events, events, previousLength)) {
       this.#events.splice(0, this.#events.length, ...events);
       appendWorkflowReplayProjectionEvents(
@@ -332,8 +342,10 @@ export class WorkflowHistory {
         events.slice(previousLength),
         previousLength,
       );
+
       return;
     }
+
     this.#events.splice(0, this.#events.length, ...events);
     this.#projection = createWorkflowReplayProjection(this.#events);
   }

@@ -1,4 +1,5 @@
 import type { Logger } from "@temelj/log";
+import type { StorageValue } from "@temelj/storage";
 
 import type { WorkflowHistory } from "../history/mod.ts";
 import type {
@@ -216,7 +217,7 @@ export interface WorkflowRunMaintenance extends WorkflowRunCanceler {
     options: WorkflowMarkRunPermanentlyFailedOptions,
   ): Promise<WorkflowRunRecord>;
   /** Replaces a workflow run's metadata value. */
-  updateRunMetadata(runId: RunId, metadata: unknown): Promise<WorkflowRunRecord>;
+  updateRunMetadata(runId: RunId, metadata: StorageValue): Promise<WorkflowRunRecord>;
   /** Applies an attribute patch to a workflow run. */
   setRunAttributes(runId: RunId, attributes: WorkflowAttributePatch): Promise<WorkflowRunRecord>;
 }
@@ -233,12 +234,12 @@ export interface WorkflowScheduler {
   createSchedule<TInput, TOutput, TRawInput = TInput>(
     workflow: WorkflowStartTarget<TInput, TOutput, TRawInput>,
     options: ScheduleConfig<TInput, TRawInput>,
-  ): Promise<ScheduleRecord<TInput>>;
+  ): Promise<ScheduleRecord>;
   /** Creates or updates a recurring workflow schedule. */
   upsertSchedule<TInput, TOutput, TRawInput = TInput>(
     workflow: WorkflowStartTarget<TInput, TOutput, TRawInput>,
     options: ScheduleConfig<TInput, TRawInput>,
-  ): Promise<ScheduleRecord<TInput>>;
+  ): Promise<ScheduleRecord>;
   /** Returns a schedule by ID, if it exists. */
   getSchedule(scheduleId: ScheduleId): Promise<ScheduleRecord | undefined>;
   /** Lists schedules matching optional filters. */
@@ -396,11 +397,11 @@ export interface WorkflowStreamReader {
   /** Returns metadata for a durable stream on a run. */
   getStreamInfo(runId: RunId, streamIdOrName: StreamIdOrName): Promise<StreamInfo>;
   /** Follows durable stream updates from a run. */
-  followStream<TChunk = unknown>(
+  followStream(
     runId: RunId,
     streamIdOrName: StreamIdOrName,
     options?: FollowStreamOptions,
-  ): AsyncIterable<StreamUpdate<TChunk>>;
+  ): AsyncIterable<StreamUpdate>;
   /** Waits until a durable stream exists on a run. */
   waitForStream(
     runId: RunId,
@@ -408,12 +409,12 @@ export interface WorkflowStreamReader {
     options?: WaitStreamOptions,
   ): Promise<StreamInfo | undefined>;
   /** Waits for the next durable stream chunk after an index. */
-  waitForStreamChunk<TChunk = unknown>(
+  waitForStreamChunk(
     runId: RunId,
     streamIdOrName: StreamIdOrName,
     afterIndex: number,
     options?: WaitStreamOptions,
-  ): Promise<StreamChunk<TChunk> | undefined>;
+  ): Promise<StreamChunk | undefined>;
   /** Waits until a durable stream is closed or failed. */
   waitForStreamTerminal(
     runId: RunId,
@@ -421,17 +422,17 @@ export interface WorkflowStreamReader {
     options?: WaitStreamOptions,
   ): Promise<StreamInfo | undefined>;
   /** Reads all currently stored chunks for a durable stream. */
-  readStream<TChunk = unknown>(
+  readStream(
     runId: RunId,
     streamIdOrName: StreamIdOrName,
     options?: ReadStreamOptions,
-  ): Promise<StreamState<TChunk>>;
+  ): Promise<StreamState>;
   /** Reads one page of currently stored chunks for a durable stream. */
-  readStreamPage<TChunk = unknown>(
+  readStreamPage(
     runId: RunId,
     streamIdOrName: StreamIdOrName,
     options?: ReadStreamPageOptions,
-  ): Promise<StreamPage<TChunk>>;
+  ): Promise<StreamPage>;
 }
 
 /** Engine capability for sending workflow messages. */
@@ -439,17 +440,17 @@ export interface WorkflowMessageSender {
   /** Sends a named message to a workflow run. */
   sendMessage(runId: RunId, options: SendMessageInput): Promise<void>;
   /** Sends a typed message channel payload to a workflow run. */
-  sendMessage<TPayload, TKey = void>(
+  sendMessage<TPayload, TRawPayload = TPayload>(
     runId: RunId,
-    channel: MessageChannel<TPayload, TKey>,
-    options?: SendMessageChannelOptions<TPayload, TKey>,
+    channel: MessageChannel<TPayload, TRawPayload>,
+    options?: SendMessageChannelOptions<TRawPayload>,
   ): Promise<void>;
   /** Sends a named message to runs matching the broadcast target. */
   broadcastMessage(options: BroadcastMessageInput): Promise<BroadcastMessageResult>;
   /** Sends a typed message channel payload to runs matching the broadcast target. */
-  broadcastMessage<TPayload, TKey = void>(
-    channel: MessageChannel<TPayload, TKey>,
-    options?: SendMessageChannelOptions<TPayload, TKey>,
+  broadcastMessage<TPayload, TRawPayload = TPayload>(
+    channel: MessageChannel<TPayload, TRawPayload>,
+    options?: SendMessageChannelOptions<TRawPayload>,
   ): Promise<BroadcastMessageResult>;
 }
 
@@ -467,6 +468,8 @@ export interface WorkflowClientEngine
     WorkflowHookManager,
     WorkflowStreamReader,
     WorkflowMessageSender {
+  /** Worker operations explicitly provided by this client adapter, when available. */
+  readonly workerEngine?: WorkflowWorkerEngine;
   /** Flushes owned logger resources and shuts down owned telemetry, when supported. */
   close?(): Promise<void>;
 }
@@ -510,6 +513,8 @@ export interface WorkflowEngineLike
 
 /** Describes the workflow engine contract. */
 export interface WorkflowEngine extends WorkflowEngineLike {
+  /** Worker operations provided by this engine. */
+  readonly workerEngine: WorkflowWorkerEngine;
   /** Underlying key-value storage used by the default workflow store. */
   readonly storage: WorkflowStorage;
   /** Store used for durable workflow state, events, schedules, locks, and indexes. */

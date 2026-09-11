@@ -9,6 +9,7 @@ export function decodeNamedCharacterReference(value: string): string | undefined
 export function decodeNumericCharacterReference(value: string, base: 10 | 16): string {
   const code = Number.parseInt(value, base);
   const low = code % 65_536;
+
   if (
     code < 9 ||
     code === 11 ||
@@ -22,6 +23,7 @@ export function decodeNumericCharacterReference(value: string, base: 10 | 16): s
   ) {
     return "\uFFFD";
   }
+
   return String.fromCodePoint(code);
 }
 
@@ -36,13 +38,17 @@ export function decodeSourceString(value: string): string {
       if (escaped !== undefined) {
         return escaped;
       }
+
       if (reference === undefined) {
         return match;
       }
+
       if (reference.charCodeAt(0) !== 35) {
         return decodeNamedCharacterReference(reference) ?? match;
       }
+
       const hexadecimal = reference.charCodeAt(1) === 120 || reference.charCodeAt(1) === 88;
+
       return decodeNumericCharacterReference(
         reference.slice(hexadecimal ? 2 : 1),
         hexadecimal ? 16 : 10,

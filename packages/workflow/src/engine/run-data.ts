@@ -1,3 +1,5 @@
+import type { StorageValue } from "@temelj/storage";
+
 import type { WorkflowExecutionEnvironment } from "../types/engine.ts";
 import type { WorkflowAttributePatch } from "../types/run.ts";
 import type { WorkflowStepRunDataApi } from "../types/step.ts";
@@ -34,24 +36,30 @@ export function createWorkflowRunDataApi(
 export async function setWorkflowRunMetadata(
   environment: WorkflowExecutionEnvironment,
   commandId: string,
-  metadata: unknown,
+  metadata: StorageValue,
 ): Promise<void> {
   const { store, runId, history, now, limits, executionOwner } = environment;
   const identity = resolveWorkflowCommandIdentity(history, "metadata", commandId);
   const persistedMetadata = toPersistedValue(metadata, "workflow run metadata", limits);
   const recorded = history.metadataSet(identity.id);
+
   if (recorded !== undefined) {
     requireMetadataReplayMatches(identity, recorded, persistedMetadata);
+
     const updated = await patchCurrentExecutionRun(store, executionOwner, {
       metadata: recorded.metadata,
       updatedAt: recorded.timestamp,
     });
+
     if (updated === undefined) {
       WorkflowStaleExecutionError.stale(executionOwner.id);
     }
+
     Object.assign(executionOwner, updated);
+
     return;
   }
+
   const timestamp = now();
   await appendEventIfCurrentExecution(
     store,
@@ -69,13 +77,16 @@ export async function setWorkflowRunMetadata(
     undefined,
     (event, events) => environment.observeDurableEventAppended?.(runId, event, events),
   );
+
   const updated = await patchCurrentExecutionRun(store, executionOwner, {
     metadata: persistedMetadata,
     updatedAt: timestamp,
   });
+
   if (updated === undefined) {
     WorkflowStaleExecutionError.stale(executionOwner.id);
   }
+
   Object.assign(executionOwner, updated);
 }
 
@@ -88,21 +99,27 @@ export async function setWorkflowRunAttributes(
   const identity = resolveWorkflowCommandIdentity(history, "attributes", commandId);
   const normalized = normalizeWorkflowAttributePatch(attributes);
   const recorded = history.attributesSet(identity.id);
+
   if (recorded !== undefined) {
     requireAttributesReplayMatches(identity, recorded, normalized);
     const recordedPatch = workflowAttributePatchFromEvent(recorded);
+
     const updated = await patchCurrentExecutionRunAttributes(
       store,
       executionOwner,
       recordedPatch,
       recorded.timestamp,
     );
+
     if (updated === undefined) {
       WorkflowStaleExecutionError.stale(executionOwner.id);
     }
+
     Object.assign(executionOwner, updated);
+
     return;
   }
+
   const timestamp = now();
   await appendEventIfCurrentExecution(
     store,
@@ -120,14 +137,17 @@ export async function setWorkflowRunAttributes(
     undefined,
     (event, events) => environment.observeDurableEventAppended?.(runId, event, events),
   );
+
   const updated = await patchCurrentExecutionRunAttributes(
     store,
     executionOwner,
     normalized,
     timestamp,
   );
+
   if (updated === undefined) {
     WorkflowStaleExecutionError.stale(executionOwner.id);
   }
+
   Object.assign(executionOwner, updated);
 }

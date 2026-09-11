@@ -5,19 +5,31 @@ import { RunId } from "./types/run.ts";
 import { ScheduleId } from "./types/schedule.ts";
 
 export type WorkflowIdempotencyKey = `workflow:${string}:idempotency:${string}:${string}`;
+
 export type MessageIdempotencyKey = `workflow:${string}:message-idempotency:${string}:${string}`;
+
 export type WorkflowRunKey = `workflow:${string}:run:${string}`;
+
 export type WorkflowEventsKey = `workflow:${string}:events:${string}`;
+
 export type WorkflowStepAttemptKey = `workflow:${string}:step-attempt:${string}:${string}`;
+
 export type WorkflowScheduleKey = `workflow:${string}:schedule:${string}`;
+
 export type WorkflowLockKey = `workflow:${string}:lock:${string}`;
+
 export type WorkflowCleanupMarkerKey = `workflow:${string}:cleanup:${string}`;
 
 export type WorkflowNamespacePrefix = `workflow:${string}:`;
+
 export type WorkflowRunKeyPrefix = `workflow:${string}:run:`;
+
 export type WorkflowStepAttemptKeyPrefix = `workflow:${string}:step-attempt:${string}:`;
+
 export type WorkflowScheduleKeyPrefix = `workflow:${string}:schedule:`;
+
 export type WorkflowLockKeyPrefix = `workflow:${string}:lock:`;
+
 export type WorkflowCleanupMarkerKeyPrefix = `workflow:${string}:cleanup:`;
 
 /** Builds a validated workflow idempotency storage key. */
@@ -57,19 +69,26 @@ export function makeStepAttemptKeyPrefix(
 
 export function isStepAttemptKey(key: string, namespace: string, runId: RunId): boolean {
   const prefix = makeStepAttemptKeyPrefix(namespace, runId);
+
   if (!key.startsWith(prefix)) {
     return false;
   }
+
   const attemptKey = decodeStepAttemptKey(key, prefix);
+
   if (attemptKey === undefined) {
     return false;
   }
+
   const separator = attemptKey.lastIndexOf(":");
+
   if (!attemptKey.startsWith("run:") || separator <= "run:".length) {
     return false;
   }
+
   const stepId = attemptKey.slice("run:".length, separator);
   const attempt = Number(attemptKey.slice(separator + 1));
+
   try {
     return makeWorkflowStepAttemptKey(stepId, attempt) === attemptKey;
   } catch {
@@ -135,6 +154,7 @@ export function makeIdempotencyKey(
     options.workflowVersion === undefined
       ? options.workflowName
       : `${options.workflowName}@${options.workflowVersion}`;
+
   return `${namespacePrefix(namespace)}idempotency:${encodeURIComponent(
     versionedName,
   )}:${encodeURIComponent(options.idempotencyKey)}`;

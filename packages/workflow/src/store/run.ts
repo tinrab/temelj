@@ -1,3 +1,5 @@
+import { deepEquals } from "@temelj/value";
+
 import type { EventRecord } from "../types/events.ts";
 import type { WorkflowPage } from "../types/pagination.ts";
 import type { WorkflowListRunsOptions, WorkflowListRunsPageOptions } from "../types/run-list.ts";
@@ -21,7 +23,6 @@ import { compactWorkflowStoreRecord } from "./compaction.ts";
 import { rollbackAppendedEventIfCurrent } from "./event-history.ts";
 import { matchesWorkflowRunListOptions } from "./query.ts";
 import { queryWorkflowRuns } from "./query.ts";
-import { isSameWorkflowStorageValue } from "./revision.ts";
 import { toStorageValue } from "./storage-value.ts";
 import {
   isReadableWorkflowRunRecord,
@@ -47,6 +48,7 @@ export async function updateRunIfCurrent(
 ): Promise<WorkflowRunRecord | undefined> {
   const runId = current.id;
   const nextRunId = next.id;
+
   if (runId !== nextRunId) {
     WorkflowStateError.runIdMismatch(runId, nextRunId);
   }
@@ -59,25 +61,27 @@ export async function updateRunIfCurrent(
 
   if (!supportsWorkflowConditionalWrite(storage)) {
     const latest = await store.getRun(runId);
-    if (
-      latest === undefined ||
-      !isSameWorkflowStorageValue(omitUndefined(latest), omitUndefined(current))
-    ) {
+
+    if (latest === undefined || !deepEquals(omitUndefined(latest), omitUndefined(current))) {
       return undefined;
     }
+
     requireValidRunTransition(current, next);
     const compact = compactWorkflowStoreRecord(next);
     await storage.set(makeRunKey(namespace, runId), toStorageValue(compact));
+
     return compact;
   }
 
   requireValidRunTransition(current, next);
   const compact = compactWorkflowStoreRecord(next);
+
   const updated = await storage.compareAndSet(
     makeRunKey(namespace, runId),
     toStorageValue(current),
     toStorageValue(compact),
   );
+
   return updated ? compact : undefined;
 }
 
@@ -87,6 +91,7 @@ export async function getWorkflowRun(
   runId: RunId,
 ): Promise<WorkflowRunRecord | undefined> {
   const run = await storage.get(makeRunKey(namespace, runId));
+
   // Workflow run keys are written only by this store.
   // @temelj/storage cannot narrow by key.
   return isReadableWorkflowRunRecord(run, namespace) ? run : undefined;
@@ -101,6 +106,7 @@ export async function listWorkflowRuns(
     label: "Workflow run list options",
     sort: true,
   });
+
   return limitWorkflowItems(runs, options?.limit);
 }
 
@@ -118,6 +124,7 @@ export async function listWorkflowRunsPage(
       sort: true,
     },
   );
+
   return pageItems(runs, options, "Workflow run page", makeWorkflowRunCursorKey);
 }
 
@@ -142,15 +149,20 @@ export async function updateWorkflowRun(
   run: WorkflowRunRecord,
 ): Promise<WorkflowRunRecord> {
   const runId = run.id;
+
   if (run.namespace !== namespace) {
     WorkflowStateError.runNamespaceMismatch(String(run.namespace), namespace);
   }
+
   const current = await store.getRun(runId);
+
   if (current !== undefined) {
     requireValidRunTransition(current, run);
   }
+
   const compact = compactWorkflowStoreRecord(run);
   await storage.set(makeRunKey(namespace, runId), toStorageValue(compact));
+
   return compact;
 }
 
@@ -161,10 +173,12 @@ export async function claimWorkflowRun(
   options: WorkflowClaimRunOptions,
 ): Promise<WorkflowRunRecord | undefined> {
   const listOptions = claimableWorkflowRunListOptions(options);
+
   const run =
     options.runId === undefined
       ? await firstClaimableRun(store, options, listOptions)
       : await store.getRun(options.runId);
+
   if (run === undefined || !canClaimRun(run, options, listOptions)) {
     return undefined;
   }
@@ -191,6 +205,7 @@ export async function extendWorkflowRunLease(
   },
 ): Promise<WorkflowRunRecord | undefined> {
   const run = await store.getRun(options.runId);
+
   if (!isWorkflowRunLeaseHeldByWorker(run, options)) {
     return undefined;
   }
@@ -216,6 +231,7 @@ export async function releaseWorkflowRunLease(
   },
 ): Promise<WorkflowRunRecord | undefined> {
   const run = await store.getRun(options.runId);
+
   if (!isWorkflowRunLeaseHeldByWorker(run, options)) {
     return undefined;
   }
@@ -237,7 +253,7 @@ export function isSameReadableWorkflowRunRevision(
   return (
     latest !== undefined &&
     isReadableWorkflowRunRecord(latest, namespace) &&
-    isSameWorkflowStorageValue(omitUndefined(latest), omitUndefined(current))
+    deepEquals(omitUndefined(latest), omitUndefined(current))
   );
 }
 
@@ -247,6 +263,7 @@ export async function isStoredWorkflowRunRevisionCurrent(
   currentRun: WorkflowRunRecord,
 ): Promise<boolean> {
   const latestRun = await getReadableStoredWorkflowRunValue(storage, namespace, currentRun.id);
+
   return isSameReadableWorkflowRunRevision(latestRun, currentRun, namespace);
 }
 
@@ -257,6 +274,7 @@ export async function getReadableStoredWorkflowRun(
 ): Promise<WorkflowRunRecord | undefined> {
   const runValue = await storage.get(makeRunKey(namespace, runId));
   const run = parseStoredWorkflowRunRecord(runValue);
+
   return isReadableWorkflowRunRecord(run, namespace) ? run : undefined;
 }
 
@@ -266,6 +284,7 @@ async function getReadableStoredWorkflowRunValue(
   runId: RunId,
 ): Promise<WorkflowRunRecord | undefined> {
   const run = await storage.get(makeRunKey(namespace, runId));
+
   return isReadableWorkflowRunRecord(run, namespace) ? run : undefined;
 }
 
@@ -275,9 +294,11 @@ export async function requireReadableStoredWorkflowRun(
   runId: RunId,
 ): Promise<WorkflowRunRecord> {
   const run = await getReadableStoredWorkflowRun(storage, namespace, runId);
+
   if (run === undefined) {
     WorkflowRunNotFoundError.notFound(runId);
   }
+
   return run;
 }
 
@@ -289,6 +310,7 @@ export function shouldRollbackAppendedEventForRun(
   if (run === undefined || !isReadableWorkflowRunRecord(run, namespace)) {
     return true;
   }
+
   return (
     isTerminalWorkflowRunStatus(run.status) && !isTerminalWorkflowLifecycleEventForRun(run, event)
   );
@@ -312,10 +334,13 @@ export async function rollbackAppendedEventIfRunStale(
   events: readonly EventRecord[],
 ): Promise<boolean> {
   const run = await getReadableStoredWorkflowRunValue(storage, namespace, runId);
+
   if (!shouldRollbackAppendedEventForRun(namespace, run, event)) {
     return false;
   }
+
   await rollbackAppendedEventIfCurrent(storage, namespace, runId, events);
+
   return true;
 }
 
@@ -363,6 +388,7 @@ export function extendedRunLeasePatch(
   leaseDuration: Temporal.Duration,
 ): WorkflowRunRecord {
   const timestamp = now;
+
   return {
     ...run,
     idempotencyKey: run.idempotencyKey,
@@ -392,6 +418,7 @@ export function releaseRunLeasePatch(
   now: Temporal.Instant,
 ): WorkflowRunRecord {
   const timestamp = now;
+
   return {
     ...run,
     status: "waiting",
@@ -426,6 +453,7 @@ export async function firstClaimableRun(
   listOptions: WorkflowListRunsOptions,
 ): Promise<WorkflowRunRecord | undefined> {
   const runs = await store.listRuns(listOptions);
+
   return runs.find((run) => canClaimRun(run, options, listOptions));
 }
 
@@ -452,20 +480,25 @@ export function canClaimRun(
   if (!matchesClaimableWorkflowRunListOptions(run, listOptions)) {
     return false;
   }
+
   if (run.status === "pending" || run.status === "waiting") {
     return (
       run.availableAt === undefined || Temporal.Instant.compare(run.availableAt, options.now) <= 0
     );
   }
+
   if (run.status !== "running") {
     return false;
   }
+
   if (run.workerId === undefined) {
     return true;
   }
+
   if (run.leaseExpiresAt === undefined) {
     return true;
   }
+
   return Temporal.Instant.compare(run.leaseExpiresAt, options.now) <= 0;
 }
 
@@ -501,11 +534,14 @@ export function isStaleLeaseClaim(run: WorkflowRunRecord, now: Temporal.Instant)
   if (run.status !== "running") {
     return false;
   }
+
   if (run.workerId === undefined) {
     return true;
   }
+
   if (run.leaseExpiresAt === undefined) {
     return true;
   }
+
   return Temporal.Instant.compare(run.leaseExpiresAt, now) <= 0;
 }

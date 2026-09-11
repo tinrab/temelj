@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 /* oxlint-disable typescript/no-floating-promises, vitest/require-mock-type-parameters */
-import { act, renderHook } from "@testing-library/react";
+import { act, fireEvent, render, renderHook } from "@testing-library/react";
+import { createElement } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import "../test/setup.ts";
@@ -30,6 +31,7 @@ function elementWithRect(rect: Partial<DOMRect>): HTMLDivElement {
   }));
   element.setPointerCapture = vi.fn();
   element.releasePointerCapture = vi.fn();
+
   return element;
 }
 
@@ -61,8 +63,10 @@ describe("math hooks", () => {
     const { result } = renderHook(() => useResizeObserver<HTMLDivElement>({ onResize }));
 
     act(() => result.current[0](element));
-    const entry = { target: element } as unknown as ResizeObserverEntry;
-    act(() => callbacks.at(-1)?.([entry], {} as ResizeObserver));
+    let entry: ResizeObserverEntry | undefined;
+    act(() => {
+      entry = callbacks.at(-1)?.emit(element);
+    });
 
     expect(result.current[1]).toBe(entry);
     expect(onResize).toHaveBeenCalledWith(entry);
@@ -94,58 +98,62 @@ describe("math hooks", () => {
     expect(result.current[2].intersects).toBe(true);
   });
 
-  it("useDragVector tracks pointer drag deltas", () => {
-    const element = elementWithRect({ left: 10, top: 20, width: 100, height: 100 });
-    const { result } = renderHook(() => useDragVector<HTMLDivElement>());
-    act(() => {
-      result.current.ref.current = element;
-    });
+  it("useDragVector tracks real React pointer events", () => {
+    function Draggable() {
+      const { ref, dragging, start, delta, onPointerDown, onPointerMove, onPointerUp } =
+        useDragVector<HTMLDivElement>();
 
-    act(() =>
-      result.current.onPointerDown({
-        clientX: 20,
-        clientY: 35,
-        pointerId: 1,
-        currentTarget: element,
-      } as React.PointerEvent<HTMLDivElement>),
-    );
-    expect(result.current.dragging).toBe(true);
-    expect(result.current.start).toEqual({ x: 10, y: 15 });
+      return createElement("div", {
+        ref,
+        onPointerDown,
+        onPointerMove,
+        onPointerUp,
+        "data-testid": "drag",
+        "data-dragging": dragging,
+        "data-start": JSON.stringify(start),
+        "data-delta": JSON.stringify(delta),
+      });
+    }
 
-    act(() =>
-      result.current.onPointerMove({
-        clientX: 25,
-        clientY: 45,
-        currentTarget: element,
-      } as React.PointerEvent<HTMLDivElement>),
-    );
-    expect(result.current.delta).toEqual({ x: 5, y: 10 });
-
-    act(() =>
-      result.current.onPointerUp({
-        pointerId: 1,
-        currentTarget: element,
-      } as React.PointerEvent<HTMLDivElement>),
-    );
-    expect(result.current.dragging).toBe(false);
+    const view = render(createElement(Draggable));
+    const node = view.getByTestId("drag");
+    node.getBoundingClientRect = () => new DOMRect(10, 20, 100, 100);
+    node.setPointerCapture = vi.fn<(id: number) => void>();
+    node.releasePointerCapture = vi.fn<(id: number) => void>();
+    fireEvent.pointerDown(node, { clientX: 20, clientY: 35, pointerId: 1 });
+    expect(node.dataset.dragging).toBe("true");
+    expect(node.dataset.start).toBe(JSON.stringify({ x: 10, y: 15 }));
+    fireEvent.pointerMove(node, { clientX: 25, clientY: 45, pointerId: 1 });
+    expect(node.dataset.delta).toBe(JSON.stringify({ x: 5, y: 10 }));
+    fireEvent.pointerUp(node, { pointerId: 1 });
+    expect(node.dataset.dragging).toBe("false");
   });
 
-  it("useDragRect combines drag handlers with measured rectangle", () => {
+  it("useDragRect measures and handles a mounted draggable element", () => {
     mockResizeObserver();
-    const element = elementWithRect({ left: 0, top: 0, width: 50, height: 60 });
-    const { result } = renderHook(() => useDragRect<HTMLDivElement>());
-
-    act(() => result.current.ref(element));
-    expect(result.current.rect?.size).toEqual({ x: 50, y: 60 });
-
-    act(() =>
-      result.current.onPointerDown({
-        clientX: 10,
-        clientY: 10,
-        pointerId: 1,
-        currentTarget: element,
-      } as React.PointerEvent<HTMLDivElement>),
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(
+      new DOMRect(0, 0, 50, 60),
     );
-    expect(result.current.dragging).toBe(true);
+
+    function Draggable() {
+      const { ref, rect, dragging, onPointerDown } = useDragRect<HTMLDivElement>();
+
+      return createElement("div", {
+        ref,
+        onPointerDown,
+        "data-testid": "drag-rect",
+        "data-width": rect?.size.x,
+        "data-height": rect?.size.y,
+        "data-dragging": dragging,
+      });
+    }
+
+    const view = render(createElement(Draggable));
+    const node = view.getByTestId("drag-rect");
+    node.setPointerCapture = vi.fn<(id: number) => void>();
+    expect(node.dataset.width).toBe("50");
+    expect(node.dataset.height).toBe("60");
+    fireEvent.pointerDown(node, { clientX: 10, clientY: 10, pointerId: 1 });
+    expect(node.dataset.dragging).toBe("true");
   });
 });

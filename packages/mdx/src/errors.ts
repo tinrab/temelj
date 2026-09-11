@@ -204,7 +204,7 @@ export class ConfigurationError extends MdxError {
     );
   }
 
-  public static invalidCompilerOutputFormat(this: void, value: unknown): never {
+  public static invalidCompilerOutputFormat(this: void, value: string): never {
     throw new ConfigurationError(
       `Invalid compiler outputFormat: ${String(value)}`,
       { kind: "compilerOutputFormat", value },
@@ -254,6 +254,7 @@ export class ConfigurationError extends MdxError {
 }
 
 export type TransformTarget = "document" | "html";
+
 export type TransformIssue = Readonly<{
   kind: "threw";
   target: TransformTarget;

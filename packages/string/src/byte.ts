@@ -43,6 +43,7 @@ export function getByteSize(bytes: number, options: ByteSizeOptions = {}): ByteS
   }
 
   const precision = options.precision ?? 1;
+
   if (!Number.isSafeInteger(precision) || precision < 0) {
     throw new RangeError("Byte precision must be a non-negative safe integer");
   }
@@ -80,5 +81,6 @@ export function getByteSize(bytes: number, options: ByteSizeOptions = {}): ByteS
  */
 export function formatByteSize(bytes: number, options: ByteSizeOptions = {}): string {
   const { value, unit } = getByteSize(bytes, options);
+
   return `${value} ${unit}`;
 }

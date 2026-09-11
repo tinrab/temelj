@@ -10,6 +10,7 @@ const fontSans = Inter({
   subsets: ["latin"],
   variable: "--font-inter",
 });
+
 const fontMono = Geist_Mono({
   subsets: ["latin"],
   variable: "--font-mono",

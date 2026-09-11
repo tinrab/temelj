@@ -10,6 +10,7 @@ import type {
   ObservationEmitter as ObservationEmitterContract,
   ObservationEventHandler,
   ObservationEventMap,
+  ObservationEventArgs,
   ObservationEventPattern,
   RunObservationEvent,
   ScheduleRunCreatedObservationEvent,
@@ -24,10 +25,7 @@ import { workflowStepAttemptKey } from "../history/mod.ts";
 import { createWorkflowStepAttempts } from "../history/step-attempts.ts";
 import { observeTelemetry } from "../telemetry.ts";
 
-type WorkflowObservationEmit = <Key extends keyof ObservationEventMap>(
-  event: Key,
-  payload: ObservationEventMap[Key],
-) => unknown;
+type WorkflowObservationEmit = (...event: ObservationEventArgs) => void;
 
 export function createObservationEmitter(telemetry?: Telemetry): ObservationEmitterContract {
   return new ObservationEmitter(telemetry);
@@ -36,9 +34,9 @@ export function createObservationEmitter(telemetry?: Telemetry): ObservationEmit
 export class ObservationEmitter implements ObservationEmitterContract {
   readonly #events = createPubSub<ObservationEventMap>();
   readonly #telemetry?: Telemetry;
-  readonly #emit: WorkflowObservationEmit = (event, payload) => {
-    this.#events.emit(event, payload);
-    observeTelemetry(this.#telemetry, event, payload);
+  readonly #emit: WorkflowObservationEmit = (...event) => {
+    this.#events.emit(event[0], event[1]);
+    observeTelemetry(this.#telemetry, ...event);
   };
 
   constructor(telemetry?: Telemetry) {
@@ -123,13 +121,20 @@ export class ObservationEmitter implements ObservationEmitterContract {
   }
 
   emitMessageSent(runId: RunId, event: MessageSentEvent): void {
-    this.#emit("workflow:message-sent", {
+    const observation: ObservationEventMap["workflow:message-sent"] = {
       runId,
       messageId: event.messageId,
       payload: event.payload,
       timestamp: event.timestamp,
-      ...(event.telemetryContext === undefined ? {} : { traceContext: event.telemetryContext }),
-    });
+    };
+
+    if (event.telemetryContext !== undefined) {
+      Object.assign(observation, { traceContext: event.telemetryContext } satisfies Partial<
+        ObservationEventMap["workflow:message-sent"]
+      >);
+    }
+
+    this.#emit("workflow:message-sent", observation);
   }
 
   emitHookResumed(
@@ -138,12 +143,21 @@ export class ObservationEmitter implements ObservationEmitterContract {
     payload: StorageValue | undefined,
     traceContext: TelemetryContext | undefined,
   ): void {
-    this.#emit("workflow:hook-resumed", {
-      runId,
-      messageId,
-      ...(payload === undefined ? {} : { payload }),
-      ...(traceContext === undefined ? {} : { traceContext }),
-    });
+    const observation: ObservationEventMap["workflow:hook-resumed"] = { runId, messageId };
+
+    if (payload !== undefined) {
+      Object.assign(observation, { payload } satisfies Partial<
+        ObservationEventMap["workflow:hook-resumed"]
+      >);
+    }
+
+    if (traceContext !== undefined) {
+      Object.assign(observation, { traceContext } satisfies Partial<
+        ObservationEventMap["workflow:hook-resumed"]
+      >);
+    }
+
+    this.#emit("workflow:hook-resumed", observation);
   }
 
   emitWebhookResumed(
@@ -152,12 +166,21 @@ export class ObservationEmitter implements ObservationEmitterContract {
     payload: StorageValue | undefined,
     traceContext: TelemetryContext | undefined,
   ): void {
-    this.#emit("workflow:webhook-resumed", {
-      runId,
-      messageId,
-      ...(payload === undefined ? {} : { payload }),
-      ...(traceContext === undefined ? {} : { traceContext }),
-    });
+    const observation: ObservationEventMap["workflow:webhook-resumed"] = { runId, messageId };
+
+    if (payload !== undefined) {
+      Object.assign(observation, { payload } satisfies Partial<
+        ObservationEventMap["workflow:webhook-resumed"]
+      >);
+    }
+
+    if (traceContext !== undefined) {
+      Object.assign(observation, { traceContext } satisfies Partial<
+        ObservationEventMap["workflow:webhook-resumed"]
+      >);
+    }
+
+    this.#emit("workflow:webhook-resumed", observation);
   }
 
   emitChildWorkflowStarted(event: ChildWorkflowStartedObservationEvent): void {
@@ -192,21 +215,27 @@ function emitStepAttemptUpdated(
   events: readonly EventRecord[],
 ): void {
   let key: string | undefined;
+
   try {
     key = getWorkflowEventStepAttemptKey(event);
   } catch {
     return;
   }
+
   if (key === undefined) {
     return;
   }
+
   const attempts = createWorkflowStepAttempts(runId, events);
+
   const attempt = attempts.find(
     (current) => workflowStepAttemptKey(current.stepId, current.attempt) === key,
   );
+
   if (attempt === undefined) {
     return;
   }
+
   emit("workflow:step-attempt-updated", { runId, attempt });
 }
 
@@ -219,7 +248,8 @@ function emitStreamUpdated(emit: WorkflowObservationEmit, runId: RunId, event: E
   ) {
     return;
   }
-  emit("workflow:stream-updated", {
+
+  const observation: ObservationEventMap["workflow:stream-updated"] = {
     runId,
     streamId: event.streamId,
     streamName: event.stepName,
@@ -227,9 +257,21 @@ function emitStreamUpdated(emit: WorkflowObservationEmit, runId: RunId, event: E
     timestamp: event.timestamp,
     stepId: event.stepId,
     stepName: event.stepName,
-    ...(event.kind === "stream_chunk" ? { index: event.index } : {}),
-    ...(event.kind === "stream_failed" ? { error: event.error } : {}),
-  });
+  };
+
+  if (event.kind === "stream_chunk") {
+    Object.assign(observation, { index: event.index } satisfies Partial<
+      ObservationEventMap["workflow:stream-updated"]
+    >);
+  }
+
+  if (event.kind === "stream_failed") {
+    Object.assign(observation, { error: event.error } satisfies Partial<
+      ObservationEventMap["workflow:stream-updated"]
+    >);
+  }
+
+  emit("workflow:stream-updated", observation);
 }
 
 function emitRunEvent(
@@ -238,6 +280,7 @@ function emitRunEvent(
   previousRun: WorkflowRunRecord | undefined,
 ): void {
   const payload = makeRunObservationEvent(run, previousRun);
+
   switch (run.lastTransitionReason) {
     case "created":
       emit("workflow:run-created", payload);
@@ -285,13 +328,20 @@ function makeRunObservationEvent(
   run: WorkflowRunRecord,
   previousRun: WorkflowRunRecord | undefined,
 ): RunObservationEvent {
-  return {
+  const summary: RunObservationEvent = {
     run,
     previousRun,
     status: run.status,
     reason: run.lastTransitionReason,
     timestamp: run.lastTransitionAt,
     workflowName: run.workflowName,
-    ...(run.workflowVersion === undefined ? {} : { workflowVersion: run.workflowVersion }),
   };
+
+  if (run.workflowVersion !== undefined) {
+    Object.assign(summary, {
+      workflowVersion: run.workflowVersion,
+    } satisfies Partial<RunObservationEvent>);
+  }
+
+  return summary;
 }

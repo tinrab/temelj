@@ -1,3 +1,5 @@
+import { deepEquals } from "@temelj/value";
+
 import type { EventRecord, MessageSentEvent } from "../types/events.ts";
 import type { RunId } from "../types/run.ts";
 import type { WorkflowMessageIdempotencyIndex, WorkflowStorage } from "../types/store.ts";
@@ -8,7 +10,6 @@ import { WorkflowHistory } from "../history/mod.ts";
 import { makeEventsKey, makeMessageIdempotencyKey } from "../store-keys.ts";
 import { supportsWorkflowConditionalWrite } from "./capabilities.ts";
 import { getStoredEventHistory, rollbackAppendedEventIfCurrent } from "./event-history.ts";
-import { isSameWorkflowStorageValue } from "./revision.ts";
 import { requireReadableStoredWorkflowRun } from "./run.ts";
 import { toStorageValue } from "./storage-value.ts";
 import { isSameMessageIdempotencyIndex } from "./validation.ts";
@@ -26,11 +27,15 @@ export function duplicateMessageAppendOutcome(
   if (!isMessageIdempotencyEvent(event)) {
     return undefined;
   }
+
   const existing = new WorkflowHistory(events).messageByIdempotencyKey(event.idempotencyKey);
+
   if (existing === undefined) {
     return undefined;
   }
+
   requireDuplicateMessageEventMatches(runId, existing, event);
+
   return { status: "duplicate", events };
 }
 
@@ -45,12 +50,10 @@ function requireDuplicateMessageEventMatches(
   existing: MessageSentEvent,
   event: MessageSentEvent & { readonly idempotencyKey: string },
 ): void {
-  if (
-    existing.messageId === event.messageId &&
-    isSameWorkflowStorageValue(existing.payload, event.payload)
-  ) {
+  if (existing.messageId === event.messageId && deepEquals(existing.payload, event.payload)) {
     return;
   }
+
   // Message idempotency keys protect the target run from receiving two distinct logical messages under the same caller-supplied key.
   WorkflowMessageIdempotencyConflictError.conflict({
     runId,
@@ -69,12 +72,14 @@ async function indexMessageIdempotencyKey(
   if (event.kind !== "message_sent" || event.idempotencyKey === undefined) {
     return;
   }
+
   await requireReadableStoredWorkflowRun(storage, namespace, runId);
 
   const indexedEvent = indexableMessageEventByIdempotencyKey(
     new WorkflowHistory(events),
     event.idempotencyKey,
   );
+
   if (indexedEvent === undefined) {
     return;
   }
@@ -82,33 +87,41 @@ async function indexMessageIdempotencyKey(
   // The index is a derived fast path for duplicate message sends.
   // The event history remains the source of truth, so indexing the same event twice is harmless but conflicting values are not.
   const key = makeMessageIdempotencyKey(namespace, runId, event.idempotencyKey);
+
   const value = {
     runId,
     messageId: indexedEvent.messageId,
     timestamp: indexedEvent.timestamp,
   };
+
   if (!supportsWorkflowConditionalWrite(storage)) {
     const current = await storage.get(key);
+
     if (current !== undefined) {
       if (isSameMessageIdempotencyIndex(current, value)) {
         return;
       }
+
       WorkflowMessageIdempotencyConflictError.conflict({
         runId,
         messageId: indexedEvent.messageId,
         idempotencyKey: event.idempotencyKey,
       });
     }
+
     await storage.set(key, toStorageValue(value));
+
     return;
   }
 
   const indexed = await storage.compareAndSet(key, undefined, toStorageValue(value));
+
   if (indexed) {
     return;
   }
 
   const current = await storage.get(key);
+
   if (isSameMessageIdempotencyIndex(current, value)) {
     return;
   }
@@ -139,8 +152,10 @@ export async function projectMessageIdempotencyIndexForAppendOutcome(
         outcome.previousEventHistory,
       );
     }
+
     throw error;
   }
+
   return outcome.events;
 }
 
@@ -158,6 +173,7 @@ export async function reconcileMessageIdempotencyIndexes(
       await storeMessageIdempotencyIndex(storage, namespace, runId, idempotencyKey, value);
     }),
   );
+
   return indexes.map((index) => index.value);
 }
 
@@ -167,6 +183,7 @@ export async function repairMessageIdempotencyIndexes(
   runId: RunId,
 ): Promise<readonly WorkflowMessageIdempotencyIndex[]> {
   await requireReadableStoredWorkflowRun(storage, namespace, runId);
+
   return await reconcileMessageIdempotencyIndexes(
     storage,
     namespace,
@@ -191,6 +208,7 @@ function indexableMessageEventByIdempotencyKey(
   idempotencyKey: string,
 ): MessageSentEvent | undefined {
   const event = history.messageByIdempotencyKey(idempotencyKey);
+
   return event !== undefined && isIndexableMessageIdempotencyEvent(event) ? event : undefined;
 }
 
@@ -221,7 +239,6 @@ function isIndexableMessageIdempotencyEvent(event: EventRecord): event is Messag
   return (
     event.kind === "message_sent" &&
     event.idempotencyKey !== undefined &&
-    typeof event.messageId === "string" &&
     event.messageId.trim() !== ""
   );
 }
@@ -235,15 +252,19 @@ async function storeMessageIdempotencyIndex(
 ): Promise<void> {
   const key = makeMessageIdempotencyKey(namespace, runId, idempotencyKey);
   const current = await storage.get(key);
+
   if (isSameMessageIdempotencyIndex(current, value)) {
     return;
   }
 
   if (!supportsWorkflowConditionalWrite(storage)) {
     await storage.set(key, toStorageValue(value));
+
     return;
   }
+
   const stored = await storage.compareAndSet(key, current, toStorageValue(value));
+
   if (!stored) {
     WorkflowMessageIdempotencyConflictError.conflict({
       runId,

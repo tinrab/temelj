@@ -74,6 +74,7 @@ export function* selectMdx<TKind extends MdxNode["kind"]>(
 type RewriteHandler<TNode extends MdxNode> = (
   cursor: TreeCursor<MdxNode, TNode>,
 ) => TNode | undefined;
+
 type CoreFlowContent = Exclude<FlowContent, BlockExpressionNode | EsmNode | JsxFlowElementNode>;
 
 export interface MdxRewriteHandlers {
@@ -123,9 +124,11 @@ export interface MdxRewriteHandlers {
 export function rewriteMdx(document: DocumentNode, handlers: MdxRewriteHandlers): DocumentNode {
   const replacement = handlers.document?.(new TreeCursor(document)) ?? document;
   const cursor = new TreeCursor<MdxNode, DocumentNode>(replacement);
+
   const children = replacement.children.map((child, index) =>
     rewriteFlow(child, cursor, index, handlers),
   );
+
   return replacement.with({ children });
 }
 
@@ -141,33 +144,40 @@ function rewritePhrasing(
     case "emphasis": {
       const replacement = handlers.emphasis?.(new TreeCursor(node, parent, index)) ?? node;
       const cursor = new TreeCursor(replacement, parent, index);
+
       return replacement.with({
         children: replacement.children.map((child, childIndex) =>
           rewritePhrasing(child, cursor, childIndex, handlers),
         ),
       });
     }
+
     case "strong": {
       const replacement = handlers.strong?.(new TreeCursor(node, parent, index)) ?? node;
       const cursor = new TreeCursor(replacement, parent, index);
+
       return replacement.with({
         children: replacement.children.map((child, childIndex) =>
           rewritePhrasing(child, cursor, childIndex, handlers),
         ),
       });
     }
+
     case "delete": {
       const replacement = handlers.delete?.(new TreeCursor(node, parent, index)) ?? node;
       const cursor = new TreeCursor(replacement, parent, index);
+
       return replacement.with({
         children: replacement.children.map((child, childIndex) =>
           rewritePhrasing(child, cursor, childIndex, handlers),
         ),
       });
     }
+
     case "textDirective": {
       const replacement = handlers.textDirective?.(new TreeCursor(node, parent, index)) ?? node;
       const cursor = new TreeCursor(replacement, parent, index);
+
       return replacement.with({
         label:
           replacement.label === undefined
@@ -175,6 +185,7 @@ function rewritePhrasing(
             : rewriteDirectiveLabel(replacement.label, cursor, 0, handlers),
       });
     }
+
     case "inlineCode":
       return handlers.inlineCode?.(new TreeCursor(node, parent, index)) ?? node;
     case "inlineMath":
@@ -184,23 +195,27 @@ function rewritePhrasing(
     case "link": {
       const replacement = handlers.link?.(new TreeCursor(node, parent, index)) ?? node;
       const cursor = new TreeCursor(replacement, parent, index);
+
       return replacement.with({
         children: replacement.children.map((child, childIndex) =>
           rewritePhrasing(child, cursor, childIndex, handlers),
         ),
       });
     }
+
     case "image":
       return handlers.image?.(new TreeCursor(node, parent, index)) ?? node;
     case "linkReference": {
       const replacement = handlers.linkReference?.(new TreeCursor(node, parent, index)) ?? node;
       const cursor = new TreeCursor(replacement, parent, index);
+
       return replacement.with({
         children: replacement.children.map((child, childIndex) =>
           rewritePhrasing(child, cursor, childIndex, handlers),
         ),
       });
     }
+
     case "imageReference":
       return handlers.imageReference?.(new TreeCursor(node, parent, index)) ?? node;
     case "footnoteReference":
@@ -212,6 +227,7 @@ function rewritePhrasing(
     case "jsxTextElement": {
       const replacement = handlers.jsxTextElement?.(new TreeCursor(node, parent, index)) ?? node;
       const cursor = new TreeCursor(replacement, parent, index);
+
       return replacement.with({
         attributes: rewriteJsxAttributes(replacement.attributes, cursor, handlers),
         children: replacement.children.map((child, childIndex) =>
@@ -219,8 +235,10 @@ function rewritePhrasing(
         ),
       });
     }
+
     default: {
       const exhaustive: never = node;
+
       return exhaustive;
     }
   }
@@ -236,21 +254,25 @@ function rewriteCoreFlow(
     case "paragraph": {
       const replacement = handlers.paragraph?.(new TreeCursor(node, parent, index)) ?? node;
       const cursor = new TreeCursor(replacement, parent, index);
+
       return replacement.with({
         children: replacement.children.map((child, childIndex) =>
           rewritePhrasing(child, cursor, childIndex, handlers),
         ),
       });
     }
+
     case "heading": {
       const replacement = handlers.heading?.(new TreeCursor(node, parent, index)) ?? node;
       const cursor = new TreeCursor(replacement, parent, index);
+
       return replacement.with({
         children: replacement.children.map((child, childIndex) =>
           rewritePhrasing(child, cursor, childIndex, handlers),
         ),
       });
     }
+
     case "codeBlock":
       return handlers.codeBlock?.(new TreeCursor(node, parent, index)) ?? node;
     case "displayMath":
@@ -260,12 +282,14 @@ function rewriteCoreFlow(
     case "blockquote": {
       const replacement = handlers.blockquote?.(new TreeCursor(node, parent, index)) ?? node;
       const cursor = new TreeCursor(replacement, parent, index);
+
       return replacement.with({
         children: replacement.children.map((child, childIndex) =>
           rewriteFlow(child, cursor, childIndex, handlers),
         ),
       });
     }
+
     case "list":
       return rewriteList(node, parent, index, handlers);
     case "table":
@@ -275,18 +299,22 @@ function rewriteCoreFlow(
     case "footnoteDefinition": {
       const replacement =
         handlers.footnoteDefinition?.(new TreeCursor(node, parent, index)) ?? node;
+
       const cursor = new TreeCursor(replacement, parent, index);
+
       return replacement.with({
         children: replacement.children.map((child, childIndex) =>
           rewriteFlow(child, cursor, childIndex, handlers),
         ),
       });
     }
+
     case "frontmatter":
       return handlers.frontmatter?.(new TreeCursor(node, parent, index)) ?? node;
     case "leafDirective": {
       const replacement = handlers.leafDirective?.(new TreeCursor(node, parent, index)) ?? node;
       const cursor = new TreeCursor(replacement, parent, index);
+
       return replacement.with({
         label:
           replacement.label === undefined
@@ -294,15 +322,20 @@ function rewriteCoreFlow(
             : rewriteDirectiveLabel(replacement.label, cursor, 0, handlers),
       });
     }
+
     case "containerDirective": {
       const replacement =
         handlers.containerDirective?.(new TreeCursor(node, parent, index)) ?? node;
+
       const cursor = new TreeCursor(replacement, parent, index);
+
       const label =
         replacement.label === undefined
           ? undefined
           : rewriteDirectiveLabel(replacement.label, cursor, 0, handlers);
+
       const offset = label === undefined ? 0 : 1;
+
       return replacement.with({
         label: label ?? null,
         body: replacement.body.map((child, childIndex) =>
@@ -310,10 +343,12 @@ function rewriteCoreFlow(
         ),
       });
     }
+
     case "rawHtmlBlock":
       return handlers.rawHtmlBlock?.(new TreeCursor(node, parent, index)) ?? node;
     default: {
       const exhaustive: never = node;
+
       return exhaustive;
     }
   }
@@ -327,6 +362,7 @@ function rewriteDirectiveLabel(
 ): DirectiveLabelNode {
   const replacement = handlers.directiveLabel?.(new TreeCursor(node, parent, index)) ?? node;
   const cursor = new TreeCursor(replacement, parent, index);
+
   return replacement.with({
     children: replacement.children.map((child, childIndex) =>
       rewritePhrasing(child, cursor, childIndex, handlers),
@@ -342,6 +378,7 @@ function rewriteTable(
 ): TableNode {
   const replacement = handlers.table?.(new TreeCursor(node, parent, index)) ?? node;
   const cursor = new TreeCursor(replacement, parent, index);
+
   return replacement.with({
     children: replacement.children.map((row, rowIndex) =>
       rewriteTableRow(row, cursor, rowIndex, handlers),
@@ -357,6 +394,7 @@ function rewriteTableRow(
 ): TableRowNode {
   const replacement = handlers.tableRow?.(new TreeCursor(node, parent, index)) ?? node;
   const cursor = new TreeCursor(replacement, parent, index);
+
   return replacement.with({
     children: replacement.children.map((cell, cellIndex) =>
       rewriteTableCell(cell, cursor, cellIndex, handlers),
@@ -372,6 +410,7 @@ function rewriteTableCell(
 ): TableCellNode {
   const replacement = handlers.tableCell?.(new TreeCursor(node, parent, index)) ?? node;
   const cursor = new TreeCursor(replacement, parent, index);
+
   return replacement.with({
     children: replacement.children.map((child, childIndex) =>
       rewritePhrasing(child, cursor, childIndex, handlers),
@@ -393,6 +432,7 @@ function rewriteFlow(
     case "jsxFlowElement": {
       const replacement = handlers.jsxFlowElement?.(new TreeCursor(node, parent, index)) ?? node;
       const cursor = new TreeCursor(replacement, parent, index);
+
       return replacement.with({
         attributes: rewriteJsxAttributes(replacement.attributes, cursor, handlers),
         children: replacement.children.map((child, childIndex) =>
@@ -400,6 +440,7 @@ function rewriteFlow(
         ),
       });
     }
+
     default:
       return rewriteCoreFlow(node, parent, index, handlers);
   }
@@ -414,15 +455,19 @@ function rewriteJsxAttributes(
     if (attribute instanceof JsxSpreadAttributeNode) {
       return handlers.jsxSpreadAttribute?.(new TreeCursor(attribute, parent, index)) ?? attribute;
     }
+
     const replacement =
       handlers.jsxAttribute?.(new TreeCursor(attribute, parent, index)) ?? attribute;
+
     if (!(replacement.value instanceof JsxAttributeValueExpressionNode)) {
       return replacement;
     }
+
     const value =
       handlers.jsxAttributeValueExpression?.(
         new TreeCursor(replacement.value, new TreeCursor(replacement, parent, index), 0),
       ) ?? replacement.value;
+
     return replacement.with({ value });
   });
 }
@@ -435,15 +480,18 @@ function rewriteList(
 ): ListNode {
   const replacement = handlers.list?.(new TreeCursor(node, parent, index)) ?? node;
   const cursor = new TreeCursor(replacement, parent, index);
+
   const items = replacement.items.map((item, itemIndex) => {
     const itemReplacement = handlers.listItem?.(new TreeCursor(item, cursor, itemIndex)) ?? item;
     const itemCursor = new TreeCursor(itemReplacement, cursor, itemIndex);
+
     return itemReplacement.with({
       children: itemReplacement.children.map((child, childIndex) =>
         rewriteFlow(child, itemCursor, childIndex, handlers),
       ),
     });
   });
+
   return replacement.with({ items });
 }
 
@@ -491,40 +539,51 @@ function rewriteHtmlNode(
   if (node instanceof HtmlJsxNode) {
     return handlers.jsx?.(new TreeCursor(node, parent, index)) ?? node;
   }
+
   if (node instanceof HtmlTextNode) {
     return handlers.text?.(new TreeCursor(node, parent, index)) ?? node;
   }
+
   if (node instanceof HtmlRawNode) {
     return handlers.raw?.(new TreeCursor(node, parent, index)) ?? node;
   }
+
   if (node instanceof HtmlCommentNode) {
     return handlers.comment?.(new TreeCursor(node, parent, index)) ?? node;
   }
+
   if (node instanceof HtmlDoctypeNode) {
     return handlers.doctype?.(new TreeCursor(node, parent, index)) ?? node;
   }
+
   if (node instanceof HtmlElementNode) {
     const replacement = handlers.element?.(new TreeCursor(node, parent, index)) ?? node;
     const cursor = new TreeCursor(replacement, parent, index);
+
     return replacement.with({
       children: replacement.children.map((child, childIndex) =>
         rewriteHtmlNode(child, cursor, childIndex, handlers),
       ),
     });
   }
+
   if (node instanceof HtmlFragmentNode) {
     const replacement = handlers.fragment?.(new TreeCursor(node, parent, index)) ?? node;
     const cursor = new TreeCursor(replacement, parent, index);
+
     return replacement.with({
       children: replacement.children.map((child, childIndex) =>
         rewriteHtmlNode(child, cursor, childIndex, handlers),
       ),
     });
   }
+
   if (node instanceof HtmlDocumentNode) {
     return rewriteHtmlDocument(node, parent, index, handlers);
   }
+
   const exhaustive: never = node;
+
   return exhaustive;
 }
 
@@ -536,6 +595,7 @@ function rewriteHtmlDocument(
 ): HtmlDocumentNode {
   const replacement = handlers.document?.(new TreeCursor(document, parent, index)) ?? document;
   const cursor = new TreeCursor(replacement, parent, index);
+
   return replacement.with({
     children: replacement.children.map((child, childIndex) =>
       rewriteHtmlNode(child, cursor, childIndex, handlers),

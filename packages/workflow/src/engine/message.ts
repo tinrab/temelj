@@ -1,3 +1,5 @@
+import type { StorageValue } from "@temelj/storage";
+
 import {
   validateStandardSchema as parseStandardSchema,
   type Schema,
@@ -15,8 +17,6 @@ import type {
   SendMessageInput,
   SendMessageOptions,
   MessageChannel,
-  WaitForMessageChannelOptions,
-  WaitForMessageInput,
   WaitForMessageOptions,
   MessageId,
 } from "../types/message.ts";
@@ -44,7 +44,7 @@ import { type WorkflowStepIdentity, WorkflowHistory } from "../history/mod.ts";
 import {
   resolveBroadcastMessageInput,
   resolveSendMessageInput,
-  resolveWaitForMessageInput,
+  createWorkflowMessageWait,
 } from "../message-options.ts";
 import { captureTelemetryContext } from "../telemetry.ts";
 import { WorkflowStepMessageApi } from "../types/step.ts";
@@ -69,7 +69,9 @@ const MAX_MESSAGE_DELIVERY_APPEND_ATTEMPTS = 16;
 
 type MessageWaitSource = Extract<EventRecord, { readonly kind: "message_wait_started" }>["source"];
 
-type WorkflowMessageWaitOptions = WaitForMessageOptions<Schema | undefined> & {
+type WorkflowMessageWaitOptions<TPayload = StorageValue | undefined> = WaitForMessageOptions<
+  Schema<unknown, TPayload> | undefined
+> & {
   readonly source?: MessageWaitSource;
 };
 
@@ -96,17 +98,19 @@ export function createWorkflowStepMessageApi(
   environment: WorkflowExecutionEnvironment,
 ): WorkflowStepMessageApi {
   const { store, history, now, limits } = environment;
+
   return {
-    async send<TPayload, TKey = void>(
+    async send<TPayload, TRawPayload = TPayload>(
       targetRunId: RunId,
-      messageInput: SendMessageInput | MessageChannel<TPayload, TKey>,
-      channelOptions?: SendMessageChannelOptions<TPayload, TKey>,
+      messageInput: SendMessageInput | MessageChannel<TPayload, TRawPayload>,
+      channelOptions?: SendMessageChannelOptions<TRawPayload>,
     ): Promise<void> {
       const options = await resolveSendMessageInput(messageInput, channelOptions);
       const idempotencyKey = options.idempotencyKey;
       const identity = resolveWorkflowCommandIdentity(history, "message-send", options.messageId);
       const started = history.startedMessageSend(identity.id);
       const completed = history.completedMessageSend(identity.id);
+
       if (completed !== undefined) {
         requireRecordedDurableTerminalStarted(
           identity,
@@ -118,6 +122,7 @@ export function createWorkflowStepMessageApi(
           payload: toOptionalPersistedValue(options.payload, "message payload", limits),
           idempotencyKey,
         });
+
         if (!(completed.timestamp instanceof Temporal.Instant)) {
           WorkflowReplayDivergenceError.diverged(
             `recorded message-send step ${identity.id} has invalid completion timestamp: ` +
@@ -128,9 +133,12 @@ export function createWorkflowStepMessageApi(
             },
           );
         }
+
         return;
       }
+
       const failed = history.failedMessageSend(identity.id);
+
       if (failed !== undefined) {
         requireRecordedDurableTerminalStarted(
           identity,
@@ -142,6 +150,7 @@ export function createWorkflowStepMessageApi(
           payload: toOptionalPersistedValue(options.payload, "message payload", limits),
           idempotencyKey,
         });
+
         if (!(failed.timestamp instanceof Temporal.Instant)) {
           WorkflowReplayDivergenceError.diverged(
             `recorded message-send step ${identity.id} has invalid failure timestamp: ` +
@@ -152,6 +161,7 @@ export function createWorkflowStepMessageApi(
             },
           );
         }
+
         throw workflowErrorFromRecord(failed.error);
       }
 
@@ -161,9 +171,11 @@ export function createWorkflowStepMessageApi(
         payload: toOptionalPersistedValue(options.payload, "message payload", limits),
         idempotencyKey,
       };
+
       if (started === undefined) {
         const timestamp = now();
-        await appendDurableStepStartedEvent(environment, {
+
+        const durableEvent: Extract<EventRecord, { kind: "message_send_started" }> = {
           kind: "message_send_started",
           timestamp,
           stepId: identity.id,
@@ -172,13 +184,19 @@ export function createWorkflowStepMessageApi(
           targetRunId: nextMessageSend.targetRunId,
           messageId: nextMessageSend.messageId,
           payload: nextMessageSend.payload,
-          ...(nextMessageSend.idempotencyKey === undefined
-            ? {}
-            : { idempotencyKey: nextMessageSend.idempotencyKey }),
-        });
+        };
+
+        if (nextMessageSend.idempotencyKey !== undefined) {
+          Object.assign(durableEvent, {
+            idempotencyKey: nextMessageSend.idempotencyKey,
+          } satisfies Partial<Extract<EventRecord, { kind: "message_send_started" }>>);
+        }
+
+        await appendDurableStepStartedEvent(environment, durableEvent);
       } else {
         requireMessageSendReplayMatches(identity, started, started, nextMessageSend);
       }
+
       try {
         await sendWorkflowMessage(
           store,
@@ -204,6 +222,7 @@ export function createWorkflowStepMessageApi(
         });
         throw error;
       }
+
       await appendDurableStepTerminalEvent(environment, {
         kind: "message_send_completed",
         timestamp: now(),
@@ -214,21 +233,15 @@ export function createWorkflowStepMessageApi(
       });
     },
 
-    async wait<TPayload, TKey = void>(
-      messageInput: WaitForMessageInput | MessageChannel<TPayload, TKey>,
-      channelOptions?: WaitForMessageChannelOptions<TKey>,
-    ): Promise<TPayload> {
-      const options = resolveWaitForMessageInput(messageInput, channelOptions);
-      return (await waitForWorkflowMessage(environment, options)) as TPayload;
-    },
+    wait: createWorkflowMessageWait((options) => waitForWorkflowMessage(environment, options)),
   };
 }
 
-export async function sendWorkflowMessageInput<TPayload, TKey = void>(
+export async function sendWorkflowMessageInput<TPayload, TRawPayload = TPayload>(
   service: WorkflowMessageServiceOptions,
   runId: RunId,
-  messageInput: SendMessageInput | MessageChannel<TPayload, TKey>,
-  channelOptions: SendMessageChannelOptions<TPayload, TKey> | undefined,
+  messageInput: SendMessageInput | MessageChannel<TPayload, TRawPayload>,
+  channelOptions: SendMessageChannelOptions<TRawPayload> | undefined,
 ): Promise<void> {
   const telemetryContext = captureTelemetryContext(service.telemetry);
   const messageOptions = await resolveSendMessageInput(messageInput, channelOptions);
@@ -244,15 +257,16 @@ export async function sendWorkflowMessageInput<TPayload, TKey = void>(
   );
 }
 
-export async function broadcastWorkflowMessageInput<TPayload, TKey = void>(
+export async function broadcastWorkflowMessageInput<TPayload, TRawPayload = TPayload>(
   service: WorkflowMessageServiceOptions,
-  messageInput: BroadcastMessageInput | MessageChannel<TPayload, TKey>,
-  channelOptions: BroadcastMessageChannelOptions<TPayload, TKey> | undefined,
+  messageInput: BroadcastMessageInput | MessageChannel<TPayload, TRawPayload>,
+  channelOptions: BroadcastMessageChannelOptions<TRawPayload> | undefined,
 ): Promise<BroadcastMessageResult> {
   const telemetryContext = captureTelemetryContext(service.telemetry);
   const messageOptions = await resolveBroadcastMessageInput(messageInput, channelOptions);
   toOptionalPersistedValue(messageOptions.payload, "message payload", service.limits);
   const targets = await broadcastMessageTargets(service.store, messageOptions.target);
+
   for (const target of targets) {
     await sendWorkflowMessage(
       service.store,
@@ -265,6 +279,7 @@ export async function broadcastWorkflowMessageInput<TPayload, TKey = void>(
       telemetryContext,
     );
   }
+
   return {
     messageId: messageOptions.messageId,
     runIds: targets.map((target) => target.id),
@@ -293,6 +308,7 @@ export async function sendWorkflowMessage(
 
   let timestamp: Temporal.Instant | undefined;
   let appendedEvents: readonly EventRecord[] | undefined;
+
   for (
     let attempt = 0;
     attempt < MAX_MESSAGE_DELIVERY_APPEND_ATTEMPTS && appendedEvents === undefined;
@@ -301,22 +317,27 @@ export async function sendWorkflowMessage(
     const currentRun = attempt === 0 ? run : await getRequiredRun(store, targetRunId);
     const currentEvents = await store.getEvents(targetRunId);
     const currentHistory = new WorkflowHistory(currentEvents);
+
     if (idempotencyKey !== undefined) {
       const existingMessage = currentHistory.messageByIdempotencyKey(idempotencyKey);
+
       if (existingMessage !== undefined) {
         if (
           existingMessage.messageId === options.messageId &&
           deepEquals(existingMessage.payload, payload)
         ) {
           await wakeRunForMessageEvent(store, targetRunId, existingMessage);
+
           return;
         }
+
         WorkflowMessageIdempotencyConflictError.conflict({
           runId: targetRunId,
           messageId: options.messageId,
           idempotencyKey,
         });
       }
+
       await requireMessageIdempotencyIndexUnclaimed(
         store,
         targetRunId,
@@ -324,6 +345,7 @@ export async function sendWorkflowMessage(
         idempotencyKey,
       );
     }
+
     if (
       currentRun.status === "completed" ||
       currentRun.status === "failed" ||
@@ -335,21 +357,42 @@ export async function sendWorkflowMessage(
         messageId: options.messageId,
       });
     }
+
     const waiterStepIds = currentHistory.activeMessageWaitStepIds(options.messageId);
     timestamp ??= now();
     enforceWorkflowEventHistoryNextLimit(currentEvents, limits);
-    appendedEvents = await store.appendEventIfRunCurrent(currentRun, {
+
+    const durableEvent1: Extract<EventRecord, { kind: "message_sent" }> = {
       kind: "message_sent",
       timestamp,
       messageId: options.messageId,
       payload,
-      ...(waiterStepIds.length === 0 ? {} : { waiterStepIds }),
-      ...(idempotencyKey === undefined ? {} : { idempotencyKey }),
-      ...(telemetryContext === undefined ? {} : { telemetryContext }),
-    });
+    };
+
+    if (waiterStepIds.length !== 0) {
+      Object.assign(durableEvent1, { waiterStepIds } satisfies Partial<
+        Extract<EventRecord, { kind: "message_sent" }>
+      >);
+    }
+
+    if (idempotencyKey !== undefined) {
+      Object.assign(durableEvent1, { idempotencyKey } satisfies Partial<
+        Extract<EventRecord, { kind: "message_sent" }>
+      >);
+    }
+
+    if (telemetryContext !== undefined) {
+      Object.assign(durableEvent1, { telemetryContext } satisfies Partial<
+        Extract<EventRecord, { kind: "message_sent" }>
+      >);
+    }
+
+    appendedEvents = await store.appendEventIfRunCurrent(currentRun, durableEvent1);
   }
+
   if (appendedEvents === undefined) {
     const currentRun = await getRequiredRun(store, targetRunId);
+
     if (
       currentRun.status === "completed" ||
       currentRun.status === "failed" ||
@@ -361,11 +404,15 @@ export async function sendWorkflowMessage(
         messageId: options.messageId,
       });
     }
+
     WorkflowStateError.failedMessageAppend(targetRunId);
   }
+
   const appendedHistory = new WorkflowHistory(appendedEvents);
+
   if (idempotencyKey !== undefined) {
     const existingMessage = appendedHistory.messageByIdempotencyKey(idempotencyKey);
+
     if (
       existingMessage !== undefined &&
       !workflowMessageSendMatches(existingMessage, options, payload)
@@ -377,13 +424,24 @@ export async function sendWorkflowMessage(
       });
     }
   }
-  const messageEvent = appendedHistory.messageForSend(options.messageId, idempotencyKey) ?? {
-    kind: "message_sent",
-    timestamp: timestamp ?? now(),
-    messageId: options.messageId,
-    payload,
-    ...(telemetryContext === undefined ? {} : { telemetryContext }),
-  };
+
+  let messageEvent = appendedHistory.messageForSend(options.messageId, idempotencyKey);
+
+  if (messageEvent === undefined) {
+    const fallback: MessageSentEvent = {
+      kind: "message_sent",
+      timestamp: timestamp ?? now(),
+      messageId: options.messageId,
+      payload,
+    };
+
+    if (telemetryContext !== undefined) {
+      Object.assign(fallback, { telemetryContext } satisfies Partial<MessageSentEvent>);
+    }
+
+    messageEvent = fallback;
+  }
+
   observeMessageSent?.(targetRunId, messageEvent);
   await wakeRunForMessageEvent(store, targetRunId, messageEvent);
 }
@@ -393,6 +451,7 @@ async function broadcastMessageTargets(
   target: WorkflowListRunsOptions | undefined,
 ): Promise<readonly WorkflowRunRecord[]> {
   const runs = await store.listRuns(target);
+
   return runs.filter(
     (run) => !(run.status === "completed" || run.status === "failed" || run.status === "canceled"),
   );
@@ -412,6 +471,7 @@ async function requireMessageIdempotencyIndexUnclaimed(
     });
   }
 }
+
 function workflowMessageSendMatches(
   event: MessageSentEvent,
   options: SendMessageOptions,
@@ -420,25 +480,29 @@ function workflowMessageSendMatches(
   return event.messageId === options.messageId && deepEquals(event.payload, payload);
 }
 
-export async function waitForWorkflowMessage(
+export async function waitForWorkflowMessage<TPayload = never>(
   environment: WorkflowExecutionEnvironment,
-  options: WorkflowMessageWaitOptions,
-): Promise<unknown> {
-  const { runId, history, now, limits, executionOwner } = environment;
+  options: WorkflowMessageWaitOptions<TPayload>,
+): Promise<TPayload | StorageValue | undefined> {
+  const { runId, history, now, executionOwner } = environment;
+
   const identity = resolveWorkflowCommandIdentityFromCandidates(
     history,
     "message-wait",
     [options.commandId, options.name, options.messageId],
     "Workflow message commandId, name, or messageId",
   );
+
   const started = history.startedMessageWait(identity.id);
   const completed = history.completedMessageWait(identity.id);
+
   if (completed !== undefined) {
     requireRecordedDurableTerminalStarted(
       identity,
       history.hasStartedEventBeforeTerminalEvent(completed),
     );
     requireMessageWaitReplayMatches(identity, started, completed, options);
+
     return options.schema === undefined
       ? completed.payload
       : await parseStandardSchema(
@@ -447,7 +511,9 @@ export async function waitForWorkflowMessage(
           "Workflow message validation failed",
         );
   }
+
   const failed = history.failedMessageWait(identity.id);
+
   if (failed !== undefined) {
     requireRecordedDurableTerminalStarted(
       identity,
@@ -460,6 +526,7 @@ export async function waitForWorkflowMessage(
   if (started !== undefined) {
     requireMessageWaitReplayMatches(identity, started, started, options);
   }
+
   const timeoutAt =
     started?.timeoutAt === undefined
       ? options.timeout === undefined
@@ -469,9 +536,11 @@ export async function waitForWorkflowMessage(
               options.timeout.total({ unit: "millisecond" }),
               "Workflow messageId timeout",
             );
+
             if (timeout <= 0) {
               WorkflowDurationError.signalTimeoutPositive();
             }
+
             return now().add(Temporal.Duration.from({ milliseconds: timeout }));
           })()
       : (() => {
@@ -485,26 +554,44 @@ export async function waitForWorkflowMessage(
               },
             );
           }
+
           return started.timeoutAt;
         })();
+
   let waitStartedAt: Temporal.Instant | undefined;
+
   if (started === undefined) {
     waitStartedAt = now();
-    await appendDurableStepStartedEvent(environment, {
+
+    const durableEvent2: Extract<EventRecord, { kind: "message_wait_started" }> = {
       kind: "message_wait_started",
       timestamp: waitStartedAt,
       stepId: identity.id,
       stepName: identity.name,
       count: identity.count,
       messageId: options.messageId,
-      ...(options.source === undefined ? {} : { source: options.source }),
-      ...(timeoutAt === undefined ? {} : { timeoutAt }),
-    });
+    };
+
+    if (options.source !== undefined) {
+      Object.assign(durableEvent2, { source: options.source } satisfies Partial<
+        Extract<EventRecord, { kind: "message_wait_started" }>
+      >);
+    }
+
+    if (timeoutAt !== undefined) {
+      Object.assign(durableEvent2, { timeoutAt } satisfies Partial<
+        Extract<EventRecord, { kind: "message_wait_started" }>
+      >);
+    }
+
+    await appendDurableStepStartedEvent(environment, durableEvent2);
   }
 
   const messageId = history.messageForWait(options.messageId, identity.id, timeoutAt);
+
   if (messageId !== undefined) {
-    let payload: unknown;
+    let payload: TPayload | StorageValue | undefined;
+
     try {
       payload =
         options.schema === undefined
@@ -525,19 +612,37 @@ export async function waitForWorkflowMessage(
       });
       throw error;
     }
-    const persistedPayload = toOptionalPersistedValue(payload, "messageId payload", limits);
-    await appendDurableStepTerminalEvent(environment, {
+
+    // Replay validates the original input again, so schema transforms run once per execution.
+    const persistedPayload = messageId.payload;
+
+    const result = {
       kind: "message_wait_completed",
       timestamp: now(),
       stepId: identity.id,
       stepName: identity.name,
       messageId: options.messageId,
-      ...(persistedPayload === undefined ? {} : { payload: persistedPayload }),
+    } satisfies Partial<Extract<EventRecord, { kind: "message_wait_completed" }>>;
+
+    if (persistedPayload !== undefined) {
+      Object.assign(result, { payload: persistedPayload } satisfies Partial<
+        Extract<EventRecord, { kind: "message_wait_completed" }>
+      >);
+    }
+
+    const result1 = Object.assign(result, {
       messageTimestamp: messageId.timestamp,
-      ...(messageId.telemetryContext === undefined
-        ? {}
-        : { telemetryContext: messageId.telemetryContext }),
-    });
+    } satisfies Partial<Extract<EventRecord, { kind: "message_wait_completed" }>>);
+
+    if (messageId.telemetryContext !== undefined) {
+      Object.assign(result1, { telemetryContext: messageId.telemetryContext } satisfies Partial<
+        Extract<EventRecord, { kind: "message_wait_completed" }>
+      >);
+    }
+
+    const durableEvent3: Extract<EventRecord, { kind: "message_wait_completed" }> = result1;
+    await appendDurableStepTerminalEvent(environment, durableEvent3);
+
     return payload;
   }
 
@@ -549,6 +654,7 @@ export async function waitForWorkflowMessage(
       messageId: options.messageId,
       timeoutAt,
     });
+
     await appendDurableStepTerminalEvent(environment, {
       kind: "message_wait_failed",
       timestamp: now(),
@@ -570,9 +676,10 @@ export function requireMessageWaitReplayMatches(
     EventRecord,
     { readonly kind: "message_wait_started" | "message_wait_completed" | "message_wait_failed" }
   >,
-  options: WorkflowMessageWaitOptions,
+  options: Omit<WorkflowMessageWaitOptions, "schema">,
 ): void {
   const recordedMessage = started?.messageId ?? event.messageId;
+
   if (started !== undefined && !(started.timestamp instanceof Temporal.Instant)) {
     WorkflowReplayDivergenceError.diverged(
       `recorded message-wait step ${identity.id} has invalid start timestamp: ` +
@@ -583,6 +690,7 @@ export function requireMessageWaitReplayMatches(
       },
     );
   }
+
   if (recordedMessage !== options.messageId) {
     WorkflowReplayDivergenceError.diverged(
       `recorded message-wait step ${identity.id} waited for ${recordedMessage}, ` +
@@ -593,6 +701,7 @@ export function requireMessageWaitReplayMatches(
       },
     );
   }
+
   if (started !== undefined && started.source !== options.source) {
     const recordedSource = started.source ?? "message";
     const replaySource = options.source ?? "message";
@@ -605,6 +714,7 @@ export function requireMessageWaitReplayMatches(
       },
     );
   }
+
   if (
     started !== undefined &&
     (started.timeoutAt === undefined) !== (options.timeout === undefined)
@@ -644,6 +754,7 @@ export function messageWaitAvailableAt(
   const candidates = [timeoutAt, deadlineAt]
     .filter((value): value is Temporal.Instant => value !== undefined)
     .sort((left, right) => Temporal.Instant.compare(left, right));
+
   return candidates[0] ?? now().add(Temporal.Duration.from({ milliseconds: 2 ** 31 - 1 }));
 }
 
@@ -653,18 +764,23 @@ export async function wakeRunForMessageEvent(
   messageEvent: Extract<EventRecord, { readonly kind: "message_sent" }>,
 ): Promise<void> {
   const run = await store.getRun(runId);
+
   if (run === undefined || run.status !== "waiting") {
     return;
   }
+
   const events = await store.getEvents(runId);
   const activeWaits = new WorkflowHistory(events).activeMessageWaitStepIds(messageEvent.messageId);
+
   const hasActiveWait =
     messageEvent.waiterStepIds === undefined
       ? activeWaits.length > 0
       : activeWaits.some((stepId) => messageEvent.waiterStepIds?.includes(stepId));
+
   if (!hasActiveWait) {
     return;
   }
+
   await store.updateRunIfCurrent(run, {
     ...run,
     availableAt:

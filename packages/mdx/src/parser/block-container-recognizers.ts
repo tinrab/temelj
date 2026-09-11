@@ -17,11 +17,14 @@ export function blockQuoteMarker(
   start: number,
 ): QuoteMarker | undefined {
   const indent = consumeIndent(source, start, end, 3);
+
   if (source[indent.offset] !== ">") {
     return;
   }
+
   const markerEnd = indent.offset + 1;
   const contentStart = isSpaceOrTab(source[markerEnd]) ? markerEnd + 1 : markerEnd;
+
   return { markerStart: start, markerEnd, contentStart };
 }
 
@@ -40,18 +43,24 @@ export function footnoteMarker(
   const indent = consumeIndent(source, start, end, 3);
   const markerStart = start;
   const labelStart = indent.offset;
+
   if (source.slice(labelStart, labelStart + 2) !== "[^") {
     return;
   }
+
   const labelEnd = findUnescaped(source, "]", labelStart + 2, end);
+
   if (labelEnd === undefined || source[labelEnd + 1] !== ":" || labelEnd === labelStart + 2) {
     return;
   }
+
   const markerEnd = labelEnd + 2;
   let contentStart = markerEnd;
+
   while (contentStart < end && isSpaceOrTab(source[contentStart])) {
     contentStart++;
   }
+
   return {
     markerStart,
     markerEnd,
@@ -82,36 +91,48 @@ export function listMarker(
   let markerCharacter: ListMarker["markerCharacter"];
   let ordered = false;
   let listStart: number | undefined;
+
   if (first === "*" || first === "+" || first === "-") {
     markerCharacter = first;
     offset++;
   } else {
     const numberStart = offset;
+
     while (offset < end && offset - numberStart < 9 && isAsciiDigit(source[offset])) {
       offset++;
     }
+
     const delimiter = source[offset];
+
     if (offset === numberStart || (delimiter !== "." && delimiter !== ")")) {
       return;
     }
+
     listStart = Number(source.slice(numberStart, offset));
+
     if (interruptingParagraph && listStart !== 1) {
       return;
     }
+
     markerCharacter = delimiter;
     ordered = true;
     offset++;
   }
+
   if (offset < end && !isSpaceOrTab(source[offset])) {
     return;
   }
+
   const markerEnd = offset;
   const padding = consumeIndent(source, offset, end, 4);
+
   const contentIndent =
     padding.columns === 0 || padding.columns > 4
       ? markerEnd - start + 1
       : markerEnd - start + padding.columns;
+
   const contentStart = padding.columns === 0 ? markerEnd : padding.offset;
+
   return {
     markerStart: start,
     markerEnd,
@@ -129,6 +150,7 @@ export function isSiblingListItem(
   frame: Extract<ContainerFrame, { kind: "listItem" }>,
 ): boolean {
   const marker = listMarker(source, line.content.end, line.content.start);
+
   return (
     marker !== undefined &&
     marker.ordered === frame.ordered &&
@@ -149,6 +171,7 @@ export function taskListMarker(
   continuingParagraph: boolean,
 ): TaskMarker | undefined {
   const frame = containers.at(-1);
+
   if (
     continuingParagraph ||
     frame?.kind !== "listItem" ||
@@ -157,18 +180,25 @@ export function taskListMarker(
   ) {
     return;
   }
+
   const start = line.content.start;
   const marker = source.slice(start, start + 3);
+
   if (marker !== "[ ]" && marker.toLowerCase() !== "[x]") {
     return;
   }
+
   const after = source[start + 3];
+
   if (start + 3 < line.content.end && !isSpaceOrTab(after)) {
     return;
   }
+
   let contentStart = start + 3;
+
   while (contentStart < line.content.end && isSpaceOrTab(source[contentStart])) {
     contentStart++;
   }
+
   return { checked: marker !== "[ ]", contentStart, frame };
 }

@@ -1,6 +1,5 @@
 import type { Logger } from "@temelj/log";
-
-import { z } from "zod";
+import type { StorageValue } from "@temelj/storage";
 
 import type { WorkflowBundle } from "../bundle.ts";
 import type {
@@ -46,32 +45,6 @@ import type {
   TickSchedulesResult,
 } from "./schedule.ts";
 import type { Telemetry } from "./telemetry.ts";
-
-import { WorkflowRuntimeError } from "../errors/runtime.ts";
-
-const workflowRuntimeObjectPropertySchema = z.object({});
-const workflowRuntimeFunctionPropertySchema = z.custom<(...args: never[]) => unknown>(
-  (value) => typeof value === "function",
-);
-
-export const workflowRuntimeSchema = z.object({
-  runs: workflowRuntimeObjectPropertySchema,
-  schedules: workflowRuntimeObjectPropertySchema,
-  locks: workflowRuntimeObjectPropertySchema,
-  workers: workflowRuntimeObjectPropertySchema,
-  close: workflowRuntimeFunctionPropertySchema,
-  implementWorkflow: workflowRuntimeFunctionPropertySchema,
-  register: workflowRuntimeFunctionPropertySchema,
-  start: workflowRuntimeFunctionPropertySchema,
-});
-
-/** Asserts that a value has the minimum shape required by runtime helper functions. */
-export function parseWorkflowRuntime(value: unknown): asserts value is WorkflowRuntime {
-  const parsed = workflowRuntimeSchema.safeParse(value);
-  if (!parsed.success) {
-    WorkflowRuntimeError.invalid();
-  }
-}
 
 /** Options for workflow creation runtime. */
 interface CreateWorkflowRuntimeBaseOptions extends WorkflowExecutionLimits {
@@ -166,8 +139,8 @@ export interface WorkflowRuntime {
 
 /** Describes runtime-level run operations. */
 export interface WorkflowRuntimeRunsApi {
-  /** Returns a typed handle for an existing run. */
-  getHandle<TOutput = unknown>(runId: RunId): Promise<WorkflowRunHandle<TOutput>>;
+  /** Returns a handle whose result is the persisted value; validate it before treating it as an application type. */
+  getHandle(runId: RunId): Promise<WorkflowRunHandle<StorageValue | undefined>>;
   /** Lists workflow runs visible to the runtime client. */
   list(options?: WorkflowListRunsOptions): Promise<readonly WorkflowRunRecord[]>;
 }
@@ -184,12 +157,12 @@ export interface WorkflowRuntimeSchedulesApi {
   create<TInput, TOutput, TRawInput = TInput>(
     workflow: WorkflowStartTarget<TInput, TOutput, TRawInput>,
     options: ScheduleConfig<TInput, TRawInput>,
-  ): Promise<ScheduleRecord<TInput>>;
+  ): Promise<ScheduleRecord>;
   /** Creates or updates a recurring workflow schedule. */
   upsert<TInput, TOutput, TRawInput = TInput>(
     workflow: WorkflowStartTarget<TInput, TOutput, TRawInput>,
     options: ScheduleConfig<TInput, TRawInput>,
-  ): Promise<ScheduleRecord<TInput>>;
+  ): Promise<ScheduleRecord>;
   /** Returns a schedule by ID, if it exists. */
   get(scheduleId: ScheduleId): Promise<ScheduleRecord | undefined>;
   /** Lists schedules matching optional filters. */

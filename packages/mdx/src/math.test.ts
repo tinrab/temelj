@@ -174,17 +174,21 @@ describe("streaming TeX math", () => {
 
 function streamingKinds(document: StreamingDocument): readonly string[] {
   const kinds: string[] = [];
+
   const visit = (node: (typeof document.children)[number]): void => {
     kinds.push(node.kind);
+
     if ("children" in node) {
       for (const child of node.children) {
         visit(child);
       }
     }
   };
+
   for (const child of document.children) {
     visit(child);
   }
+
   return kinds;
 }
 
@@ -194,5 +198,6 @@ function expectParsed(
   if (outcome.kind !== "parsed") {
     throw new Error(`Expected parsed outcome, received ${outcome.kind}`);
   }
+
   return outcome;
 }

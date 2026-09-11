@@ -7,6 +7,7 @@ export function sourceRange(start: number, end: number): SourceRange {
   if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 0 || end < start) {
     throw new RangeError(`Invalid source range ${start}..${end}`);
   }
+
   return Object.freeze({ start, end });
 }
 
@@ -22,6 +23,7 @@ export function rangesIntersect(left: SourceRange, right: SourceRange): boolean 
   if (right.start === right.end) {
     return left.start < right.start && right.start < left.end;
   }
+
   return left.start < right.end && right.start < left.end;
 }
 

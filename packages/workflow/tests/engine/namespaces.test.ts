@@ -8,10 +8,12 @@ import { createWorkflowStore } from "../../src/store/create.ts";
 describe("workflow namespaces", () => {
   test("isolates workflow stores by namespace over the same storage", async () => {
     const sharedStore = createWorkflowStore({ namespace: "shared" });
+
     const left = createWorkflowEngine({
       store: sharedStore,
       createRunId: () => "same_id",
     });
+
     const right = createWorkflowEngine({
       store: createWorkflowStore({
         storage: sharedStore.storage,
@@ -19,6 +21,7 @@ describe("workflow namespaces", () => {
       }),
       createRunId: () => "same_id",
     });
+
     const workflow = implementWorkflow({ name: "isolated" }, () => "ok");
 
     await left.startWorkflow(workflow, undefined, { idempotencyKey: "external_1" });

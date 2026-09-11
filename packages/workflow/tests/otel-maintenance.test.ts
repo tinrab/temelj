@@ -33,9 +33,11 @@ describe("OpenTelemetry workflow maintenance telemetry", () => {
 
   test("emits scheduled run creation spans and due latency metrics", async () => {
     const spanExporter = new InMemorySpanExporter();
+
     const tracerProvider = new BasicTracerProvider({
       spanProcessors: [new SimpleSpanProcessor(spanExporter)],
     });
+
     const metricExporter = new InMemoryMetricExporter(AggregationTemporality.CUMULATIVE);
     const metricReader = new PeriodicExportingMetricReader({ exporter: metricExporter });
     const meterProvider = new MeterProvider({ readers: [metricReader] });
@@ -47,6 +49,7 @@ describe("OpenTelemetry workflow maintenance telemetry", () => {
       now: () => Temporal.Instant.from("2026-06-15T10:00:00Z"),
       telemetry: createOpenTelemetryTelemetry(),
     });
+
     const workflow = implementWorkflow({ name: "otel-schedule", version: "v1" }, () => "scheduled");
 
     await engine.createSchedule(workflow, {
@@ -68,6 +71,7 @@ describe("OpenTelemetry workflow maintenance telemetry", () => {
     const scheduleTickSpan = spanExporter
       .getFinishedSpans()
       .find((span) => span.name === WORKFLOW_SPAN_NAMES.scheduleTick);
+
     expect(scheduleTickSpan?.attributes).toEqual(
       expect.objectContaining({
         [WORKFLOW_ATTRIBUTES.system]: WORKFLOW_SYSTEM,
@@ -81,6 +85,7 @@ describe("OpenTelemetry workflow maintenance telemetry", () => {
     const scheduleSpan = spanExporter
       .getFinishedSpans()
       .find((span) => span.name === WORKFLOW_SPAN_NAMES.scheduleRunCreate);
+
     expect(scheduleSpan?.attributes).toEqual(
       expect.objectContaining({
         [WORKFLOW_ATTRIBUTES.system]: WORKFLOW_SYSTEM,
@@ -107,6 +112,7 @@ describe("OpenTelemetry workflow maintenance telemetry", () => {
         }),
       ]),
     );
+
     for (const attributes of metricAttributes(
       metricData,
       WORKFLOW_METRIC_NAMES.scheduleDueToRunCreatedLatency,
@@ -118,9 +124,11 @@ describe("OpenTelemetry workflow maintenance telemetry", () => {
 
   test("emits cleanup and retention operation spans", async () => {
     const spanExporter = new InMemorySpanExporter();
+
     const tracerProvider = new BasicTracerProvider({
       spanProcessors: [new SimpleSpanProcessor(spanExporter)],
     });
+
     const metricExporter = new InMemoryMetricExporter(AggregationTemporality.CUMULATIVE);
     const metricReader = new PeriodicExportingMetricReader({ exporter: metricExporter });
     const meterProvider = new MeterProvider({ readers: [metricReader] });
@@ -129,11 +137,13 @@ describe("OpenTelemetry workflow maintenance telemetry", () => {
 
     let now = Temporal.Instant.from("2026-06-01T10:00:00Z");
     const runIds = ["run-otel-cleanup", "run-otel-retention"];
+
     const engine = createWorkflowEngine({
       createRunId: () => runIds.shift() ?? "run-otel-extra",
       now: () => now,
       telemetry: createOpenTelemetryTelemetry(),
     });
+
     const workflow = implementWorkflow({ name: "otel-cleanup" }, () => "done");
 
     await engine.runWorkflowNow(workflow, undefined);
@@ -157,6 +167,7 @@ describe("OpenTelemetry workflow maintenance telemetry", () => {
     const cleanupSpans = spanExporter
       .getFinishedSpans()
       .filter((span) => span.name === WORKFLOW_SPAN_NAMES.cleanupOperation);
+
     expect(cleanupSpans.map((span) => span.attributes)).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -199,6 +210,7 @@ describe("OpenTelemetry workflow maintenance telemetry", () => {
         }),
       ]),
     );
+
     for (const attributes of metricAttributes(
       metricData,
       WORKFLOW_METRIC_NAMES.cleanupDeletedRuns,

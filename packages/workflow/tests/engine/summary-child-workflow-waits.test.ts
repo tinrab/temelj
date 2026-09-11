@@ -219,6 +219,7 @@ function runRecord(
   patch: Partial<WorkflowRunRecord> = {},
 ): WorkflowRunRecord {
   const timestamp = Temporal.Instant.from("2026-06-12T09:00:00Z");
+
   return {
     id,
     namespace: "default",
@@ -242,6 +243,7 @@ function stepAttempt(
   patch: Partial<WorkflowStepAttemptRecord> = {},
 ): WorkflowStepAttemptRecord {
   const timestamp = Temporal.Instant.from("2026-06-12T09:00:00Z");
+
   return {
     runId,
     stepId,

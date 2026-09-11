@@ -27,6 +27,7 @@ export function isReadableWorkflowRunRecord(
   expectedNamespace: string,
 ): run is WorkflowRunRecord {
   const parsed = workflowRunRecordSchema.safeParse(run);
+
   return parsed.success && parsed.data.namespace === expectedNamespace;
 }
 
@@ -46,17 +47,19 @@ export function parseStoredWorkflowRunRecord(
 }
 
 /** Returns whether an unknown value is a readable schedule record in the expected namespace. */
-export function isReadableScheduleRecord<TInput = StorageValue>(
+export function isReadableScheduleRecord(
   schedule: unknown,
   expectedNamespace: string,
-): schedule is ScheduleRecord<TInput> {
+): schedule is ScheduleRecord {
   const parsed = workflowScheduleRecordSchema.safeParse(schedule);
+
   return parsed.success && parsed.data.namespace === expectedNamespace;
 }
 
 /** Returns whether an unknown value is a readable lock record in the expected namespace. */
 export function isReadableLockRecord(lock: unknown, expectedNamespace: string): lock is LockRecord {
   const parsed = workflowLockRecordSchema.safeParse(lock);
+
   return parsed.success && parsed.data.namespace === expectedNamespace;
 }
 
@@ -66,8 +69,11 @@ export function isReadableEventRecord(event: unknown): event is EventRecord {
 }
 
 /** Parses a readable cleanup marker record, if the value has the expected shape. */
-export function readableCleanupMarkerRecord(marker: unknown): CleanupMarkerRecord | undefined {
+export function readableCleanupMarkerRecord(
+  marker: StorageValue | undefined,
+): CleanupMarkerRecord | undefined {
   const parsed = workflowCleanupMarkerRecordSchema.safeParse(marker);
+
   return parsed.success ? parsed.data : undefined;
 }
 
@@ -87,10 +93,11 @@ export function isReadableMessageIdempotencyIndex(
 
 /** Returns whether the stored message idempotency index matches the expected logical index. */
 export function isSameMessageIdempotencyIndex(
-  current: unknown,
+  current: StorageValue | WorkflowMessageIdempotencyIndex | undefined,
   value: WorkflowMessageIdempotencyIndex,
 ): boolean {
   const parsedCurrent = workflowMessageIdempotencyIndexSchema.safeParse(current);
+
   return (
     parsedCurrent.success &&
     parsedCurrent.data.runId === value.runId &&
@@ -101,7 +108,10 @@ export function isSameMessageIdempotencyIndex(
 
 export function requireReadableStoreRun(run: WorkflowRunRecord, namespace: string): void {
   const runId = run.id;
-  if (!isReadableWorkflowRunRecord(run, namespace)) {
+
+  const parsed = workflowRunRecordSchema.safeParse(run);
+
+  if (!parsed.success || parsed.data.namespace !== namespace) {
     WorkflowRunNotFoundError.notFound(runId);
   }
 }
@@ -113,9 +123,11 @@ export function requireValidRunTransition(
   if (current.status === next.status) {
     return;
   }
+
   if (canTransitionWorkflowRunStatus(current.status, next.status)) {
     return;
   }
+
   WorkflowRunTransitionError.invalidTransition(current.id, current.status, next.status);
 }
 

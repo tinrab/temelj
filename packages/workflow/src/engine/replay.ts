@@ -3,6 +3,7 @@ import type { StorageValue } from "@temelj/storage";
 import { deepEquals } from "@temelj/value";
 
 import type { WorkflowExecutionEnvironment } from "../types/engine.ts";
+import type { SleepStartedEvent } from "../types/events.ts";
 import type { EventRecord } from "../types/events.ts";
 import type { RunId, WorkflowAttributePatch } from "../types/run.ts";
 import type { WorkflowStepRunConfig } from "../types/step.ts";
@@ -63,6 +64,7 @@ export function requireRunStepReplayTimeoutMatches(
 
   const recordedTimeout =
     started.timeoutAt === undefined ? "no timeout" : started.timeoutAt.toString();
+
   const replayTimeout = config.timeout === undefined ? "no timeout" : "a timeout";
   WorkflowReplayDivergenceError.diverged(
     `recorded run step ${identity.id} had ${recordedTimeout}, ` +
@@ -82,6 +84,7 @@ export function requireMetadataReplayMatches(
   if (deepEquals(recorded.metadata, metadata)) {
     return;
   }
+
   WorkflowReplayDivergenceError.diverged(
     `recorded metadata step ${identity.id} used different metadata`,
     {
@@ -99,6 +102,7 @@ export function requireAttributesReplayMatches(
   if (JSON.stringify(workflowAttributePatchFromEvent(recorded)) === JSON.stringify(attributes)) {
     return;
   }
+
   WorkflowReplayDivergenceError.diverged(
     `recorded attributes step ${identity.id} used different attributes`,
     {
@@ -128,6 +132,7 @@ export function requireMessageSendReplayMatches(
   const recordedMessage = started?.messageId ?? terminal.messageId;
   const recordedPayload = started?.payload;
   const recordedIdempotencyKey = started?.idempotencyKey;
+
   if (
     recordedTargetRunId === next.targetRunId &&
     recordedMessage === next.messageId &&
@@ -143,6 +148,7 @@ export function requireMessageSendReplayMatches(
         `messageId ${recordedMessage} with different payload or idempotency key`
       : `recorded message-send step ${identity.id} targeted ${recordedTargetRunId} ` +
         `messageId ${recordedMessage}, but replay targeted ${next.targetRunId} messageId ${next.messageId}`;
+
   WorkflowReplayDivergenceError.diverged(message, {
     expectedStepId: identity.id,
     actualStepId: identity.id,
@@ -159,6 +165,7 @@ export async function sleepUntil(
   const identity = resolveWorkflowCommandIdentity(history, "sleep", name);
   const started = history.startedSleep(identity.id);
   const completed = history.completedSleep(identity.id);
+
   if (completed !== undefined) {
     // Completed sleeps never wait during replay, but we still validate the recorded wait shape so a code change cannot silently reinterpret old history.
     requireRecordedDurableStepStarted(
@@ -166,6 +173,7 @@ export async function sleepUntil(
       history.hasStartedEventBeforeTerminalEvent(completed),
     );
     requireSleepReplayMatches(identity, started, initialUntil, options);
+
     if (!(completed.timestamp instanceof Temporal.Instant)) {
       WorkflowReplayDivergenceError.diverged(
         `recorded sleep step ${identity.id} has invalid completion timestamp: ` +
@@ -176,21 +184,28 @@ export async function sleepUntil(
         },
       );
     }
+
     return;
   }
 
   const until = started === undefined ? initialUntil : recordedSleepUntil(identity, started.until);
   requireSleepReplayMatches(identity, started, initialUntil, options);
+
   if (started === undefined) {
-    await appendDurableStepStartedEvent(environment, {
+    const event: SleepStartedEvent = {
       kind: "sleep_started",
       timestamp: now(),
       stepId: identity.id,
       stepName: identity.name,
       count: identity.count,
       until,
-      ...(options.duration === undefined ? {} : { duration: options.duration }),
-    });
+    };
+
+    if (options.duration !== undefined) {
+      Object.assign(event, { duration: options.duration } satisfies Partial<SleepStartedEvent>);
+    }
+
+    await appendDurableStepStartedEvent(environment, event);
   }
 
   if (Temporal.Instant.compare(until, now()) > 0) {
@@ -249,6 +264,7 @@ function requireSleepReplayMatches(
   if (started === undefined) {
     return;
   }
+
   if (started.duration !== undefined || options.duration !== undefined) {
     if (started.duration === undefined || options.duration === undefined) {
       if (started.duration === options.duration) {
@@ -257,6 +273,7 @@ function requireSleepReplayMatches(
     } else if (started.duration.toString() === options.duration.toString()) {
       return;
     }
+
     WorkflowReplayDivergenceError.diverged(
       `recorded sleep step ${identity.id} waited for ${String(started.duration)}ms, ` +
         `but replay waited for ${String(options.duration)}ms`,
@@ -266,6 +283,7 @@ function requireSleepReplayMatches(
       },
     );
   }
+
   if (Temporal.Instant.compare(started.until, until) === 0) {
     return;
   }

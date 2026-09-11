@@ -20,7 +20,7 @@ export interface DragVectorState {
  */
 export interface DragVectorReturn<T extends Element> extends DragVectorState {
   /** Ref for the draggable element. */
-  ref: React.RefObject<T | null>;
+  ref: React.RefCallback<T>;
   /** Handler for pointer down. */
   onPointerDown: React.PointerEventHandler<T>;
   /** Handler for pointer move. */
@@ -36,6 +36,7 @@ export interface DragVectorReturn<T extends Element> extends DragVectorState {
 function eventVector<T extends Element>(event: React.PointerEvent<T>, node: T | null): Vector2 {
   if (!node) return vector2.of(event.clientX, event.clientY);
   const bounds = node.getBoundingClientRect();
+
   return vector2.of(event.clientX - bounds.left, event.clientY - bounds.top);
 }
 
@@ -44,6 +45,7 @@ function eventVector<T extends Element>(event: React.PointerEvent<T>, node: T | 
  */
 export function useDragVector<T extends Element>(): DragVectorReturn<T> {
   const ref = React.useRef<T | null>(null);
+
   const [state, setState] = React.useState<DragVectorState>({
     dragging: false,
     start: null,
@@ -65,6 +67,7 @@ export function useDragVector<T extends Element>(): DragVectorReturn<T> {
     setState((currentState) => {
       if (!currentState.dragging || currentState.start === null) return currentState;
       const current = eventVector(event, ref.current);
+
       return {
         dragging: true,
         start: currentState.start,
@@ -81,7 +84,9 @@ export function useDragVector<T extends Element>(): DragVectorReturn<T> {
 
   return {
     ...state,
-    ref,
+    ref: React.useCallback((node: T | null) => {
+      ref.current = node;
+    }, []),
     onPointerDown,
     onPointerMove,
     onPointerUp,

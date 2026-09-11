@@ -43,8 +43,10 @@ function StreamingExampleRoute(): React.ReactNode {
         if (activeRun.current !== run) {
           return;
         }
+
         setSource((current) => current + chunk.content);
       }
+
       if (activeRun.current === run) {
         setState("complete");
       }

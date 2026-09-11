@@ -4,10 +4,35 @@ import * as cheerio from "cheerio";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-type TagNode = {
-  type: "tag";
-  tagName: string;
-};
+type CheerioRoot = ReturnType<CheerioAPI["root"]>;
+
+type DomNode = ReturnType<CheerioRoot["contents"]>[number];
+
+type TagNode = ReturnType<CheerioRoot["children"]>[number];
+
+interface OptionTerm {
+  signature: string;
+  name: string;
+  aliases: string[];
+  type: string | null;
+  categories: string[];
+  arguments: string;
+}
+
+interface PossibleValue {
+  value: string;
+  description: string;
+}
+
+interface ScrapedOption extends Omit<OptionTerm, "signature"> {
+  description: string;
+  default: string | null;
+  range: { min: string; max: string } | null;
+  possible_values: PossibleValue[] | null;
+  page: string;
+  page_type: string;
+  section: string;
+}
 
 class FFmpegScrapeError extends Error {
   constructor(message: string, context?: Function) {
@@ -29,6 +54,7 @@ class FFmpegScrapeError extends Error {
 }
 
 const BASE_URL = "https://ffmpeg.org";
+
 const DOCS_DIR = join(import.meta.dirname, "../src/generated");
 
 const OPTIONS_PAGES = [
@@ -60,20 +86,22 @@ const TYPE_KEYWORDS = new Set([
   "list",
 ]);
 
-const PAGE_CONTEXT: Record<string, string> = {
-  ffmpeg: "tool",
-  ffplay: "tool",
-  ffprobe: "tool",
-  "ffmpeg-utils": "utility",
-  "ffmpeg-scaler": "scaler",
-  "ffmpeg-resampler": "resampler",
-  "ffmpeg-codecs": "codec",
-  "ffmpeg-bitstream-filters": "bitstream_filter",
-  "ffmpeg-formats": "format",
-  "ffmpeg-protocols": "protocol",
-  "ffmpeg-devices": "device",
-  "ffmpeg-filters": "filter",
-};
+const PAGE_CONTEXT = new Map<string, string>(
+  Object.entries({
+    ffmpeg: "tool",
+    ffplay: "tool",
+    ffprobe: "tool",
+    "ffmpeg-utils": "utility",
+    "ffmpeg-scaler": "scaler",
+    "ffmpeg-resampler": "resampler",
+    "ffmpeg-codecs": "codec",
+    "ffmpeg-bitstream-filters": "bitstream_filter",
+    "ffmpeg-formats": "format",
+    "ffmpeg-protocols": "protocol",
+    "ffmpeg-devices": "device",
+    "ffmpeg-filters": "filter",
+  }),
+);
 
 async function fetchHTML(url: string): Promise<string> {
   const headers = {
@@ -81,13 +109,17 @@ async function fetchHTML(url: string): Promise<string> {
   };
 
   let lastError: unknown;
+
   for (let attempt = 0; attempt < 4; attempt++) {
     try {
       const resp = await fetch(url, { signal: AbortSignal.timeout(30000), headers });
+
       if (!resp.ok) FFmpegScrapeError.fetchFailed(url, resp.status);
+
       return await resp.text();
     } catch (err) {
       lastError = err;
+
       if (attempt === 3) break;
       await new Promise((resolve) => setTimeout(resolve, 300));
     }
@@ -98,18 +130,19 @@ async function fetchHTML(url: string): Promise<string> {
 
 function collectTextWithSeparator($: CheerioAPI, node: TagNode): string {
   const parts: string[] = [];
-  for (const child of $(node as any)
-    .contents()
-    .toArray() as Array<unknown>) {
-    const nodeChild = child as { type?: string; data?: string };
-    if (nodeChild.type === "text") {
-      const text = nodeChild.data?.trim() ?? "";
+
+  for (const child of $(node).contents().toArray()) {
+    if (child.type === "text") {
+      const text = child.data?.trim() ?? "";
+
       if (text) parts.push(text);
     } else if (isTagNode(child)) {
       const nested = collectTextWithSeparator($, child);
+
       if (nested) parts.push(nested);
     }
   }
+
   return parts.join(" ");
 }
 
@@ -123,42 +156,40 @@ function htmlDecode(text: string): string {
     .replace(/&#x27;/g, "'");
 }
 
-function isTagNode(node: unknown): node is TagNode {
-  return (
-    Boolean(node) &&
-    typeof node === "object" &&
-    (node as { type?: string }).type === "tag" &&
-    typeof (node as { tagName?: unknown }).tagName === "string"
-  );
+function isTagNode(node: DomNode): node is TagNode {
+  return node.type === "tag";
 }
 
 function collectDdText($: CheerioAPI, ddTag: TagNode): string {
   const texts: string[] = [];
-  for (const child of $(ddTag as any)
-    .contents()
-    .toArray() as Array<unknown>) {
-    const nodeChild = child as { type?: string; data?: string };
-    if (nodeChild.type === "text") {
-      const t = nodeChild.data?.trim() ?? "";
+
+  for (const child of $(ddTag).contents().toArray()) {
+    if (child.type === "text") {
+      const t = child.data?.trim() ?? "";
+
       if (t) texts.push(htmlDecode(t));
     } else if (isTagNode(child) && child.tagName === "p") {
       texts.push(collectTextWithSeparator($, child));
     }
   }
+
   return htmlDecode(texts.join("\n")).trim();
 }
 
-function parseOptionTerm($: CheerioAPI, dtTag: TagNode): Record<string, any> | null {
-  const samp = $(dtTag as any).find("samp");
+function parseOptionTerm($: CheerioAPI, dtTag: TagNode): OptionTerm | null {
+  const samp = $(dtTag).find("samp");
+
   if (samp.length === 0) return null;
 
-  let fullText = collectTextWithSeparator($, samp[0] as TagNode);
+  let fullText = collectTextWithSeparator($, samp[0]);
   fullText = htmlDecode(fullText);
   fullText = fullText.replace(/\s+/g, " ").trim();
+
   if (!fullText) return null;
 
   const categories: string[] = [];
   const catMatch = fullText.match(/\(([^()]+)\)\s*$/);
+
   if (catMatch) {
     categories.push(...catMatch[1].split(",").map((c) => c.trim()));
   }
@@ -174,6 +205,7 @@ function parseOptionTerm($: CheerioAPI, dtTag: TagNode): Record<string, any> | n
 
   let optType: string | null = null;
   let typeIdx: number | null = null;
+
   if (!textNoBrackets.startsWith("-")) {
     for (let i = words.length - 1; i >= 0; i--) {
       if (TYPE_KEYWORDS.has(words[i].toLowerCase())) {
@@ -185,6 +217,7 @@ function parseOptionTerm($: CheerioAPI, dtTag: TagNode): Record<string, any> | n
   }
 
   let nameWords: string[];
+
   if (typeIdx !== null) {
     nameWords = [...words.slice(0, typeIdx), ...words.slice(typeIdx + 1)];
   } else {
@@ -197,6 +230,7 @@ function parseOptionTerm($: CheerioAPI, dtTag: TagNode): Record<string, any> | n
     .split(",")
     .map((p) => p.trim())
     .filter(Boolean);
+
   const primary = parts[0] || fullText;
   const aliases = parts.length > 1 ? parts.slice(1) : [];
 
@@ -210,20 +244,21 @@ function parseOptionTerm($: CheerioAPI, dtTag: TagNode): Record<string, any> | n
   };
 }
 
-function parsePossibleValues($: CheerioAPI, dlTag: TagNode): Array<Record<string, string>> {
-  const values: Array<Record<string, string>> = [];
-  const items = $(dlTag as any)
-    .children("dt, dd")
-    .toArray() as Array<unknown>;
+function parsePossibleValues($: CheerioAPI, dlTag: TagNode): PossibleValue[] {
+  const values: PossibleValue[] = [];
+
+  const items = $(dlTag).children("dt, dd").toArray();
 
   for (let i = 0; i < items.length; i++) {
-    const item = items[i] as unknown;
+    const item = items[i];
+
     if (!isTagNode(item) || item.tagName !== "dt") continue;
 
     const valueName = collectTextWithSeparator($, item);
     let valueDesc = "";
 
-    const next = i + 1 < items.length ? (items[i + 1] as unknown) : undefined;
+    const next = i + 1 < items.length ? items[i + 1] : undefined;
+
     if (next && isTagNode(next) && next.tagName === "dd") {
       valueDesc = collectDdText($, next);
     }
@@ -242,15 +277,16 @@ function parseOptionDl(
   dlTag: TagNode,
   pageName: string,
   section: string,
-): Array<Record<string, any>> {
-  const options: Array<Record<string, any>> = [];
-  const items = $(dlTag as any)
-    .children("dt, dd")
-    .toArray() as Array<unknown>;
+): ScrapedOption[] {
+  const options: ScrapedOption[] = [];
+
+  const items = $(dlTag).children("dt, dd").toArray();
 
   let i = 0;
+
   while (i < items.length) {
-    const item = items[i] as unknown;
+    const item = items[i];
+
     if (!isTagNode(item) || item.tagName !== "dt") {
       i++;
       continue;
@@ -258,30 +294,37 @@ function parseOptionDl(
 
     const aliasesTerms: TagNode[] = [item];
     let j = i + 1;
+
     while (j < items.length) {
-      const next = items[j] as unknown;
+      const next = items[j];
+
       if (!isTagNode(next) || next.tagName !== "dt") break;
       aliasesTerms.push(next);
       j++;
     }
 
     let ddTag: TagNode | null = null;
+
     if (j < items.length) {
-      const next = items[j] as unknown;
+      const next = items[j];
+
       if (isTagNode(next) && next.tagName === "dd") {
         ddTag = next;
       }
     }
 
-    let primaryInfo: Record<string, any> | null = null;
+    let primaryInfo: OptionTerm | null = null;
     const allNames: string[] = [];
+
     for (const dtTerm of aliasesTerms) {
       const info = parseOptionTerm($, dtTerm);
+
       if (info) {
         if (primaryInfo === null) {
           primaryInfo = info;
         }
-        allNames.push(info["name"]);
+
+        allNames.push(info.name);
       }
     }
 
@@ -291,50 +334,56 @@ function parseOptionDl(
     }
 
     let desc = "";
-    let possibleValues: Array<Record<string, string>> | null = null;
+    let possibleValues: PossibleValue[] | null = null;
 
     if (ddTag) {
       desc = collectDdText($, ddTag);
-      if (primaryInfo["name"] === "qrcode_width") {
+
+      if (primaryInfo.name === "qrcode_width") {
         desc = desc.replace(/¸/g, "");
       }
 
-      const nestedDl = $(ddTag as any).children("dl");
+      const nestedDl = $(ddTag).children("dl");
+
       if (nestedDl.length > 0) {
-        possibleValues = parsePossibleValues($, nestedDl[0] as TagNode);
+        possibleValues = parsePossibleValues($, nestedDl[0]);
       }
     }
 
     let default_: string | null = null;
+
     if (desc) {
       const m = desc.match(/Default\s+(?:value\s+)?is\s+([^.\n]+)/i);
+
       if (m) {
         default_ = m[1].trim();
       }
     }
 
-    let rangeInfo: Record<string, string> | null = null;
+    let rangeInfo: ScrapedOption["range"] = null;
+
     if (desc) {
       const m = desc.match(
         /(?:Range|Must be)\s+(?:is\s+)?(?:between\s+)?([\d.-]+)\s+and\s+([\d.-]+)/i,
       );
+
       if (m) {
         rangeInfo = { min: m[1], max: m[2] };
       }
     }
 
     options.push({
-      name: primaryInfo["name"],
-      aliases: primaryInfo["aliases"],
-      type: primaryInfo["type"],
-      categories: primaryInfo["categories"],
-      arguments: primaryInfo["arguments"],
+      name: primaryInfo.name,
+      aliases: primaryInfo.aliases,
+      type: primaryInfo.type,
+      categories: primaryInfo.categories,
+      arguments: primaryInfo.arguments,
       description: desc,
       default: default_,
       range: rangeInfo,
       possible_values: possibleValues,
       page: pageName,
-      page_type: PAGE_CONTEXT[pageName] ?? "other",
+      page_type: PAGE_CONTEXT.get(pageName) ?? "other",
       section,
     });
 
@@ -344,37 +393,42 @@ function parseOptionDl(
   return options;
 }
 
-async function extractOptionsFromPage(pageName: string): Promise<Array<Record<string, any>>> {
-  const pageId = pageName.replace(/\.html$/, "");
-  const url = `${BASE_URL}/${pageName}`;
+async function extractOptionsFromPage(pageName: string): Promise<ScrapedOption[]> {
+  const html = await fetchHTML(`${BASE_URL}/${pageName}`);
 
-  const html = await fetchHTML(url);
+  return extractOptionsFromHtml(pageName, html);
+}
+
+export function extractOptionsFromHtml(pageName: string, html: string): ScrapedOption[] {
+  const pageId = pageName.replace(/\.html$/, "");
   const $ = cheerio.load(html);
   let contentDiv = $("div.page-content.inset");
+
   if (contentDiv.length === 0) {
     contentDiv = $("#page-content-wrapper");
   }
+
   if (contentDiv.length === 0) return [];
 
   contentDiv.find("script, style, nav").remove();
   contentDiv.find("div.contents").remove();
   contentDiv.find('div[align="center"]').remove();
 
-  const allOptions: Array<Record<string, any>> = [];
+  const allOptions: ScrapedOption[] = [];
   let currentSection = "";
 
-  for (const child of contentDiv.contents().toArray() as Array<unknown>) {
+  for (const child of contentDiv.contents().toArray()) {
     if (!isTagNode(child)) continue;
 
     if (["h2", "h3", "h4"].includes(child.tagName)) {
-      const text = $(child as any)
-        .text()
-        .trim();
+      const text = $(child).text().trim();
+
       if (!text.includes("Table of Contents")) {
         currentSection = text;
       }
     } else if (child.tagName === "dl") {
-      const dt = $(child as any).find("dt");
+      const dt = $(child).find("dt");
+
       if (dt.length > 0 && dt.find("samp").length > 0) {
         const opts = parseOptionDl($, child, pageId, currentSection);
         allOptions.push(...opts);
@@ -388,7 +442,8 @@ async function extractOptionsFromPage(pageName: string): Promise<Array<Record<st
 async function main() {
   await mkdir(DOCS_DIR, { recursive: true });
 
-  const allOptions: Array<Record<string, any>> = [];
+  const allOptions: ScrapedOption[] = [];
+
   for (const page of OPTIONS_PAGES) {
     console.log(`  Extracting options from ${page}...`);
     const opts = await extractOptionsFromPage(page);
@@ -408,4 +463,6 @@ async function main() {
   console.log(`\nOptions JSON: ${allOptions.length} options written to ${outPath}`);
 }
 
-void main();
+if (import.meta.main) {
+  await main();
+}

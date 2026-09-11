@@ -26,10 +26,12 @@ interface WorkflowRunHookActivityAccumulator {
   readonly webhookNames: Set<string>;
 }
 
-export function createWorkflowRunHookActivitySummaryReducer(): {
+export interface WorkflowRunHookActivitySummaryReducer {
   readonly addHook: (runId: RunId, hook: ActiveWorkflowHookSummary) => void;
   readonly finish: () => WorkflowRunHookActivitySummary;
-} {
+}
+
+export function createWorkflowRunHookActivitySummaryReducer(): WorkflowRunHookActivitySummaryReducer {
   const hooks = createWorkflowRunHookActivityAccumulator();
 
   return {
@@ -66,10 +68,12 @@ function addWorkflowRunHookActivity(
     hooks.webhookTotal++;
     hooks.webhookNames.add(hook.name);
   }
+
   hooks.runIds.add(runId);
   hooks.stepIds.add(hook.stepId);
   hooks.messages.add(hook.messageId);
   hooks.oldestStartedAt = earliestOptionalTimestamp(hooks.oldestStartedAt, hook.startedAt);
+
   if (shouldReplaceWorkflowEarliestDefinedInstant(hooks.nextTimeoutAt, hook.timeoutAt)) {
     setWorkflowRunHookNextTimeout(hooks, runId, hook);
   }
@@ -88,32 +92,44 @@ function setWorkflowRunHookNextTimeout(
 function finishWorkflowRunHookActivitySummary(
   hooks: WorkflowRunHookActivityAccumulator,
 ): WorkflowRunHookActivitySummary {
-  return hooks.hookTotal + hooks.webhookTotal === 0
-    ? {}
-    : {
-        hook: {
-          activeHooks: hooks.hookTotal,
-          activeWebhooks: hooks.webhookTotal,
-          activeHookRuns: hooks.runIds.size,
-          hookRunIds: [...hooks.runIds].sort(),
-          hookStepIds: [...hooks.stepIds].sort(),
-          hookNames: [...hooks.hookNames].sort(),
-          webhookNames: [...hooks.webhookNames].sort(),
-          messages: [...hooks.messages].sort(),
-          ...(hooks.oldestStartedAt === undefined
-            ? {}
-            : { oldestStartedAt: hooks.oldestStartedAt }),
-          ...(hooks.nextTimeoutAt === undefined
-            ? {}
-            : {
-                nextTimeoutAt: hooks.nextTimeoutAt,
-                ...(hooks.nextTimeoutRunId === undefined
-                  ? {}
-                  : { nextTimeoutRunId: hooks.nextTimeoutRunId }),
-                ...(hooks.nextTimeoutStepId === undefined
-                  ? {}
-                  : { nextTimeoutStepId: hooks.nextTimeoutStepId }),
-              }),
-        },
-      };
+  if (hooks.hookTotal + hooks.webhookTotal === 0) {
+    return {};
+  }
+
+  const result: NonNullable<WorkflowRunHookActivitySummary["hook"]> = {
+    activeHooks: hooks.hookTotal,
+    activeWebhooks: hooks.webhookTotal,
+    activeHookRuns: hooks.runIds.size,
+    hookRunIds: [...hooks.runIds].sort(),
+    hookStepIds: [...hooks.stepIds].sort(),
+    hookNames: [...hooks.hookNames].sort(),
+    webhookNames: [...hooks.webhookNames].sort(),
+    messages: [...hooks.messages].sort(),
+  };
+
+  if (hooks.oldestStartedAt !== undefined) {
+    Object.assign(result, { oldestStartedAt: hooks.oldestStartedAt } satisfies Partial<
+      NonNullable<WorkflowRunHookActivitySummary["hook"]>
+    >);
+  }
+
+  if (hooks.nextTimeoutAt !== undefined) {
+    Object.assign(result, { nextTimeoutAt: hooks.nextTimeoutAt } satisfies Partial<
+      NonNullable<WorkflowRunHookActivitySummary["hook"]>
+    >);
+
+    if (!(hooks.nextTimeoutRunId === undefined)) {
+      Object.assign(result, { nextTimeoutRunId: hooks.nextTimeoutRunId } satisfies Partial<
+        NonNullable<WorkflowRunHookActivitySummary["hook"]>
+      >);
+    }
+
+    if (!(hooks.nextTimeoutStepId === undefined)) {
+      Object.assign(result, { nextTimeoutStepId: hooks.nextTimeoutStepId } satisfies Partial<
+        NonNullable<WorkflowRunHookActivitySummary["hook"]>
+      >);
+    }
+  }
+
+  return { hook: result };
 }

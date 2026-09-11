@@ -1,9 +1,13 @@
+import type { PluginContext as RolldownPluginContext } from "rolldown";
+import type { PluginContext as RollupPluginContext } from "rollup";
+
 import fs from "node:fs/promises";
 import path from "node:path";
-import { createUnplugin, type SourceMapCompact, type UnpluginFactory } from "unplugin";
+import { createUnplugin, type UnpluginFactory } from "unplugin";
 
 import type {
   TransformManifest,
+  TransformResult,
   TransformOptions,
   WorkflowPluginOptions,
   VitePluginOptions,
@@ -30,52 +34,72 @@ const workflowUnpluginFactory: UnpluginFactory<WorkflowPluginOptions | undefined
     transformInclude(id) {
       return matchesFilters(id, include, exclude);
     },
-    async transform(code, id) {
-      await loadWorkflowImportManifests({
-        context: this,
-        code,
-        id,
-        options,
-        include,
-        exclude,
-        manifests,
-        manifestFileById,
-        loadingManifests,
-      });
-      const result = transformAndStoreWorkflowManifest(
-        code,
-        id,
-        options,
-        manifests,
-        manifestFileById,
-      );
-      if (result === undefined) return null;
-      return {
-        code: result.code,
-        ...(result.map === undefined ? {} : { map: toUnpluginSourceMap(result.map) }),
-      };
+    transform(code, id) {
+      return transformWithImports(undefined, code, id);
     },
+    rollup: { transform: transformWithNativeContext },
+    rolldown: { transform: transformWithNativeContext },
+    unloader: { transform: transformWithNativeContext },
     vite: {
+      transform: transformWithNativeContext,
       handleHotUpdate(context) {
         if (!matchesFilters(context.file, include, exclude)) {
           return;
         }
+
         const modules = context.modules.filter((module) => module.id !== null);
+
         if (modules.length === 0) {
           return;
         }
+
         return modules;
       },
     },
   };
+
+  async function transformWithImports(
+    context: WorkflowImportContext | undefined,
+    code: string,
+    id: string,
+  ): Promise<TransformResult | null> {
+    if (!matchesFilters(id, include, exclude)) {
+      return null;
+    }
+
+    await loadWorkflowImportManifests({
+      context,
+      code,
+      id,
+      options,
+      include,
+      exclude,
+      manifests,
+      manifestFileById,
+      loadingManifests,
+    });
+
+    const result = transformAndStoreWorkflowManifest(
+      code,
+      id,
+      options,
+      manifests,
+      manifestFileById,
+    );
+
+    return result ?? null;
+  }
+
+  function transformWithNativeContext(
+    this: WorkflowImportContext,
+    code: string,
+    id: string,
+  ): Promise<TransformResult | null> {
+    return transformWithImports(this, code, id);
+  }
 };
 
 const JS_TS_EXTENSION_PATTERN = /\.[cm]?[jt]sx?$/;
-
-// The transform API keeps maps bundler-agnostic; this plugin boundary hands them back to unplugin.
-function toUnpluginSourceMap(map: unknown): SourceMapCompact {
-  return map as SourceMapCompact;
-}
 
 export const workflowPlugin = createUnplugin<WorkflowPluginOptions | undefined, false>(
   workflowUnpluginFactory,
@@ -86,7 +110,7 @@ export const workflow: (options?: VitePluginOptions) => ReturnType<typeof workfl
   workflowPlugin.vite;
 
 interface LoadWorkflowImportManifestsOptions {
-  readonly context: unknown;
+  readonly context: WorkflowImportContext | undefined;
   readonly code: string;
   readonly id: string;
   readonly options: TransformOptions;
@@ -111,14 +135,18 @@ async function loadWorkflowImportManifests({
   if (!hasWorkflowManifestCandidate(code) || loadingManifests.has(id)) {
     return;
   }
+
   loadingManifests.add(id);
+
   try {
     for (const source of collectRelativeImportSources(code, id)) {
-      if (canLoadWorkflowImportManifests(context)) {
+      if (context !== undefined) {
         const resolved = await context.resolve(source, id, { skipSelf: true });
+
         if (resolved === null || !matchesFilters(resolved.id, include, exclude)) {
           continue;
         }
+
         await context.load({ id: resolved.id });
         await preloadWorkflowImportFile({
           context,
@@ -132,9 +160,11 @@ async function loadWorkflowImportManifests({
         });
       } else {
         const resolved = await resolveRelativeImportFile(source, id);
+
         if (resolved === undefined || !matchesFilters(resolved, include, exclude)) {
           continue;
         }
+
         await preloadWorkflowImportFile({
           context,
           id: resolved,
@@ -164,9 +194,11 @@ async function preloadWorkflowImportFile({
 }: Omit<LoadWorkflowImportManifestsOptions, "code">): Promise<void> {
   const cleanId = stripQuery(id);
   const importedCode = await fs.readFile(cleanId, "utf8").catch(() => undefined);
+
   if (importedCode === undefined) {
     return;
   }
+
   await loadWorkflowImportManifests({
     context,
     code: importedCode,
@@ -192,36 +224,29 @@ function transformAndStoreWorkflowManifest(
     ...options,
     manifests: [...(options.manifests ?? []), ...manifests.values()],
   });
+
   if (result === undefined) {
     manifests.delete(id);
     const previousFile = manifestFileById.get(id);
+
     if (previousFile !== undefined) {
       manifests.delete(previousFile);
       manifestFileById.delete(id);
     }
+
     return undefined;
   }
+
   manifests.set(id, result.manifest);
   manifests.set(result.manifest.file, result.manifest);
   manifestFileById.set(id, result.manifest.file);
+
   return result;
 }
 
-interface WorkflowViteTransformContext {
-  resolve(
-    source: string,
-    importer: string | undefined,
-    options: { readonly skipSelf: true },
-  ): Promise<{ readonly id: string } | null>;
-  load(options: { readonly id: string }): Promise<unknown>;
-}
-
-function canLoadWorkflowImportManifests(context: unknown): context is WorkflowViteTransformContext {
-  return (
-    typeof (context as { readonly resolve?: unknown }).resolve === "function" &&
-    typeof (context as { readonly load?: unknown }).load === "function"
-  );
-}
+type WorkflowImportContext =
+  | Pick<RollupPluginContext, "resolve" | "load">
+  | Pick<RolldownPluginContext, "resolve" | "load">;
 
 function hasWorkflowManifestCandidate(code: string): boolean {
   return (
@@ -237,6 +262,7 @@ function collectRelativeImportSources(code: string, id: string): readonly string
   if (!JS_TS_EXTENSION_PATTERN.test(stripQuery(id))) {
     return [];
   }
+
   const sourceFile = parseWorkflowSource(id, code);
   const sources = new Set<string>();
 
@@ -285,12 +311,15 @@ async function resolveRelativeImportFile(
 ): Promise<string | undefined> {
   const cleanImporter = stripQuery(importer);
   const base = path.resolve(path.dirname(cleanImporter), source);
+
   for (const candidate of relativeImportCandidates(base)) {
     const stat = await fs.stat(candidate).catch(() => undefined);
+
     if (stat?.isFile() === true) {
       return candidate;
     }
   }
+
   return undefined;
 }
 
@@ -298,10 +327,13 @@ function relativeImportCandidates(base: string): readonly string[] {
   const candidates = RELATIVE_IMPORT_EXTENSIONS.map((extension) => `${base}${extension}`);
   const extension = path.extname(base);
   const mappedExtensions = ESM_SOURCE_EXTENSION_BY_IMPORT_EXTENSION.get(extension);
+
   if (mappedExtensions === undefined) {
     return candidates;
   }
+
   const withoutExtension = base.slice(0, -extension.length);
+
   return [
     base,
     ...mappedExtensions.map((mappedExtension) => `${withoutExtension}${mappedExtension}`),
@@ -324,8 +356,10 @@ function matchesFilters(
   if (exclude?.some((pattern) => pattern.test(id)) === true) {
     return false;
   }
+
   if (include !== undefined && !include.some((pattern) => pattern.test(id))) {
     return false;
   }
+
   return true;
 }

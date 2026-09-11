@@ -12,6 +12,7 @@ import { rewriteHtmlElements } from "../plugin-internal.ts";
 import { HtmlTransformPlugin } from "../plugin.ts";
 
 export type MathRenderMode = "strict" | "tolerant";
+
 export type { MathRenderInput, MathRenderStyle } from "../html.ts";
 
 export interface MathRenderRequest extends MathRenderInput {
@@ -45,9 +46,12 @@ export class MathRenderPlugin extends HtmlTransformPlugin {
       if (!(node instanceof HtmlMathNode)) {
         return;
       }
+
       const request: MathRenderRequest = { element: node, signal: context.signal, ...node.math };
+
       try {
         const result = this.renderer.render(request);
+
         return isPromise(result)
           ? Promise.resolve(result).catch((cause: unknown) =>
               this.renderFailure(cause, request, context),
@@ -67,6 +71,7 @@ export class MathRenderPlugin extends HtmlTransformPlugin {
     if (this.mode === "strict") {
       throw cause;
     }
+
     context.diagnostics.add({
       severity: "warning",
       code: "mdx.plugin.math-render",

@@ -6,6 +6,7 @@ import { WorkflowCapabilityError } from "../errors/mod.ts";
 export function getWorkflowStoreCapabilities(storage: WorkflowStorage): WorkflowStoreCapabilities {
   const conditionalWrites = supportsWorkflowConditionalWrite(storage);
   const conditionalBatches = supportsWorkflowAtomicBatchWrite(storage);
+
   return {
     conditionalWrites,
     conditionalRunClaims: conditionalWrites,
@@ -31,11 +32,9 @@ export function getWorkflowStoreCapabilities(storage: WorkflowStorage): Workflow
 /** Validates workflow store capabilities and throws when the requirement is not met. */
 export function requireWorkflowStoreCapabilities(
   store: { readonly capabilities: WorkflowStoreCapabilities },
-  requirements: Partial<Record<keyof WorkflowStoreCapabilities, string>>,
+  requirements: readonly (readonly [capability: keyof WorkflowStoreCapabilities, label: string])[],
 ): void {
-  for (const [capability, label] of Object.entries(requirements) as Array<
-    [keyof WorkflowStoreCapabilities, string | undefined]
-  >) {
+  for (const [capability, label] of requirements) {
     if (store.capabilities[capability] !== true) {
       WorkflowCapabilityError.unsupported(label ?? `workflow store ${capability}`);
     }

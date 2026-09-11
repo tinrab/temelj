@@ -18,10 +18,12 @@ interface WorkflowRunTransitionAccumulator {
   readonly runIds: WorkflowRunTransitionReasonRunIds;
 }
 
-export function createWorkflowRunTransitionSummaryReducer(): {
+export interface WorkflowRunTransitionSummaryReducer {
   readonly addRun: (run: WorkflowRunRecord) => void;
   readonly finish: () => WorkflowRunTransitionSummary;
-} {
+}
+
+export function createWorkflowRunTransitionSummaryReducer(): WorkflowRunTransitionSummaryReducer {
   const transition = createWorkflowRunTransitionAccumulator();
 
   return {
@@ -46,9 +48,11 @@ function addWorkflowRunTransition(
   run: WorkflowRunRecord,
 ): void {
   const reason = workflowRunTransitionReason(run.lastTransitionReason);
+
   if (reason === undefined) {
     return;
   }
+
   transition.reason[reason]++;
   transition.runIds[reason].push(run.id);
   transition.latestTransitionAt = latestOptionalTimestamp(
@@ -60,13 +64,18 @@ function addWorkflowRunTransition(
 function finishWorkflowRunTransitionSummary(
   transition: WorkflowRunTransitionAccumulator,
 ): WorkflowRunTransitionSummary {
-  return {
+  const result1: WorkflowRunTransitionSummary = {
     reason: transition.reason,
     runIds: sortedWorkflowRunTransitionReasonRunIds(transition.runIds),
-    ...(transition.latestTransitionAt === undefined
-      ? {}
-      : { latestTransitionAt: transition.latestTransitionAt }),
   };
+
+  if (transition.latestTransitionAt !== undefined) {
+    Object.assign(result1, {
+      latestTransitionAt: transition.latestTransitionAt,
+    } satisfies Partial<WorkflowRunTransitionSummary>);
+  }
+
+  return result1;
 }
 
 function workflowRunTransitionReason(

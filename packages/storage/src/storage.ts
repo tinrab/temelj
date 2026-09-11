@@ -55,13 +55,14 @@ export function createStorage<
   TValue = StorageItemValue<TItems>,
   TStoredValue extends StoredValue = string,
 >(options: CreateStorageOptions<TValue, TStoredValue> = {}): Storage<TItems, TValue, TStoredValue> {
-  const engine = (options.engine ?? new InMemoryStorageEngine<string>()) as NonNullable<
-    CreateStorageOptions<TValue, TStoredValue>["engine"]
-  >;
-  const codec = (options.codec ?? createSuperJsonStorageCodec()) as StorageCodec<
+  const engine = options.engine ?? new InMemoryStorageEngine<TStoredValue>();
+
+  // SAFETY: The public overload requires a codec for non-string engines; the default codec writes strings.
+  const codec = (options.codec ?? createSuperJsonStorageCodec<TValue>()) as StorageCodec<
     TValue,
     TStoredValue
   >;
+
   const capabilities = {
     get compareAndSet() {
       return engine.compareAndSet !== undefined;
@@ -94,14 +95,14 @@ export function createStorage<
   let engineUnwatch: StorageWatchUnsubscribe | undefined;
   let engineWatchStart: Promise<void> | undefined;
 
-  const toStorageError = (operation: string, error: unknown, key?: string): StorageError =>
-    error instanceof StorageError
-      ? error
+  const toStorageError = (operation: string, cause: unknown, key?: string): StorageError =>
+    cause instanceof StorageError
+      ? cause
       : StorageOperationError.create({
           engine: engine.name,
           operation,
           key,
-          cause: error,
+          cause,
         });
 
   const emitChange = (event: StorageChangeEvent): void => {
@@ -124,6 +125,7 @@ export function createStorage<
     }
 
     events.emit("storage:change", event);
+
     for (const callback of watchCallbacks) {
       try {
         callback(event);
@@ -150,6 +152,7 @@ export function createStorage<
         };
       case "clear": {
         const prefix = normalizeStoragePrefix(event.prefix);
+
         return prefix === undefined
           ? {
               type: "clear",
@@ -171,6 +174,7 @@ export function createStorage<
 
     if (engineWatchStart !== undefined) {
       await engineWatchStart;
+
       return;
     }
 
@@ -193,6 +197,7 @@ export function createStorage<
 
     const unwatch = engineUnwatch;
     engineUnwatch = undefined;
+
     if (unwatch !== undefined) {
       await unwatch();
     }
@@ -236,6 +241,7 @@ export function createStorage<
 
       let active = true;
       watchCallbacks.add(callback);
+
       const unsubscribe = async (): Promise<void> => {
         if (!active) {
           return;
@@ -243,6 +249,7 @@ export function createStorage<
 
         active = false;
         watchCallbacks.delete(callback);
+
         if (watchCallbacks.size === 0) {
           await stopEngineWatch();
         }
@@ -259,6 +266,7 @@ export function createStorage<
       try {
         const normalizedKey = normalizeStorageKey(key);
         const bytes = await engine.get(normalizedKey);
+
         return bytes === undefined ? undefined : codec.decode(bytes);
       } catch (error) {
         throw toStorageError("get", error, key);
@@ -294,6 +302,7 @@ export function createStorage<
     ): Promise<Result<void, StorageError>> {
       try {
         await storage.set(key, value, options);
+
         return ok(undefined);
       } catch (error) {
         return err(toStorageError("set", error, key));
@@ -312,12 +321,14 @@ export function createStorage<
         }
 
         const normalizedKey = normalizeStorageKey(key);
+
         const updated = await engine.compareAndSet(
           normalizedKey,
           expected === undefined ? undefined : codec.encode(expected),
           value === undefined ? undefined : codec.encode(value),
           { ttl: resolveTtl(options) },
         );
+
         if (updated) {
           emitChange(
             value === undefined
@@ -334,6 +345,7 @@ export function createStorage<
                 },
           );
         }
+
         return updated;
       } catch (error) {
         throw toStorageError("compareAndSet", error, key);
@@ -367,10 +379,12 @@ export function createStorage<
           value: item.value,
           options: item.options,
         }));
+
         assertUniqueStorageKeys(
           "compareAndSetMany",
           normalizedItems.map((item) => item.key),
         );
+
         const updated = await engine.compareAndSetMany(
           normalizedItems.map((item) => ({
             key: item.key,
@@ -379,6 +393,7 @@ export function createStorage<
             options: { ttl: resolveTtl(item.options) },
           })),
         );
+
         if (updated) {
           for (const item of normalizedItems) {
             emitChange(
@@ -397,6 +412,7 @@ export function createStorage<
             );
           }
         }
+
         return updated;
       } catch (error) {
         throw toStorageError("compareAndSetMany", error);
@@ -416,9 +432,11 @@ export function createStorage<
     async has(key: string): Promise<boolean> {
       try {
         const normalizedKey = normalizeStorageKey(key);
+
         if (engine.has) {
           return await engine.has(normalizedKey);
         }
+
         return (await engine.get(normalizedKey)) !== undefined;
       } catch (error) {
         throw toStorageError("has", error, key);
@@ -443,6 +461,7 @@ export function createStorage<
           deleted,
           source: "storage",
         });
+
         return deleted;
       } catch (error) {
         throw toStorageError("delete", error, key);
@@ -460,13 +479,17 @@ export function createStorage<
     async getMany(keys: readonly string[]): Promise<readonly (TValue | undefined)[]> {
       try {
         const normalizedKeys = keys.map((key) => normalizeStorageKey(key));
+
         if (engine.getMany) {
           const values = await engine.getMany(normalizedKeys);
+
           return normalizedKeys.map((key) => {
             const bytes = values.get(key);
+
             return bytes === undefined ? undefined : codec.decode(bytes);
           });
         }
+
         return await Promise.all(normalizedKeys.map((key) => storage.get(key)));
       } catch (error) {
         throw toStorageError("getMany", error);
@@ -490,6 +513,7 @@ export function createStorage<
           value: item.value,
           options: item.options,
         }));
+
         if (engine.setMany) {
           await engine.setMany(
             normalizedItems.map((item) => ({
@@ -503,8 +527,10 @@ export function createStorage<
             keys: normalizedItems.map((item) => item.key),
             source: "storage",
           });
+
           return;
         }
+
         await Promise.all(
           normalizedItems.map((item) => storage.set(item.key, item.value, item.options)),
         );
@@ -518,6 +544,7 @@ export function createStorage<
     ): Promise<Result<void, StorageError>> {
       try {
         await storage.setMany(items);
+
         return ok(undefined);
       } catch (error) {
         return err(toStorageError("setMany", error));
@@ -527,6 +554,7 @@ export function createStorage<
     async deleteMany(keys: readonly string[]): Promise<number> {
       try {
         const normalizedKeys = keys.map((key) => normalizeStorageKey(key));
+
         if (engine.deleteMany) {
           const deleted = await engine.deleteMany(normalizedKeys);
           emitChange({
@@ -535,9 +563,12 @@ export function createStorage<
             deleted,
             source: "storage",
           });
+
           return deleted;
         }
+
         const deleted = await Promise.all(normalizedKeys.map((key) => storage.delete(key)));
+
         return deleted.filter(Boolean).length;
       } catch (error) {
         throw toStorageError("deleteMany", error);
@@ -555,6 +586,7 @@ export function createStorage<
     async keys(options?: StorageKeyOptions): Promise<readonly string[]> {
       try {
         const prefix = normalizeStoragePrefix(options?.prefix);
+
         return [...(await engine.keys({ prefix }))].sort();
       } catch (error) {
         throw toStorageError("keys", error);
@@ -573,8 +605,10 @@ export function createStorage<
       try {
         const keys = await storage.keys(options);
         const values = await storage.getMany(keys);
+
         return keys.flatMap((key, index): readonly StorageEntry<TValue>[] => {
           const value = values[index];
+
           return value === undefined ? [] : [{ key, value }];
         });
       } catch (error) {
@@ -596,6 +630,7 @@ export function createStorage<
       try {
         const prefix = normalizeStoragePrefix(options?.prefix);
         await engine.clear({ prefix });
+
         const event: StorageClearEvent =
           prefix === undefined
             ? {
@@ -607,6 +642,7 @@ export function createStorage<
                 prefix,
                 source: "storage",
               };
+
         emitChange(event);
       } catch (error) {
         throw toStorageError("clear", error);
@@ -616,6 +652,7 @@ export function createStorage<
     async tryClear(options?: StorageKeyOptions): Promise<Result<void, StorageError>> {
       try {
         await storage.clear(options);
+
         return ok(undefined);
       } catch (error) {
         return err(toStorageError("clear", error));
@@ -639,6 +676,7 @@ export function createStorage<
     async tryDispose(): Promise<Result<void, StorageError>> {
       try {
         await storage.dispose();
+
         return ok(undefined);
       } catch (error) {
         return err(toStorageError("dispose", error));
@@ -646,15 +684,18 @@ export function createStorage<
     },
   };
 
+  // SAFETY: Named-key overloads specialize the same string-key operations implemented above; codecs own TValue decoding.
   return storage as Storage<TItems, TValue, TStoredValue>;
 }
 
 function assertUniqueStorageKeys(operation: string, keys: readonly string[]): void {
   const seen = new Set<string>();
+
   for (const key of keys) {
     if (seen.has(key)) {
       throw StorageKeyError.unique(operation, key);
     }
+
     seen.add(key);
   }
 }

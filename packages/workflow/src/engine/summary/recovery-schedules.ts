@@ -49,10 +49,13 @@ function addWorkflowRecoverySchedule(
   if (schedule.status !== "active") {
     return;
   }
+
   schedules.scheduleIds.add(schedule.id);
+
   if (Temporal.Instant.compare(schedule.nextFireAt, now) <= 0) {
     schedules.dueScheduleIds.add(schedule.id);
   }
+
   schedules.nextFire = earliestWorkflowRecoveryScheduleFire(
     schedules.nextFire,
     schedule.id,
@@ -63,19 +66,22 @@ function addWorkflowRecoverySchedule(
 function finishWorkflowRecoveryScheduleSummary(
   schedules: WorkflowRecoveryScheduleAccumulator,
 ): WorkflowRecoveryScheduleSummary {
-  return {
+  const result1: WorkflowRecoveryScheduleSummary = {
     total: schedules.scheduleIds.size,
     due: schedules.dueScheduleIds.size,
     scheduleIds: [...schedules.scheduleIds].sort(),
     dueScheduleIds: [...schedules.dueScheduleIds].sort(),
     invalidNextFireScheduleIds: [...schedules.invalidNextFireScheduleIds].sort(),
-    ...(schedules.nextFire === undefined
-      ? {}
-      : {
-          nextFireAt: schedules.nextFire.timestamp,
-          nextFireScheduleId: schedules.nextFire.scheduleId,
-        }),
   };
+
+  if (schedules.nextFire !== undefined) {
+    Object.assign(result1, {
+      nextFireAt: schedules.nextFire.timestamp,
+      nextFireScheduleId: schedules.nextFire.scheduleId,
+    } satisfies Partial<WorkflowRecoveryScheduleSummary>);
+  }
+
+  return result1;
 }
 
 function earliestWorkflowRecoveryScheduleFire(

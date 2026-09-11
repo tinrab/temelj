@@ -1,7 +1,7 @@
 import { debounce } from "@temelj/async";
 import * as React from "react";
 
-import { useLatest } from "../internal/mod.ts";
+import { useRateLimitedCallback } from "../internal/use-rate-limited-callback.ts";
 
 /**
  * Leading and trailing edge options for rate-limited callback hooks.
@@ -21,19 +21,26 @@ export function useDebouncedCallback<Args extends unknown[], R>(
   waitMs: number,
   options?: RateLimitOptions,
 ): (...args: Args) => Promise<R> {
-  const fnRef = useLatest(fn);
+  const config = React.useMemo(
+    () => ({ waitMs, leading: options?.leading, trailing: options?.trailing }),
+    [waitMs, options?.leading, options?.trailing],
+  );
 
-  const debounced = React.useMemo(() => {
-    const controller = new AbortController();
-    const callback = debounce((...args: Args) => fnRef.current(...args), waitMs, {
-      leading: options?.leading,
-      trailing: options?.trailing,
-      signal: controller.signal,
-    });
-    return { callback, controller };
-  }, [fnRef, waitMs, options?.leading, options?.trailing]);
+  return useRateLimitedCallback(fn, config, createDebounced);
+}
 
-  React.useEffect(() => () => debounced.controller.abort(), [debounced]);
+interface DebounceConfig extends RateLimitOptions {
+  readonly waitMs: number;
+}
 
-  return debounced.callback;
+function createDebounced<Args extends unknown[], R>(
+  fn: (...args: Args) => PromiseLike<R> | R,
+  config: DebounceConfig,
+  signal: AbortSignal,
+): (...args: Args) => Promise<R> {
+  return debounce(fn, config.waitMs, {
+    leading: config.leading,
+    trailing: config.trailing,
+    signal,
+  });
 }

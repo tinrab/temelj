@@ -14,6 +14,7 @@ export function parseHex(value: string): Color | undefined {
   }
 
   let hex = value.replace("#", "");
+
   if (hex.length === 3) {
     hex = hex
       .split("")
@@ -24,13 +25,16 @@ export function parseHex(value: string): Color | undefined {
   const red = Number.parseInt(hex.substring(0, 2), 16);
   const green = Number.parseInt(hex.substring(2, 4), 16);
   const blue = Number.parseInt(hex.substring(4, 6), 16);
+
   if (Number.isNaN(red) || Number.isNaN(green) || Number.isNaN(blue)) {
     return undefined;
   }
 
   let alpha: number | undefined;
+
   if (hex.length === 8) {
     alpha = Number.parseInt(hex.substring(6, 8), 16) / 255;
+
     if (Number.isNaN(alpha)) {
       return undefined;
     }
@@ -56,6 +60,7 @@ export function toHex(color: Color): string {
     const alpha = Math.round(color.alpha * 255)
       .toString(16)
       .padStart(2, "0");
+
     value += alpha;
   }
 

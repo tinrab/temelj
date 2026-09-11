@@ -18,14 +18,16 @@ export function useWindowScroll(): [{ x: number | null; y: number | null }, Wind
     x: null,
     y: null,
   });
+
   const scrollTo = React.useCallback<WindowScrollTo>(
-    ((...args: [ScrollToOptions?] | [number, number]) => {
+    (...args: [ScrollToOptions?] | [number, number]) => {
       if (!isBrowser) {
         return;
       }
-      if (typeof args[0] === "number") window.scrollTo(args[0], args[1] as number);
+
+      if (args.length === 2) window.scrollTo(args[0], args[1]);
       else window.scrollTo(args[0]);
-    }) as WindowScrollTo,
+    },
     [],
   );
 
@@ -33,9 +35,11 @@ export function useWindowScroll(): [{ x: number | null; y: number | null }, Wind
     if (!isBrowser) {
       return undefined;
     }
+
     const handleScroll = () => setState({ x: window.scrollX, y: window.scrollY });
     handleScroll();
     window.addEventListener("scroll", handleScroll);
+
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 

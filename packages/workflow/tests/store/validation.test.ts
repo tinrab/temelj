@@ -1,7 +1,5 @@
 import { describe, expect, test } from "vitest";
 
-import type { EventRecord } from "../../src/types/events.ts";
-
 import { workflowEventRecordSchema } from "../../src/types/events.ts";
 
 describe("workflow store validation", () => {
@@ -10,7 +8,7 @@ describe("workflow store validation", () => {
       workflowEventRecordSchema.parse({
         kind: "unknown_event",
         timestamp: Temporal.Instant.from("2025-01-01T00:00:00Z"),
-      } as never as EventRecord),
+      }),
     ).toThrow("Invalid discriminator value");
   });
 
@@ -19,7 +17,7 @@ describe("workflow store validation", () => {
       workflowEventRecordSchema.parse({
         kind: "workflow_started",
         timestamp: "2025-01-01T00:00:00Z",
-      } as never as EventRecord),
+      }),
     ).toThrow("Expected a Temporal.Instant");
   });
 });

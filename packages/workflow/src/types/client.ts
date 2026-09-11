@@ -1,3 +1,6 @@
+import type { StorageValue } from "@temelj/storage";
+
+import type { COMPILED_WORKFLOW, COMPILED_STEP } from "../compiled-symbols.ts";
 import type {
   CleanupMarkerRecord,
   CleanupRunsOptions,
@@ -60,6 +63,7 @@ import type {
   WorkflowStepAttemptRecord,
   WorkflowStepAttemptSummary,
 } from "./step-attempts.ts";
+import type { WorkflowStepDefinition } from "./step.ts";
 import type { StreamIdOrName } from "./stream-id.ts";
 import type {
   FollowStreamOptions,
@@ -88,9 +92,12 @@ import type {
 } from "./worker.ts";
 
 /** Function shape emitted by the directive compiler for workflow and step functions. */
-export type CompiledWorkflowFunction<TArgs extends readonly unknown[], TOutput> = (
+export type CompiledWorkflowFunction<TArgs extends readonly unknown[], TOutput> = ((
   ...args: TArgs
-) => Promise<TOutput> | TOutput;
+) => Promise<TOutput> | TOutput) & {
+  readonly [COMPILED_WORKFLOW]?: WorkflowImplementation<TArgs, Awaited<TOutput>, TArgs>;
+  readonly [COMPILED_STEP]?: WorkflowStepDefinition<TArgs, Awaited<TOutput>>;
+};
 
 /** Client-level handle for awaiting output and inspecting a workflow run. */
 export interface WorkflowRunHandle<TOutput = unknown> {
@@ -113,36 +120,33 @@ export interface WorkflowRunHandle<TOutput = unknown> {
   /** Returns metadata for a durable stream on this run. */
   getStreamInfo(streamIdOrName: StreamIdOrName): Promise<StreamInfo>;
   /** Follows durable stream updates from this run. */
-  followStream<TChunk = unknown>(
+  followStream(
     streamIdOrName: StreamIdOrName,
     options?: FollowStreamOptions,
-  ): AsyncIterable<StreamUpdate<TChunk>>;
+  ): AsyncIterable<StreamUpdate>;
   /** Waits until a durable stream exists on this run. */
   waitForStream(
     streamIdOrName: StreamIdOrName,
     options?: WaitStreamOptions,
   ): Promise<StreamInfo | undefined>;
   /** Waits for the next durable stream chunk after an index. */
-  waitForStreamChunk<TChunk = unknown>(
+  waitForStreamChunk(
     streamIdOrName: StreamIdOrName,
     afterIndex: number,
     options?: WaitStreamOptions,
-  ): Promise<StreamChunk<TChunk> | undefined>;
+  ): Promise<StreamChunk | undefined>;
   /** Waits until a durable stream is closed or failed. */
   waitForStreamTerminal(
     streamIdOrName: StreamIdOrName,
     options?: WaitStreamOptions,
   ): Promise<StreamInfo | undefined>;
   /** Reads all currently stored chunks for a durable stream. */
-  readStream<TChunk = unknown>(
-    streamIdOrName: StreamIdOrName,
-    options?: ReadStreamOptions,
-  ): Promise<StreamState<TChunk>>;
+  readStream(streamIdOrName: StreamIdOrName, options?: ReadStreamOptions): Promise<StreamState>;
   /** Reads one page of currently stored chunks for a durable stream. */
-  readStreamPage<TChunk = unknown>(
+  readStreamPage(
     streamIdOrName: StreamIdOrName,
     options?: ReadStreamPageOptions,
-  ): Promise<StreamPage<TChunk>>;
+  ): Promise<StreamPage>;
   /** Moves the run back to pending at an optional new availability time. */
   reschedule(options?: WorkflowRescheduleRunOptions): Promise<WorkflowRunRecord>;
   /** Releases this run's worker lease when it is stale. */
@@ -154,7 +158,7 @@ export interface WorkflowRunHandle<TOutput = unknown> {
     options: WorkflowMarkRunPermanentlyFailedOptions,
   ): Promise<WorkflowRunRecord>;
   /** Replaces this run's metadata value. */
-  setMetadata(metadata: unknown): Promise<WorkflowRunRecord>;
+  setMetadata(metadata: StorageValue): Promise<WorkflowRunRecord>;
   /** Applies an attribute patch to this run. */
   setAttributes(attributes: WorkflowAttributePatch): Promise<WorkflowRunRecord>;
   /** Cancels this run if it has not already reached a terminal status. */
@@ -281,7 +285,7 @@ export interface WorkflowClientAdminApi {
     options: WorkflowMarkRunPermanentlyFailedOptions,
   ): Promise<WorkflowRunRecord>;
   /** Replaces a workflow run's metadata value. */
-  updateMetadata(runId: RunId, metadata: unknown): Promise<WorkflowRunRecord>;
+  updateMetadata(runId: RunId, metadata: StorageValue): Promise<WorkflowRunRecord>;
   /** Applies an attribute patch to a workflow run. */
   setAttributes(runId: RunId, attributes: WorkflowAttributePatch): Promise<WorkflowRunRecord>;
   /** Cancels a workflow run if it has not already reached a terminal status. */
@@ -300,12 +304,12 @@ export interface WorkflowClientSchedulesApi {
   create<TInput, TOutput, TRawInput = TInput>(
     workflow: WorkflowStartTarget<TInput, TOutput, TRawInput>,
     options: ScheduleConfig<TInput, TRawInput>,
-  ): Promise<ScheduleRecord<TInput>>;
+  ): Promise<ScheduleRecord>;
   /** Creates or updates a recurring workflow schedule. */
   upsert<TInput, TOutput, TRawInput = TInput>(
     workflow: WorkflowStartTarget<TInput, TOutput, TRawInput>,
     options: ScheduleConfig<TInput, TRawInput>,
-  ): Promise<ScheduleRecord<TInput>>;
+  ): Promise<ScheduleRecord>;
   /** Returns a schedule by ID, if it exists. */
   get(scheduleId: ScheduleId): Promise<ScheduleRecord | undefined>;
   /** Lists schedules matching optional filters. */
@@ -357,11 +361,11 @@ export interface WorkflowClientStreamsApi {
   /** Returns metadata for a durable stream on a run. */
   getInfo(runId: RunId, streamIdOrName: StreamIdOrName): Promise<StreamInfo>;
   /** Follows durable stream updates from a run. */
-  follow<TChunk = unknown>(
+  follow(
     runId: RunId,
     streamIdOrName: StreamIdOrName,
     options?: FollowStreamOptions,
-  ): AsyncIterable<StreamUpdate<TChunk>>;
+  ): AsyncIterable<StreamUpdate>;
   /** Waits until a durable stream exists on a run. */
   wait(
     runId: RunId,
@@ -369,12 +373,12 @@ export interface WorkflowClientStreamsApi {
     options?: WaitStreamOptions,
   ): Promise<StreamInfo | undefined>;
   /** Waits for the next durable stream chunk after an index. */
-  waitForChunk<TChunk = unknown>(
+  waitForChunk(
     runId: RunId,
     streamIdOrName: StreamIdOrName,
     afterIndex: number,
     options?: WaitStreamOptions,
-  ): Promise<StreamChunk<TChunk> | undefined>;
+  ): Promise<StreamChunk | undefined>;
   /** Waits until a durable stream is closed or failed. */
   waitForTerminal(
     runId: RunId,
@@ -382,17 +386,17 @@ export interface WorkflowClientStreamsApi {
     options?: WaitStreamOptions,
   ): Promise<StreamInfo | undefined>;
   /** Reads all currently stored chunks for a durable stream. */
-  read<TChunk = unknown>(
+  read(
     runId: RunId,
     streamIdOrName: StreamIdOrName,
     options?: ReadStreamOptions,
-  ): Promise<StreamState<TChunk>>;
+  ): Promise<StreamState>;
   /** Reads one page of currently stored chunks for a durable stream. */
-  readPage<TChunk = unknown>(
+  readPage(
     runId: RunId,
     streamIdOrName: StreamIdOrName,
     options?: ReadStreamPageOptions,
-  ): Promise<StreamPage<TChunk>>;
+  ): Promise<StreamPage>;
 }
 
 /** Describes the workflow client messages API contract. */
@@ -400,17 +404,17 @@ export interface WorkflowClientMessagesApi {
   /** Sends a named message to a workflow run. */
   send(runId: RunId, options: SendMessageInput): Promise<void>;
   /** Sends a typed message channel payload to a workflow run. */
-  send<TPayload, TKey = void>(
+  send<TPayload, TRawPayload = TPayload>(
     runId: RunId,
-    channel: MessageChannel<TPayload, TKey>,
-    options?: SendMessageChannelOptions<TPayload, TKey>,
+    channel: MessageChannel<TPayload, TRawPayload>,
+    options?: SendMessageChannelOptions<TRawPayload>,
   ): Promise<void>;
   /** Broadcasts a named message to runs matching the target options. */
   broadcast(options: BroadcastMessageInput): Promise<BroadcastMessageResult>;
   /** Broadcasts a typed message channel payload to runs matching the target options. */
-  broadcast<TPayload, TKey = void>(
-    channel: MessageChannel<TPayload, TKey>,
-    options?: BroadcastMessageChannelOptions<TPayload, TKey>,
+  broadcast<TPayload, TRawPayload = TPayload>(
+    channel: MessageChannel<TPayload, TRawPayload>,
+    options?: BroadcastMessageChannelOptions<TRawPayload>,
   ): Promise<BroadcastMessageResult>;
 }
 

@@ -10,9 +10,12 @@ export function usePreferredLanguage(): string {
     if (!isBrowser) {
       return () => {};
     }
+
     window.addEventListener("languagechange", callback);
+
     return () => window.removeEventListener("languagechange", callback);
   }, []);
+
   return React.useSyncExternalStore(
     subscribe,
     () => navigator.language,

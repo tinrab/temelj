@@ -56,9 +56,11 @@ export function createActiveWorkflowEventSummaryReducer(): ActiveWorkflowEventSu
 
 export function activeWorkflowEvents(events: readonly EventRecord[]): ActiveWorkflowEventSummary {
   const reducer = createActiveWorkflowEventSummaryReducer();
+
   for (const event of events) {
     reducer.addEvent(event);
   }
+
   return reducer.finish();
 }
 
@@ -75,18 +77,23 @@ function addActiveStreamEvent(
       startedAt: event.timestamp,
       chunkCount: 0,
     });
+
     return;
   }
+
   if (event.kind === "stream_chunk") {
     const stream = streams.get(event.stepId);
+
     if (stream !== undefined) {
       streams.set(event.stepId, {
         ...stream,
         chunkCount: stream.chunkCount + 1,
       });
     }
+
     return;
   }
+
   if (event.kind === "stream_closed" || event.kind === "stream_failed") {
     terminalStreamStepIds.add(event.stepId);
   }
@@ -108,16 +115,26 @@ function addActiveHookEvent(
     if (event.source !== "hook" && event.source !== "webhook") {
       return;
     }
-    hooks.set(event.stepId, {
+
+    const hook: ActiveWorkflowHookSummary = {
       stepId: event.stepId,
       name: event.stepName,
       messageId: event.messageId,
       source: event.source,
       startedAt: event.timestamp,
-      ...(event.timeoutAt === undefined ? {} : { timeoutAt: event.timeoutAt }),
-    });
+    };
+
+    if (event.timeoutAt !== undefined) {
+      Object.assign(hook, {
+        timeoutAt: event.timeoutAt,
+      } satisfies Partial<ActiveWorkflowHookSummary>);
+    }
+
+    hooks.set(event.stepId, hook);
+
     return;
   }
+
   if (event.kind === "message_wait_completed" || event.kind === "message_wait_failed") {
     terminalHookStepIds.add(event.stepId);
   }

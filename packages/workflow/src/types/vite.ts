@@ -1,3 +1,5 @@
+import type { SourceMapCompact } from "unplugin";
+
 /** Kind values for workflow directive. */
 export type DirectiveKind = "workflow" | "step";
 
@@ -53,10 +55,15 @@ export interface TransformOptions {
   readonly runtimeImport?: string;
 }
 
+/** Source map emitted by the workflow compiler, including the original source text. */
+export interface WorkflowSourceMap extends SourceMapCompact {
+  sourcesContent: string[];
+}
+
 /** Result returned by workflow transform. */
 export interface TransformResult {
   readonly code: string;
-  readonly map?: unknown;
+  readonly map?: WorkflowSourceMap;
   readonly metadata: TransformMetadata;
   readonly manifest: TransformManifest;
 }

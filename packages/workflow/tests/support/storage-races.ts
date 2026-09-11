@@ -6,6 +6,7 @@ import {
   type StorageSetOptions,
   type StorageValue,
 } from "@temelj/storage";
+import { isObject } from "@temelj/value";
 
 import type { RunId } from "../../src/types/run.ts";
 
@@ -25,9 +26,11 @@ type WorkflowTestStorageCompareAndSet = (
   value: StorageValue | undefined,
   options?: StorageSetOptions,
 ) => Promise<boolean>;
+
 type WorkflowTestStorageCompareAndSetMany = (
   items: readonly StorageCompareAndSetManyItem<StorageValue>[],
 ) => Promise<boolean>;
+
 type WorkflowTestStorageGet = (key: string) => Promise<StorageValue | undefined>;
 
 export function createDelayedMessageAppendStorage(runId: RunId) {
@@ -44,6 +47,7 @@ export function createDelayedMessageAppendStorage(runId: RunId) {
     if (key === makeEventsKey("default", runId) && isMessageSentEventList(value)) {
       await new Promise<void>((resolve) => {
         pending.push(resolve);
+
         if (pending.length === 2) {
           for (const release of pending.splice(0)) {
             release();
@@ -60,21 +64,27 @@ export function createDelayedMessageAppendStorage(runId: RunId) {
 
 export function createMessageWaitAppendRaceStorage(runId: RunId) {
   const storage = createStorage();
+
   const compareAndSetMany: WorkflowTestStorageCompareAndSetMany =
     storage.compareAndSetMany.bind(storage);
+
   let raced = false;
 
   storage.compareAndSetMany = async (items) => {
     const workflowEventsStorageKey = makeEventsKey("default", runId);
+
     const appendsMessage = items.some(
       (item) => item.key === workflowEventsStorageKey && isMessageSentEventList(item.value),
     );
+
     if (!raced && appendsMessage) {
       raced = true;
+
       const currentEvents = await readWorkflowEventHistoryStorageValue(
         storage.get.bind(storage),
         workflowEventsStorageKey,
       );
+
       await storage.set(
         workflowEventsStorageKey,
         eventHistoryStorageValue([
@@ -91,6 +101,7 @@ export function createMessageWaitAppendRaceStorage(runId: RunId) {
         ]),
       );
     }
+
     return await compareAndSetMany(items);
   };
 
@@ -111,12 +122,15 @@ export function createSingleKeyMessageWaitAppendRaceStorage(runId: RunId) {
     options?: StorageSetOptions,
   ) => {
     const workflowEventsStorageKey = makeEventsKey("default", runId);
+
     if (!raced && key === workflowEventsStorageKey && isMessageSentEventList(value)) {
       raced = true;
+
       const currentEvents = await readWorkflowEventHistoryStorageValue(
         storage.get.bind(storage),
         workflowEventsStorageKey,
       );
+
       await storage.set(
         workflowEventsStorageKey,
         eventHistoryStorageValue([
@@ -134,6 +148,7 @@ export function createSingleKeyMessageWaitAppendRaceStorage(runId: RunId) {
         options,
       );
     }
+
     return await compareAndSet(key, expected, value, options);
   };
 
@@ -149,11 +164,14 @@ export function createTerminalDuplicateMessageCheckStorage(runId: RunId, idempot
 
   storage.get = async (key: string) => {
     const value = await get(key);
+
     if (raced || key !== makeEventsKey("default", runId) || !hasMessageIdempotency(value)) {
       return value;
     }
+
     raced = true;
     const run = await readWorkflowRunRecordStorageValue(get, makeRunKey("default", runId));
+
     if (run !== undefined) {
       await storage.set(
         makeRunKey("default", runId),
@@ -161,25 +179,25 @@ export function createTerminalDuplicateMessageCheckStorage(runId: RunId, idempot
           ...run,
           status: "completed",
           output: "external-terminal",
-          updatedAt: "2026-06-07T10:30:00.000Z",
-          lastTransitionAt: "2026-06-07T10:30:00.000Z",
+          updatedAt: Temporal.Instant.from("2026-06-07T10:30:00.000Z"),
+          lastTransitionAt: Temporal.Instant.from("2026-06-07T10:30:00.000Z"),
           lastTransitionReason: "completed",
-          finishedAt: "2026-06-07T10:30:00.000Z",
+          finishedAt: Temporal.Instant.from("2026-06-07T10:30:00.000Z"),
           workerId: undefined,
           leaseExpiresAt: undefined,
         }),
       );
     }
+
     return value;
   };
 
-  function hasMessageIdempotency(value: unknown): boolean {
+  function hasMessageIdempotency(value: StorageValue | undefined): boolean {
     return (
       Array.isArray(value) &&
       value.some(
         (event) =>
-          typeof event === "object" &&
-          event !== null &&
+          isObject(event) &&
           "kind" in event &&
           event.kind === "message_sent" &&
           "idempotencyKey" in event &&
@@ -197,19 +215,24 @@ export function createDelayedCompareAndSetStorage(options: {
 }) {
   const engine = new InMemoryStorageEngine<string>();
   const compareAndSet = engine.compareAndSet?.bind(engine);
+
   if (compareAndSet === undefined) {
     throw new Error("Expected in-memory storage engine to support compareAndSet");
   }
+
   const pending: Array<() => void> = [];
   let calls = 0;
 
   engine.compareAndSet = async (key, expected, value, itemOptions) => {
     calls++;
+
     const delayed =
       calls > (options.skipCalls ?? 0) && calls <= (options.skipCalls ?? 0) + options.waitForCalls;
+
     if (delayed) {
       await new Promise<void>((resolve) => {
         pending.push(resolve);
+
         if (pending.length === options.waitForCalls) {
           for (const release of pending.splice(0)) {
             release();
@@ -226,35 +249,41 @@ export function createDelayedCompareAndSetStorage(options: {
 
 export function createTerminalMessageAppendRaceStorage(runId: RunId) {
   const storage = createStorage();
+
   const compareAndSetMany: WorkflowTestStorageCompareAndSetMany =
     storage.compareAndSetMany.bind(storage);
+
   let raced = false;
 
   storage.compareAndSetMany = async (items) => {
     const runStorageKey = makeRunKey("default", runId);
+
     const appendsMessage = items.some(
       (item) => item.key === makeEventsKey("default", runId) && isMessageSentEventList(item.value),
     );
+
     if (!raced && appendsMessage) {
       raced = true;
       const runItem = items.find((item) => item.key === runStorageKey);
       const run = parseStoredWorkflowRunRecord(runItem?.expected);
+
       if (run !== undefined) {
         await storage.set(
           runStorageKey,
           runRecordStorageValue({
             ...run,
             status: "canceled",
-            updatedAt: "2026-06-07T10:00:00.000Z",
-            lastTransitionAt: "2026-06-07T10:00:00.000Z",
+            updatedAt: Temporal.Instant.from("2026-06-07T10:00:00.000Z"),
+            lastTransitionAt: Temporal.Instant.from("2026-06-07T10:00:00.000Z"),
             lastTransitionReason: "canceled",
-            finishedAt: "2026-06-07T10:00:00.000Z",
+            finishedAt: Temporal.Instant.from("2026-06-07T10:00:00.000Z"),
             workerId: undefined,
             leaseExpiresAt: undefined,
           }),
         );
       }
     }
+
     return await compareAndSetMany(items);
   };
 

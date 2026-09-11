@@ -24,5 +24,6 @@ export function resolveWorkflowCommandIdentityFromCandidates<TType extends Workf
       return resolveWorkflowCommandIdentity(history, kind, candidate);
     }
   }
+
   throw WorkflowOptionsError.required(label);
 }

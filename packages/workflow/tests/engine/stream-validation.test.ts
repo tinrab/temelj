@@ -19,6 +19,7 @@ import { eventHistoryStorageValue } from "../support/storage-values.ts";
 describe("workflow stream validation", () => {
   test("rejects invalid stream read and follow chunk bounds", async () => {
     const engine = createWorkflowEngine({ createRunId: () => "run_stream_bounds" });
+
     const workflow = implementWorkflow<undefined, void>(
       { name: "stream-bounds" },
       async ({ step }) => {
@@ -55,6 +56,7 @@ describe("workflow stream validation", () => {
     const duplicateEngine = createWorkflowEngine({
       createRunId: () => "run_stream_gapped_chunk",
     });
+
     const workflow = implementWorkflow<undefined, void>(
       { name: "stream-corruption" },
       async ({ step }) => {
@@ -66,13 +68,16 @@ describe("workflow stream validation", () => {
 
     await duplicateEngine.runWorkflowNow(workflow, undefined);
     const duplicateEvents = await duplicateEngine.getEvents("run_stream_gapped_chunk");
+
     const firstChunk = duplicateEvents.find(
       (event): event is Extract<EventRecord, { readonly kind: "stream_chunk" }> =>
         event.kind === "stream_chunk",
     );
+
     if (firstChunk === undefined) {
       throw new Error("Expected stream chunk event");
     }
+
     await writeCorruptedEvents(duplicateEngine.storage, "run_stream_gapped_chunk", [
       ...duplicateEvents,
       {
@@ -90,13 +95,16 @@ describe("workflow stream validation", () => {
     const lateEngine = createWorkflowEngine({ createRunId: () => "run_stream_late_chunk" });
     await lateEngine.runWorkflowNow(workflow, undefined);
     const lateEvents = await lateEngine.getEvents("run_stream_late_chunk");
+
     const lateChunk = lateEvents.find(
       (event): event is Extract<EventRecord, { readonly kind: "stream_chunk" }> =>
         event.kind === "stream_chunk",
     );
+
     if (lateChunk === undefined) {
       throw new Error("Expected stream chunk event");
     }
+
     await writeCorruptedEvents(lateEngine.storage, "run_stream_late_chunk", [
       ...lateEvents,
       {
@@ -120,6 +128,7 @@ describe("workflow stream validation", () => {
       createRunId: () => "run_stream_limit",
       maximumStreamChunks: 1,
     });
+
     const workflow = implementWorkflow<undefined, void>(
       { name: "stream-limit" },
       async ({ step }) => {
@@ -132,9 +141,11 @@ describe("workflow stream validation", () => {
     const result = await engine.runWorkflowNow(workflow, undefined);
 
     expect(result.kind).toBe("failed");
+
     if (result.kind !== "failed") {
       throw new Error("Expected stream limit failure");
     }
+
     expect(result.error.message).toContain("maximumStreamChunks 1");
   });
 
@@ -143,6 +154,7 @@ describe("workflow stream validation", () => {
       createRunId: () => "run_stream_size_limit",
       maximumPersistedValueBytes: 10,
     });
+
     const workflow = implementWorkflow<undefined, void>(
       { name: "stream-size-limit" },
       async ({ step }) => {
@@ -154,9 +166,11 @@ describe("workflow stream validation", () => {
     const result = await engine.runWorkflowNow(workflow, undefined);
 
     expect(result.kind).toBe("failed");
+
     if (result.kind !== "failed") {
       throw new Error("Expected stream size limit failure");
     }
+
     expect(result.error.message).toContain("maximumPersistedValueBytes 10");
   });
 
@@ -164,11 +178,13 @@ describe("workflow stream validation", () => {
     const engine = createWorkflowEngine({
       createRunId: () => "run_stream_bad_metadata",
     });
+
     const workflow = implementWorkflow<undefined, void>(
       { name: "stream-bad-metadata" },
       ({ step }) => {
         step.stream.create("log", {
           id: "status",
+          // @ts-expect-error Stream metadata excludes functions, and runtime validation rejects them too.
           metadata: { nested: [{ bad: () => "nope" }] },
         });
       },
@@ -177,15 +193,19 @@ describe("workflow stream validation", () => {
     const result = await engine.runWorkflowNow(workflow, undefined);
 
     expect(result.kind).toBe("failed");
+
     if (result.kind !== "failed") {
       throw new Error("Expected stream metadata serialization failure");
     }
+
     const error = workflowErrorFromRecord(result.error);
     expect(error).toBeInstanceOf(WorkflowSerializationError);
     expect(error.message).toContain("workflow stream status metadata.nested[0].bad");
+
     const streamEvents = (await engine.getEvents("run_stream_bad_metadata")).filter(
       (event) => event.kind === "stream_started",
     );
+
     expect(streamEvents).toEqual([]);
   });
 
@@ -193,6 +213,7 @@ describe("workflow stream validation", () => {
     const engine = createWorkflowEngine({
       createRunId: () => "run_stream_bad_chunk",
     });
+
     const workflow = implementWorkflow<undefined, void>(
       { name: "stream-bad-chunk" },
       async ({ step }) => {
@@ -204,9 +225,11 @@ describe("workflow stream validation", () => {
     const result = await engine.runWorkflowNow(workflow, undefined);
 
     expect(result.kind).toBe("failed");
+
     if (result.kind !== "failed") {
       throw new Error("Expected stream chunk serialization failure");
     }
+
     const error = workflowErrorFromRecord(result.error);
     expect(error).toBeInstanceOf(WorkflowSerializationError);
     expect(error.message).toContain("workflow stream status chunk.items.<value:0>");
@@ -218,9 +241,11 @@ describe("workflow stream validation", () => {
 
 async function collectStreamUpdates(iterable: AsyncIterable<unknown>): Promise<unknown[]> {
   const updates: unknown[] = [];
+
   for await (const update of iterable) {
     updates.push(update);
   }
+
   return updates;
 }
 

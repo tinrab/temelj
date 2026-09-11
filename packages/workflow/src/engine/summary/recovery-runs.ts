@@ -71,6 +71,7 @@ export function createWorkflowRecoveryRunSummaryReducer(
       const leaseParts = lease.finish();
       const retryParts = retry.finish();
       const failedParts = failed.finish();
+
       return {
         total,
         recoverableRunIds: finishWorkflowRecoveryRecoverableRunIds(
@@ -111,9 +112,25 @@ function finishWorkflowRecoveryNextSummary(
   lease: WorkflowRecoveryLeaseRunSummaryParts,
   retry: WorkflowRecoveryRetryRunSummaryParts,
 ): WorkflowRecoveryNextSummaryParts {
-  return {
-    ...(due.nextAvailable === undefined ? {} : { nextAvailable: due.nextAvailable }),
-    ...(lease.nextLeaseExpires === undefined ? {} : { nextLeaseExpires: lease.nextLeaseExpires }),
-    ...(retry.nextRetry === undefined ? {} : { nextRetry: retry.nextRetry }),
-  };
+  const result1: WorkflowRecoveryNextSummaryParts = {};
+
+  if (due.nextAvailable !== undefined) {
+    Object.assign(result1, {
+      nextAvailable: due.nextAvailable,
+    } satisfies Partial<WorkflowRecoveryNextSummaryParts>);
+  }
+
+  if (lease.nextLeaseExpires !== undefined) {
+    Object.assign(result1, {
+      nextLeaseExpires: lease.nextLeaseExpires,
+    } satisfies Partial<WorkflowRecoveryNextSummaryParts>);
+  }
+
+  if (retry.nextRetry !== undefined) {
+    Object.assign(result1, {
+      nextRetry: retry.nextRetry,
+    } satisfies Partial<WorkflowRecoveryNextSummaryParts>);
+  }
+
+  return result1;
 }

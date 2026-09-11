@@ -18,9 +18,11 @@ export class LowerHeadingPlugin extends HtmlTransformPlugin {
   public constructor(options: LowerHeadingPluginOptions = {}) {
     super();
     const offset = options.offset ?? 1;
+
     if (!Number.isSafeInteger(offset) || offset < 1) {
       ConfigurationError.invalidPluginIntegerOption("lower-heading", "offset", offset, 1);
     }
+
     this.offset = offset;
   }
 
@@ -28,10 +30,13 @@ export class LowerHeadingPlugin extends HtmlTransformPlugin {
     return context.rewrite({
       element: ({ node }) => {
         const depth = headingDepthForTag(node.tagName);
+
         if (depth === undefined) {
           return node;
         }
+
         const loweredDepth = Math.min(depth + this.offset, 6);
+
         return loweredDepth === depth ? node : node.with({ tagName: `h${loweredDepth}` });
       },
     });

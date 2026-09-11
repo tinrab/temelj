@@ -46,15 +46,20 @@ export class InlineInput {
     if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 0 || end < start) {
       throw new RangeError(`Invalid inline range ${start}..${end}`);
     }
+
     if (end > this.length) {
       throw new RangeError(`Inline range ${start}..${end} exceeds input length ${this.length}`);
     }
+
     const first = this.#characters[start];
     const last = this.#characters[end - 1];
+
     if (first === undefined) {
       const offset = this.#characters.at(-1)?.sourceOffset ?? 0;
+
       return sourceRange(offset, offset);
     }
+
     return sourceRange(first.sourceOffset, (last?.sourceOffset ?? first.sourceOffset) + 1);
   }
 
@@ -70,6 +75,7 @@ function validateSegment(segment: InlineSegment): InlineSegment {
       range: sourceRange(segment.range.start, segment.range.end),
     };
   }
+
   if (
     !Number.isSafeInteger(segment.offset) ||
     !Number.isSafeInteger(segment.columns) ||
@@ -78,6 +84,7 @@ function validateSegment(segment: InlineSegment): InlineSegment {
   ) {
     throw new RangeError("Invalid virtual inline indentation");
   }
+
   return { ...segment };
 }
 
@@ -86,14 +93,18 @@ function materializeCharacters(
   segments: readonly InlineSegment[],
 ): InlineCharacter[] {
   const characters: InlineCharacter[] = [];
+
   for (const segment of segments) {
     if (segment.kind === "virtualSpace") {
       for (let column = 0; column < segment.columns; column++) {
         characters.push({ character: " ", sourceOffset: segment.offset, virtual: true });
       }
+
       continue;
     }
+
     file.slice(segment.range);
+
     for (let offset = segment.range.start; offset < segment.range.end; offset++) {
       characters.push({
         character: file.character(offset) ?? "",
@@ -102,5 +113,6 @@ function materializeCharacters(
       });
     }
   }
+
   return characters;
 }

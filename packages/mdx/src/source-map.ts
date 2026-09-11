@@ -44,6 +44,7 @@ export class CodeWriter {
       if (this.sourceFile === undefined) {
         this.sourceFile = span.file;
       }
+
       if (this.sourceFile === span.file) {
         const location = span.file.location(span.start);
         this.points.push({
@@ -57,8 +58,10 @@ export class CodeWriter {
 
     this.chunks.push(value);
     this.size += value.length;
+
     for (let index = 0; index < value.length; index++) {
       const code = value.charCodeAt(index);
+
       if (code === 10) {
         this.line++;
         this.column = 0;
@@ -74,6 +77,7 @@ export class CodeWriter {
 
   public sourceMap(sourceName: string, outputName?: string): SourceMap {
     const source = this.sourceFile;
+
     return Object.freeze({
       version: 3 as const,
       file: outputName,
@@ -100,6 +104,7 @@ function encodeMappings(points: readonly MappingPoint[]): string {
   while (index < points.length) {
     const segments: string[] = [];
     let previousGeneratedColumn = 0;
+
     while (index < points.length && points[index].generatedLine === generatedLine) {
       const point = points[index];
       segments.push(
@@ -114,6 +119,7 @@ function encodeMappings(points: readonly MappingPoint[]): string {
       previousOriginalColumn = point.originalColumn;
       index++;
     }
+
     lines.push(segments.join(","));
     generatedLine++;
   }
@@ -124,13 +130,17 @@ function encodeMappings(points: readonly MappingPoint[]): string {
 function encodeVlq(value: number): string {
   let encoded = "";
   let remaining = value < 0 ? (-value << 1) | 1 : value << 1;
+
   do {
     let digit = remaining & 31;
     remaining >>>= 5;
+
     if (remaining > 0) {
       digit |= 32;
     }
+
     encoded += encodeBase64(Uint8Array.of(digit << 2))[0];
   } while (remaining > 0);
+
   return encoded;
 }

@@ -13,14 +13,23 @@ export function compileWorkflowDirectiveFixtures(
   } = {},
 ): readonly WorkflowDirectiveFixtureResult[] {
   const manifests: TransformManifest[] = [...(options.manifests ?? [])];
-  return fixtures.map((fixture) => {
+
+  return fixtures.map((fixture): WorkflowDirectiveFixtureResult => {
     const result = transformWorkflowSource(fixture.code, fixture.id, {
       ...options,
       manifests,
     });
+
     if (result !== undefined) {
       manifests.push(result.manifest);
     }
-    return { id: fixture.id, ...(result === undefined ? {} : { result }) };
+
+    const result1: WorkflowDirectiveFixtureResult = { id: fixture.id };
+
+    if (result !== undefined) {
+      Object.assign(result1, { result } satisfies Partial<WorkflowDirectiveFixtureResult>);
+    }
+
+    return result1;
   });
 }

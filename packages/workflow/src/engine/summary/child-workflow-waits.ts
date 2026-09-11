@@ -54,6 +54,7 @@ export function createWorkflowRunChildWorkflowWaitSummaryReducer(): WorkflowRunC
       for (const attempt of attempts) {
         addWorkflowRunChildWorkflowWaitAttempt(waits, runId, attempt);
       }
+
       for (const childRun of childRuns) {
         waits.childRunRecords.set(childRun.id, childRun);
       }
@@ -87,12 +88,15 @@ function addWorkflowRunChildWorkflowWaitAttempt(
   waits.stepIds.add(attempt.stepId);
   waits.attemptKeys.add(attemptKey);
   waits.oldestStartedAt = earliestOptionalTimestamp(waits.oldestStartedAt, attempt.startedAt);
+
   if (shouldReplaceWorkflowEarliestDefinedInstant(waits.nextTimeoutAt, attempt.timeoutAt)) {
     setWorkflowRunChildWorkflowWaitNextTimeout(waits, runId, attempt, attemptKey);
   }
+
   if (attempt.childRunId !== undefined) {
     waits.childRunIds.add(attempt.childRunId);
   }
+
   if (attempt.workflowName !== undefined) {
     waits.workflows.add(
       attempt.workflowVersion === undefined
@@ -117,27 +121,30 @@ function setWorkflowRunChildWorkflowWaitNextTimeout(
 function finishWorkflowRunChildWorkflowWaitSummary(
   waits: WorkflowRunChildWorkflowWaitAccumulator,
 ): WorkflowRunChildWorkflowWaitSummary {
-  return waits.total === 0
-    ? {}
-    : {
-        childWorkflow: {
-          activeWaits: waits.total,
-          activeWaitRuns: waits.runIds.size,
-          waitRunIds: sortedStringSet(waits.runIds),
-          waitStepIds: sortedStringSet(waits.stepIds),
-          waitAttemptKeys: sortedStringSet(waits.attemptKeys),
-          childRunIds: sortedStringSet(waits.childRunIds),
-          workflows: sortedStringSet(waits.workflows),
-          ...summarizeChildWorkflowRuns([...waits.childRunRecords.values()]),
-          ...optionalProperty("oldestWaitStartedAt", waits.oldestStartedAt),
-          ...(waits.nextTimeoutAt === undefined
-            ? {}
-            : {
-                nextWaitTimeoutAt: waits.nextTimeoutAt,
-                ...optionalProperty("nextWaitTimeoutRunId", waits.nextTimeoutRunId),
-                ...optionalProperty("nextWaitTimeoutStepId", waits.nextTimeoutStepId),
-                ...optionalProperty("nextWaitTimeoutAttemptKey", waits.nextTimeoutAttemptKey),
-              }),
-        },
-      };
+  if (waits.total === 0) {
+    return {};
+  }
+
+  const result: NonNullable<WorkflowRunChildWorkflowWaitSummary["childWorkflow"]> = {
+    activeWaits: waits.total,
+    activeWaitRuns: waits.runIds.size,
+    waitRunIds: sortedStringSet(waits.runIds),
+    waitStepIds: sortedStringSet(waits.stepIds),
+    waitAttemptKeys: sortedStringSet(waits.attemptKeys),
+    childRunIds: sortedStringSet(waits.childRunIds),
+    workflows: sortedStringSet(waits.workflows),
+    ...summarizeChildWorkflowRuns([...waits.childRunRecords.values()]),
+    ...optionalProperty("oldestWaitStartedAt", waits.oldestStartedAt),
+  };
+
+  if (waits.nextTimeoutAt !== undefined) {
+    Object.assign(result, {
+      nextWaitTimeoutAt: waits.nextTimeoutAt,
+      ...optionalProperty("nextWaitTimeoutRunId", waits.nextTimeoutRunId),
+      ...optionalProperty("nextWaitTimeoutStepId", waits.nextTimeoutStepId),
+      ...optionalProperty("nextWaitTimeoutAttemptKey", waits.nextTimeoutAttemptKey),
+    } satisfies Partial<NonNullable<WorkflowRunChildWorkflowWaitSummary["childWorkflow"]>>);
+  }
+
+  return { childWorkflow: result };
 }

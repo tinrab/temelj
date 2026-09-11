@@ -20,7 +20,6 @@ import type {
 import type { CreateWorkflowEngineOptions } from "../types/engine-options.ts";
 import type { WorkflowClientEngine, WorkflowWorkerEngine } from "../types/engine.ts";
 
-import { createWorkflowBundleRegistry } from "../bundle.ts";
 import {
   createWorkflowClientAdminApi,
   createWorkflowClientHooksApi,
@@ -71,15 +70,15 @@ export class WorkflowClient implements WorkflowClientContract {
 
   constructor(options: CreateWorkflowClientOptions = {}) {
     const { engine, workerEngine, registry, workflows, now, ...engineOptions } = options;
+
     if (registry !== undefined && workflows !== undefined) {
       throw new TypeError("Workflow client options cannot include both registry and workflows");
     }
+
     this.#now = now ?? Temporal.Now.instant;
     this.#engine = engine ?? createWorkflowEngine({ ...engineOptions, now: this.#now });
-    this.#workerEngine = workerEngine ?? workflowWorkerEngineFromCandidate(this.#engine);
-    this.#registry =
-      registry ??
-      (workflows === undefined ? new Registry() : createWorkflowBundleRegistry(workflows));
+    this.#workerEngine = workerEngine ?? this.#engine.workerEngine;
+    this.#registry = registry ?? new Registry(workflows?.workflows);
     this.runs = createWorkflowClientRunsApi(() => this.#engine, this.#now);
     this.admin = createWorkflowClientAdminApi(() => this.#engine, this.#now);
     this.schedules = createWorkflowClientSchedulesApi(() => this.#engine, this.#now);
@@ -111,6 +110,7 @@ export class WorkflowClient implements WorkflowClientContract {
     if (this.#registry.get(implementation.definition) === implementation) {
       return;
     }
+
     this.#registry.register(implementation);
   }
 
@@ -119,37 +119,10 @@ export class WorkflowClient implements WorkflowClientContract {
     handler: WorkflowHandler<TInput, TOutput>,
   ): WorkflowRunnable<TInput, TOutput, TRawInput> {
     this.#registry.implementWorkflow(definition, handler);
+
     return {
       definition,
       run: (...runArgs) => this.runs.start(definition, ...runArgs),
     };
   }
-}
-
-function workflowWorkerEngineFromCandidate(
-  engine: WorkflowClientEngine,
-): WorkflowWorkerEngine | undefined {
-  return isWorkflowWorkerEngine(engine) ? engine : undefined;
-}
-
-function isWorkflowWorkerEngine(candidate: unknown): candidate is WorkflowWorkerEngine {
-  const engine = candidate as {
-    readonly getRun?: unknown;
-    readonly getRunSummary?: unknown;
-    readonly listSchedules?: unknown;
-    readonly resumeWorkflow?: unknown;
-    readonly store?: unknown;
-    readonly tickSchedules?: unknown;
-  };
-  if (
-    typeof engine.resumeWorkflow !== "function" ||
-    typeof engine.getRun !== "function" ||
-    typeof engine.getRunSummary !== "function" ||
-    typeof engine.listSchedules !== "function" ||
-    typeof engine.tickSchedules !== "function" ||
-    engine.store === undefined
-  ) {
-    return false;
-  }
-  return true;
 }

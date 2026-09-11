@@ -1,3 +1,5 @@
+import type { StorageValue } from "@temelj/storage";
+
 import { describe, expect, expectTypeOf, test } from "vitest";
 
 import type { WorkflowRunHandle } from "../../src/types/client.ts";
@@ -21,6 +23,23 @@ import {
 } from "../../src/runtime.ts";
 
 describe("workflow runtime facade", () => {
+  test("preserves the engine's resolved workflow version in client handles", async () => {
+    const runtime = new WorkflowRuntime();
+
+    const workflow = implementWorkflow<undefined, string>(
+      { name: "resolved-handle", version: "v2" },
+      () => "done",
+    );
+
+    runtime.register(workflow);
+    const target = defineWorkflow<undefined, string>({ name: "resolved-handle", version: "v1" });
+    const handle = await runtime.start(target, undefined, { workflowVersion: "v2" });
+
+    expect(handle.workflowVersion).toBe("v2");
+    await runtime.workers.processRun(handle.runId);
+    await expect(handle.result()).resolves.toBe("done");
+  });
+
   test("creates runtimes through the public factory", () => {
     const runtime = createWorkflowRuntime();
 
@@ -29,9 +48,11 @@ describe("workflow runtime facade", () => {
 
   test("starts a registered workflow def through an explicit runtime", async () => {
     const runtime = new WorkflowRuntime();
+
     const def = defineWorkflow<{ readonly name: string }, string>({
       name: "runtime-def",
     });
+
     runtime.implementWorkflow(def, ({ input }) => `hello ${input.name}`);
 
     const handle = await startWorkflowRuntimeRun(runtime, def, { name: "Ada" });
@@ -47,6 +68,7 @@ describe("workflow runtime facade", () => {
 
   test("starts and registers a local workflow definition", async () => {
     const runtime = new WorkflowRuntime();
+
     const workflow = implementWorkflow<{ readonly value: number }, number>(
       { name: "runtime-definition" },
       ({ input }) => input.value * 2,
@@ -65,13 +87,16 @@ describe("workflow runtime facade", () => {
 
   test("starts a compiled workflow function", async () => {
     const runtime = new WorkflowRuntime();
+
     const definition = implementWorkflow<[number], number, [number]>(
       { name: "runtime-compiled-function" },
       ({ input }) => input[0] + 1,
     );
+
     async function increment(value: number): Promise<number> {
       return value + 1;
     }
+
     attachWorkflowDefinition(increment, definition);
 
     const handle = await startWorkflowRuntimeRun(runtime, increment, 41);
@@ -87,12 +112,14 @@ describe("workflow runtime facade", () => {
 
   test("gets an existing run as a typed run handle", async () => {
     const runtime = new WorkflowRuntime();
+
     const workflow = implementWorkflow<undefined, { readonly ok: boolean }>(
       { name: "runtime-get-run" },
       () => ({ ok: true }),
     );
+
     const started = await startWorkflowRuntimeRun(runtime, workflow, undefined);
-    const handle = await runtime.runs.getHandle<{ readonly ok: boolean }>(started.runId);
+    const handle = await runtime.runs.getHandle(started.runId);
 
     await expect(handle.status()).resolves.toBe("pending");
     await runtime.workers.processRun(handle.runId);
@@ -108,9 +135,11 @@ describe("workflow runtime facade", () => {
 
   test("exposes core schedule operations through the runtime", async () => {
     let now = Temporal.Instant.from("2026-06-11T10:00:00Z");
+
     const runtime = new WorkflowRuntime({
       now: () => now,
     });
+
     const def = defineWorkflow<undefined, string>({ name: "runtime-schedule" });
 
     await expect(
@@ -217,6 +246,7 @@ describe("workflow runtime facade", () => {
     const runtime = new WorkflowRuntime({
       createDeterministicUuid: () => "33333333-3333-4333-8333-333333333333",
     });
+
     const workflow = implementWorkflow<undefined, string>(
       { name: "runtime-deterministic-factory" },
       async ({ deterministic }) => await deterministic.uuid("uuid"),
@@ -235,9 +265,11 @@ describe("workflow runtime facade", () => {
 
   test("preserves runtime helper handle output types", () => {
     const runtime = new WorkflowRuntime();
+
     const def = defineWorkflow<{ readonly id: string }, { readonly ok: boolean }>({
       name: "runtime-typed-def",
     });
+
     const workflow = implementWorkflow<{ readonly id: string }, { readonly ok: boolean }>(
       { name: "runtime-typed-definition" },
       ({ input }) => ({ ok: input.id.length > 0 }),
@@ -249,12 +281,14 @@ describe("workflow runtime facade", () => {
     expectTypeOf(startWorkflowRuntimeRun(runtime, workflow, { id: "user_1" })).toEqualTypeOf<
       Promise<WorkflowRunHandle<{ readonly ok: boolean }>>
     >();
-    expectTypeOf<
-      ReturnType<typeof getWorkflowRuntimeRun<{ readonly ok: boolean }>>
-    >().toEqualTypeOf<Promise<WorkflowRunHandle<{ readonly ok: boolean }>>>();
-    expectTypeOf<ReturnType<WorkflowRuntimeRunsApi["getHandle"]>>().toEqualTypeOf<
-      Promise<WorkflowRunHandle<unknown>>
+    expectTypeOf<ReturnType<typeof getWorkflowRuntimeRun>>().toEqualTypeOf<
+      Promise<WorkflowRunHandle<StorageValue | undefined>>
     >();
+    expectTypeOf<ReturnType<WorkflowRuntimeRunsApi["getHandle"]>>().toEqualTypeOf<
+      Promise<WorkflowRunHandle<StorageValue | undefined>>
+    >();
+    // @ts-expect-error A run ID does not establish its application output type.
+    expectTypeOf<ReturnType<typeof getWorkflowRuntimeRun<string>>>();
     expectTypeOf<ReturnType<typeof runtime.runs.list>>().toEqualTypeOf<
       Promise<readonly WorkflowRunRecord[]>
     >();
@@ -269,14 +303,14 @@ describe("workflow runtime facade", () => {
         every: Temporal.Duration.from({ hours: 1 }),
         input: { id: "user_1" },
       }),
-    ).toEqualTypeOf<Promise<ScheduleRecord<{ readonly id: string }>>>();
+    ).toEqualTypeOf<Promise<ScheduleRecord>>();
     expectTypeOf(
       runtime.schedules.upsert(def, {
         id: "typed-runtime-schedule",
         every: Temporal.Duration.from({ hours: 1 }),
         input: { id: "user_1" },
       }),
-    ).toEqualTypeOf<Promise<ScheduleRecord<{ readonly id: string }>>>();
+    ).toEqualTypeOf<Promise<ScheduleRecord>>();
     expectTypeOf<ReturnType<typeof runtime.schedules.archive>>().toEqualTypeOf<
       Promise<ScheduleRecord>
     >();

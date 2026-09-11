@@ -145,6 +145,7 @@ describe("workflow step attempt materialization plan", () => {
   test("creates a compare-and-set item for a new step attempt", async () => {
     const storage = createStorage();
     const startedAt = Temporal.Instant.from("2025-01-01T00:00:00Z");
+
     const plan = await createWorkflowStepAttemptMaterializationStoragePlan(
       storage,
       "test",
@@ -183,12 +184,14 @@ describe("workflow step attempt materialization plan", () => {
   test("does not plan a write for an older terminal event", async () => {
     const storage = createStorage();
     const storageKey = makeStepAttemptKey("test", "run-1", "run:step-1:1");
+
     const current = workflowStepAttempt({
       stepId: "step-1",
       stepName: "load",
       status: "completed",
       finishedAt: Temporal.Instant.from("2025-01-01T00:00:10Z"),
     });
+
     await storage.set(storageKey, toStorageValue(current));
 
     const plan = await createWorkflowStepAttemptMaterializationStoragePlan(

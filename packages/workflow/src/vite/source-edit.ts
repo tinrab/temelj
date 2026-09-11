@@ -23,6 +23,7 @@ export class SourceEditor {
     if (start < 0 || end < start || end > this.#source.length) {
       WorkflowTransformError.invalidSourceReplacementRange(start, end);
     }
+
     this.#replacements.push({ start, end, text });
   }
 
@@ -30,16 +31,19 @@ export class SourceEditor {
     if (start < 0 || end < start || end > this.#source.length) {
       WorkflowTransformError.invalidSourceReadRange(start, end);
     }
+
     return this.#source.slice(start, end);
   }
 
   toString(): string {
     let result = this.#source;
+
     for (const replacement of this.#sortedReplacements()) {
       result = `${result.slice(0, replacement.start)}${replacement.text}${result.slice(
         replacement.end,
       )}`;
     }
+
     return result;
   }
 
@@ -48,11 +52,14 @@ export class SourceEditor {
       if (left.start !== right.start) {
         return right.start - left.start;
       }
+
       return right.end - left.end;
     });
+
     for (let index = 1; index < replacements.length; index++) {
       const previous = replacements[index - 1]!;
       const current = replacements[index]!;
+
       if (current.end > previous.start) {
         WorkflowTransformError.overlappingSourceReplacementRanges(
           current.start,
@@ -62,6 +69,7 @@ export class SourceEditor {
         );
       }
     }
+
     return replacements;
   }
 }

@@ -54,6 +54,7 @@ class StreamingSourceStore {
 
   public readonly subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
+
     return () => this.listeners.delete(listener);
   };
 
@@ -65,8 +66,10 @@ class StreamingSourceStore {
     if (source === this.source && status === this.status && syntax === this.syntax) {
       return;
     }
+
     const syntaxChanged = syntax !== this.syntax;
     const wasComplete = this.view.kind === "complete" && this.view.outcome.kind === "processed";
+
     if (syntaxChanged) {
       this.processor = syntax === undefined ? new Processor() : new Processor({ syntax });
       this.stream = new MdxStream({ source, syntax: this.processor.syntax });
@@ -77,10 +80,12 @@ class StreamingSourceStore {
     } else if (source !== this.source) {
       this.stream.edit(sourceEdit(this.source, source));
     }
+
     this.source = source;
     this.status = status;
     this.syntax = syntax;
     this.view = this.read(status);
+
     for (const listener of this.listeners) {
       listener();
     }
@@ -89,20 +94,27 @@ class StreamingSourceStore {
   private read(status: StreamingSourceContentProps["status"]): StreamingView {
     if (status === "streaming") {
       const snapshot = this.stream.snapshot();
+
       if ("kind" in snapshot) {
         this.stream = new MdxStream({ source: snapshot.file, syntax: this.processor.syntax });
         const restarted = this.stream.snapshot();
+
         if ("kind" in restarted) {
           throw new Error("A new MdxStream cannot be complete");
         }
+
         return { kind: "streaming", snapshot: restarted };
       }
+
       return { kind: "streaming", snapshot };
     }
+
     const completion = this.stream.complete();
+
     if (completion.kind !== "parsed") {
       return { kind: "complete", outcome: completion, blocks: [] };
     }
+
     return {
       kind: "complete",
       outcome: this.processor.processSync(completion),
@@ -123,32 +135,38 @@ export function StreamingSourceContent({
   const [store] = useState(() => new StreamingSourceStore(source, status, syntax));
   useEffect(() => store.update(source, status, syntax), [source, status, store, syntax]);
   const view = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
+
   const diagnostics =
     view.kind === "streaming" ? view.snapshot.diagnostics : view.outcome.diagnostics;
+
   useDiagnostics(onDiagnostics, diagnostics);
+
   if (hasErrorDiagnostics(diagnostics)) {
     return fallback(diagnosticFallback, diagnostics);
   }
+
   if (view.kind === "streaming") {
     return renderStreamingSnapshot(view.snapshot, registry, math);
   }
+
   if (view.outcome.kind !== "processed") {
     return fallback(diagnosticFallback, view.outcome.diagnostics);
   }
+
   return renderCompletedDocument(view.outcome, view.blocks, registry, math);
 }
 
-function sourceEdit(
-  previous: string,
-  next: string,
-): Readonly<{ start: number; end: number; text: string }> {
+function sourceEdit(previous: string, next: string): Parameters<MdxStream["edit"]>[0] {
   let start = 0;
   const sharedLength = Math.min(previous.length, next.length);
+
   while (start < sharedLength && previous[start] === next[start]) {
     start++;
   }
+
   let previousEnd = previous.length;
   let nextEnd = next.length;
+
   while (
     previousEnd > start &&
     nextEnd > start &&
@@ -157,6 +175,7 @@ function sourceEdit(
     previousEnd--;
     nextEnd--;
   }
+
   return { start, end: previousEnd, text: next.slice(start, nextEnd) };
 }
 
@@ -168,6 +187,7 @@ function useDiagnostics(
     callback: (diagnostics: readonly Diagnostic[]) => void;
     diagnostics: readonly Diagnostic[];
   }> | null>(null);
+
   useEffect(() => {
     if (
       onDiagnostics === undefined ||
@@ -176,6 +196,7 @@ function useDiagnostics(
     ) {
       return;
     }
+
     delivered.current = { callback: onDiagnostics, diagnostics };
     onDiagnostics(diagnostics);
   }, [diagnostics, onDiagnostics]);

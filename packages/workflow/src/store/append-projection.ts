@@ -36,12 +36,14 @@ export async function createWorkflowAppendProjectionPipeline(
       undefined,
     );
   }
+
   const initialStepAttemptPlan = await createWorkflowStepAttemptMaterializationStoragePlan(
     storage,
     namespace,
     runId,
     event,
   );
+
   return createWorkflowAppendProjectionPipelineFromStepAttemptPlan(
     storage,
     namespace,
@@ -94,6 +96,7 @@ function createWorkflowAppendAtomicProjectionPlanner(
   if (!supportsWorkflowAtomicBatchWrite(storage)) {
     return undefined;
   }
+
   return async (attempt) =>
     attempt === 0 && initialStepAttemptPlan !== undefined
       ? initialStepAttemptPlan

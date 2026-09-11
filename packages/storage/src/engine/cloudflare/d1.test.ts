@@ -1,6 +1,6 @@
-import type Cloudflare from "cloudflare";
-
 import { describe, expect, test, vi } from "vitest";
+
+import type { CloudflareD1Client } from "./client.ts";
 
 import { createMockCloudflareD1Binding } from "../../../tests/cloudflare.ts";
 import { createSuperJsonStorageCodec } from "../../codec/super-json.ts";
@@ -12,11 +12,9 @@ describe("Cloudflare D1 engine", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
     const binding = createMockCloudflareD1Binding();
+
     const storage = createStorage({
-      engine: new CloudflareD1StorageEngine({
-        binding,
-        prefix: "app",
-      }),
+      engine: new CloudflareD1StorageEngine({ format: "string", binding, prefix: "app" }),
     });
 
     await storage.setMany([
@@ -59,8 +57,10 @@ describe("Cloudflare D1 engine", () => {
         )`,
       )
       .run();
+
     const storage = createStorage({
       engine: new CloudflareD1StorageEngine({
+        format: "string",
         binding: "DATABASE",
         bindings: { DATABASE: binding },
         tableName: "app storage",
@@ -73,6 +73,7 @@ describe("Cloudflare D1 engine", () => {
 
   test("uses the D1 HTTP batch query API", async () => {
     const binding = createMockCloudflareD1Binding();
+
     const query = vi.fn<
       (
         databaseId: string,
@@ -89,18 +90,22 @@ describe("Cloudflare D1 engine", () => {
         const statements = options.batch.map((query) =>
           binding.prepare(query.sql).bind(...(query.params ?? [])),
         );
+
         yield* await binding.batch(statements);
       },
     }));
+
     const client = {
       d1: {
         database: {
           query,
         },
       },
-    } as unknown as Cloudflare;
+    } satisfies CloudflareD1Client;
+
     const storage = createStorage({
       engine: new CloudflareD1StorageEngine({
+        format: "string",
         accountId: "account",
         client,
         databaseId: "database",
@@ -129,13 +134,15 @@ describe("Cloudflare D1 engine", () => {
 
     const binaryStorage = createStorage({
       codec: createSuperJsonStorageCodec({ format: "bytes" }),
-      engine: new CloudflareD1StorageEngine<Uint8Array>({
+      engine: new CloudflareD1StorageEngine({
+        format: "bytes",
         accountId: "account",
         client,
         databaseId: "database",
         prefix: "binary",
       }),
     });
+
     const value = {
       bytes: new Uint8Array([0, 127, 128, 255]),
       name: "binary payload",
@@ -163,8 +170,10 @@ describe("Cloudflare D1 engine", () => {
         )`,
       )
       .run();
+
     const storage = createStorage({
       engine: new CloudflareD1StorageEngine({
+        format: "string",
         binding,
         tableName: "custom_storage",
       }),

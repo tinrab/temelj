@@ -18,6 +18,7 @@ export function useLatest<T>(value: T): React.RefObject<T> {
   useIsoLayoutEffect(() => {
     ref.current = value;
   });
+
   return ref;
 }
 
@@ -28,17 +29,8 @@ export function dispatchStorageEvent(key: string, newValue: string | null) {
   if (!isBrowser) {
     return;
   }
-  window.dispatchEvent(new StorageEvent("storage", { key, newValue }));
-}
 
-/**
- * Parses a JSON storage value or returns the fallback for null values.
- */
-export function parseJson<T>(value: string | null, fallback: T): T {
-  if (value === null) {
-    return fallback;
-  }
-  return JSON.parse(value) as T;
+  window.dispatchEvent(new StorageEvent("storage", { key, newValue }));
 }
 
 /**

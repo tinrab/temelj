@@ -1,4 +1,7 @@
+import { isNumber, isString } from "@temelj/value";
+
 import type { WorkflowExecutionEnvironment } from "../types/engine.ts";
+import type { DeterministicValueRecordedEvent } from "../types/events.ts";
 import type { StepId, WorkflowDeterministicApi, WorkflowStepMetadata } from "../types/step.ts";
 
 import { WorkflowOptionsError, WorkflowReplayDivergenceError } from "../errors/mod.ts";
@@ -13,9 +16,21 @@ export function createWorkflowDeterministicApi(
   environment: WorkflowExecutionEnvironment,
 ): WorkflowDeterministicApi {
   const { now, runId } = environment;
+
   const api: WorkflowDeterministicApi = {
     async now(commandId = "now") {
-      return await recordWorkflowDeterministicValue(environment, commandId, () => now());
+      return await recordWorkflowDeterministicValue(
+        environment,
+        commandId,
+        () => now(),
+        (recorded) => {
+          if (!(recorded.value instanceof Temporal.Instant)) {
+            invalidDeterministicValue(recorded.stepId, "a Temporal.Instant");
+          }
+
+          return recorded.value;
+        },
+      );
     },
 
     async random(commandId = "random") {
@@ -26,22 +41,35 @@ export function createWorkflowDeterministicApi(
           const value = environment.createDeterministicRandom(
             deterministicValueContext(runId, identity),
           );
+
           if (!isDeterministicRandomValue(value)) {
             invalidDeterministicValue(identity.id, "a finite number in [0, 1)");
           }
+
           return value;
         },
         (recorded) => {
           if (!isDeterministicRandomValue(recorded.value)) {
             invalidDeterministicValue(recorded.stepId, "a finite number in [0, 1)");
           }
+
+          return recorded.value;
         },
       );
     },
 
     async recordedId(commandId = "recorded-id") {
-      return await recordWorkflowDeterministicValue(environment, commandId, (identity) =>
-        environment.createRecordedId(deterministicValueContext(runId, identity)),
+      return await recordWorkflowDeterministicValue(
+        environment,
+        commandId,
+        (identity) => environment.createRecordedId(deterministicValueContext(runId, identity)),
+        (recorded) => {
+          if (!isString(recorded.value)) {
+            invalidDeterministicValue(recorded.stepId, "a recorded ID string");
+          }
+
+          return recorded.value;
+        },
       );
     },
 
@@ -57,29 +85,32 @@ export function createWorkflowDeterministicApi(
           const value = environment.createDeterministicUuid(
             deterministicValueContext(runId, identity),
           );
+
           if (!isDeterministicUuidValue(value)) {
             invalidDeterministicValue(identity.id, "a UUID string");
           }
+
           return value;
         },
         (recorded) => {
           if (!isDeterministicUuidValue(recorded.value)) {
             invalidDeterministicValue(recorded.stepId, "a UUID string");
           }
+
+          return recorded.value;
         },
       );
     },
 
     async bytes(commandId, length) {
-      if (typeof commandId !== "string") {
-        WorkflowOptionsError.string("Workflow deterministic bytes commandId");
-      }
       if (commandId.trim() === "") {
         WorkflowOptionsError.nonBlank("Workflow deterministic bytes commandId");
       }
+
       if (!isNonNegativeSafeInteger(length)) {
         WorkflowOptionsError.nonNegativeSafeInteger("Workflow deterministic bytes length");
       }
+
       const bytes = await recordWorkflowDeterministicValue(
         environment,
         commandId,
@@ -88,20 +119,26 @@ export function createWorkflowDeterministicApi(
             ...deterministicValueContext(runId, identity),
             length,
           });
+
           if (!isDeterministicBytesValue(value, length)) {
             invalidDeterministicValue(identity.id, `a Uint8Array with length ${length}`);
           }
+
           return new Uint8Array(value);
         },
         (recorded) => {
           if (!isDeterministicBytesValue(recorded.value, length)) {
             invalidDeterministicValue(recorded.stepId, `a Uint8Array with length ${length}`);
           }
+
+          return new Uint8Array(recorded.value);
         },
       );
+
       return new Uint8Array(bytes);
     },
   };
+
   return api;
 }
 
@@ -109,19 +146,16 @@ export async function recordWorkflowDeterministicValue<TValue>(
   environment: WorkflowExecutionEnvironment,
   name: string,
   createValue: (identity: WorkflowStepMetadata) => TValue,
-  checkRecorded?: (recorded: {
-    readonly stepId: StepId;
-    readonly timestamp: Temporal.Instant;
-    readonly value: unknown;
-  }) => void,
+  readRecorded: (recorded: DeterministicValueRecordedEvent) => NoInfer<TValue>,
 ): Promise<TValue> {
   const { store, history, now, limits, executionOwner, runId } = environment;
   const identity = resolveWorkflowCommandIdentity(history, "deterministic", name);
   const recorded = history.deterministicValue(identity.id);
+
   if (recorded !== undefined) {
-    checkRecorded?.(recorded);
-    return recorded.value as TValue;
+    return readRecorded(recorded);
   }
+
   const value = createValue(identity);
   await appendEventIfCurrentExecution(
     store,
@@ -139,6 +173,7 @@ export async function recordWorkflowDeterministicValue<TValue>(
     undefined,
     (event, events) => environment.observeDurableEventAppended?.(runId, event, events),
   );
+
   return value;
 }
 
@@ -152,11 +187,11 @@ function deterministicValueContext(runId: string, identity: WorkflowStepMetadata
 }
 
 function isDeterministicRandomValue(value: unknown): value is number {
-  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value < 1;
+  return isNumber(value) && Number.isFinite(value) && value >= 0 && value < 1;
 }
 
 function isDeterministicUuidValue(value: unknown): value is string {
-  return typeof value === "string" && UUID_PATTERN.test(value);
+  return isString(value) && UUID_PATTERN.test(value);
 }
 
 function isDeterministicBytesValue(value: unknown, length: number): value is Uint8Array {

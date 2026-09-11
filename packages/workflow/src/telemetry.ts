@@ -1,4 +1,5 @@
-import type { ObservationEventMap } from "./types/observation.ts";
+import type { ObservationEventArgs } from "./types/observation.ts";
+import type { ExecutionResult } from "./types/result.ts";
 import type {
   RunTelemetryContext,
   StepTelemetryContext,
@@ -146,7 +147,7 @@ export function captureTelemetryContext(
   }
 }
 
-export async function withRunTelemetry<T>(
+export async function withRunTelemetry<T extends ExecutionResult>(
   telemetry: Telemetry | undefined,
   context: RunTelemetryContext,
   callback: () => Promise<T>,
@@ -154,6 +155,7 @@ export async function withRunTelemetry<T>(
   if (telemetry?.withRunExecution === undefined) {
     return await callback();
   }
+
   return await withTelemetry(
     (wrappedCallback) => telemetry.withRunExecution!(context, wrappedCallback),
     callback,
@@ -168,6 +170,7 @@ export async function withStepTelemetry<T>(
   if (telemetry?.withStepExecution === undefined) {
     return await callback();
   }
+
   return await withTelemetry(
     (wrappedCallback) => telemetry.withStepExecution!(context, wrappedCallback),
     callback,
@@ -182,19 +185,19 @@ export async function withStorageTelemetry<T>(
   if (telemetry?.withStorageOperation === undefined) {
     return await callback();
   }
+
   return await withTelemetry(
     (wrappedCallback) => telemetry.withStorageOperation!(context, wrappedCallback),
     callback,
   );
 }
 
-export function observeTelemetry<Key extends keyof ObservationEventMap>(
+export function observeTelemetry(
   telemetry: Telemetry | undefined,
-  name: Key,
-  payload: ObservationEventMap[Key],
+  ...event: ObservationEventArgs
 ): void {
   try {
-    telemetry?.observe?.(name, payload);
+    telemetry?.observe?.(...event);
   } catch {
     return;
   }
@@ -208,9 +211,11 @@ async function withTelemetry<T>(
 ): Promise<T> {
   let result: T | typeof UNSET = UNSET;
   let callbackError: unknown = UNSET;
+
   const wrappedCallback = async (): Promise<T> => {
     try {
       result = await callback();
+
       return result;
     } catch (error) {
       callbackError = error;
@@ -224,9 +229,11 @@ async function withTelemetry<T>(
     if (callbackError !== UNSET) {
       throw callbackError;
     }
+
     if (result !== UNSET) {
       return result;
     }
+
     return await callback();
   }
 }

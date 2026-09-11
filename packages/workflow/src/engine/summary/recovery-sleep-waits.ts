@@ -51,33 +51,45 @@ function addWorkflowSleepWaitAttempt(
   if (attempt.status !== "running" || attempt.kind !== "sleep") {
     return;
   }
+
   sleep.runIds.add(attempt.runId);
+
   if (attempt.until === undefined) {
     sleep.dueRunIds.add(attempt.runId);
     sleep.dueStepIds.add(attempt.stepId);
     sleep.invalidUntilRunIds.add(attempt.runId);
+
     return;
   }
+
   if (Temporal.Instant.compare(attempt.until, now) <= 0) {
     sleep.dueRunIds.add(attempt.runId);
     sleep.dueStepIds.add(attempt.stepId);
+
     return;
   }
+
   sleep.nextWake = earliestWorkflowRecoveryTimestamp(sleep.nextWake, attempt.runId, attempt.until);
 }
 
 function finishWorkflowSleepWaitSummary(
   sleep: WorkflowSleepWaitAccumulator,
 ): WorkflowRecoverySleepWaitSummary {
-  return {
+  const result1: WorkflowRecoverySleepWaitSummary = {
     active: sleep.runIds.size,
     due: sleep.dueRunIds.size,
     runIds: [...sleep.runIds].sort(),
     dueRunIds: [...sleep.dueRunIds].sort(),
     dueStepIds: [...sleep.dueStepIds].sort(),
     invalidUntilRunIds: [...sleep.invalidUntilRunIds].sort(),
-    ...(sleep.nextWake === undefined
-      ? {}
-      : { nextWakeAt: sleep.nextWake.timestamp, nextWakeRunId: sleep.nextWake.runId }),
   };
+
+  if (sleep.nextWake !== undefined) {
+    Object.assign(result1, {
+      nextWakeAt: sleep.nextWake.timestamp,
+      nextWakeRunId: sleep.nextWake.runId,
+    } satisfies Partial<WorkflowRecoverySleepWaitSummary>);
+  }
+
+  return result1;
 }

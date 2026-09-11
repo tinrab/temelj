@@ -8,6 +8,7 @@ import {
   type IndexedDbObjectStore,
   type IndexedDbOpenRequest,
   type IndexedDbRequest,
+  type IndexedDbRecord,
 } from "./indexed-db.ts";
 
 describe("indexedDB engine", () => {
@@ -31,31 +32,37 @@ describe("indexedDB engine", () => {
 });
 
 function createMockIndexedDbFactory(): IndexedDbFactory {
-  const stores = new Map<string, Map<string, unknown>>();
+  const stores = new Map<string, Map<string, IndexedDbRecord>>();
+
   return {
     open: vi.fn<(name: string, version?: number) => IndexedDbOpenRequest>(
       (_name: string, _version?: number): IndexedDbOpenRequest => {
-        const request = createOpenRequest();
+        const request = createOpenRequest(createMockIndexedDbDatabase(stores));
         queueMicrotask(() => {
-          request.result = createMockIndexedDbDatabase(stores);
-          request.onupgradeneeded?.({});
-          request.onsuccess?.({});
+          request.onupgradeneeded?.(
+            Object.assign(new Event("upgradeneeded"), { oldVersion: 0, newVersion: 1 }),
+          );
+          request.onsuccess?.(new Event("success"));
         });
+
         return request;
       },
     ),
   };
 }
 
-function createMockIndexedDbDatabase(stores: Map<string, Map<string, unknown>>): IndexedDbDatabase {
+function createMockIndexedDbDatabase(
+  stores: Map<string, Map<string, IndexedDbRecord>>,
+): IndexedDbDatabase {
   return {
     objectStoreNames: {
       contains: vi.fn<(name: string) => boolean>((name: string): boolean => stores.has(name)),
     },
     close: vi.fn<() => void>(),
     createObjectStore: vi.fn<(name: string) => IndexedDbObjectStore>((name: string) => {
-      const store = new Map<string, unknown>();
+      const store = new Map<string, IndexedDbRecord>();
       stores.set(name, store);
+
       return createMockIndexedDbObjectStore(store);
     }),
     transaction: vi.fn<
@@ -63,37 +70,35 @@ function createMockIndexedDbDatabase(stores: Map<string, Map<string, unknown>>):
         name: string,
         mode: "readonly" | "readwrite",
       ) => { objectStore(name: string): IndexedDbObjectStore }
-    >(
-      (
-        name: string,
-        _mode: "readonly" | "readwrite",
-      ): { objectStore(name: string): IndexedDbObjectStore } => {
-        const store = stores.get(name) ?? new Map<string, unknown>();
-        stores.set(name, store);
-        return {
-          objectStore: vi.fn<(name: string) => IndexedDbObjectStore>(() =>
-            createMockIndexedDbObjectStore(store),
-          ),
-        };
-      },
-    ),
+    >((name: string, _mode: "readonly" | "readwrite") => {
+      const store = stores.get(name) ?? new Map<string, IndexedDbRecord>();
+      stores.set(name, store);
+
+      return {
+        objectStore: vi.fn<(name: string) => IndexedDbObjectStore>(() =>
+          createMockIndexedDbObjectStore(store),
+        ),
+      };
+    }),
   };
 }
 
-function createMockIndexedDbObjectStore(items: Map<string, unknown>): IndexedDbObjectStore {
+function createMockIndexedDbObjectStore(items: Map<string, IndexedDbRecord>): IndexedDbObjectStore {
   return {
     delete: vi.fn<(key: string) => IndexedDbRequest<undefined>>((key: string) => {
       items.delete(key);
+
       return createRequest(undefined);
     }),
     get: vi.fn<(key: string) => IndexedDbRequest<unknown>>((key: string) =>
       createRequest(items.get(key)),
     ),
     getAllKeys: vi.fn<() => IndexedDbRequest<string[]>>(() => createRequest([...items.keys()])),
-    put: vi.fn<(value: unknown, key: string) => IndexedDbRequest<unknown>>(
-      (value: unknown, key: string) => {
+    put: vi.fn<(value: IndexedDbRecord, key: string) => IndexedDbRequest<IDBValidKey>>(
+      (value: IndexedDbRecord, key: string) => {
         items.set(key, value);
-        return createRequest(undefined);
+
+        return createRequest(key);
       },
     ),
   };
@@ -103,10 +108,10 @@ interface MutableIndexedDbOpenRequest extends IndexedDbOpenRequest {
   result: IndexedDbDatabase;
 }
 
-function createOpenRequest(): MutableIndexedDbOpenRequest {
+function createOpenRequest(result: IndexedDbDatabase): MutableIndexedDbOpenRequest {
   return {
     error: null,
-    result: undefined as unknown as IndexedDbDatabase,
+    result,
     onerror: null,
     onsuccess: null,
     onupgradeneeded: null,
@@ -120,8 +125,10 @@ function createRequest<T>(result: T): IndexedDbRequest<T> {
     onerror: null,
     onsuccess: null,
   };
+
   queueMicrotask(() => {
-    request.onsuccess?.({});
+    request.onsuccess?.(new Event("success"));
   });
+
   return request;
 }

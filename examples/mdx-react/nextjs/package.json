@@ -13,6 +13,7 @@
     "@tabler/icons-react": "^3.46.0",
     "@temelj/mdx": "workspace:*",
     "@temelj/mdx-react": "workspace:*",
+    "@temelj/value": "workspace:*",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "katex": "^0.17.0",

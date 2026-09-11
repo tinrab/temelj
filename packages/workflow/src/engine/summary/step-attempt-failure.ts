@@ -32,6 +32,7 @@ interface WorkflowStepAttemptFailureErrorAccumulator {
 
 export function createWorkflowStepAttemptFailureSummaryReducer(): WorkflowStepAttemptFailureSummaryReducer {
   const failure = createWorkflowStepAttemptFailureAccumulator();
+
   return {
     addAttempt(attempt, attemptKey) {
       if (attempt.status === "failed") {
@@ -71,11 +72,13 @@ function addWorkflowStepAttemptFailureError(
   attemptKey: string,
 ): void {
   const errorName = attempt.error?.name ?? "Error";
+
   const current = failure.errors.get(errorName) ?? {
     count: 0,
     failedAttemptKeys: new Set<string>(),
     failedStepIds: new Set<string>(),
   };
+
   current.count++;
   current.failedStepIds.add(attempt.stepId);
   current.failedAttemptKeys.add(attemptKey);
@@ -86,19 +89,24 @@ function addWorkflowStepAttemptFailureError(
 function finishWorkflowStepAttemptFailureSummary(
   failure: WorkflowStepAttemptFailureAccumulator,
 ): WorkflowStepAttemptFailureSummaryFields {
-  return failure.total === 0
-    ? {}
-    : {
-        failure: {
-          total: failure.total,
-          failedStepIds: [...failure.failedStepIds].sort(),
-          failedAttemptKeys: [...failure.failedAttemptKeys].sort(),
-          errors: finishWorkflowStepAttemptFailureErrors(failure.errors),
-          ...(failure.latestFailedAt === undefined
-            ? {}
-            : { latestFailedAt: failure.latestFailedAt }),
-        },
-      };
+  if (failure.total === 0) {
+    return {};
+  }
+
+  const result: NonNullable<WorkflowStepAttemptFailureSummaryFields["failure"]> = {
+    total: failure.total,
+    failedStepIds: [...failure.failedStepIds].sort(),
+    failedAttemptKeys: [...failure.failedAttemptKeys].sort(),
+    errors: finishWorkflowStepAttemptFailureErrors(failure.errors),
+  };
+
+  if (failure.latestFailedAt !== undefined) {
+    Object.assign(result, { latestFailedAt: failure.latestFailedAt } satisfies Partial<
+      NonNullable<WorkflowStepAttemptFailureSummaryFields["failure"]>
+    >);
+  }
+
+  return { failure: result };
 }
 
 function finishWorkflowStepAttemptFailureErrors(
@@ -106,11 +114,20 @@ function finishWorkflowStepAttemptFailureErrors(
 ): WorkflowStepAttemptFailureErrorSummary[] {
   return [...errors.entries()]
     .sort(([left], [right]) => left.localeCompare(right))
-    .map(([name, summary]) => ({
-      name,
-      count: summary.count,
-      failedStepIds: [...summary.failedStepIds].sort(),
-      failedAttemptKeys: [...summary.failedAttemptKeys].sort(),
-      ...(summary.latestFailedAt === undefined ? {} : { latestFailedAt: summary.latestFailedAt }),
-    }));
+    .map(([name, summary]): WorkflowStepAttemptFailureErrorSummary => {
+      const result: WorkflowStepAttemptFailureErrorSummary = {
+        name,
+        count: summary.count,
+        failedStepIds: [...summary.failedStepIds].sort(),
+        failedAttemptKeys: [...summary.failedAttemptKeys].sort(),
+      };
+
+      if (summary.latestFailedAt !== undefined) {
+        Object.assign(result, {
+          latestFailedAt: summary.latestFailedAt,
+        } satisfies Partial<WorkflowStepAttemptFailureErrorSummary>);
+      }
+
+      return result;
+    });
 }

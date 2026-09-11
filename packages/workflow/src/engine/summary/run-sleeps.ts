@@ -27,11 +27,13 @@ interface WorkflowRunSleepWaitAccumulator {
   readonly stepIds: Set<string>;
 }
 
-export function createWorkflowRunSleepWaitSummaryReducer(): {
+export interface WorkflowRunSleepWaitSummaryReducer {
   readonly addAttempt: (runId: RunId, attempt: WorkflowStepAttemptRecord) => void;
   readonly addAttempts: (runId: RunId, attempts: readonly WorkflowStepAttemptRecord[]) => void;
   readonly finish: () => WorkflowRunSleepWaitSummary;
-} {
+}
+
+export function createWorkflowRunSleepWaitSummaryReducer(): WorkflowRunSleepWaitSummaryReducer {
   const sleep = createWorkflowRunSleepWaitAccumulator();
 
   return {
@@ -69,6 +71,7 @@ function addWorkflowRunSleepWaitAttempt(
   sleep.stepIds.add(attempt.stepId);
   sleep.attemptKeys.add(attemptKey);
   sleep.oldestStartedAt = earliestOptionalTimestamp(sleep.oldestStartedAt, attempt.startedAt);
+
   if (shouldReplaceWorkflowEarliestDefinedInstant(sleep.nextWakeAt, attempt.until)) {
     setWorkflowRunSleepWaitNextWake(sleep, runId, attempt, attemptKey);
   }
@@ -90,25 +93,28 @@ function setWorkflowRunSleepWaitNextWake(
 function finishWorkflowRunSleepWaitSummary(
   sleep: WorkflowRunSleepWaitAccumulator,
 ): WorkflowRunSleepWaitSummary {
-  return sleep.total === 0
-    ? {}
-    : {
-        sleep: {
-          activeSleeps: sleep.total,
-          activeSleepRuns: sleep.runIds.size,
-          sleepRunIds: sortedStringSet(sleep.runIds),
-          sleepStepIds: sortedStringSet(sleep.stepIds),
-          sleepAttemptKeys: sortedStringSet(sleep.attemptKeys),
-          ...optionalProperty("oldestStartedAt", sleep.oldestStartedAt),
-          ...(sleep.nextWakeAt === undefined
-            ? {}
-            : {
-                nextWakeAt: sleep.nextWakeAt,
-                ...optionalProperty("nextWakingRunId", sleep.nextRunId),
-                ...optionalProperty("nextWakingStepId", sleep.nextStepId),
-                ...optionalProperty("nextWakingAttemptKey", sleep.nextAttemptKey),
-                ...optionalProperty("nextWakingDuration", sleep.nextDuration),
-              }),
-        },
-      };
+  if (sleep.total === 0) {
+    return {};
+  }
+
+  const result: NonNullable<WorkflowRunSleepWaitSummary["sleep"]> = {
+    activeSleeps: sleep.total,
+    activeSleepRuns: sleep.runIds.size,
+    sleepRunIds: sortedStringSet(sleep.runIds),
+    sleepStepIds: sortedStringSet(sleep.stepIds),
+    sleepAttemptKeys: sortedStringSet(sleep.attemptKeys),
+    ...optionalProperty("oldestStartedAt", sleep.oldestStartedAt),
+  };
+
+  if (sleep.nextWakeAt !== undefined) {
+    Object.assign(result, {
+      nextWakeAt: sleep.nextWakeAt,
+      ...optionalProperty("nextWakingRunId", sleep.nextRunId),
+      ...optionalProperty("nextWakingStepId", sleep.nextStepId),
+      ...optionalProperty("nextWakingAttemptKey", sleep.nextAttemptKey),
+      ...optionalProperty("nextWakingDuration", sleep.nextDuration),
+    } satisfies Partial<NonNullable<WorkflowRunSleepWaitSummary["sleep"]>>);
+  }
+
+  return { sleep: result };
 }

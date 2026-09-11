@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 
 import { Barrier } from "./barrier";
+import { defer } from "./defer";
 import { AbortError } from "./errors";
 import { limit } from "./limit";
 import { Mutex } from "./mutex";
@@ -20,6 +21,7 @@ test("Queue runs tasks with concurrency", async () => {
       await new Promise((r) => setTimeout(r, 20));
       active--;
       results.push(n);
+
       return n;
     }),
   );
@@ -62,10 +64,12 @@ test("Queue pause/resume", async () => {
 
   void q.add(async () => {
     results.push(1);
+
     return 1;
   });
   void q.add(async () => {
     results.push(2);
+
     return 2;
   });
 
@@ -83,22 +87,98 @@ test("Queue addAll", async () => {
   expect(results).toEqual([1, 2, 3]);
 });
 
-test("Queue clear", async () => {
-  const q = new Queue({ concurrency: 1 });
-  void q.add(async () => {
-    await new Promise((r) => setTimeout(r, 100));
+test("Queue clear rejects pending work and settles idle waiters", async () => {
+  const queue = new Queue({ autoStart: false });
+  let started = false;
+
+  const pending = queue.add(() => {
+    started = true;
   });
-  void q.add(async () => "should not run");
-  void q.add(async () => "should not run");
-  expect(q.size).toBe(2);
-  q.clear();
-  expect(q.size).toBe(0);
+
+  const rejected = pending.catch((cause: unknown) => cause);
+  const idle = queue.onIdle;
+  queue.clear();
+  expect(await rejected).toBeInstanceOf(AbortError);
+  await idle;
+  expect(queue.size).toBe(0);
+  expect(started).toBe(false);
+});
+
+test("Queue snapshots follow execution, cancellation, and subscription cleanup", async () => {
+  const queue = new Queue({ concurrency: 1 });
+  const snapshots: ReturnType<typeof queue.getSnapshot>[] = [];
+  const unsubscribe = queue.subscribe(() => snapshots.push(queue.getSnapshot()));
+  const first = defer<string>();
+  const running = queue.add(() => first.promise);
+  const waiting = queue.add(() => 42);
+  expect(queue.getSnapshot()).toEqual({ size: 1, pending: 1, paused: false });
+  const current = queue.getSnapshot();
+  expect(queue.getSnapshot()).toBe(current);
+  first.resolve("done");
+  await Promise.all([running, waiting]);
+  await queue.onIdle;
+  expect(snapshots).toContainEqual({ size: 0, pending: 1, paused: false });
+  expect(queue.getSnapshot()).toEqual({ size: 0, pending: 0, paused: false });
+  const count = snapshots.length;
+  unsubscribe();
+  queue.pause();
+  expect(snapshots).toHaveLength(count);
 });
 
 test("Queue onIdle resolves when empty", async () => {
   const q = new Queue({ concurrency: 1 });
   await q.onIdle;
   expect(q.size).toBe(0);
+});
+
+test("Queue retains distinct task result types", async () => {
+  const queue = new Queue({ concurrency: 2 });
+
+  const number = queue.add(() => 42);
+  const text = queue.add(() => "ready");
+
+  expect(await number).toBe(42);
+  expect(await text).toBe("ready");
+  await queue.onIdle;
+});
+
+test("Queue settles idle waiters when pending work is aborted", async () => {
+  const queue = new Queue({ autoStart: false });
+  const controller = new AbortController();
+  let started = false;
+
+  const result = queue.add(
+    () => {
+      started = true;
+
+      return 42;
+    },
+    { signal: controller.signal },
+  );
+
+  const rejected = result.catch((cause: unknown) => cause);
+  const idle = queue.onIdle;
+
+  controller.abort();
+  expect(await rejected).toBeInstanceOf(AbortError);
+  await idle;
+  expect(started).toBe(false);
+  expect(queue.size).toBe(0);
+});
+
+test("Queue waits for running work after aborting its result", async () => {
+  const queue = new Queue({ concurrency: 1 });
+  const controller = new AbortController();
+  const work = defer<number>();
+  const result = queue.add(() => work.promise, { signal: controller.signal });
+  const rejected = result.catch((cause: unknown) => cause);
+
+  controller.abort();
+  expect(await rejected).toBeInstanceOf(AbortError);
+  expect(queue.pending).toBe(1);
+  work.resolve(42);
+  await queue.onIdle;
+  expect(queue.pending).toBe(0);
 });
 
 test("limit enforces concurrency", async () => {
@@ -110,6 +190,7 @@ test("limit enforces concurrency", async () => {
     maxActive = Math.max(maxActive, active);
     await new Promise((r) => setTimeout(r, 20));
     active--;
+
     return n * 2;
   }, 2);
 
@@ -120,14 +201,18 @@ test("limit enforces concurrency", async () => {
 
 test("retry succeeds on nth attempt", async () => {
   let attempt = 0;
+
   const result = await retry(
     async () => {
       attempt++;
+
       if (attempt < 3) throw new Error("not yet");
+
       return "ok";
     },
     { times: 3 },
   );
+
   expect(result).toBe("ok");
   expect(attempt).toBe(3);
 });
@@ -146,14 +231,18 @@ test("retry fails after max attempts", async () => {
 test("retry with delay", async () => {
   let attempt = 0;
   const start = Date.now();
+
   const result = await retry(
     async () => {
       attempt++;
+
       if (attempt < 2) throw new Error("not yet");
+
       return "ok";
     },
     { times: 3, delay: 30 },
   );
+
   expect(result).toBe("ok");
   expect(Date.now() - start).toBeGreaterThanOrEqual(20);
 });
@@ -183,14 +272,17 @@ test("retry with backoff function", async () => {
   await retry(
     async () => {
       attempt++;
+
       if (attempt < 3) throw new Error("not yet");
+
       return "ok";
     },
     {
       times: 3,
-      delay: (att) => {
+      backoff: (att) => {
         const d = (att + 1) * 10;
         delays.push(d);
+
         return d;
       },
     },

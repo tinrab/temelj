@@ -77,6 +77,7 @@ describe("workflow recovery resource summary reducers", () => {
 
   test("summarizes stale locks and waiting lock attempts", () => {
     const now = Temporal.Instant.from("2026-06-12T10:00:00Z");
+
     const reducer = createWorkflowRecoveryLockSummaryReducer(
       [
         runRecord("run_lock_due", "waiting", {
@@ -90,6 +91,7 @@ describe("workflow recovery resource summary reducers", () => {
       ],
       now,
     );
+
     reducer.addLock(
       lockRecord("lock:stale", {
         holderId: "holder_stale",
@@ -145,6 +147,7 @@ function runRecord(
   patch: Partial<WorkflowRunRecord> = {},
 ): WorkflowRunRecord {
   const timestamp = Temporal.Instant.from("2026-06-12T09:00:00Z");
+
   return {
     id,
     namespace: "default",
@@ -166,6 +169,7 @@ function scheduleRecord(
   patch: Partial<ScheduleRecord> = {},
 ): ScheduleRecord {
   const timestamp = Temporal.Instant.from("2026-06-12T09:00:00Z");
+
   return {
     id,
     namespace: "default",
@@ -184,6 +188,7 @@ function scheduleRecord(
 
 function lockRecord(key: string, patch: Partial<LockRecord> = {}): LockRecord {
   const timestamp = Temporal.Instant.from("2026-06-12T09:00:00Z");
+
   return {
     key,
     namespace: "default",
@@ -222,6 +227,7 @@ function stepAttempt(
   patch: Partial<WorkflowStepAttemptRecord> = {},
 ): WorkflowStepAttemptRecord {
   const timestamp = Temporal.Instant.from("2026-06-12T09:00:00Z");
+
   return {
     runId,
     stepId,

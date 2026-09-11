@@ -36,9 +36,11 @@ describe("OpenTelemetry workflow message wait telemetry", () => {
 
   test("emits message and hook wait latency metrics from durable history", async () => {
     const spanExporter = new InMemorySpanExporter();
+
     const tracerProvider = new BasicTracerProvider({
       spanProcessors: [new SimpleSpanProcessor(spanExporter)],
     });
+
     const metricExporter = new InMemoryMetricExporter(AggregationTemporality.CUMULATIVE);
     const metricReader = new PeriodicExportingMetricReader({ exporter: metricExporter });
     const meterProvider = new MeterProvider({ readers: [metricReader] });
@@ -49,13 +51,14 @@ describe("OpenTelemetry workflow message wait telemetry", () => {
     let now = Temporal.Instant.from("2026-06-15T10:00:00Z");
     let forcedTraceContext: TelemetryContext | undefined;
     const otelTelemetry = createOpenTelemetryTelemetry();
+
     const telemetry: Telemetry = {
       bindEngine: (currentEngine) => {
         otelTelemetry.bindEngine?.(currentEngine);
       },
       captureContext: () => forcedTraceContext ?? otelTelemetry.captureContext?.(),
-      observe: (name, payload) => {
-        otelTelemetry.observe?.(name, payload);
+      observe: (...event) => {
+        otelTelemetry.observe?.(...event);
       },
       recordRunExecution: (telemetryContext) => {
         otelTelemetry.recordRunExecution?.(telemetryContext);
@@ -71,11 +74,13 @@ describe("OpenTelemetry workflow message wait telemetry", () => {
       withStepExecution: async (telemetryContext, callback) =>
         await (otelTelemetry.withStepExecution?.(telemetryContext, callback) ?? callback()),
     };
+
     const engine = createWorkflowEngine({
       createRunId: sequentialRunIds("run-otel-message-latency", "run-otel-hook-latency"),
       now: () => now,
       telemetry,
     });
+
     const messageWorkflow = implementWorkflow(
       { name: "otel-message-latency" },
       async ({ step }) => await step.message.wait({ messageId: "ready" }),
@@ -101,11 +106,14 @@ describe("OpenTelemetry workflow message wait telemetry", () => {
     });
 
     let hookToken = "";
+
     const hookWorkflow = implementWorkflow({ name: "otel-hook-latency" }, async ({ step }) => {
       const hook = step.hook.create({ name: "approved" });
       hookToken = hook.token;
+
       return await hook;
     });
+
     now = Temporal.Instant.from("2026-06-15T10:01:00Z");
     await expect(engine.runWorkflowNow(hookWorkflow, undefined)).resolves.toMatchObject({
       kind: "waiting",
@@ -137,16 +145,19 @@ describe("OpenTelemetry workflow message wait telemetry", () => {
         WORKFLOW_SPAN_NAMES.hookResume,
       ]),
     );
+
     const messageWaitSpan = spans.find(
       (span) =>
         span.name === WORKFLOW_SPAN_NAMES.messageWait &&
         span.attributes[WORKFLOW_ATTRIBUTES.messageSource] === "message",
     );
+
     const hookWaitSpan = spans.find(
       (span) =>
         span.name === WORKFLOW_SPAN_NAMES.messageWait &&
         span.attributes[WORKFLOW_ATTRIBUTES.messageSource] === "hook",
     );
+
     expect(messageWaitSpan?.links.map((link) => link.context.traceId)).toContain(
       messageSendTraceId,
     );
@@ -183,18 +194,22 @@ describe("OpenTelemetry workflow message wait telemetry", () => {
 
   test("ignores malformed trace context when linking message wait spans", async () => {
     const spanExporter = new InMemorySpanExporter();
+
     const tracerProvider = new BasicTracerProvider({
       spanProcessors: [new SimpleSpanProcessor(spanExporter)],
     });
+
     trace.setGlobalTracerProvider(tracerProvider);
 
     const telemetry = createOpenTelemetryTelemetry();
     const startedAt = Temporal.Instant.from("2026-06-15T10:00:00Z");
     const messageAt = Temporal.Instant.from("2026-06-15T10:00:05Z");
     const completedAt = Temporal.Instant.from("2026-06-15T10:00:06Z");
+
     const invalidTraceContext = {
       traceparent: "00-00000000000000000000000000000000-0000000000000000-01",
     };
+
     const started = {
       kind: "message_wait_started",
       timestamp: startedAt,
@@ -203,12 +218,14 @@ describe("OpenTelemetry workflow message wait telemetry", () => {
       count: 1,
       messageId: "ready",
     } satisfies Extract<EventRecord, { readonly kind: "message_wait_started" }>;
+
     const sent = {
       kind: "message_sent",
       timestamp: messageAt,
       messageId: "ready",
       telemetryContext: invalidTraceContext,
     } satisfies Extract<EventRecord, { readonly kind: "message_sent" }>;
+
     const completed = {
       kind: "message_wait_completed",
       timestamp: completedAt,
@@ -229,6 +246,7 @@ describe("OpenTelemetry workflow message wait telemetry", () => {
     const messageWaitSpan = spanExporter
       .getFinishedSpans()
       .find((span) => span.name === WORKFLOW_SPAN_NAMES.messageWait);
+
     expect(messageWaitSpan?.links).toEqual([]);
   });
 });
@@ -251,18 +269,22 @@ function metricAttributes(
 
 function sequentialRunIds(...ids: readonly string[]): () => string {
   let index = 0;
+
   return () => {
     const value = ids[index];
     index++;
+
     if (value === undefined) {
       throw new Error("Unexpected run ID request");
     }
+
     return value;
   };
 }
 
 function traceContextFromSpan(span: Span): TelemetryContext {
   const spanContext = span.spanContext();
+
   return {
     traceparent: `00-${spanContext.traceId}-${spanContext.spanId}-${spanContext.traceFlags.toString(16).padStart(2, "0")}`,
   };

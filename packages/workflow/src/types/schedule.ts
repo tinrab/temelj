@@ -64,12 +64,12 @@ export type ScheduleCatchUpPolicy = "skip" | "one" | "all";
 export type ScheduleOverlapPolicy = "allow" | "skip" | "buffer" | "cancel";
 
 /** Stored recurring workflow schedule state. */
-export interface ScheduleRecord<TInput = StorageValue> {
+export interface ScheduleRecord {
   readonly id: ScheduleId;
   readonly namespace: string;
   readonly workflowName: string;
   readonly workflowVersion?: string;
-  readonly input?: TInput;
+  readonly input?: StorageValue;
   readonly context?: StorageValue;
   readonly status: ScheduleStatus;
   readonly every: Temporal.Duration;

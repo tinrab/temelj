@@ -98,7 +98,7 @@ export interface RegistryLike {
   register<TInput, TOutput, TRawInput = TInput>(
     implementation: WorkflowImplementation<TInput, TOutput, TRawInput>,
   ): void;
-  /** Returns the implementation registered for a definition, if present. */
+  /** Returns the implementation registered for this exact definition object, if present. */
   get<TInput, TOutput, TRawInput = TInput>(
     definition: WorkflowDefinition<TInput, TOutput, TRawInput>,
   ): WorkflowImplementation<TInput, TOutput, TRawInput> | undefined;

@@ -14,6 +14,7 @@ describe("workflow replay projection", () => {
     const completedAfterStart = stepCompleted("run:load", 1);
     const completedBeforeStart = stepCompleted("run:late", 1);
     const staleMessageWaitCompleted = messageWaitCompleted("message-wait:approval");
+
     const events: EventRecord[] = [
       stepStarted("run:load", 1),
       completedAfterStart,
@@ -226,6 +227,7 @@ describe("workflow replay projection", () => {
   test("finds started events for completed sleep and message waits", () => {
     const completedSleep = sleepCompleted("sleep:pause");
     const completedWait = messageWaitCompleted("message-wait:approval");
+
     const history = new WorkflowHistory([
       sleepStarted("sleep:pause"),
       completedSleep,
@@ -245,6 +247,7 @@ describe("workflow replay projection", () => {
 
   test("finds sent messages by message timestamp", () => {
     const timestamp = Temporal.Instant.from("2026-06-12T09:03:00Z");
+
     const history = new WorkflowHistory([
       messageSent("approval.received", "first", undefined, undefined, timestamp),
       messageSent(
@@ -276,6 +279,7 @@ describe("workflow replay projection", () => {
 
   test("marks child workflow lifecycle terminal after the matching start", () => {
     const attempt = childWorkflowAttempt("child-workflow:invoice", "run_child_invoice");
+
     const history = new WorkflowHistory([
       childWorkflowStarted("child-workflow:invoice"),
       childWorkflowCompleted("child-workflow:other", "run_child_invoice"),
@@ -375,14 +379,17 @@ function messageSent(
   idempotencyKey?: string,
   timestamp = Temporal.Instant.from("2026-06-12T09:03:00Z"),
 ): EventRecord {
-  return {
-    kind: "message_sent",
-    timestamp,
-    messageId,
-    payload,
-    ...(waiterStepIds === undefined ? {} : { waiterStepIds }),
-    ...(idempotencyKey === undefined ? {} : { idempotencyKey }),
-  };
+  const result: EventRecord = { kind: "message_sent", timestamp, messageId, payload };
+
+  if (waiterStepIds !== undefined) {
+    Object.assign(result, { waiterStepIds } satisfies Partial<EventRecord>);
+  }
+
+  if (idempotencyKey !== undefined) {
+    Object.assign(result, { idempotencyKey } satisfies Partial<EventRecord>);
+  }
+
+  return result;
 }
 
 function sleepStarted(stepId: string): EventRecord {

@@ -1,13 +1,14 @@
 import type { Logger } from "@temelj/log";
 
 import type { WorkflowBundle } from "../bundle.ts";
+import type { CreateCloudflareWorkflowEntrypointOptions } from "./entrypoint.ts";
 import type {
   CloudflareWorkflowRuntime,
   CreateCloudflareWorkflowRuntimeOptions,
 } from "./runtime.ts";
 import type { CloudflareWorkflowBinding } from "./types.ts";
 
-import { createWorkflowBundleRegistry } from "../bundle.ts";
+import { Registry } from "../registry.ts";
 import { createCloudflareWorkflowEntrypoint } from "./entrypoint.ts";
 import { createCloudflareWorkflowRuntime } from "./runtime.ts";
 
@@ -33,12 +34,18 @@ export interface CloudflareWorkflowHost<TEnv> {
 export function createCloudflareWorkflowHost<TEnv = unknown>(
   options: CreateCloudflareWorkflowHostOptions,
 ): CloudflareWorkflowHost<TEnv> {
-  const registry = createWorkflowBundleRegistry(options.workflows);
+  const registry = new Registry(options.workflows.workflows);
+
+  const entrypointOptions: CreateCloudflareWorkflowEntrypointOptions = { registry };
+
+  if (options.logger !== undefined) {
+    Object.assign(entrypointOptions, {
+      logger: options.logger,
+    } satisfies Partial<CreateCloudflareWorkflowEntrypointOptions>);
+  }
+
   return {
-    Entrypoint: createCloudflareWorkflowEntrypoint<TEnv>({
-      registry,
-      ...(options.logger === undefined ? {} : { logger: options.logger }),
-    }),
+    Entrypoint: createCloudflareWorkflowEntrypoint<TEnv>(entrypointOptions),
     createRuntime(binding, runtimeOptions = {}) {
       return createCloudflareWorkflowRuntime({
         ...runtimeOptions,

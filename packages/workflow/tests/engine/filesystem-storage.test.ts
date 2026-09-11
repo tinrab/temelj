@@ -22,6 +22,7 @@ describe("filesystem-backed workflow runtime", () => {
 
   test("resumes a pending run after recreating the runtime over the same storage", async () => {
     const directory = await temporaryDirectory();
+
     const workflow = implementWorkflow<{ readonly name: string }, string>(
       { name: "filesystem-runtime-recovery" },
       ({ input }) => `hello ${input.name}`,
@@ -31,10 +32,12 @@ describe("filesystem-backed workflow runtime", () => {
       createRunId: () => "run_filesystem_recovery",
       storage: createFilesystemWorkflowStorage(directory),
     });
+
     const firstRuntime = createWorkflowRuntime({
       engine: firstEngine,
       workerEngine: firstEngine,
     });
+
     firstRuntime.register(workflow);
     const started = await firstRuntime.start(workflow, { name: "Ada" });
     await firstRuntime.close();
@@ -42,13 +45,15 @@ describe("filesystem-backed workflow runtime", () => {
     const secondEngine = createWorkflowEngine({
       storage: createFilesystemWorkflowStorage(directory),
     });
+
     const secondRuntime = createWorkflowRuntime({
       engine: secondEngine,
       workerEngine: secondEngine,
     });
+
     secondRuntime.register(workflow);
     await secondRuntime.workers.processRun(started.runId);
-    const recovered = await secondRuntime.runs.getHandle<string>(started.runId);
+    const recovered = await secondRuntime.runs.getHandle(started.runId);
 
     await expect(recovered.result()).resolves.toBe("hello Ada");
     await secondRuntime.close();
@@ -68,5 +73,6 @@ function createFilesystemWorkflowStorage(directory: string) {
 async function temporaryDirectory(): Promise<string> {
   const directory = await mkdtemp(join(tmpdir(), "temelj-workflow-runtime-"));
   temporaryDirectories.push(directory);
+
   return directory;
 }

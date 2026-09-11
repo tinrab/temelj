@@ -74,10 +74,12 @@ describe("workflow event append outcomes", () => {
   test("returns staleRun without appending when the stored run revision changed", async () => {
     const storage = createStorage();
     const run = workflowRun({ status: "running" });
+
     const newerRun = workflowRun({
       status: "running",
       updatedAt: Temporal.Instant.from("2025-01-01T00:00:02Z"),
     });
+
     await storage.set(makeRunKey("test", run.id), toStorageValue(newerRun));
 
     await expect(

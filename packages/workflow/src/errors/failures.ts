@@ -181,18 +181,18 @@ export class WorkflowRetryableError extends WorkflowError {
     if (options.retryAt !== undefined && options.retryDelay !== undefined) {
       WorkflowOptionsError.retryableErrorDelayConflict();
     }
+
+    const details = { ...options.details };
+
+    if (options.retryAt !== undefined) details.retryAt = options.retryAt.toString();
+
+    if (options.retryDelay !== undefined) details.retryDelay = options.retryDelay.toString();
     super(
       message,
       {
         ...options,
         code: options.code ?? WorkflowErrorCode.RETRYABLE_FAILURE,
-        details: {
-          ...options.details,
-          ...(options.retryAt === undefined ? {} : { retryAt: options.retryAt.toString() }),
-          ...(options.retryDelay === undefined
-            ? {}
-            : { retryDelay: options.retryDelay.toString() }),
-        },
+        details,
       },
       context,
     );
@@ -213,8 +213,9 @@ export class WorkflowRetryableError extends WorkflowError {
     );
   }
 
-  static isLockAlreadyHeld(error: unknown, key?: string): boolean {
-    const record = workflowErrorRecordView(error);
+  static isLockAlreadyHeld(cause: unknown, key?: string): boolean {
+    const record = workflowErrorRecordView(cause);
+
     return (
       record?.code === WorkflowErrorCode.LOCK_ALREADY_HELD &&
       (key === undefined || record.details?.key === key)
@@ -247,16 +248,16 @@ export class WorkflowReplayDivergenceError extends WorkflowError {
     },
     context?: Function,
   ) {
+    const details: WorkflowReplayDivergenceDetails = {};
+
+    if (options.expectedStepId !== undefined) details.expectedStepId = options.expectedStepId;
+
+    if (options.actualStepId !== undefined) details.actualStepId = options.actualStepId;
     super(
       `Workflow replay diverged: ${message}`,
       {
         code: WorkflowErrorCode.REPLAY_DIVERGED,
-        details: {
-          ...(options.expectedStepId === undefined
-            ? {}
-            : { expectedStepId: options.expectedStepId }),
-          ...(options.actualStepId === undefined ? {} : { actualStepId: options.actualStepId }),
-        },
+        details,
       },
       context,
     );
@@ -295,3 +296,8 @@ export class WorkflowReplayDivergenceError extends WorkflowError {
     );
   }
 }
+
+type WorkflowReplayDivergenceDetails = {
+  expectedStepId?: string;
+  actualStepId?: string;
+};

@@ -23,6 +23,7 @@ test("shows readable code without an external service", () => {
 
 test("does not highlight code without a language", () => {
   const highlight = vi.fn<SynchronousSyntaxHighlighter["highlight"]>();
+
   const code = render(
     <HighlightedCode
       code="plain"
@@ -38,6 +39,7 @@ test("does not highlight code without a language", () => {
 
 test("does not send its fallback back through the semantic code block component", () => {
   let registry: MdxRegistry | undefined;
+
   function CodeBlock({
     node,
     ...props
@@ -52,6 +54,7 @@ test("does not send its fallback back through the semantic code block component"
       <pre {...props} />
     );
   }
+
   registry = defineMdxRegistry({ html: { pre: CodeBlock } });
 
   const code = render(<HighlightedCode code="const value = 1" registry={registry} language="ts" />);
@@ -61,6 +64,7 @@ test("does not send its fallback back through the semantic code block component"
 
 test("keeps the highlighted block mounted while its next update is pending", async () => {
   const next = Promise.withResolvers<HtmlElementNode>();
+
   const highlighter = {
     highlight: vi.fn<AsynchronousSyntaxHighlighter["highlight"]>(({ code }) =>
       code === "first"
@@ -71,6 +75,7 @@ test("keeps the highlighted block mounted while its next update is pending", asy
     ),
     kind: "asynchronous",
   } satisfies SyntaxHighlighter;
+
   const code = render(<HighlightedCode code="first" highlighter={highlighter} language="ts" />);
   await waitFor(() => {
     expect(code.container.querySelector("[data-code]")?.textContent).toBe("first");
@@ -87,6 +92,7 @@ test("keeps the highlighted block mounted while its next update is pending", asy
 
 test("passes typed metadata and ignores stale asynchronous results", async () => {
   const first = Promise.withResolvers<HtmlElementNode>();
+
   const highlighter = {
     highlight: vi.fn<AsynchronousSyntaxHighlighter["highlight"]>(({ code, metadata }) =>
       code === "first"
@@ -99,6 +105,7 @@ test("passes typed metadata and ignores stale asynchronous results", async () =>
     ),
     kind: "asynchronous",
   } satisfies SyntaxHighlighter;
+
   const code = render(
     <HighlightedCode
       code="first"

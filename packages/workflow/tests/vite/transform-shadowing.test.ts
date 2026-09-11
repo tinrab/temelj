@@ -4,6 +4,7 @@ import { makeGeneratedName } from "../../src/vite/generated-name.ts";
 import { transformWorkflowSource } from "../../src/vite/transform.ts";
 
 const CALL_WORKFLOW_STEP_FUNCTION_NAME = makeGeneratedName("callWorkflowStepFunction");
+
 const CONTEXT_NAME = makeGeneratedName("context");
 
 function callWorkflowStepFunctionText(fn: string, args: string): string {
@@ -22,6 +23,7 @@ export async function sendOne(value: string) {
       "/repo/workflows/steps.ts",
       { root: "/repo" },
     );
+
     const result = transformWorkflowSource(
       `
 import { sendOne } from "./steps";
@@ -50,6 +52,7 @@ export async function sendOne(value: string) {
       "/repo/workflows/steps.ts",
       { root: "/repo" },
     );
+
     const result = transformWorkflowSource(
       `
 import { sendOne } from "./steps";
@@ -79,6 +82,7 @@ export async function sendOne(value: string) {
       "/repo/workflows/steps.ts",
       { root: "/repo" },
     );
+
     const result = transformWorkflowSource(
       `
 import { sendOne } from "./steps";
@@ -154,6 +158,7 @@ export async function sendOne(value: string) {
       "/repo/workflows/steps.ts",
       { root: "/repo" },
     );
+
     const result = transformWorkflowSource(
       `
 import { sendOne } from "./steps";
@@ -185,6 +190,7 @@ export async function sendOne(value: string) {
       "/repo/workflows/steps.ts",
       { root: "/repo" },
     );
+
     const result = transformWorkflowSource(
       `
 import { sendOne } from "./steps";
@@ -214,6 +220,7 @@ export async function sendOne(value: string) {
       "/repo/workflows/steps.ts",
       { root: "/repo" },
     );
+
     const result = transformWorkflowSource(
       `
 import { sendOne } from "./steps";
@@ -242,6 +249,7 @@ export async function sendOne(value: string) {
       "/repo/workflows/steps.ts",
       { root: "/repo" },
     );
+
     const result = transformWorkflowSource(
       `
 import { sendOne as sendImported } from "./steps";

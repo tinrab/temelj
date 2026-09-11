@@ -10,5 +10,6 @@ import { useRect } from "./use-rect.ts";
  */
 export function useElementCenter<T extends Element>(): [React.RefCallback<T>, Vector2 | null] {
   const [ref, rect] = useRect<T>();
+
   return [ref, rect === null ? null : rectangle.center(rect)];
 }

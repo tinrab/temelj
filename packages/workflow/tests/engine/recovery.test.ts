@@ -4,19 +4,21 @@ import type { WorkflowRunHandle } from "../../src/types/client.ts";
 import type { WorkflowRunRecord } from "../../src/types/run.ts";
 
 import { createWorkflowClient } from "../../src/client/create.ts";
-import { createWorkflowRunHandle } from "../../src/client/run-handle.ts";
-import { defineWorkflow, implementWorkflow } from "../../src/definition.ts";
+import { implementWorkflow } from "../../src/definition.ts";
 import { createWorkflowEngine } from "../../src/engine/create.ts";
+import { WorkflowRuntime } from "../../src/runtime.ts";
 
 describe("workflow recovery actions", () => {
   test("reschedules pending or waiting runs as an audited recovery transition", async () => {
     const lifecycle: Array<readonly [string, string, Temporal.Instant | undefined]> = [];
+
     const engine = createWorkflowEngine({
       now: () => Temporal.Instant.from("2026-06-12T10:00:00Z"),
       onLifecycleEvent(event) {
         lifecycle.push([event.run.id, event.reason, event.run.availableAt]);
       },
     });
+
     const client = createWorkflowClient({ engine });
     await engine.store.createRun(
       runRecord("run_reschedule_retry", "waiting", {
@@ -67,9 +69,11 @@ describe("workflow recovery actions", () => {
 
   test("emits typed observation events for recovery transitions", async () => {
     const observed: Array<readonly [string, string, string]> = [];
+
     const engine = createWorkflowEngine({
       now: () => Temporal.Instant.from("2026-06-12T10:00:00Z"),
     });
+
     engine.on("workflow:run-rescheduled", (event) => {
       observed.push([event.run.id, event.reason, "rescheduled"]);
     });
@@ -127,6 +131,7 @@ describe("workflow recovery actions", () => {
     const engine = createWorkflowEngine({
       now: () => Temporal.Instant.from("2026-06-12T10:00:00Z"),
     });
+
     await engine.store.createRun(
       runRecord("run_reschedule_now", "pending", {
         availableAt: Temporal.Instant.from("2026-06-12T11:00:00Z"),
@@ -151,12 +156,14 @@ describe("workflow recovery actions", () => {
 
   test("releases stale run leases as an audited recovery transition", async () => {
     const lifecycle: Array<readonly [string, string, Temporal.Instant | undefined]> = [];
+
     const engine = createWorkflowEngine({
       now: () => Temporal.Instant.from("2026-06-12T10:00:00Z"),
       onLifecycleEvent(event) {
         lifecycle.push([event.run.id, event.reason, event.run.availableAt]);
       },
     });
+
     const client = createWorkflowClient({ engine });
     await engine.store.createRun(
       runRecord("run_release_stale_lease", "running", {
@@ -197,6 +204,7 @@ describe("workflow recovery actions", () => {
     const engine = createWorkflowEngine({
       now: () => Temporal.Instant.from("2026-06-12T10:00:00Z"),
     });
+
     await engine.store.createRun(
       runRecord("run_ownerless_release", "running", {
         leaseExpiresAt: Temporal.Instant.from("2026-06-12T10:30:00Z"),
@@ -226,6 +234,7 @@ describe("workflow recovery actions", () => {
     const engine = createWorkflowEngine({
       now: () => Temporal.Instant.from("2026-06-12T10:00:00Z"),
     });
+
     const client = createWorkflowClient({ engine });
     await engine.store.createRun(
       runRecord("run_active_release", "running", {
@@ -241,12 +250,14 @@ describe("workflow recovery actions", () => {
 
   test("retries failed runs with retry metadata as an audited recovery transition", async () => {
     const lifecycle: Array<readonly [string, string, Temporal.Instant | undefined]> = [];
+
     const engine = createWorkflowEngine({
       now: () => Temporal.Instant.from("2026-06-12T10:00:00Z"),
       onLifecycleEvent(event) {
         lifecycle.push([event.run.id, event.reason, event.run.availableAt]);
       },
     });
+
     const client = createWorkflowClient({ engine });
     await engine.store.createRun(
       runRecord("run_retry_failed", "failed", {
@@ -291,6 +302,7 @@ describe("workflow recovery actions", () => {
     const engine = createWorkflowEngine({
       now: () => Temporal.Instant.from("2026-06-12T10:00:00Z"),
     });
+
     await engine.store.createRun(
       runRecord("run_retry_failed_force", "failed", {
         finishedAt: Temporal.Instant.from("2026-06-12T09:55:00Z"),
@@ -315,6 +327,7 @@ describe("workflow recovery actions", () => {
     const engine = createWorkflowEngine({
       now: () => Temporal.Instant.from("2026-06-12T10:00:00Z"),
     });
+
     const client = createWorkflowClient({ engine });
     await engine.store.createRun(
       runRecord("run_permanent_failure", "waiting", {
@@ -357,11 +370,15 @@ describe("workflow recovery actions", () => {
       createRunId: () => "run_handle_recovery",
       now: () => Temporal.Instant.from("2026-06-12T10:00:00Z"),
     });
+
     const client = createWorkflowClient({ engine: clientEngine });
+
     const waitingWorkflow = implementWorkflow({ name: "handle-recovery" }, async ({ step }) => {
       await step.task.sleep("pause", Temporal.Duration.from({ hours: 1 }));
+
       return "ok";
     });
+
     const handle = await client.runs.start(waitingWorkflow, undefined);
 
     await expect(
@@ -383,19 +400,17 @@ describe("workflow recovery actions", () => {
     const runtimeEngine = createWorkflowEngine({
       now: () => Temporal.Instant.from("2026-06-12T10:00:00Z"),
     });
-    const recoveryDefinition = defineWorkflow<undefined, unknown>({ name: "summary" });
+
+    const runtime = new WorkflowRuntime({ engine: runtimeEngine });
     await runtimeEngine.store.createRun(
       runRecord("run_handle_release", "running", {
         workerId: "worker_stale",
         leaseExpiresAt: Temporal.Instant.from("2026-06-12T09:59:00Z"),
       }),
     );
-    const releaseHandle = createWorkflowRunHandle(
-      runtimeEngine,
-      recoveryDefinition,
-      "run_handle_release",
-      () => Temporal.Instant.from("2026-06-12T10:00:00Z"),
-    );
+
+    const releaseHandle = await runtime.runs.getHandle("run_handle_release");
+
     await expect(releaseHandle.releaseStaleLease()).resolves.toMatchObject({
       id: "run_handle_release",
       status: "waiting",
@@ -411,12 +426,9 @@ describe("workflow recovery actions", () => {
         retryAttempt: 1,
       }),
     );
-    const retryHandle = createWorkflowRunHandle(
-      runtimeEngine,
-      recoveryDefinition,
-      "run_handle_retry",
-      () => Temporal.Instant.from("2026-06-12T10:00:00Z"),
-    );
+
+    const retryHandle = await runtime.runs.getHandle("run_handle_retry");
+
     await expect(retryHandle.retryFailed()).resolves.toMatchObject({
       id: "run_handle_retry",
       status: "pending",
@@ -444,6 +456,7 @@ function runRecord(
   patch: Partial<WorkflowRunRecord> = {},
 ): WorkflowRunRecord {
   const timestamp = Temporal.Instant.from("2026-06-12T09:00:00Z");
+
   return {
     id,
     namespace: "default",

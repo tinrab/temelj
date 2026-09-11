@@ -18,37 +18,47 @@ type WorkflowTestClaimRun = (
 describe("workflow worker concurrency", () => {
   test("multiple workers split due runs without duplicate claims", async () => {
     let releaseBoth!: () => void;
+
     const bothStarted = new Promise<void>((resolve) => {
       releaseBoth = resolve;
     });
+
     let activeRuns = 0;
+
     const engine = createWorkflowEngine({
       createRunId: sequentialRunIds(
         "run_multi_worker_contention_first",
         "run_multi_worker_contention_second",
       ),
     });
+
     const registry = new Registry();
     const client = createWorkflowClient({ engine, registry });
+
     const firstWorker = new WorkflowWorker({
       engine,
       registry,
       workerId: "worker_contention_a",
     });
+
     const secondWorker = new WorkflowWorker({
       engine,
       registry,
       workerId: "worker_contention_b",
     });
+
     const def = defineWorkflow<string, string>({ name: "multi-worker-contention" });
 
     client.implementWorkflow(def, async ({ input }) => {
       activeRuns++;
+
       if (activeRuns === 2) {
         releaseBoth();
       }
+
       await bothStarted;
       activeRuns--;
+
       return input;
     });
 
@@ -58,6 +68,7 @@ describe("workflow worker concurrency", () => {
     const firstExecution = firstWorker.processNextRun({ workflowName: "multi-worker-contention" });
     await waitFor(async () => {
       const run = await engine.getRun(first.runId);
+
       return run?.workerId === "worker_contention_a";
     });
 
@@ -97,40 +108,50 @@ describe("workflow worker concurrency", () => {
 
   test("competing workers leave one winner for a single due run", async () => {
     let releaseWorkflow!: () => void;
+
     const workflowCanFinish = new Promise<void>((resolve) => {
       releaseWorkflow = resolve;
     });
+
     let executions = 0;
+
     const engine = createWorkflowEngine({
       createRunId: () => "run_single_worker_contention",
     });
+
     const registry = new Registry();
     const client = createWorkflowClient({ engine, registry });
+
     const firstWorker = new WorkflowWorker({
       engine,
       registry,
       workerId: "worker_single_contention_a",
     });
+
     const secondWorker = new WorkflowWorker({
       engine,
       registry,
       workerId: "worker_single_contention_b",
     });
+
     const def = defineWorkflow<undefined, string>({ name: "single-worker-contention" });
 
     client.implementWorkflow(def, async () => {
       executions++;
       await workflowCanFinish;
+
       return "done";
     });
 
     const handle = await client.runs.start(def, undefined);
+
     const firstExecution = firstWorker.processNextRun({
       workflowName: "single-worker-contention",
     });
 
     await waitFor(async () => {
       const run = await engine.getRun(handle.runId);
+
       return run?.workerId === "worker_single_contention_a";
     });
     await expect(
@@ -156,31 +177,40 @@ describe("workflow worker concurrency", () => {
 
   test("worker run processes claimed runs concurrently", async () => {
     let releaseBoth!: () => void;
+
     const bothStarted = new Promise<void>((resolve) => {
       releaseBoth = resolve;
     });
+
     let activeRuns = 0;
     let maxActiveRuns = 0;
+
     const engine = createWorkflowEngine({
       createRunId: sequentialRunIds("run_concurrent_worker_first", "run_concurrent_worker_second"),
     });
+
     const registry = new Registry();
     const client = createWorkflowClient({ engine, registry });
+
     const worker = new WorkflowWorker({
       engine,
       registry,
       workerId: "worker_concurrent",
     });
+
     const def = defineWorkflow<string, string>({ name: "concurrent-worker" });
 
     client.implementWorkflow(def, async ({ input }) => {
       activeRuns++;
       maxActiveRuns = Math.max(maxActiveRuns, activeRuns);
+
       if (activeRuns === 2) {
         releaseBoth();
       }
+
       await bothStarted;
       activeRuns--;
+
       return input;
     });
 
@@ -214,33 +244,41 @@ describe("workflow worker concurrency", () => {
   test("worker run sleeps when concurrency is partially idle", async () => {
     let claimAttempts = 0;
     let releaseWorkflow!: () => void;
+
     const workflowCanFinish = new Promise<void>((resolve) => {
       releaseWorkflow = resolve;
     });
+
     class CountingClaimStore extends WorkflowStore {
       constructor() {
         super();
         const claimRun: WorkflowTestClaimRun = this.claimRun.bind(this);
         this.claimRun = async (options) => {
           claimAttempts++;
+
           return await claimRun(options);
         };
       }
     }
+
     const engine = createWorkflowEngine({
       createRunId: () => "run_partially_idle_worker",
       store: new CountingClaimStore(),
     });
+
     const registry = new Registry();
     const client = createWorkflowClient({ engine, registry });
+
     const worker = new WorkflowWorker({
       engine,
       registry,
       workerId: "worker_partially_idle",
     });
+
     const def = defineWorkflow<undefined, string>({ name: "partially-idle-worker" });
     client.implementWorkflow(def, async () => {
       await workflowCanFinish;
+
       return "done";
     });
     const handle = await client.runs.start(def, undefined);
@@ -250,6 +288,7 @@ describe("workflow worker concurrency", () => {
       maxRuns: 2,
       pollInterval: Temporal.Duration.from({ milliseconds: 10_000 }),
     });
+
     await waitFor(async () => claimAttempts >= 2);
     await new Promise((resolve) => setTimeout(resolve, 20));
 

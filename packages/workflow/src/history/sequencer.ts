@@ -41,19 +41,23 @@ export class WorkflowStepSequencer {
     const key = `${type}:${name}`;
     const count = (this.#counts.get(key) ?? 0) + 1;
     this.#counts.set(key, count);
+
     const identity = {
       id: count === 1 ? `${type}:${name}` : `${type}:${name}:${count - 1}`,
       name,
       count,
       kind: type,
     };
+
     this.#requireNextRecordedStepMatches(identity);
     this.#cursor++;
+
     return identity;
   }
 
   requireConsumed(): void {
     const recorded = this.#recordedSteps[this.#cursor];
+
     if (recorded === undefined) {
       return;
     }
@@ -72,11 +76,13 @@ export class WorkflowStepSequencer {
 
   #requireNextRecordedStepMatches(identity: WorkflowStepIdentity): void {
     const recorded = this.#recordedSteps[this.#cursor];
+
     if (recorded === undefined) {
       return;
     }
 
     const recordedType = workflowRecordedStepEventType(recorded);
+
     if (!(recorded.timestamp instanceof Temporal.Instant)) {
       WorkflowReplayDivergenceError.diverged(
         `recorded ${recordedType} step ${recorded.stepId} has invalid start timestamp: ${String(recorded.timestamp)}`,
@@ -86,6 +92,7 @@ export class WorkflowStepSequencer {
         },
       );
     }
+
     if (!(Number.isSafeInteger(recorded.count) && recorded.count > 0)) {
       WorkflowReplayDivergenceError.diverged(
         `recorded ${recordedType} step ${recorded.stepId} has an invalid count`,
@@ -95,6 +102,7 @@ export class WorkflowStepSequencer {
         },
       );
     }
+
     if (
       recordedType === identity.kind &&
       recorded.stepId === identity.id &&
@@ -116,9 +124,11 @@ export class WorkflowStepSequencer {
 
 export function workflowRecordedStepEventType(event: WorkflowRecordedStepEvent): WorkflowStepType {
   const stepType = getEventDescriptor(event.kind).stepType;
+
   if (stepType === undefined) {
     WorkflowStateError.unsupportedRecordedStepEventType(event.kind);
   }
+
   return stepType;
 }
 
@@ -138,16 +148,21 @@ function distinctRecordedStepEvents(
 ): readonly WorkflowRecordedStepEvent[] {
   const recorded: WorkflowRecordedStepEvent[] = [];
   const seen = new Set<string>();
+
   for (const event of events) {
     if (!isWorkflowRecordedStepEvent(event)) {
       continue;
     }
+
     const key = `${event.kind}:${event.stepId}:${event.count}`;
+
     if (seen.has(key)) {
       continue;
     }
+
     seen.add(key);
     recorded.push(event);
   }
+
   return recorded;
 }

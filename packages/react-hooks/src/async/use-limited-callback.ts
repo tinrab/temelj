@@ -1,25 +1,19 @@
 import { limit } from "@temelj/async";
-import * as React from "react";
 
-import { useLatest } from "../internal/mod.ts";
+import { useRateLimitedCallback } from "../internal/use-rate-limited-callback.ts";
 
-/**
- * Returns a callback that limits concurrent executions.
- */
+function createLimiter<Args extends unknown[], R>(
+  callback: (...args: Args) => PromiseLike<R> | R,
+  concurrency: number,
+  signal: AbortSignal,
+): (...args: Args) => Promise<R> {
+  return limit(callback, concurrency, { signal });
+}
+
+/** Limits concurrent executions and cancels queued calls on replacement or unmount. */
 export function useLimitedCallback<Args extends unknown[], R>(
   callback: (...args: Args) => PromiseLike<R> | R,
   concurrency: number,
 ): (...args: Args) => Promise<R> {
-  const callbackRef = useLatest(callback);
-  const controller = React.useMemo(() => new AbortController(), []);
-
-  React.useEffect(() => () => controller.abort(), [controller]);
-
-  return React.useMemo(
-    () =>
-      limit((...args: Args) => callbackRef.current(...args), concurrency, {
-        signal: controller.signal,
-      }),
-    [callbackRef, concurrency, controller],
-  );
+  return useRateLimitedCallback(callback, concurrency, createLimiter);
 }

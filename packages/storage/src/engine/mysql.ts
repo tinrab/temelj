@@ -1,5 +1,7 @@
 import type { PoolOptions } from "mysql2/promise";
 
+import { isObject, isNumber } from "@temelj/value";
+
 import type {
   StorageEngine,
   StorageEngineCompareAndSetManyItem,
@@ -8,6 +10,7 @@ import type {
   StorageEngineSetOptions,
   StoredValue,
 } from "../types.ts";
+import type { DatabaseStoredValue, StoredValueFormat, StoredValueForFormat } from "../utility.ts";
 
 import {
   isExpired,
@@ -23,7 +26,7 @@ export interface MySqlEngineClient {
   beginTransaction?(): Promise<void>;
   commit?(): Promise<void>;
   end?(): Promise<void>;
-  execute(query: string, parameters?: unknown[]): Promise<readonly [unknown, unknown]>;
+  execute(query: string, parameters?: (StoredValue | null)[]): Promise<readonly [unknown, unknown]>;
   getConnection?(): Promise<MySqlEngineConnection>;
   rollback?(): Promise<void>;
 }
@@ -38,7 +41,10 @@ export interface MySqlEngineConnection extends MySqlEngineClient {
 /**
  * Options for {@link MySqlStorageEngine}.
  */
-export interface MySqlEngineOptions {
+export interface MySqlEngineOptions<TFormat extends StoredValueFormat = "string"> {
+  /** Persisted representation checked when reading rows. */
+  readonly format: TFormat;
+
   /**
    * Existing mysql2-compatible client or pool.
    */
@@ -80,7 +86,7 @@ export interface MySqlEngineOptions {
 }
 
 interface MySqlValueRow {
-  readonly value: unknown;
+  readonly value: DatabaseStoredValue;
   readonly expires_at: number | string | bigint | null;
 }
 
@@ -88,18 +94,18 @@ interface MySqlValueRow {
  * Storage engine backed by a MySQL table.
  */
 export class MySqlStorageEngine<
-  TStoredValue extends StoredValue = string,
-> implements StorageEngine<TStoredValue> {
+  TFormat extends StoredValueFormat = "string",
+> implements StorageEngine<StoredValueForFormat<TFormat>> {
   readonly name = "mysql";
 
   #client: MySqlEngineClient | undefined;
-  readonly #options: MySqlEngineOptions;
+  readonly #options: MySqlEngineOptions<TFormat>;
   readonly #tableName: string;
   readonly #prefix: string;
   readonly #separator: string;
   readonly #shouldDispose: boolean;
 
-  constructor(options: MySqlEngineOptions = {}) {
+  constructor(options: MySqlEngineOptions<TFormat>) {
     this.#options = options;
     this.#client = options.client;
     this.#tableName = quoteIdentifier(options.tableName ?? "temelj_storage");
@@ -108,52 +114,72 @@ export class MySqlStorageEngine<
     this.#shouldDispose = options.dispose ?? options.client === undefined;
   }
 
-  async get(key: string): Promise<TStoredValue | undefined> {
+  async get(key: string): Promise<StoredValueForFormat<TFormat> | undefined> {
     const mysqlClient = await this.#getClient();
     const storageKey = this.#prefixKey(key);
+
     const rows = await queryRows<MySqlValueRow>(
       mysqlClient,
       `SELECT \`value\`, \`expires_at\` FROM ${this.#tableName} WHERE \`key\` = ?`,
       [storageKey],
     );
+
     const row = rows[0];
+
     if (row === undefined) {
       return undefined;
     }
+
     if (isExpired(row.expires_at)) {
       await this.#deleteRecord(mysqlClient, storageKey);
+
       return undefined;
     }
-    return normalizeStoredValue<TStoredValue>(row.value);
+
+    return normalizeStoredValue(row.value, this.#options.format);
   }
 
-  async getMany(keys: readonly string[]): Promise<ReadonlyMap<string, TStoredValue>> {
+  async getMany(
+    keys: readonly string[],
+  ): Promise<ReadonlyMap<string, StoredValueForFormat<TFormat>>> {
     if (keys.length === 0) {
       return new Map();
     }
+
     const mysqlClient = await this.#getClient();
     await this.#deleteExpired(mysqlClient);
     const storageKeys = keys.map((key) => this.#prefixKey(key));
+
     const rows = await queryRows<MySqlValueRow & { readonly key: string }>(
       mysqlClient,
       `SELECT \`key\`, \`value\` FROM ${this.#tableName} WHERE \`key\` IN (${placeholders(storageKeys.length)})`,
       storageKeys,
     );
-    const result = new Map<string, TStoredValue>();
+
+    const result = new Map<string, StoredValueForFormat<TFormat>>();
+
     for (const row of rows) {
-      result.set(this.#unprefixKey(row.key), normalizeStoredValue<TStoredValue>(row.value));
+      result.set(this.#unprefixKey(row.key), normalizeStoredValue(row.value, this.#options.format));
     }
+
     return result;
   }
 
-  async set(key: string, value: TStoredValue, setOptions?: StorageEngineSetOptions): Promise<void> {
+  async set(
+    key: string,
+    value: StoredValueForFormat<TFormat>,
+    setOptions?: StorageEngineSetOptions,
+  ): Promise<void> {
     const mysqlClient = await this.#getClient();
     const storageKey = this.#prefixKey(key);
     const expiresAt = resolveExpiresAt(setOptions);
+
     if (expiresAt !== undefined && expiresAt <= Date.now()) {
       await this.#deleteRecord(mysqlClient, storageKey);
+
       return;
     }
+
     await mysqlClient.execute(
       `
         INSERT INTO ${this.#tableName} (\`key\`, \`value\`, \`expires_at\`)
@@ -168,8 +194,8 @@ export class MySqlStorageEngine<
 
   async compareAndSet(
     key: string,
-    expected: TStoredValue | undefined,
-    value: TStoredValue | undefined,
+    expected: StoredValueForFormat<TFormat> | undefined,
+    value: StoredValueForFormat<TFormat> | undefined,
     setOptions?: StorageEngineSetOptions,
   ): Promise<boolean> {
     const mysqlClient = await this.#getClient();
@@ -182,6 +208,7 @@ export class MySqlStorageEngine<
         `SELECT 1 AS \`exists\` FROM ${this.#tableName} WHERE \`key\` = ?`,
         [storageKey],
       );
+
       if (rows.length > 0) {
         return false;
       }
@@ -191,6 +218,7 @@ export class MySqlStorageEngine<
       }
 
       const expiresAt = resolveExpiresAt(setOptions);
+
       if (expiresAt !== undefined && expiresAt <= Date.now()) {
         return true;
       }
@@ -203,6 +231,7 @@ export class MySqlStorageEngine<
         `,
         [storageKey, value, expiresAt ?? null],
       );
+
       return result.affectedRows > 0;
     }
 
@@ -216,10 +245,12 @@ export class MySqlStorageEngine<
         `,
         [storageKey, expected, Date.now()],
       );
+
       return result.affectedRows > 0;
     }
 
     const expiresAt = resolveExpiresAt(setOptions);
+
     if (expiresAt !== undefined && expiresAt <= Date.now()) {
       const result = await executeResult(
         mysqlClient,
@@ -230,6 +261,7 @@ export class MySqlStorageEngine<
         `,
         [storageKey, expected, Date.now()],
       );
+
       return result.affectedRows > 0;
     }
 
@@ -243,11 +275,12 @@ export class MySqlStorageEngine<
       `,
       [value, expiresAt ?? null, storageKey, expected, Date.now()],
     );
+
     return result.affectedRows > 0;
   }
 
   async compareAndSetMany(
-    items: readonly StorageEngineCompareAndSetManyItem<TStoredValue>[],
+    items: readonly StorageEngineCompareAndSetManyItem<StoredValueForFormat<TFormat>>[],
   ): Promise<boolean> {
     if (items.length === 0) {
       return true;
@@ -273,19 +306,24 @@ export class MySqlStorageEngine<
         `,
         storageKeys,
       );
+
       const current = new Map(rows.map((row) => [row.key, row.value] as const));
+
       for (let index = 0; index < items.length; index++) {
         const item = items[index]!;
         const existing = current.get(storageKeys[index]!);
+
         if (item.expected === undefined) {
           if (existing !== undefined) {
             return false;
           }
+
           continue;
         }
+
         if (
           existing === undefined ||
-          !storedValuesEqual(normalizeStoredValue<TStoredValue>(existing), item.expected)
+          !storedValuesEqual(normalizeStoredValue(existing, this.#options.format), item.expected)
         ) {
           return false;
         }
@@ -295,6 +333,7 @@ export class MySqlStorageEngine<
         const item = items[index]!;
         const storageKey = storageKeys[index]!;
         const expiresAt = resolveExpiresAt(item.options, now);
+
         if (item.value === undefined || (expiresAt !== undefined && expiresAt <= now)) {
           await mysqlClient.execute(`DELETE FROM ${this.#tableName} WHERE \`key\` = ?`, [
             storageKey,
@@ -311,9 +350,11 @@ export class MySqlStorageEngine<
             `,
             [storageKey, item.value, expiresAt ?? null],
           );
+
           if (result.affectedRows === 0) {
             return false;
           }
+
           continue;
         }
 
@@ -336,31 +377,38 @@ export class MySqlStorageEngine<
     const transactionClient = await mysqlClient.getConnection?.();
     const activeClient = transactionClient ?? mysqlClient;
     let transactionStarted = false;
+
     try {
       await startTransaction(activeClient);
       transactionStarted = true;
 
       const updated = await runTransaction(activeClient);
+
       if (!updated) {
         await rollbackTransaction(activeClient);
         transactionStarted = false;
+
         return false;
       }
 
       await commitTransaction(activeClient);
       transactionStarted = false;
+
       return true;
     } catch (error) {
       if (transactionStarted) {
         await rollbackTransaction(activeClient);
       }
+
       throw error;
     } finally {
       transactionClient?.release?.();
     }
   }
 
-  async setMany(items: readonly StorageEngineSetManyItem<TStoredValue>[]): Promise<void> {
+  async setMany(
+    items: readonly StorageEngineSetManyItem<StoredValueForFormat<TFormat>>[],
+  ): Promise<void> {
     for (const item of items) {
       await this.set(item.key, item.value, item.options);
     }
@@ -375,6 +423,7 @@ export class MySqlStorageEngine<
       `,
       [this.#prefixKey(key), Date.now()],
     );
+
     return result.affectedRows > 0;
   }
 
@@ -382,6 +431,7 @@ export class MySqlStorageEngine<
     if (keys.length === 0) {
       return 0;
     }
+
     const result = await executeResult(
       await this.#getClient(),
       `
@@ -391,6 +441,7 @@ export class MySqlStorageEngine<
       `,
       [...keys.map((key) => this.#prefixKey(key)), Date.now()],
     );
+
     return result.affectedRows;
   }
 
@@ -401,11 +452,13 @@ export class MySqlStorageEngine<
   async keys(keyOptions?: StorageEngineKeyOptions): Promise<readonly string[]> {
     const mysqlClient = await this.#getClient();
     await this.#deleteExpired(mysqlClient);
+
     const rows = await queryRows<{ readonly key: string }>(
       mysqlClient,
       `SELECT \`key\` FROM ${this.#tableName} WHERE \`key\` LIKE ? ESCAPE '\\\\'`,
       [likePattern(this.#prefixKey(keyOptions?.prefix ?? ""))],
     );
+
     return rows.map((row) => this.#unprefixKey(row.key));
   }
 
@@ -421,17 +474,20 @@ export class MySqlStorageEngine<
     if (this.#shouldDispose) {
       await this.#client?.end?.();
     }
+
     this.#client = undefined;
   }
 
   async #getClient(): Promise<MySqlEngineClient> {
     if (this.#client === undefined) {
       const mysql = await import("mysql2/promise");
+
       const createdClient =
         this.#options.url === undefined
           ? mysql.createPool(this.#options.connection ?? {})
           : mysql.createPool(this.#options.url);
-      this.#client = createdClient as MySqlEngineClient;
+
+      this.#client = createdClient;
     }
 
     return this.#client;
@@ -456,7 +512,9 @@ export class MySqlStorageEngine<
     if (this.#prefix.length === 0) {
       return key;
     }
+
     const expectedPrefix = `${this.#prefix}${this.#separator}`;
+
     return key.startsWith(expectedPrefix) ? key.slice(expectedPrefix.length) : key;
   }
 }
@@ -476,50 +534,59 @@ function likePattern(prefix: string): string {
 async function queryRows<TRow>(
   client: MySqlEngineClient,
   query: string,
-  parameters?: readonly unknown[],
+  parameters?: readonly (StoredValue | null)[],
 ): Promise<TRow[]> {
   const [rows] = await client.execute(
     query,
     parameters === undefined ? undefined : [...parameters],
   );
+
+  // SAFETY: Callers own the SQL projection and specify its row type; mysql2 returns rows for SELECT statements.
   return Array.isArray(rows) ? (rows as TRow[]) : [];
 }
 
 async function executeResult(
   client: MySqlEngineClient,
   query: string,
-  parameters?: readonly unknown[],
+  parameters?: readonly (StoredValue | null)[],
 ): Promise<{ readonly affectedRows: number }> {
   const [result] = await client.execute(
     query,
     parameters === undefined ? undefined : [...parameters],
   );
-  return typeof result === "object" && result !== null && "affectedRows" in result
-    ? (result as { readonly affectedRows: number })
+
+  return isObject(result) && "affectedRows" in result && isNumber(result.affectedRows)
+    ? { affectedRows: result.affectedRows }
     : { affectedRows: 0 };
 }
 
 async function startTransaction(client: MySqlEngineClient): Promise<void> {
   if (client.beginTransaction !== undefined) {
     await client.beginTransaction();
+
     return;
   }
+
   await client.execute("START TRANSACTION");
 }
 
 async function commitTransaction(client: MySqlEngineClient): Promise<void> {
   if (client.commit !== undefined) {
     await client.commit();
+
     return;
   }
+
   await client.execute("COMMIT");
 }
 
 async function rollbackTransaction(client: MySqlEngineClient): Promise<void> {
   if (client.rollback !== undefined) {
     await client.rollback();
+
     return;
   }
+
   await client.execute("ROLLBACK");
 }
 

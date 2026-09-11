@@ -39,11 +39,13 @@ function describeWorkflowStoreCleanupContract(options: WorkflowStoreCleanupContr
   describe(`${options.name}`, () => {
     test("cleanup removes runs, events, attempts, and idempotency indexes", async () => {
       const store = await options.createStore();
+
       const run = await store.createRun(
         pendingRun(store, "run-cleanup", {
           idempotencyKey: "cleanup-key",
         }),
       );
+
       await store.appendEvent(run.id, stepStarted());
       await store.appendEvent(run.id, stepCompleted());
       await store.appendEvent(run.id, {
@@ -174,6 +176,7 @@ describeWorkflowStoreCleanupContract({
   name: "workflow store cleanup contract: filesystem storage adapter",
   createStore: async () => {
     const directory = await temporaryDirectory();
+
     return createWorkflowStore({
       namespace: `cleanup-${Temporal.Now.instant().epochMilliseconds.toString(36)}-${Math.random()}`,
       storage: createStorage({
@@ -190,6 +193,7 @@ describeWorkflowStoreCleanupContract({
 async function temporaryDirectory(): Promise<string> {
   const directory = await mkdtemp(join(tmpdir(), "temelj-workflow-store-cleanup-"));
   temporaryDirectories.push(directory);
+
   return directory;
 }
 
@@ -199,6 +203,7 @@ function pendingRun(
   options: Partial<WorkflowRunRecord> = {},
 ): WorkflowRunRecord {
   const { id: _id, namespace: _namespace, ...patch } = options;
+
   return {
     id,
     namespace: store.namespace,

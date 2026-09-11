@@ -9,14 +9,17 @@ import { wait } from "./wait";
 test("map preserves order", async () => {
   const result = await map([3, 1, 2], async (x) => {
     await new Promise((r) => setTimeout(r, x * 10));
+
     return x * 2;
   });
+
   expect(result).toEqual([6, 2, 4]);
 });
 
 test("map with concurrency", async () => {
   let active = 0;
   let maxActive = 0;
+
   const result = await map(
     [1, 2, 3, 4, 5],
     async (x) => {
@@ -24,10 +27,12 @@ test("map with concurrency", async () => {
       maxActive = Math.max(maxActive, active);
       await new Promise((r) => setTimeout(r, 20));
       active--;
+
       return x;
     },
     { concurrency: 2 },
   );
+
   expect(result).toEqual([1, 2, 3, 4, 5]);
   expect(maxActive).toBeLessThanOrEqual(2);
 });
@@ -35,8 +40,10 @@ test("map with concurrency", async () => {
 test("map with Skip", async () => {
   const result = await map([1, 2, 3, 4, 5], (x) => {
     if (x % 2 === 0) return Skip;
+
     return x;
   });
+
   expect(result).toEqual([1, 3, 5]);
 });
 
@@ -44,6 +51,7 @@ test("map stopOnError: true (default)", async () => {
   await expect(
     map([1, 2, 3], async (x) => {
       if (x === 2) throw new Error("fail");
+
       return x;
     }),
   ).rejects.toThrow("fail");
@@ -55,6 +63,7 @@ test("map stopOnError: false collects errors", async () => {
       [1, 2, 3],
       async (x) => {
         if (x === 2) throw new Error("fail");
+
         return x;
       },
       { stopOnError: false },
@@ -81,6 +90,7 @@ test("map with async iterable", async () => {
     yield 2;
     yield 3;
   }
+
   const result = await map(gen(), async (x) => x * 2);
   expect(result).toEqual([2, 4, 6]);
 });
@@ -101,6 +111,7 @@ test("reduce with async iterable", async () => {
     yield "b";
     yield "c";
   }
+
   const result = await reduce(gen(), async (acc, item) => acc + item, "");
   expect(result).toBe("abc");
 });
@@ -120,6 +131,7 @@ test("wait resolves when predicate is true", async () => {
   await wait(
     () => {
       count++;
+
       return count >= 3;
     },
     { interval: 10 },

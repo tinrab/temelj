@@ -37,4 +37,11 @@ $ deno add jsr:@temelj/value # or jsr add @temelj/value
 
 ## About
 
+Primitive guards such as `isString`, `isNumber`, `isBoolean`, `isBigInt`, and
+`isSymbol` narrow unknown boundary values. `isObject` excludes null and functions.
+`isPlainObject` verifies the object prototype; it does not establish a property schema.
+
+`recordMerge` uses the `isMergeable` option for a custom mergeability predicate.
+The `arrayMerge` and `isMergeable` callback types come from `deepmerge`.
+
 This package is part of [Temelj](https://github.com/tinrab/temelj) - a core library for TypeScript.

@@ -38,5 +38,6 @@ function processed(outcome: ReturnType<Processor["processSync"]>) {
   if (outcome.kind !== "processed") {
     throw new Error(`Expected processed outcome, received ${outcome.kind}`);
   }
+
   return outcome.value;
 }

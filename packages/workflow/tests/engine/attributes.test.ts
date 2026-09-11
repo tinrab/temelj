@@ -53,6 +53,7 @@ describe("workflow run attributes", () => {
   it("records workflow-authored attributes durably and replays them", async () => {
     const engine = createWorkflowEngine({ createRunId: () => "run-step-attributes" });
     let attempts = 0;
+
     const workflow = implementWorkflow({ name: "step-attributes" }, async ({ step }) => {
       attempts++;
       await step.runData.setAttributes("classify", {
@@ -64,6 +65,7 @@ describe("workflow run attributes", () => {
         complete: true,
         stage: undefined,
       });
+
       return "ok";
     });
 
@@ -98,17 +100,21 @@ describe("workflow run attributes", () => {
 
   it("rejects replayed workflow-authored attribute divergence", async () => {
     let now = Temporal.Instant.from("2026-06-11T10:00:00Z");
+
     const engine = createWorkflowEngine({
       createRunId: () => "run-step-attributes-divergence",
       now: () => now,
     });
+
     let stage = "classified";
+
     const workflow = implementWorkflow({ name: "step-attributes-divergence" }, async ({ step }) => {
       await step.runData.setAttributes("classify", {
         customer: "acme",
         stage,
       });
       await step.task.sleep("pause", Temporal.Duration.from({ seconds: 1 }));
+
       return "ok";
     });
 
@@ -121,9 +127,11 @@ describe("workflow run attributes", () => {
     const result = await engine.resumeWorkflow(workflow, "run-step-attributes-divergence");
 
     expect(result.kind).toBe("failed");
+
     if (result.kind !== "failed") {
       throw new Error("Expected attribute replay divergence to fail the workflow");
     }
+
     expect(result.error.name).toBe("WorkflowReplayDivergenceError");
     await expect(engine.getRun("run-step-attributes-divergence")).resolves.toMatchObject({
       status: "failed",

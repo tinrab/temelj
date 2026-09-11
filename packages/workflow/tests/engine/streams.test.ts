@@ -1,3 +1,5 @@
+import type { StorageValue } from "@temelj/storage";
+
 import { describe, expect, expectTypeOf, test } from "vitest";
 
 import type { WorkflowRunHandle } from "../../src/types/client.ts";
@@ -11,11 +13,14 @@ import { WorkflowRuntime } from "../../src/runtime.ts";
 describe("workflow streams", () => {
   test("persists stream chunks across replay without duplicates", async () => {
     let now = Temporal.Instant.from("2026-06-11T10:00:00Z");
+
     const engine = createWorkflowEngine({
       createRunId: () => "run_stream_replay",
       now: () => now,
     });
+
     const client = createWorkflowClient({ engine });
+
     const workflow = implementWorkflow<undefined, string>(
       { name: "stream-replay" },
       async ({ step }) => {
@@ -23,10 +28,12 @@ describe("workflow streams", () => {
           contentType: "application/json",
           metadata: { channel: "status" },
         });
+
         await stream.write({ text: "started" });
         await step.task.sleep("pause", Temporal.Duration.from({ seconds: 1 }));
         await stream.write({ text: "finished" });
         await stream.close();
+
         return "done";
       },
     );
@@ -40,10 +47,8 @@ describe("workflow streams", () => {
       output: "done",
     });
 
-    const stream = await client.streams.read<{ readonly text: string }>(
-      "run_stream_replay",
-      "updates",
-    );
+    const stream = await client.streams.read("run_stream_replay", "updates");
+
     expect(stream).toMatchObject({
       id: "updates",
       name: "updates",
@@ -55,9 +60,11 @@ describe("workflow streams", () => {
         { index: 1, value: { text: "finished" } },
       ],
     });
+
     const streamEvents = (await engine.getEvents("run_stream_replay")).filter((event) =>
       event.kind.startsWith("stream_"),
     );
+
     expect(streamEvents.map((event) => event.kind)).toEqual([
       "stream_started",
       "stream_chunk",
@@ -68,11 +75,14 @@ describe("workflow streams", () => {
 
   test("rejects stream chunk replay divergence", async () => {
     let now = Temporal.Instant.from("2026-06-11T10:00:00Z");
+
     const engine = createWorkflowEngine({
       createRunId: () => "run_stream_chunk_divergence",
       now: () => now,
     });
+
     let firstChunk = "started";
+
     const workflow = implementWorkflow<undefined, string>(
       { name: "stream-chunk-divergence" },
       async ({ step }) => {
@@ -80,6 +90,7 @@ describe("workflow streams", () => {
         await stream.write(firstChunk);
         await step.task.sleep("pause", Temporal.Duration.from({ seconds: 1 }));
         await stream.close();
+
         return "done";
       },
     );
@@ -93,9 +104,11 @@ describe("workflow streams", () => {
     const result = await engine.resumeWorkflow(workflow, "run_stream_chunk_divergence");
 
     expect(result.kind).toBe("failed");
+
     if (result.kind !== "failed") {
       throw new Error("Expected stream replay divergence");
     }
+
     expect(result.error.name).toBe("WorkflowReplayDivergenceError");
     await expect(engine.getRun("run_stream_chunk_divergence")).resolves.toMatchObject({
       status: "failed",
@@ -106,6 +119,7 @@ describe("workflow streams", () => {
   test("reads stream chunks from an offset", async () => {
     const engine = createWorkflowEngine({ createRunId: () => "run_stream_offset" });
     const client = createWorkflowClient({ engine });
+
     const workflow = implementWorkflow<undefined, void>(
       { name: "stream-offset" },
       async ({ step }) => {
@@ -121,13 +135,14 @@ describe("workflow streams", () => {
       kind: "completed",
     });
 
-    const stream = await client.streams.read<string>("run_stream_offset", "log", { fromIndex: 1 });
+    const stream = await client.streams.read("run_stream_offset", "log", { fromIndex: 1 });
     expect(stream.chunks.map((chunk) => chunk.value)).toEqual(["two", "three"]);
 
-    const bounded = await client.streams.read<string>("run_stream_offset", "log", {
+    const bounded = await client.streams.read("run_stream_offset", "log", {
       fromIndex: 0,
       maxChunks: 2,
     });
+
     expect(bounded.chunkCount).toBe(3);
     expect(bounded.chunks.map((chunk) => chunk.value)).toEqual(["one", "two"]);
   });
@@ -135,6 +150,7 @@ describe("workflow streams", () => {
   test("persists stream error state", async () => {
     const engine = createWorkflowEngine({ createRunId: () => "run_stream_error" });
     const client = createWorkflowClient({ engine });
+
     const workflow = implementWorkflow<undefined, void>(
       { name: "stream-error" },
       async ({ step }) => {
@@ -148,7 +164,7 @@ describe("workflow streams", () => {
       kind: "completed",
     });
 
-    const stream = await client.streams.read<string>("run_stream_error", "log");
+    const stream = await client.streams.read("run_stream_error", "log");
     expect(stream.status).toBe("failed");
     expect(stream.error).toMatchObject({ name: "Error", message: "stream failed" });
     expect(stream.chunks.map((chunk) => chunk.value)).toEqual(["before-error"]);
@@ -156,6 +172,7 @@ describe("workflow streams", () => {
 
   test("follows a completed stream from persisted chunks through terminal state", async () => {
     const engine = createWorkflowEngine({ createRunId: () => "run_stream_follow_completed" });
+
     const workflow = implementWorkflow<undefined, void>(
       { name: "stream-follow-completed" },
       async ({ step }) => {
@@ -169,8 +186,9 @@ describe("workflow streams", () => {
     await engine.runWorkflowNow(workflow, undefined);
 
     const updates = await collectStreamUpdates(
-      engine.followStream<string>("run_stream_follow_completed", "log"),
+      engine.followStream("run_stream_follow_completed", "log"),
     );
+
     expect(updates).toMatchObject([
       { kind: "chunk", chunk: { index: 0, value: "one" } },
       { kind: "chunk", chunk: { index: 1, value: "two" } },
@@ -178,8 +196,9 @@ describe("workflow streams", () => {
     ]);
 
     const pagedUpdates = await collectStreamUpdates(
-      engine.followStream<string>("run_stream_follow_completed", "log", { pageSize: 1 }),
+      engine.followStream("run_stream_follow_completed", "log", { pageSize: 1 }),
     );
+
     expect(pagedUpdates).toMatchObject([
       { kind: "chunk", chunk: { index: 0, value: "one" } },
       { kind: "chunk", chunk: { index: 1, value: "two" } },
@@ -190,6 +209,7 @@ describe("workflow streams", () => {
   test("exposes stream readers and followers on run handles", async () => {
     const engine = createWorkflowEngine({ createRunId: () => "run_stream_handle" });
     const client = createWorkflowClient({ engine });
+
     const workflow = implementWorkflow<undefined, void>(
       { name: "stream-handle" },
       async ({ step }) => {
@@ -206,10 +226,10 @@ describe("workflow streams", () => {
       status: "closed",
       chunkCount: 2,
     });
-    await expect(handle.readStream<string>("log", { fromIndex: 1 })).resolves.toMatchObject({
+    await expect(handle.readStream("log", { fromIndex: 1 })).resolves.toMatchObject({
       chunks: [{ index: 1, value: "two" }],
     });
-    await expect(collectStreamUpdates(handle.followStream<string>("log"))).resolves.toMatchObject([
+    await expect(collectStreamUpdates(handle.followStream("log"))).resolves.toMatchObject([
       { kind: "chunk", chunk: { index: 0, value: "one" } },
       { kind: "chunk", chunk: { index: 1, value: "two" } },
       { kind: "closed", info: { status: "closed", chunkCount: 2 } },
@@ -219,7 +239,7 @@ describe("workflow streams", () => {
     const runtimeHandle = await runtime.start(workflow);
     await runtime.workers.processRun(runtimeHandle.runId);
 
-    await expect(runtimeHandle.readStream<string>("log")).resolves.toMatchObject({
+    await expect(runtimeHandle.readStream("log")).resolves.toMatchObject({
       chunks: [
         { index: 0, value: "one" },
         { index: 1, value: "two" },
@@ -229,10 +249,12 @@ describe("workflow streams", () => {
 
   test("follows an open stream until later chunks close it", async () => {
     let now = Temporal.Instant.from("2026-06-11T10:00:00Z");
+
     const engine = createWorkflowEngine({
       createRunId: () => "run_stream_follow_live",
       now: () => now,
     });
+
     const workflow = implementWorkflow<undefined, void>(
       { name: "stream-follow-live" },
       async ({ step }) => {
@@ -249,10 +271,11 @@ describe("workflow streams", () => {
     });
 
     const updates = collectStreamUpdates(
-      engine.followStream<string>("run_stream_follow_live", "log", {
+      engine.followStream("run_stream_follow_live", "log", {
         pollInterval: Temporal.Duration.from({ milliseconds: 1 }),
       }),
     );
+
     await waitFor(
       async () => (await engine.readStream("run_stream_follow_live", "log")).chunkCount === 1,
     );
@@ -269,10 +292,12 @@ describe("workflow streams", () => {
 
   test("summarizes active streams from durable events", async () => {
     let now = Temporal.Instant.from("2026-06-11T10:00:00Z");
+
     const engine = createWorkflowEngine({
       createRunId: () => "run_stream_summary",
       now: () => now,
     });
+
     const workflow = implementWorkflow<undefined, void>(
       { name: "stream-summary" },
       async ({ step }) => {
@@ -309,6 +334,7 @@ describe("workflow streams", () => {
   test("follows failed streams and can start from the current tail", async () => {
     const engine = createWorkflowEngine({ createRunId: () => "run_stream_follow_failed" });
     const client = createWorkflowClient({ engine });
+
     const workflow = implementWorkflow<undefined, void>(
       { name: "stream-follow-failed" },
       async ({ step }) => {
@@ -321,8 +347,9 @@ describe("workflow streams", () => {
     await engine.runWorkflowNow(workflow, undefined);
 
     const updates = await collectStreamUpdates(
-      client.streams.follow<string>("run_stream_follow_failed", "log", { fromTail: 0 }),
+      client.streams.follow("run_stream_follow_failed", "log", { fromTail: 0 }),
     );
+
     expect(updates).toMatchObject([
       {
         kind: "failed",
@@ -338,20 +365,23 @@ describe("workflow streams", () => {
       expectTypeOf(stream.write({ text: "ok" })).toEqualTypeOf<Promise<void>>();
     });
     const client = createWorkflowClient();
-    expectTypeOf<ReturnType<typeof client.streams.read<{ readonly text: string }>>>().toEqualTypeOf<
-      Promise<StreamState<{ readonly text: string }>>
+    expectTypeOf<
+      Awaited<ReturnType<typeof client.streams.read>>["chunks"][number]["value"]
+    >().toEqualTypeOf<StorageValue | undefined>();
+    // @ts-expect-error A stream ID does not establish the persisted chunk's type.
+    expectTypeOf<ReturnType<typeof client.streams.read<string>>>();
+    expectTypeOf<ReturnType<typeof client.streams.read>>().toEqualTypeOf<Promise<StreamState>>();
+    expectTypeOf<ReturnType<typeof client.streams.follow>>().toEqualTypeOf<
+      AsyncIterable<StreamUpdate>
     >();
-    expectTypeOf<
-      ReturnType<typeof client.streams.follow<{ readonly text: string }>>
-    >().toEqualTypeOf<AsyncIterable<StreamUpdate<{ readonly text: string }>>>();
-    expectTypeOf<
-      ReturnType<typeof client.streams.waitForChunk<{ readonly text: string }>>
-    >().toEqualTypeOf<Promise<StreamChunk<{ readonly text: string }> | undefined>>();
+    expectTypeOf<ReturnType<typeof client.streams.waitForChunk>>().toEqualTypeOf<
+      Promise<StreamChunk | undefined>
+    >();
     expectTypeOf<ReturnType<WorkflowRunHandle["readStream"]>>().toEqualTypeOf<
-      Promise<StreamState<unknown>>
+      Promise<StreamState>
     >();
     expectTypeOf<ReturnType<WorkflowRunHandle["followStream"]>>().toEqualTypeOf<
-      AsyncIterable<StreamUpdate<unknown>>
+      AsyncIterable<StreamUpdate>
     >();
   });
 });
@@ -360,18 +390,22 @@ async function collectStreamUpdates<TChunk>(
   iterable: AsyncIterable<StreamUpdate<TChunk>>,
 ): Promise<StreamUpdate<TChunk>[]> {
   const updates: StreamUpdate<TChunk>[] = [];
+
   for await (const update of iterable) {
     updates.push(update);
   }
+
   return updates;
 }
 
 async function waitFor(callback: () => Promise<boolean>): Promise<void> {
   const startedAt = Temporal.Now.instant();
+
   while (!(await callback())) {
     if (Temporal.Now.instant().epochMilliseconds - startedAt.epochMilliseconds > 1_000) {
       throw new Error("Timed out while waiting for workflow stream test condition");
     }
+
     await new Promise((resolve) => {
       setTimeout(resolve, 1);
     });

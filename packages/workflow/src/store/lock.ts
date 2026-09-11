@@ -13,6 +13,7 @@ export async function getReadableLock(
   key: string,
 ): Promise<LockRecord | undefined> {
   const lock = await storage.get(makeLockKey(namespace, key));
+
   return isReadableLockRecord(lock, namespace) ? lock : undefined;
 }
 
@@ -36,20 +37,25 @@ export async function updateLockIfCurrent(
   if (next.namespace !== namespace) {
     WorkflowLockStateError.namespaceMismatch(String(next.namespace), namespace);
   }
+
   if (current !== undefined) {
     if (current.namespace !== namespace) {
       WorkflowLockStateError.namespaceMismatch(String(current.namespace), namespace);
     }
+
     if (current.key !== next.key) {
       WorkflowLockStateError.keyChangeRejected();
     }
   }
+
   const compact = compactWorkflowStoreRecord(next);
+
   const updated = await storage.compareAndSet(
     makeLockKey(namespace, next.key),
     current === undefined ? undefined : toStorageValue(current),
     toStorageValue(compact),
   );
+
   return updated ? compact : undefined;
 }
 

@@ -71,11 +71,15 @@ function makeAppendedEventOutcome(
   events: readonly EventRecord[],
   previousEventHistory?: StorageValue,
 ): WorkflowEventAppendedOutcome {
-  return {
-    status: "appended",
-    events,
-    ...(previousEventHistory === undefined ? {} : { previousEventHistory }),
-  };
+  const summary: WorkflowEventAppendedOutcome = { status: "appended", events };
+
+  if (previousEventHistory !== undefined) {
+    Object.assign(summary, {
+      previousEventHistory,
+    } satisfies Partial<WorkflowEventAppendedOutcome>);
+  }
+
+  return summary;
 }
 
 export function makeStaleRunAppendOutcome(): WorkflowEventAppendOutcome {
@@ -92,6 +96,7 @@ export async function appendEventWithAtomicProjectionPlan(
 ): Promise<WorkflowEventAppendSuccessOutcome> {
   if (!supportsWorkflowAtomicBatchWrite(storage)) {
     const previousEventHistory = await storage.get(makeEventsKey(namespace, runId));
+
     return await appendEventIfCurrent(storage, namespace, runId, event, {
       detectDuplicate,
       previousEventHistory,
@@ -108,12 +113,15 @@ export async function appendEventWithAtomicProjectionPlan(
       event,
       detectDuplicate,
     );
+
     const duplicate = appendState.duplicate;
+
     if (duplicate !== undefined) {
       return duplicate;
     }
 
     const projectionPlan = await planProjection?.(attempt);
+
     const items = [
       createWorkflowEventHistoryCompareAndSetItem(
         eventsStorageKey,
@@ -122,7 +130,9 @@ export async function appendEventWithAtomicProjectionPlan(
       ),
       ...(projectionPlan?.item === undefined ? [] : [projectionPlan.item]),
     ];
+
     const updated = await storage.compareAndSetMany(items);
+
     if (updated) {
       return makeAppendedEventOutcome(appendState.nextEvents, appendState.raw);
     }
@@ -150,7 +160,9 @@ export async function appendEventIfRunRevisionCurrentAtomically(
       event,
       detectDuplicate,
     );
+
     const duplicate = appendState.duplicate;
+
     if (duplicate !== undefined) {
       const unchanged = await storage.compareAndSetMany(
         createRunRevisionGuardedEventHistoryCompareAndSetItems(
@@ -161,11 +173,14 @@ export async function appendEventIfRunRevisionCurrentAtomically(
           appendState.currentEvents,
         ),
       );
+
       if (unchanged) {
         return duplicate;
       }
+
       continue;
     }
+
     const updated = await storage.compareAndSetMany(
       createRunRevisionGuardedEventHistoryCompareAndSetItems(
         runStorageKey,
@@ -175,9 +190,11 @@ export async function appendEventIfRunRevisionCurrentAtomically(
         appendState.nextEvents,
       ),
     );
+
     if (updated) {
       return makeAppendedEventOutcome(appendState.nextEvents, appendState.raw);
     }
+
     if (event.kind === "message_sent") {
       return makeStaleRunAppendOutcome();
     }
@@ -198,11 +215,14 @@ export async function appendEventIfCurrent(
   if (!supportsWorkflowConditionalWrite(storage)) {
     const current = (await getStoredEventHistory(storage, key)).events;
     const duplicate = options.detectDuplicate?.(runId, current, event);
+
     if (duplicate !== undefined) {
       return duplicate;
     }
+
     const events = [...current, event];
     await storage.set(key, toStorageValue(events));
+
     return makeAppendedEventOutcome(events, options.previousEventHistory);
   }
 
@@ -214,15 +234,19 @@ export async function appendEventIfCurrent(
       event,
       options.detectDuplicate,
     );
+
     const duplicate = appendState.duplicate;
+
     if (duplicate !== undefined) {
       return duplicate;
     }
+
     const updated = await storage.compareAndSet(
       key,
       appendState.raw,
       toStorageValue(appendState.nextEvents),
     );
+
     if (updated) {
       return makeAppendedEventOutcome(appendState.nextEvents, appendState.raw);
     }
@@ -240,10 +264,20 @@ async function readWorkflowEventAppendState(
 ): Promise<WorkflowEventAppendState> {
   const { raw, events: currentEvents } = await getStoredEventHistory(storage, eventsStorageKey);
   const duplicate = detectDuplicate?.(runId, currentEvents, event);
-  return {
-    raw,
-    currentEvents,
-    ...(duplicate === undefined ? {} : { duplicate }),
+
+  const result = { raw, currentEvents } satisfies Partial<
+    Awaited<Promise<WorkflowEventAppendState>>
+  >;
+
+  if (duplicate !== undefined) {
+    Object.assign(result, { duplicate } satisfies Partial<
+      Awaited<Promise<WorkflowEventAppendState>>
+    >);
+  }
+
+  const result1 = Object.assign(result, {
     nextEvents: duplicate === undefined ? [...currentEvents, event] : currentEvents,
-  };
+  } satisfies Partial<Awaited<Promise<WorkflowEventAppendState>>>);
+
+  return result1;
 }

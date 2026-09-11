@@ -32,7 +32,9 @@ import type { StepId } from "./step-id.ts";
 import type { StreamId } from "./stream-id.ts";
 
 type WorkflowStartedEvent = Extract<EventRecord, { readonly kind: "workflow_started" }>;
+
 type WorkflowCompletedEvent = Extract<EventRecord, { readonly kind: "workflow_completed" }>;
+
 type WorkflowFailedEvent = Extract<EventRecord, { readonly kind: "workflow_failed" }>;
 
 /** Describes the workflow timeline contract. */

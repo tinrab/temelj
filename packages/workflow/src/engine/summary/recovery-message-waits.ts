@@ -60,8 +60,10 @@ function addMessageWaitAttempt(
   if (attempt.status !== "running" || attempt.kind !== "message-wait") {
     return;
   }
+
   message.runIds.add(attempt.runId);
   const ready = addReadyMessageWaitAttempt(message, attempt, historiesByRunId);
+
   if (!ready) {
     addTimedOutMessageWaitAttempt(message, attempt, now);
   }
@@ -75,14 +77,18 @@ function addReadyMessageWaitAttempt(
   if (attempt.messageId === undefined) {
     return false;
   }
+
   message.messageIds.add(attempt.messageId);
+
   // A message wait is ready only when the message was recorded after the wait started.
   // Targeted messages also have to name this waiter in waiterStepIds.
   if (!messageWasDeliveredForAttempt(historiesByRunId.get(attempt.runId), attempt)) {
     return false;
   }
+
   message.readyRunIds.add(attempt.runId);
   message.readyStepIds.add(attempt.stepId);
+
   return true;
 }
 
@@ -105,11 +111,14 @@ function addTimedOutMessageWaitAttempt(
   if (attempt.timeoutAt === undefined) {
     return;
   }
+
   if (Temporal.Instant.compare(attempt.timeoutAt, now) <= 0) {
     message.timedOutRunIds.add(attempt.runId);
     message.timedOutStepIds.add(attempt.stepId);
+
     return;
   }
+
   message.nextTimeout = earliestWorkflowRecoveryTimestamp(
     message.nextTimeout,
     attempt.runId,
@@ -121,16 +130,18 @@ function workflowHistoriesByRunId(
   eventsByRunId: ReadonlyMap<string, readonly EventRecord[]>,
 ): ReadonlyMap<string, WorkflowHistory> {
   const histories = new Map<string, WorkflowHistory>();
+
   for (const [runId, events] of eventsByRunId) {
     histories.set(runId, new WorkflowHistory(events));
   }
+
   return histories;
 }
 
 function finishMessageWaitSummary(
   message: WorkflowMessageWaitAccumulator,
 ): WorkflowRecoveryMessageWaitSummary {
-  return {
+  const result1: WorkflowRecoveryMessageWaitSummary = {
     active: message.runIds.size,
     ready: message.readyRunIds.size,
     timedOut: message.timedOutRunIds.size,
@@ -140,11 +151,14 @@ function finishMessageWaitSummary(
     readyStepIds: [...message.readyStepIds].sort(),
     timedOutStepIds: [...message.timedOutStepIds].sort(),
     messages: [...message.messageIds].sort(),
-    ...(message.nextTimeout === undefined
-      ? {}
-      : {
-          nextTimeoutAt: message.nextTimeout.timestamp,
-          nextTimeoutRunId: message.nextTimeout.runId,
-        }),
   };
+
+  if (message.nextTimeout !== undefined) {
+    Object.assign(result1, {
+      nextTimeoutAt: message.nextTimeout.timestamp,
+      nextTimeoutRunId: message.nextTimeout.runId,
+    } satisfies Partial<WorkflowRecoveryMessageWaitSummary>);
+  }
+
+  return result1;
 }

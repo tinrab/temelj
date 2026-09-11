@@ -27,10 +27,12 @@ export function createWorkflowRecoveryWaitSummaryReducer(
   now: Temporal.Instant,
 ): WorkflowRecoveryWaitSummaryReducer {
   const sleep = createWorkflowRecoverySleepWaitSummaryReducer(now);
+
   const message = createWorkflowRecoveryMessageWaitSummaryReducer(
     inputs.eventsByRunId ?? new Map(),
     now,
   );
+
   const childWorkflow = createWorkflowRecoveryChildWorkflowWaitSummaryReducer(
     inputs.childRuns ?? [],
     now,

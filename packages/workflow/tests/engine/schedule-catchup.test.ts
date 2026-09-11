@@ -8,10 +8,12 @@ import { sequentialRunIds } from "../utility.ts";
 describe("workflow schedule catch-up", () => {
   test("catches up every missed recurring run up to the schedule bound", async () => {
     let now = Temporal.Instant.from("2026-06-11T10:00:00Z");
+
     const engine = createWorkflowEngine({
       createRunId: sequentialRunIds("run_catch_up_first", "run_catch_up_second"),
       now: () => now,
     });
+
     const client = createWorkflowClient({ engine });
     const def = defineWorkflow<undefined, string>({ name: "catch-up-schedule" });
 
@@ -49,10 +51,12 @@ describe("workflow schedule catch-up", () => {
 
   test("recovers schedule ticks after a run is created before schedule advancement", async () => {
     let now = Temporal.Instant.from("2026-06-11T10:00:00Z");
+
     const engine = createWorkflowEngine({
       createRunId: sequentialRunIds("run_existing_schedule_tick", "run_duplicate_schedule_tick"),
       now: () => now,
     });
+
     const client = createWorkflowClient({ engine });
     const def = defineWorkflow<undefined, string>({ name: "idempotent-schedule" });
 
@@ -89,10 +93,12 @@ describe("workflow schedule catch-up", () => {
 
   test("skips recurring runs that exceed maximum lateness", async () => {
     let now = Temporal.Instant.from("2026-06-11T10:00:00Z");
+
     const engine = createWorkflowEngine({
       createRunId: sequentialRunIds("run_late_first", "run_late_second"),
       now: () => now,
     });
+
     const client = createWorkflowClient({ engine });
     const def = defineWorkflow<undefined, string>({ name: "late-schedule" });
 
@@ -116,10 +122,12 @@ describe("workflow schedule catch-up", () => {
 
   test("catches up only missed runs within maximum lateness", async () => {
     let now = Temporal.Instant.from("2026-06-11T10:00:00Z");
+
     const engine = createWorkflowEngine({
       createRunId: sequentialRunIds("run_late_catch_up_first", "run_late_catch_up_second"),
       now: () => now,
     });
+
     const client = createWorkflowClient({ engine });
     const def = defineWorkflow<undefined, string>({ name: "late-catch-up-schedule" });
 
@@ -150,10 +158,12 @@ describe("workflow schedule catch-up", () => {
 
   test("stops recurring schedules after the configured end time", async () => {
     let now = Temporal.Instant.from("2026-06-11T10:00:00Z");
+
     const engine = createWorkflowEngine({
       createRunId: sequentialRunIds("run_ending_first", "run_ending_second"),
       now: () => now,
     });
+
     const client = createWorkflowClient({ engine });
     const def = defineWorkflow<undefined, string>({ name: "ending-schedule" });
 

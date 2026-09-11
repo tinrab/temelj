@@ -1,3 +1,4 @@
+import { isString } from "@temelj/value";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -58,6 +59,7 @@ class TestHtmlPlugin extends HtmlTransformPlugin {
 describe("owned tree traversal", () => {
   it("keeps property-only replacements in nested MDX nodes", () => {
     const document = expectParsed(parse("![alt](before.png)\n")).document;
+
     const rewritten = rewriteMdx(document, {
       image: ({ node }) => node.with({ url: "after.webp" }),
     });
@@ -72,18 +74,22 @@ describe("owned tree traversal", () => {
         '![direct](photo.png "direct title")\n\n![reference][photo]\n\n[photo]: photo.png "reference title"\n',
       ),
     ).document;
+
     const reference = [...selectMdx(document, "imageReference")][0]?.node;
     expect(reference).toBeDefined();
     expect(document.definition(reference?.identifier ?? "")?.url).toBe("photo.png");
 
     const html = renderHtml(document);
-    const images = [...selectHtml(html, "element")]
-      .map(({ node }) => node)
-      .filter((node) => node.tagName === "img" && typeof node.attributes.src === "string");
+
+    const images = [...selectHtml(html, "element")].flatMap(({ node }) =>
+      node.tagName === "img" && isString(node.attributes.src) ? [node] : [],
+    );
+
     const processed = new Map<
       string,
       Readonly<{ height: number; src: string; srcset: string; width: number }>
     >();
+
     let calls = 0;
     await Promise.all(
       [...new Set(images.map((image) => String(image.attributes.src)))].map(async (source) => {
@@ -97,10 +103,12 @@ describe("owned tree traversal", () => {
         });
       }),
     );
+
     const optimized = rewriteHtml(html, {
       element: ({ node }) => {
         const source = node.attributes.src;
-        const result = typeof source === "string" ? processed.get(source) : undefined;
+        const result = isString(source) ? processed.get(source) : undefined;
+
         return result === undefined
           ? undefined
           : node.with({ attributes: { ...node.attributes, ...result } });
@@ -134,16 +142,19 @@ describe("owned tree traversal", () => {
       documentPlugins: [
         new TestDocumentPlugin("document-diagnostics", ({ diagnostics, document }) => {
           diagnostics.add({ code: "document", message: "document", severity: "warning" });
+
           return document;
         }),
       ],
       htmlPlugins: [
         new TestHtmlPlugin("html-diagnostics", ({ diagnostics, document }) => {
           diagnostics.add({ code: "html", message: "html", severity: "warning" });
+
           return document;
         }),
       ],
     });
+
     const htmlReport = processor.processSync("text");
 
     expect(htmlReport.diagnostics.map(({ code }) => code)).toEqual(["document", "html"]);
@@ -156,5 +167,6 @@ function expectParsed(
   if (outcome.kind !== "parsed") {
     throw new Error(`Expected parsed outcome, received ${outcome.kind}`);
   }
+
   return outcome;
 }

@@ -12,17 +12,18 @@ import type { RunId, WorkflowRunRecord } from "../types/run.ts";
 import type {
   WorkflowEventReader,
   WorkflowIdempotencyIndex,
+  WorkflowIdempotencyKeyOptions,
   WorkflowRunCreationRepository,
   WorkflowRunReaderRepository,
   WorkflowStoreNamespace,
 } from "../types/store.ts";
 import type { Telemetry } from "../types/telemetry.ts";
 
-import { parseWorkflowInput, defineWorkflowFromTarget } from "../definition.ts";
+import { defineWorkflowFromTarget } from "../definition.ts";
 import { captureTelemetryContext } from "../telemetry.ts";
 import { resolveWorkflowStartSpec } from "./run-service.ts";
 import { workflowHandle } from "./run-utils.ts";
-import { toOptionalPersistedValue, toPersistedValue } from "./serialization.ts";
+import { enforceStorageValueSize, parseWorkflowInput, toPersistedValue } from "./serialization.ts";
 
 export interface WorkflowEngineStartApi {
   startWorkflow<TInput, TOutput, TRawInput = TInput>(
@@ -47,18 +48,49 @@ export function resolveScheduleNextOptions(
   now: () => Temporal.Instant,
 ): ResolvedScheduleNextOptions {
   const from = options.from ?? now();
-  const start: WorkflowStartOptions = {
-    ...(options.id === undefined ? {} : { id: options.id }),
+
+  const result = {} satisfies Partial<WorkflowStartOptions>;
+
+  if (options.id !== undefined) {
+    Object.assign(result, { id: options.id } satisfies Partial<WorkflowStartOptions>);
+  }
+
+  const result1 = Object.assign(result, {
     idempotencyKey: options.idempotencyKey,
-    ...(options.workflowVersion === undefined ? {} : { workflowVersion: options.workflowVersion }),
-    ...(options.workflowVersionResolver === undefined
-      ? {}
-      : { workflowVersionResolver: options.workflowVersionResolver }),
-    ...(options.context === undefined ? {} : { context: options.context }),
-    ...(options.parent === undefined ? {} : { parent: options.parent }),
+  } satisfies Partial<WorkflowStartOptions>);
+
+  if (options.workflowVersion !== undefined) {
+    Object.assign(result1, {
+      workflowVersion: options.workflowVersion,
+    } satisfies Partial<WorkflowStartOptions>);
+  }
+
+  if (options.workflowVersionResolver !== undefined) {
+    Object.assign(result1, {
+      workflowVersionResolver: options.workflowVersionResolver,
+    } satisfies Partial<WorkflowStartOptions>);
+  }
+
+  if (options.context !== undefined) {
+    Object.assign(result1, { context: options.context } satisfies Partial<WorkflowStartOptions>);
+  }
+
+  if (options.parent !== undefined) {
+    Object.assign(result1, { parent: options.parent } satisfies Partial<WorkflowStartOptions>);
+  }
+
+  const result2 = Object.assign(result1, {
     availableAt: from.toZonedDateTimeISO("UTC").add(options.every).toInstant(),
-    ...(options.deadlineAt === undefined ? {} : { deadlineAt: options.deadlineAt }),
-  };
+  } satisfies Partial<WorkflowStartOptions>);
+
+  if (options.deadlineAt !== undefined) {
+    Object.assign(result2, {
+      deadlineAt: options.deadlineAt,
+    } satisfies Partial<WorkflowStartOptions>);
+  }
+
+  const start: WorkflowStartOptions = result2;
+
   return {
     schedule: {
       ...options,
@@ -96,21 +128,27 @@ export function createWorkflowEngineStartApi(
     ): Promise<WorkflowHandle<TOutput>> {
       const definition = defineWorkflowFromTarget(workflow);
       const resolvedDefinition = await resolveWorkflowStartSpec(definition, startOptions);
-      const parsedInput = await parseWorkflowInput(resolvedDefinition, input);
+      const persistedInput = await parseWorkflowInput(resolvedDefinition, input);
       const idempotencyKey = startOptions?.idempotencyKey;
       const explicitRunId = startOptions?.id;
-      const existingRun =
-        idempotencyKey === undefined
-          ? undefined
-          : await service.store.getRunByIdempotencyKey({
-              workflowName: resolvedDefinition.name,
-              ...(resolvedDefinition.version === undefined
-                ? {}
-                : { workflowVersion: resolvedDefinition.version }),
-              idempotencyKey,
-            });
-      if (existingRun !== undefined) {
-        return workflowStartHandle(service, resolvedDefinition, existingRun.id);
+
+      if (idempotencyKey !== undefined) {
+        const keyOptions: WorkflowIdempotencyKeyOptions = {
+          workflowName: resolvedDefinition.name,
+          idempotencyKey,
+        };
+
+        if (resolvedDefinition.version !== undefined) {
+          Object.assign(keyOptions, {
+            workflowVersion: resolvedDefinition.version,
+          } satisfies Partial<WorkflowIdempotencyKeyOptions>);
+        }
+
+        const existingRun = await service.store.getRunByIdempotencyKey(keyOptions);
+
+        if (existingRun !== undefined) {
+          return workflowStartHandle(service, resolvedDefinition, existingRun.id);
+        }
       }
 
       const runId = explicitRunId ?? service.createRunId();
@@ -118,49 +156,88 @@ export function createWorkflowEngineStartApi(
       const availableAt = startOptions?.availableAt;
       const deadlineAt = startOptions?.deadlineAt;
       const parent = startOptions?.parent === undefined ? undefined : startOptions.parent;
-      const persistedInput = toOptionalPersistedValue(
-        parsedInput,
-        "workflow input",
-        service.limits,
-      );
 
-      const run: WorkflowRunRecord = {
+      enforceStorageValueSize(persistedInput, "workflow input", service.limits);
+
+      const persistedContext =
+        startOptions?.context === undefined
+          ? undefined
+          : toPersistedValue(startOptions.context, "workflow context", service.limits);
+
+      const telemetryContext = captureTelemetryContext(service.telemetry);
+
+      const result = {
         id: runId,
         namespace: service.store.namespace,
         workflowName: resolvedDefinition.name,
-        ...(resolvedDefinition.version === undefined
-          ? {}
-          : { workflowVersion: resolvedDefinition.version }),
+      } satisfies Partial<WorkflowRunRecord>;
+
+      if (resolvedDefinition.version !== undefined) {
+        Object.assign(result, {
+          workflowVersion: resolvedDefinition.version,
+        } satisfies Partial<WorkflowRunRecord>);
+      }
+
+      const result1 = Object.assign(result, {
         status: "pending",
-        ...(persistedInput === undefined ? {} : { input: persistedInput }),
-        ...(startOptions?.context === undefined
-          ? {}
-          : {
-              context: toPersistedValue(startOptions.context, "workflow context", service.limits),
-            }),
-        ...(() => {
-          const telemetryContext = captureTelemetryContext(service.telemetry);
-          return telemetryContext === undefined ? {} : { telemetryContext };
-        })(),
-        attempts: 0,
-        ...(idempotencyKey === undefined ? {} : { idempotencyKey }),
-        ...(parent === undefined
-          ? {}
-          : {
-              parentRunId: parent.runId,
-              ...(parent.stepId === undefined ? {} : { parentStepId: parent.stepId }),
-              ...(parent.stepName === undefined ? {} : { parentStepName: parent.stepName }),
-              ...(parent.stepAttempt === undefined
-                ? {}
-                : { parentStepAttempt: parent.stepAttempt }),
-            }),
+      } satisfies Partial<WorkflowRunRecord>);
+
+      if (persistedInput !== undefined) {
+        Object.assign(result1, { input: persistedInput } satisfies Partial<WorkflowRunRecord>);
+      }
+
+      if (persistedContext !== undefined) {
+        Object.assign(result1, { context: persistedContext } satisfies Partial<WorkflowRunRecord>);
+      }
+
+      if (telemetryContext !== undefined) {
+        Object.assign(result1, { telemetryContext } satisfies Partial<WorkflowRunRecord>);
+      }
+
+      const result2 = Object.assign(result1, { attempts: 0 } satisfies Partial<WorkflowRunRecord>);
+
+      if (idempotencyKey !== undefined) {
+        Object.assign(result2, { idempotencyKey } satisfies Partial<WorkflowRunRecord>);
+      }
+
+      if (parent !== undefined) {
+        Object.assign(result2, { parentRunId: parent.runId } satisfies Partial<WorkflowRunRecord>);
+
+        if (!(parent.stepId === undefined)) {
+          Object.assign(result2, {
+            parentStepId: parent.stepId,
+          } satisfies Partial<WorkflowRunRecord>);
+        }
+
+        if (!(parent.stepName === undefined)) {
+          Object.assign(result2, {
+            parentStepName: parent.stepName,
+          } satisfies Partial<WorkflowRunRecord>);
+        }
+
+        if (!(parent.stepAttempt === undefined)) {
+          Object.assign(result2, {
+            parentStepAttempt: parent.stepAttempt,
+          } satisfies Partial<WorkflowRunRecord>);
+        }
+      }
+
+      const result3 = Object.assign(result2, {
         createdAt: timestamp,
         updatedAt: timestamp,
         lastTransitionAt: timestamp,
         lastTransitionReason: "created",
-        ...(availableAt === undefined ? {} : { availableAt }),
-        ...(deadlineAt === undefined ? {} : { deadlineAt }),
-      };
+      } satisfies Partial<WorkflowRunRecord>);
+
+      if (availableAt !== undefined) {
+        Object.assign(result3, { availableAt } satisfies Partial<WorkflowRunRecord>);
+      }
+
+      if (deadlineAt !== undefined) {
+        Object.assign(result3, { deadlineAt } satisfies Partial<WorkflowRunRecord>);
+      }
+
+      const run: WorkflowRunRecord = result3;
 
       const createdRun = await service.store.createRun(run);
       service.emitRunEvent(createdRun);
@@ -173,9 +250,11 @@ export function createWorkflowEngineStartApi(
       items: readonly WorkflowBatchStartItem<TRawInput>[],
     ): Promise<readonly WorkflowHandle<TOutput>[]> {
       const handles: Array<WorkflowHandle<TOutput>> = [];
+
       for (const item of items) {
         handles.push(await service.starter.startWorkflow(workflow, item.input, item.options));
       }
+
       return handles;
     },
 
@@ -185,6 +264,7 @@ export function createWorkflowEngineStartApi(
       scheduleOptions: ScheduleNextOptions,
     ): Promise<WorkflowHandle<TOutput>> {
       const options = resolveScheduleNextOptions(scheduleOptions, service.now).start;
+
       return await service.starter.startWorkflow(workflow, input, options);
     },
   };

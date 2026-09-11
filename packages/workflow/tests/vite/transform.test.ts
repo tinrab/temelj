@@ -4,11 +4,17 @@ import { makeGeneratedName } from "../../src/vite/generated-name.ts";
 import { transformWorkflowSource, WorkflowTransformError } from "../../src/vite/transform.ts";
 
 const DEFINE_WORKFLOW_NAME = makeGeneratedName("implementWorkflow");
+
 const DEFINE_WORKFLOW_STEP_NAME = makeGeneratedName("defineWorkflowStep");
+
 const ATTACH_WORKFLOW_DEFINITION_NAME = makeGeneratedName("attachWorkflowDefinition");
+
 const ATTACH_WORKFLOW_STEP_DEFINITION_NAME = makeGeneratedName("attachWorkflowStepDefinition");
+
 const CALL_WORKFLOW_STEP_FUNCTION_NAME = makeGeneratedName("callWorkflowStepFunction");
+
 const CONTEXT_NAME = makeGeneratedName("context");
+
 const LOAD_USER_STEP_NAME = makeGeneratedName("step", "loadUser");
 
 function callWorkflowStepFunctionText(fn: string, args: string): string {
@@ -108,6 +114,7 @@ export async function task() {
   return "ok";
 }
 `;
+
     const result = transformWorkflowSource(code, "/repo/src/task.ts", {
       root: "/repo",
       sourcemap: true,
@@ -120,9 +127,7 @@ export async function task() {
       sourcesContent: [code],
       names: [],
     });
-    expect((result?.map as { readonly mappings?: unknown } | undefined)?.mappings).toEqual(
-      expect.any(String),
-    );
+    expect(result?.map?.mappings).toEqual(expect.any(String));
   });
 
   it("omits source maps by default", () => {

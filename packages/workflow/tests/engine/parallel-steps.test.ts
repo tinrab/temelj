@@ -10,6 +10,7 @@ describe("parallel workflow steps", () => {
       createRunId: () => "run_parallel_steps",
       now: () => Temporal.Instant.from("2026-06-11T10:00:00Z"),
     });
+
     const workflow = implementWorkflow<undefined, readonly string[]>(
       { name: "parallel-steps" },
       async ({ step }) => {
@@ -54,18 +55,22 @@ describe("parallel workflow steps", () => {
 
   test("replays completed parallel steps without repeating them after a retry", async () => {
     let now = Temporal.Instant.from("2026-06-11T10:00:00Z");
+
     const engine = createWorkflowEngine({
       createRunId: () => "run_parallel_retry",
       now: () => now,
     });
+
     let stableRuns = 0;
     let flakyRuns = 0;
+
     const workflow = implementWorkflow<undefined, readonly string[]>(
       { name: "parallel-retry" },
       async ({ step }) => {
         return await Promise.all([
           step.task.run({ name: "stable" }, () => {
             stableRuns++;
+
             return "stable";
           }),
           step.task.run(
@@ -78,11 +83,13 @@ describe("parallel workflow steps", () => {
             },
             () => {
               flakyRuns++;
+
               if (flakyRuns === 1) {
                 WorkflowRetryableError.failed("retry parallel branch", {
                   retryDelay: Temporal.Duration.from({ seconds: 1 }),
                 });
               }
+
               return "flaky";
             },
           ),
@@ -93,9 +100,11 @@ describe("parallel workflow steps", () => {
     const waiting = await engine.runWorkflowNow(workflow, undefined);
 
     expect(waiting.kind).toBe("waiting");
+
     if (waiting.kind !== "waiting") {
       throw new Error("Expected parallel retry workflow to wait");
     }
+
     expect(stableRuns).toBe(1);
     expect(flakyRuns).toBe(1);
     expect(waiting.run.retryStepName).toBe("flaky");
@@ -137,11 +146,14 @@ describe("parallel workflow steps", () => {
 
   test("replays nested dynamic steps by stable names when collections reorder", async () => {
     let now = Temporal.Instant.from("2026-06-11T10:00:00Z");
+
     const engine = createWorkflowEngine({
       createRunId: () => "run_dynamic_steps",
       now: () => now,
     });
+
     let processed: string[] = [];
+
     let orders: Array<{
       readonly id: string;
       readonly lines: readonly { readonly id: string }[];
@@ -149,10 +161,12 @@ describe("parallel workflow steps", () => {
       { id: "order-b", lines: [{ id: "line-2" }, { id: "line-1" }] },
       { id: "order-a", lines: [{ id: "line-1" }] },
     ];
+
     const workflow = implementWorkflow<undefined, readonly string[]>(
       { name: "dynamic-steps" },
       async ({ step }) => {
         const outputs: string[] = [];
+
         for (const order of orders.toSorted((left, right) => left.id.localeCompare(right.id))) {
           for (const line of order.lines.toSorted((left, right) =>
             left.id.localeCompare(right.id),
@@ -161,12 +175,15 @@ describe("parallel workflow steps", () => {
               await step.task.run({ name: `process:${order.id}:${line.id}` }, () => {
                 const processedId = `${order.id}:${line.id}`;
                 processed.push(processedId);
+
                 return processedId;
               }),
             );
           }
         }
+
         await step.task.sleep("pause", Temporal.Duration.from({ seconds: 1 }));
+
         return outputs;
       },
     );
@@ -175,9 +192,11 @@ describe("parallel workflow steps", () => {
 
     expect(waiting.kind).toBe("waiting");
     expect(processed).toEqual(["order-a:line-1", "order-b:line-1", "order-b:line-2"]);
+
     if (waiting.kind !== "waiting") {
       throw new Error("Expected dynamic workflow to wait");
     }
+
     expect(waiting.availableAt.toString()).toBe("2026-06-11T10:00:01Z");
 
     processed = [];

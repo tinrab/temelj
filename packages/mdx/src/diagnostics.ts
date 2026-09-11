@@ -57,6 +57,7 @@ export class DiagnosticBag implements DiagnosticReporter {
         return true;
       }
     }
+
     return false;
   }
 }
@@ -68,16 +69,19 @@ export function formatDiagnostic(
   const location = diagnostic.span === undefined ? "" : formatSpan(diagnostic.span);
   const code = options.includeCode === false ? "" : ` [${diagnostic.code}]`;
   const lines = [`${location}${diagnostic.severity}${code}: ${diagnostic.message}`];
+
   if (options.includeNotes !== false) {
     for (const note of diagnostic.notes ?? []) {
       lines.push(`note: ${note}`);
     }
   }
+
   if (options.includeRelated !== false) {
     for (const related of diagnostic.related ?? []) {
       lines.push(`related ${formatSpan(related.span)}${related.message}`);
     }
   }
+
   return lines.join("\n");
 }
 
@@ -85,30 +89,31 @@ export function hasErrorDiagnostics(diagnostics: readonly Diagnostic[]): boolean
   return diagnostics.some((diagnostic) => diagnostic.severity === "error");
 }
 
+type MutableDiagnostic = { -readonly [K in keyof Diagnostic]: Diagnostic[K] };
+
 export function createDiagnostic(diagnostic: Diagnostic): Diagnostic {
-  return Object.freeze({
+  const result: MutableDiagnostic = {
     severity: diagnostic.severity,
     code: diagnostic.code,
     message: diagnostic.message,
     span: diagnostic.span === undefined ? undefined : Object.freeze({ ...diagnostic.span }),
     notes: diagnostic.notes === undefined ? undefined : Object.freeze([...diagnostic.notes]),
-    ...(diagnostic.related === undefined
-      ? {}
-      : {
-          related: Object.freeze(
-            diagnostic.related.map((item) =>
-              Object.freeze({
-                message: item.message,
-                span: Object.freeze({ ...item.span }),
-              }),
-            ),
-          ),
-        }),
-  });
+  };
+
+  if (diagnostic.related !== undefined) {
+    result.related = Object.freeze(
+      diagnostic.related.map((item) =>
+        Object.freeze({ message: item.message, span: Object.freeze({ ...item.span }) }),
+      ),
+    );
+  }
+
+  return Object.freeze(result);
 }
 
 function formatSpan(span: SourceSpan): string {
   const start = span.file.location(span.start);
   const end = span.file.location(span.end);
+
   return `${start.line}:${start.column}-${end.line}:${end.column} `;
 }

@@ -36,9 +36,11 @@ describe("OpenTelemetry workflow worker telemetry", () => {
 
   test("uses workflow semantic conventions for claimed worker spans", async () => {
     const spanExporter = new InMemorySpanExporter();
+
     const tracerProvider = new BasicTracerProvider({
       spanProcessors: [new SimpleSpanProcessor(spanExporter)],
     });
+
     trace.setGlobalTracerProvider(tracerProvider);
 
     const engine = createWorkflowEngine({
@@ -46,6 +48,7 @@ describe("OpenTelemetry workflow worker telemetry", () => {
       now: () => Temporal.Instant.from("2026-06-15T10:00:00Z"),
       telemetry: createOpenTelemetryTelemetry(),
     });
+
     const workflow = implementWorkflow({ name: "otel-worker" }, () => "done");
 
     await engine.runWorkflow(workflow, undefined);
@@ -81,14 +84,17 @@ describe("OpenTelemetry workflow worker telemetry", () => {
     metrics.setGlobalMeterProvider(meterProvider);
 
     let now = Temporal.Instant.from("2026-06-15T10:00:00Z");
+
     const engine = createWorkflowEngine({
       createRunId: sequentialRunIds("run-otel-claim", "run-otel-retry"),
       now: () => now,
       telemetry: createOpenTelemetryTelemetry(),
     });
+
     const registry = new Registry();
     const claimWorkflow = implementWorkflow({ name: "otel-claim-metrics" }, () => "done");
     registry.register(claimWorkflow);
+
     const worker = new WorkflowWorker({
       engine,
       now: () => now,
@@ -112,6 +118,7 @@ describe("OpenTelemetry workflow worker telemetry", () => {
         throw new Error("retry later");
       },
     );
+
     now = Temporal.Instant.from("2026-06-15T10:01:00Z");
     await expect(engine.runWorkflowNow(retryWorkflow, undefined)).resolves.toMatchObject({
       kind: "waiting",
@@ -168,9 +175,11 @@ describe("OpenTelemetry workflow worker telemetry", () => {
 
   test("emits worker failure and lease operation metrics and spans", async () => {
     const spanExporter = new InMemorySpanExporter();
+
     const tracerProvider = new BasicTracerProvider({
       spanProcessors: [new SimpleSpanProcessor(spanExporter)],
     });
+
     const metricExporter = new InMemoryMetricExporter(AggregationTemporality.CUMULATIVE);
     const metricReader = new PeriodicExportingMetricReader({ exporter: metricExporter });
     const meterProvider = new MeterProvider({ readers: [metricReader] });
@@ -180,6 +189,7 @@ describe("OpenTelemetry workflow worker telemetry", () => {
     const engine = createWorkflowEngine({
       telemetry: createOpenTelemetryTelemetry(),
     });
+
     const timestamp = Temporal.Instant.from("2026-06-15T10:00:00Z");
     engine.observeWorkerOperation({
       operation: "claim",
@@ -245,6 +255,7 @@ describe("OpenTelemetry workflow worker telemetry", () => {
     const workerSpans = spanExporter
       .getFinishedSpans()
       .filter((span) => span.name === WORKFLOW_SPAN_NAMES.workerOperation);
+
     expect(workerSpans).toHaveLength(4);
     expect(workerSpans.map((span) => span.attributes)).toEqual(
       expect.arrayContaining([
@@ -264,18 +275,22 @@ describe("OpenTelemetry workflow worker telemetry", () => {
         }),
       ]),
     );
+
     const claimFailureSpan = workerSpans.find(
       (span) => span.attributes[WORKFLOW_ATTRIBUTES.workerOperation] === "claim",
     );
+
     expect(claimFailureSpan?.status.code).toBe(SpanStatusCode.ERROR);
     expect(exceptionMessages(claimFailureSpan)).toContain("claim failed");
   });
 
   test("emits worker poll operation spans", async () => {
     const spanExporter = new InMemorySpanExporter();
+
     const tracerProvider = new BasicTracerProvider({
       spanProcessors: [new SimpleSpanProcessor(spanExporter)],
     });
+
     trace.setGlobalTracerProvider(tracerProvider);
 
     const engine = createWorkflowEngine({
@@ -288,9 +303,11 @@ describe("OpenTelemetry workflow worker telemetry", () => {
       ]),
       telemetry: createOpenTelemetryTelemetry(),
     });
+
     const registry = new Registry();
     const workflow = implementWorkflow({ name: "otel-worker-poll" }, () => "done");
     registry.register(workflow);
+
     const worker = new WorkflowWorker({
       engine,
       registry,
@@ -312,6 +329,7 @@ describe("OpenTelemetry workflow worker telemetry", () => {
           span.name === WORKFLOW_SPAN_NAMES.workerOperation &&
           span.attributes[WORKFLOW_ATTRIBUTES.workerOperation] === "poll",
       );
+
     expect(pollSpans.map((span) => span.attributes)).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -340,9 +358,11 @@ describe("OpenTelemetry workflow worker telemetry", () => {
 
 function fixedClock(values: readonly string[]): () => Temporal.Instant {
   let index = 0;
+
   return () => {
     const value = values[Math.min(index, values.length - 1)];
     index++;
+
     return Temporal.Instant.from(value);
   };
 }
@@ -365,12 +385,15 @@ function metricAttributes(
 
 function sequentialRunIds(...ids: readonly string[]): () => string {
   let index = 0;
+
   return () => {
     const value = ids[index];
     index++;
+
     if (value === undefined) {
       throw new Error("Unexpected run ID request");
     }
+
     return value;
   };
 }

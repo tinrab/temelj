@@ -34,6 +34,7 @@ function describeWorkflowStoreStepAttemptContract(options: WorkflowStoreContract
     test("appends events conditionally and materializes step attempts", async () => {
       const store = await options.createStore();
       const run = await store.createRun(pendingRun(store, "run-events"));
+
       const running = await store.updateRun({
         ...run,
         status: "running",
@@ -105,6 +106,7 @@ function describeWorkflowStoreStepAttemptContract(options: WorkflowStoreContract
         kind: "stream",
         limit: 1,
       });
+
       expect(firstPage).toMatchObject({
         items: [
           {
@@ -147,6 +149,7 @@ function describeWorkflowStoreStepAttemptContract(options: WorkflowStoreContract
         run.id,
         workflowStepAttemptKey("step-1", 1),
       );
+
       await store.storage.set(
         attemptKey,
         toStorageValue({
@@ -190,6 +193,7 @@ describeWorkflowStoreStepAttemptContract({
   name: "workflow store step-attempt contract: filesystem storage adapter",
   createStore: async () => {
     const directory = await temporaryDirectory();
+
     return createWorkflowStore({
       namespace: `contract-step-attempt-${Temporal.Now.instant().epochMilliseconds.toString(36)}-${Math.random()}`,
       storage: createStorage({
@@ -206,6 +210,7 @@ describeWorkflowStoreStepAttemptContract({
 async function temporaryDirectory(): Promise<string> {
   const directory = await mkdtemp(join(tmpdir(), "temelj-workflow-store-"));
   temporaryDirectories.push(directory);
+
   return directory;
 }
 
@@ -215,6 +220,7 @@ function pendingRun(
   options: Partial<WorkflowRunRecord> = {},
 ): WorkflowRunRecord {
   const { id: _id, namespace: _namespace, ...patch } = options;
+
   return {
     id,
     namespace: store.namespace,

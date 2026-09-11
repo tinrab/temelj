@@ -49,5 +49,6 @@ export function tryParseViteEnv(
 }
 
 function getImportMetaEnv(): EnvSource | undefined {
+  // SAFETY: Vite supplies string environment values and boolean built-ins; other runtimes omit env.
   return (import.meta as ImportMeta & { readonly env?: EnvSource }).env;
 }

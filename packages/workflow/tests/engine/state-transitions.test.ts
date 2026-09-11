@@ -13,6 +13,7 @@ import {
 } from "../../src/engine/state.ts";
 
 const timestamp = Temporal.Instant.from("2026-07-17T08:00:00Z");
+
 const error = { name: "Error", message: "failed" } as const;
 
 describe("workflow run transitions", () => {
@@ -73,6 +74,7 @@ describe("workflow run transitions", () => {
 
 function runRecord(patch: Partial<WorkflowRunRecord> = {}): WorkflowRunRecord {
   const createdAt = Temporal.Instant.from("2026-07-17T07:00:00Z");
+
   return {
     id: "run-1",
     namespace: "default",

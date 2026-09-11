@@ -34,17 +34,21 @@ export const workflowRunEventKindSchema = z.enum([
   "workflow_completed",
   "workflow_failed",
 ]);
+
 export const workflowStepEventKindSchema = z.enum([
   "step_started",
   "step_completed",
   "step_failed",
 ]);
+
 export const workflowSleepEventKindSchema = z.enum(["sleep_started", "sleep_completed"]);
+
 export const workflowChildWorkflowEventKindSchema = z.enum([
   "child_workflow_started",
   "child_workflow_completed",
   "child_workflow_failed",
 ]);
+
 export const workflowMessageEventKindSchema = z.enum([
   "message_sent",
   "message_send_started",
@@ -54,14 +58,18 @@ export const workflowMessageEventKindSchema = z.enum([
   "message_wait_completed",
   "message_wait_failed",
 ]);
+
 export const workflowStreamEventKindSchema = z.enum([
   "stream_started",
   "stream_chunk",
   "stream_closed",
   "stream_failed",
 ]);
+
 export const workflowDataEventKindSchema = z.enum(["metadata_set", "attributes_set"]);
+
 export const workflowDeterministicEventKindSchema = z.literal("deterministic_value_recorded");
+
 export const workflowEventKindSchema = z.union([
   workflowRunEventKindSchema,
   workflowStepEventKindSchema,
@@ -74,22 +82,23 @@ export const workflowEventKindSchema = z.union([
 ]);
 
 const persistedValueSchema = workflowPersistedValueSchema;
+
 const runAttributesSchema = z.record(z.string(), workflowAttributeValueSchema);
 
-const eventBaseShape = {
+const eventBaseFields = {
   timestamp: temporalInstantSchema,
 };
 
-const stepIdentityShape = {
+const stepIdentityFields = {
   stepId: stepIdSchema,
   stepName: nonBlankStringSchema,
 };
 
-const countShape = {
+const countFields = {
   count: positiveSafeIntegerSchema,
 };
 
-const attemptShape = {
+const attemptFields = {
   attempt: positiveSafeIntegerSchema,
 };
 
@@ -101,57 +110,65 @@ export const workflowMessageWaiterStepIdsSchema = nonBlankStringListSchema.refin
 );
 
 export const workflowStartedEventSchema = z.object({
-  ...eventBaseShape,
+  ...eventBaseFields,
   kind: z.literal("workflow_started"),
 });
+
 export const workflowCompletedEventSchema = z.object({
-  ...eventBaseShape,
+  ...eventBaseFields,
   kind: z.literal("workflow_completed"),
 });
+
 export const workflowFailedEventSchema = z.object({
-  ...eventBaseShape,
+  ...eventBaseFields,
   kind: z.literal("workflow_failed"),
 });
+
 export const workflowStepStartedEventSchema = z.object({
-  ...eventBaseShape,
-  ...stepIdentityShape,
-  ...countShape,
-  ...attemptShape,
+  ...eventBaseFields,
+  ...stepIdentityFields,
+  ...countFields,
+  ...attemptFields,
   kind: z.literal("step_started"),
   timeoutAt: temporalInstantSchema.optional(),
 });
+
 export const workflowStepCompletedEventSchema = z.object({
-  ...eventBaseShape,
-  ...stepIdentityShape,
-  ...attemptShape,
+  ...eventBaseFields,
+  ...stepIdentityFields,
+  ...attemptFields,
   kind: z.literal("step_completed"),
   result: persistedValueSchema.optional(),
 });
+
 export const workflowStepFailedEventSchema = z.object({
-  ...eventBaseShape,
-  ...stepIdentityShape,
-  ...attemptShape,
+  ...eventBaseFields,
+  ...stepIdentityFields,
+  ...attemptFields,
   kind: z.literal("step_failed"),
   error: workflowErrorRecordSchema,
 });
+
 export const workflowSleepStartedEventSchema = z.object({
-  ...eventBaseShape,
-  ...stepIdentityShape,
-  ...countShape,
+  ...eventBaseFields,
+  ...stepIdentityFields,
+  ...countFields,
   kind: z.literal("sleep_started"),
   until: temporalInstantSchema,
   duration: temporalNonNegativeDurationSchema.optional(),
 });
+
 export const workflowSleepCompletedEventSchema = z.object({
-  ...eventBaseShape,
-  ...stepIdentityShape,
+  ...eventBaseFields,
+  ...stepIdentityFields,
   kind: z.literal("sleep_completed"),
 });
+
 export const workflowChildWorkflowStartedEventSchema = z.object({
-  ...eventBaseShape,
-  ...stepIdentityShape,
-  ...countShape,
-  ...attemptShape,
+  ...eventBaseFields,
+  ...stepIdentityFields,
+  ...countFields,
+  ...attemptFields,
   kind: z.literal("child_workflow_started"),
   childRunId: runIdSchema,
   workflowName: nonBlankStringSchema,
@@ -161,24 +178,27 @@ export const workflowChildWorkflowStartedEventSchema = z.object({
   idempotencyKey: nonBlankStringSchema.optional(),
   timeoutAt: temporalInstantSchema.optional(),
 });
+
 export const workflowChildWorkflowCompletedEventSchema = z.object({
-  ...eventBaseShape,
-  ...stepIdentityShape,
-  ...attemptShape,
+  ...eventBaseFields,
+  ...stepIdentityFields,
+  ...attemptFields,
   kind: z.literal("child_workflow_completed"),
   childRunId: runIdSchema,
   result: persistedValueSchema.optional(),
 });
+
 export const workflowChildWorkflowFailedEventSchema = z.object({
-  ...eventBaseShape,
-  ...stepIdentityShape,
-  ...attemptShape,
+  ...eventBaseFields,
+  ...stepIdentityFields,
+  ...attemptFields,
   kind: z.literal("child_workflow_failed"),
   childRunId: runIdSchema,
   error: workflowErrorRecordSchema,
 });
+
 export const workflowMessageSentEventSchema = z.object({
-  ...eventBaseShape,
+  ...eventBaseFields,
   kind: z.literal("message_sent"),
   messageId: messageIdSchema,
   payload: persistedValueSchema.optional(),
@@ -186,105 +206,118 @@ export const workflowMessageSentEventSchema = z.object({
   idempotencyKey: nonBlankStringSchema.optional(),
   telemetryContext: workflowTelemetryContextSchema.optional(),
 });
+
 export const workflowMessageSendStartedEventSchema = z.object({
-  ...eventBaseShape,
-  ...stepIdentityShape,
-  ...countShape,
+  ...eventBaseFields,
+  ...stepIdentityFields,
+  ...countFields,
   kind: z.literal("message_send_started"),
   targetRunId: runIdSchema,
   messageId: messageIdSchema,
   payload: persistedValueSchema.optional(),
   idempotencyKey: nonBlankStringSchema.optional(),
 });
+
 export const workflowMessageSendCompletedEventSchema = z.object({
-  ...eventBaseShape,
-  ...stepIdentityShape,
+  ...eventBaseFields,
+  ...stepIdentityFields,
   kind: z.literal("message_send_completed"),
   targetRunId: runIdSchema,
   messageId: messageIdSchema,
 });
+
 export const workflowMessageSendFailedEventSchema = z.object({
-  ...eventBaseShape,
-  ...stepIdentityShape,
+  ...eventBaseFields,
+  ...stepIdentityFields,
   kind: z.literal("message_send_failed"),
   targetRunId: runIdSchema,
   messageId: messageIdSchema,
   error: workflowErrorRecordSchema,
 });
+
 export const workflowMessageWaitStartedEventSchema = z.object({
-  ...eventBaseShape,
-  ...stepIdentityShape,
-  ...countShape,
+  ...eventBaseFields,
+  ...stepIdentityFields,
+  ...countFields,
   kind: z.literal("message_wait_started"),
   messageId: messageIdSchema,
   source: workflowMessageWaitSourceSchema.optional(),
   timeoutAt: temporalInstantSchema.optional(),
 });
+
 export const workflowMessageWaitCompletedEventSchema = z.object({
-  ...eventBaseShape,
-  ...stepIdentityShape,
+  ...eventBaseFields,
+  ...stepIdentityFields,
   kind: z.literal("message_wait_completed"),
   messageId: messageIdSchema,
   payload: persistedValueSchema.optional(),
   messageTimestamp: temporalInstantSchema,
   telemetryContext: workflowTelemetryContextSchema.optional(),
 });
+
 export const workflowMessageWaitFailedEventSchema = z.object({
-  ...eventBaseShape,
-  ...stepIdentityShape,
+  ...eventBaseFields,
+  ...stepIdentityFields,
   kind: z.literal("message_wait_failed"),
   messageId: messageIdSchema,
   error: workflowErrorRecordSchema,
 });
+
 export const workflowMetadataSetEventSchema = z.object({
-  ...eventBaseShape,
-  ...stepIdentityShape,
-  ...countShape,
+  ...eventBaseFields,
+  ...stepIdentityFields,
+  ...countFields,
   kind: z.literal("metadata_set"),
   metadata: persistedValueSchema,
 });
+
 export const workflowAttributesSetEventSchema = z.object({
-  ...eventBaseShape,
-  ...stepIdentityShape,
-  ...countShape,
+  ...eventBaseFields,
+  ...stepIdentityFields,
+  ...countFields,
   kind: z.literal("attributes_set"),
   attributes: runAttributesSchema.optional(),
   removeAttributes: z.array(nonBlankStringSchema).readonly().optional(),
 });
+
 export const workflowStreamStartedEventSchema = z.object({
-  ...eventBaseShape,
-  ...stepIdentityShape,
-  ...countShape,
+  ...eventBaseFields,
+  ...stepIdentityFields,
+  ...countFields,
   kind: z.literal("stream_started"),
   streamId: streamIdSchema,
   contentType: nonBlankStringSchema.optional(),
   metadata: persistedValueSchema.optional(),
 });
+
 export const workflowStreamChunkEventSchema = z.object({
-  ...eventBaseShape,
-  ...stepIdentityShape,
+  ...eventBaseFields,
+  ...stepIdentityFields,
   kind: z.literal("stream_chunk"),
   streamId: streamIdSchema,
   index: nonNegativeSafeIntegerSchema,
   chunk: persistedValueSchema.optional(),
 });
+
 export const workflowStreamClosedEventSchema = z.object({
-  ...eventBaseShape,
-  ...stepIdentityShape,
+  ...eventBaseFields,
+  ...stepIdentityFields,
   kind: z.literal("stream_closed"),
   streamId: streamIdSchema,
 });
+
 export const workflowStreamFailedEventSchema = z.object({
-  ...eventBaseShape,
-  ...stepIdentityShape,
+  ...eventBaseFields,
+  ...stepIdentityFields,
   kind: z.literal("stream_failed"),
   streamId: streamIdSchema,
   error: workflowErrorRecordSchema,
 });
+
 export const workflowDeterministicValueRecordedEventSchema = z.object({
-  ...eventBaseShape,
-  ...stepIdentityShape,
-  ...countShape,
+  ...eventBaseFields,
+  ...stepIdentityFields,
+  ...countFields,
   kind: z.literal("deterministic_value_recorded"),
   value: persistedValueSchema,
 });
@@ -336,6 +369,16 @@ export type EventKind =
   | DataEventKind
   | DeterministicEventKind;
 
+/** Names of fields carried by durable event variants. */
+export type EventFieldName<TEvent extends EventRecord = EventRecord> = TEvent extends EventRecord
+  ? keyof TEvent
+  : never;
+
+/** Values carried by fields of durable event variants. */
+export type EventFieldValue<TEvent extends EventRecord = EventRecord> = TEvent extends EventRecord
+  ? TEvent[keyof TEvent]
+  : never;
+
 /** Metadata describing how an event participates in cleanup and step-attempt materialization. */
 export interface EventDescriptor {
   readonly kind: EventKind;
@@ -345,10 +388,10 @@ export interface EventDescriptor {
   readonly stepAttempt?: EventDescriptorStepAttempt;
   readonly terminalStepAttempt?: boolean;
   readonly startedEventType?: EventKind;
-  readonly startedEventMatchFields?: readonly string[];
-  readonly identityFields?: readonly string[];
-  readonly valueIdentityFields?: readonly string[];
-  readonly stringListIdentityFields?: readonly string[];
+  readonly startedEventMatchFields?: readonly EventFieldName[];
+  readonly identityFields?: readonly EventFieldName[];
+  readonly valueIdentityFields?: readonly EventFieldName[];
+  readonly stringListIdentityFields?: readonly EventFieldName[];
 }
 
 /** Event descriptor category values. */

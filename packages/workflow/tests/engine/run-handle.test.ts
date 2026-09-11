@@ -1,13 +1,13 @@
 import { describe, expect, expectTypeOf, test } from "vitest";
 
 import type { WorkflowRunHandle } from "../../src/types/client.ts";
-import type { WorkflowClientEngine } from "../../src/types/engine.ts";
 import type { WorkflowHandle } from "../../src/types/result.ts";
 
 import { createWorkflowClient } from "../../src/client/create.ts";
 import { implementWorkflow, defineWorkflow } from "../../src/definition.ts";
 import { createWorkflowEngine } from "../../src/engine/create.ts";
 import { WorkflowResultTimeoutError, WorkflowRunNotFoundError } from "../../src/errors/mod.ts";
+import { makeRunKey } from "../../src/store-keys.ts";
 
 describe("workflow run handle", () => {
   test("exposes run status, events, timeline, metadata, result, and cancellation", async () => {
@@ -113,17 +113,14 @@ describe("workflow run handle", () => {
 
   test("rejects missing client run results through the run facade", async () => {
     const engine = createWorkflowEngine({ createRunId: () => "run_handle_missing_result" });
-    const missingRunEngine = workflowClientEngineWithOverrides(engine, {
-      async getRun() {
-        return undefined;
-      },
-    });
-    const client = createWorkflowClient({
-      engine: missingRunEngine,
-    });
+
+    const client = createWorkflowClient({ engine });
+
     const def = defineWorkflow<undefined, string>({ name: "run-handle-missing-result" });
 
     const handle = await client.runs.start(def, undefined);
+
+    await engine.storage.delete(makeRunKey(engine.store.namespace, handle.runId));
 
     await expect(handle.getRun()).rejects.toBeInstanceOf(WorkflowRunNotFoundError);
     await expect(
@@ -136,6 +133,7 @@ describe("workflow run handle", () => {
 
   test("exposes direct engine run handles with current result semantics", async () => {
     const engine = createWorkflowEngine({ createRunId: () => "run_engine_handle_facade" });
+
     const workflow = implementWorkflow<undefined, string>(
       { name: "engine-handle-facade" },
       ({ step }) => step.task.run({ name: "work" }, () => "done"),
@@ -179,6 +177,7 @@ describe("workflow run handle", () => {
 
   test("cancels direct engine runs through the run facade", async () => {
     const engine = createWorkflowEngine({ createRunId: () => "run_engine_handle_cancel" });
+
     const workflow = implementWorkflow<undefined, string>(
       { name: "engine-handle-cancel" },
       () => "done",
@@ -196,9 +195,11 @@ describe("workflow run handle", () => {
 
   test("preserves workflow output type on the run facade", () => {
     const client = createWorkflowClient();
+
     const def = defineWorkflow<{ readonly id: string }, { readonly ok: boolean }>({
       name: "typed-run-handle",
     });
+
     const runnable = client.workflow(def, ({ input }) => ({ ok: input.id.length > 0 }));
 
     expectTypeOf(runnable.run({ id: "user_1" })).toEqualTypeOf<
@@ -209,6 +210,7 @@ describe("workflow run handle", () => {
       { name: "typed-engine-run-handle" },
       ({ input }) => ({ ok: input.id.length > 0 }),
     );
+
     const engine = createWorkflowEngine();
 
     expectTypeOf(engine.runWorkflow(workflow, { id: "user_1" })).toEqualTypeOf<
@@ -216,18 +218,3 @@ describe("workflow run handle", () => {
     >();
   });
 });
-
-function workflowClientEngineWithOverrides(
-  engine: WorkflowClientEngine,
-  overrides: Partial<WorkflowClientEngine>,
-): WorkflowClientEngine {
-  return new Proxy(engine, {
-    get(target, property, receiver) {
-      if (property in overrides) {
-        return Reflect.get(overrides, property, receiver);
-      }
-      const value = Reflect.get(target, property, target);
-      return typeof value === "function" ? value.bind(target) : value;
-    },
-  });
-}

@@ -27,11 +27,13 @@ interface WorkflowRunMessageWaitAccumulator {
   readonly stepIds: Set<string>;
 }
 
-export function createWorkflowRunMessageWaitSummaryReducer(): {
+export interface WorkflowRunMessageWaitSummaryReducer {
   readonly addAttempt: (runId: RunId, attempt: WorkflowStepAttemptRecord) => void;
   readonly addAttempts: (runId: RunId, attempts: readonly WorkflowStepAttemptRecord[]) => void;
   readonly finish: () => WorkflowRunMessageWaitSummary;
-} {
+}
+
+export function createWorkflowRunMessageWaitSummaryReducer(): WorkflowRunMessageWaitSummaryReducer {
   const message = createWorkflowRunMessageWaitAccumulator();
 
   return {
@@ -70,9 +72,11 @@ function addWorkflowRunMessageWaitAttempt(
   message.stepIds.add(attempt.stepId);
   message.attemptKeys.add(attemptKey);
   message.oldestStartedAt = earliestOptionalTimestamp(message.oldestStartedAt, attempt.startedAt);
+
   if (shouldReplaceWorkflowEarliestDefinedInstant(message.nextTimeoutAt, attempt.timeoutAt)) {
     setWorkflowRunMessageWaitNextTimeout(message, runId, attempt, attemptKey);
   }
+
   if (attempt.messageId !== undefined) {
     message.messages.add(attempt.messageId);
   }
@@ -93,25 +97,28 @@ function setWorkflowRunMessageWaitNextTimeout(
 function finishWorkflowRunMessageWaitSummary(
   message: WorkflowRunMessageWaitAccumulator,
 ): WorkflowRunMessageWaitSummary {
-  return message.total === 0
-    ? {}
-    : {
-        messageId: {
-          activeWaits: message.total,
-          activeWaitRuns: message.runIds.size,
-          waitRunIds: sortedStringSet(message.runIds),
-          waitStepIds: sortedStringSet(message.stepIds),
-          waitAttemptKeys: sortedStringSet(message.attemptKeys),
-          messages: sortedStringSet(message.messages),
-          ...optionalProperty("oldestWaitStartedAt", message.oldestStartedAt),
-          ...(message.nextTimeoutAt === undefined
-            ? {}
-            : {
-                nextWaitTimeoutAt: message.nextTimeoutAt,
-                ...optionalProperty("nextWaitTimeoutRunId", message.nextRunId),
-                ...optionalProperty("nextWaitTimeoutStepId", message.nextStepId),
-                ...optionalProperty("nextWaitTimeoutAttemptKey", message.nextAttemptKey),
-              }),
-        },
-      };
+  if (message.total === 0) {
+    return {};
+  }
+
+  const result: NonNullable<WorkflowRunMessageWaitSummary["messageId"]> = {
+    activeWaits: message.total,
+    activeWaitRuns: message.runIds.size,
+    waitRunIds: sortedStringSet(message.runIds),
+    waitStepIds: sortedStringSet(message.stepIds),
+    waitAttemptKeys: sortedStringSet(message.attemptKeys),
+    messages: sortedStringSet(message.messages),
+    ...optionalProperty("oldestWaitStartedAt", message.oldestStartedAt),
+  };
+
+  if (message.nextTimeoutAt !== undefined) {
+    Object.assign(result, {
+      nextWaitTimeoutAt: message.nextTimeoutAt,
+      ...optionalProperty("nextWaitTimeoutRunId", message.nextRunId),
+      ...optionalProperty("nextWaitTimeoutStepId", message.nextStepId),
+      ...optionalProperty("nextWaitTimeoutAttemptKey", message.nextAttemptKey),
+    } satisfies Partial<NonNullable<WorkflowRunMessageWaitSummary["messageId"]>>);
+  }
+
+  return { messageId: result };
 }

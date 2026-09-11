@@ -11,7 +11,9 @@ export interface LabColor {
 }
 
 const XN = 0.95047;
+
 const YN = 1.0;
+
 const ZN = 1.08883;
 
 /**

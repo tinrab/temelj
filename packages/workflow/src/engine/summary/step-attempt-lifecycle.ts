@@ -19,6 +19,7 @@ interface WorkflowStepAttemptLifecycleAccumulator {
 
 export function createWorkflowStepAttemptLifecycleSummaryReducer(): WorkflowStepAttemptLifecycleSummaryReducer {
   const lifecycle: WorkflowStepAttemptLifecycleAccumulator = {};
+
   return {
     addAttempt(attempt) {
       if (attempt.status === "running") {
@@ -27,20 +28,28 @@ export function createWorkflowStepAttemptLifecycleSummaryReducer(): WorkflowStep
           attempt.startedAt,
         );
       }
+
       lifecycle.latestFinishedAt = latestOptionalTimestamp(
         lifecycle.latestFinishedAt,
         attempt.finishedAt,
       );
     },
-    finish() {
-      return {
-        ...(lifecycle.oldestRunningAt === undefined
-          ? {}
-          : { oldestRunningAt: lifecycle.oldestRunningAt }),
-        ...(lifecycle.latestFinishedAt === undefined
-          ? {}
-          : { latestFinishedAt: lifecycle.latestFinishedAt }),
-      };
+    finish(): WorkflowStepAttemptLifecycleSummaryFields {
+      const result: WorkflowStepAttemptLifecycleSummaryFields = {};
+
+      if (lifecycle.oldestRunningAt !== undefined) {
+        Object.assign(result, {
+          oldestRunningAt: lifecycle.oldestRunningAt,
+        } satisfies Partial<WorkflowStepAttemptLifecycleSummaryFields>);
+      }
+
+      if (lifecycle.latestFinishedAt !== undefined) {
+        Object.assign(result, {
+          latestFinishedAt: lifecycle.latestFinishedAt,
+        } satisfies Partial<WorkflowStepAttemptLifecycleSummaryFields>);
+      }
+
+      return result;
     },
   };
 }

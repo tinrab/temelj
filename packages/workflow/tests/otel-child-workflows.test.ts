@@ -20,7 +20,7 @@ import {
   InMemorySpanExporter,
   SimpleSpanProcessor,
 } from "@opentelemetry/sdk-trace-base";
-import { isPromise } from "@temelj/value";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { afterEach, describe, expect, test } from "vitest";
 
 import { implementWorkflow } from "../src/definition.ts";
@@ -37,23 +37,28 @@ describe("OpenTelemetry child workflow telemetry", () => {
 
   test("emits child workflow operation spans with shared trace lineage", async () => {
     const spanExporter = new InMemorySpanExporter();
+
     const tracerProvider = new BasicTracerProvider({
       spanProcessors: [new SimpleSpanProcessor(spanExporter)],
     });
+
     context.setGlobalContextManager(new TestContextManager());
     propagation.setGlobalPropagator(new TestTraceContextPropagator());
     trace.setGlobalTracerProvider(tracerProvider);
 
     let now = Temporal.Instant.from("2026-06-15T10:00:00Z");
     const runIds = ["run-otel-parent", "run-otel-child"];
+
     const engine = createWorkflowEngine({
       createRunId: () => runIds.shift() ?? "run-otel-extra",
       now: () => now,
       telemetry: createOpenTelemetryTelemetry(),
     });
+
     const child = implementWorkflow({ name: "otel-child", version: "v1" }, () => {
       return "child-output";
     });
+
     const parent = implementWorkflow({ name: "otel-parent", version: "v1" }, async ({ step }) => {
       return await step.workflow.run(child, undefined, { name: "child" });
     });
@@ -74,9 +79,11 @@ describe("OpenTelemetry child workflow telemetry", () => {
     await tracerProvider.forceFlush();
 
     const spans = spanExporter.getFinishedSpans();
+
     const childWorkflowSpans = spans.filter(
       (span) => span.name === WORKFLOW_SPAN_NAMES.childWorkflowOperation,
     );
+
     expect(childWorkflowSpans.map((span) => span.attributes)).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -116,34 +123,41 @@ describe("OpenTelemetry child workflow telemetry", () => {
         span.name === WORKFLOW_SPAN_NAMES.runExecution &&
         span.attributes[WORKFLOW_ATTRIBUTES.runId] === "run-otel-parent",
     );
+
     const childRunSpan = spans.find(
       (span) =>
         span.name === WORKFLOW_SPAN_NAMES.runExecution &&
         span.attributes[WORKFLOW_ATTRIBUTES.runId] === "run-otel-child",
     );
+
     expect(parentRunSpan?.spanContext().traceId).toBeDefined();
     expect(childRunSpan?.spanContext().traceId).toBe(parentRunSpan?.spanContext().traceId);
   });
 
   test("emits failed child workflow operation spans", async () => {
     const spanExporter = new InMemorySpanExporter();
+
     const tracerProvider = new BasicTracerProvider({
       spanProcessors: [new SimpleSpanProcessor(spanExporter)],
     });
+
     context.setGlobalContextManager(new TestContextManager());
     propagation.setGlobalPropagator(new TestTraceContextPropagator());
     trace.setGlobalTracerProvider(tracerProvider);
 
     let now = Temporal.Instant.from("2026-06-15T10:00:00Z");
     const runIds = ["run-otel-failing-parent", "run-otel-failing-child"];
+
     const engine = createWorkflowEngine({
       createRunId: () => runIds.shift() ?? "run-otel-extra",
       now: () => now,
       telemetry: createOpenTelemetryTelemetry(),
     });
+
     const child = implementWorkflow({ name: "otel-failing-child" }, () => {
       throw new Error("child exploded");
     });
+
     const parent = implementWorkflow({ name: "otel-failing-parent" }, async ({ step }) => {
       return await step.workflow.run(child, undefined, { name: "child" });
     });
@@ -168,6 +182,7 @@ describe("OpenTelemetry child workflow telemetry", () => {
           span.name === WORKFLOW_SPAN_NAMES.childWorkflowOperation &&
           span.attributes[WORKFLOW_ATTRIBUTES.childWorkflowOperation] === "fail",
       );
+
     expect(failedSpan?.attributes).toEqual(
       expect.objectContaining({
         [WORKFLOW_ATTRIBUTES.system]: WORKFLOW_SYSTEM,
@@ -198,36 +213,19 @@ function exceptionMessages(span: ReadableSpan | undefined): readonly unknown[] {
 }
 
 class TestContextManager implements ContextManager {
-  #active: Context = ROOT_CONTEXT;
+  readonly #context = new AsyncLocalStorage<Context>();
 
   active(): Context {
-    return this.#active;
+    return this.#context.getStore() ?? ROOT_CONTEXT;
   }
 
   with<A extends unknown[], TResult>(
     contextValue: Context,
     fn: (...args: A) => TResult,
-    thisArg?: unknown,
+    thisArg?: ThisParameterType<typeof fn>,
     ...args: A
   ): TResult {
-    const previous = this.#active;
-    let restoreDeferred = false;
-    this.#active = contextValue;
-    try {
-      const result = fn.apply(thisArg, args);
-      if (isPromise(result)) {
-        restoreDeferred = true;
-        return result.finally(() => {
-          this.#active = previous;
-        }) as TResult;
-      }
-      this.#active = previous;
-      return result;
-    } finally {
-      if (!restoreDeferred && this.#active === contextValue) {
-        this.#active = previous;
-      }
-    }
+    return this.#context.run(contextValue, () => fn.apply(thisArg, args));
   }
 
   bind<T>(_: Context, target: T): T {
@@ -239,7 +237,8 @@ class TestContextManager implements ContextManager {
   }
 
   disable(): this {
-    this.#active = ROOT_CONTEXT;
+    this.#context.disable();
+
     return this;
   }
 }
@@ -247,9 +246,11 @@ class TestContextManager implements ContextManager {
 class TestTraceContextPropagator implements TextMapPropagator {
   inject(contextValue: Context, carrier: Record<string, string>, setter: TextMapSetter): void {
     const spanContext = trace.getSpanContext(contextValue);
+
     if (spanContext === undefined) {
       return;
     }
+
     setter.set(
       carrier,
       "traceparent",
@@ -260,14 +261,18 @@ class TestTraceContextPropagator implements TextMapPropagator {
   extract(contextValue: Context, carrier: Record<string, string>, getter: TextMapGetter): Context {
     const traceparent = getter.get(carrier, "traceparent");
     const value = Array.isArray(traceparent) ? traceparent[0] : traceparent;
-    if (typeof value !== "string") {
+
+    if (value === undefined) {
       return contextValue;
     }
+
     const parts = value.split("-");
     const [, traceId, spanId, flags] = parts;
+
     if (parts.length !== 4 || traceId === undefined || spanId === undefined) {
       return contextValue;
     }
+
     return trace.setSpanContext(contextValue, {
       traceId,
       spanId,

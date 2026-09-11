@@ -45,6 +45,7 @@ export function describeWorkflowStoreContract(options: WorkflowStoreContractOpti
   describe(`${options.name}`, () => {
     test("creates runs atomically with event history and idempotency", async () => {
       const store = await options.createStore();
+
       const run = pendingRun(store, "run-create", {
         idempotencyKey: "create-key",
       });
@@ -63,6 +64,7 @@ export function describeWorkflowStoreContract(options: WorkflowStoreContractOpti
       const duplicate = pendingRun(store, "run-create-duplicate", {
         idempotencyKey: "create-key",
       });
+
       await expect(store.createRun(duplicate)).resolves.toEqual(run);
       await expect(store.getRun("run-create-duplicate")).resolves.toBeUndefined();
     });
@@ -78,6 +80,7 @@ export function describeWorkflowStoreContract(options: WorkflowStoreContractOpti
         now: base,
         leaseDuration: Temporal.Duration.from({ milliseconds: 1_000 }),
       });
+
       expect(claimed).toMatchObject({
         id: "run-lease",
         status: "running",
@@ -102,6 +105,7 @@ export function describeWorkflowStoreContract(options: WorkflowStoreContractOpti
         now: Temporal.Instant.from("2025-01-01T00:00:00.500Z"),
         leaseDuration: Temporal.Duration.from({ milliseconds: 2_000 }),
       });
+
       expect(extended?.leaseExpiresAt).toEqual(Temporal.Instant.from("2025-01-01T00:00:02.500Z"));
 
       await expect(
@@ -120,6 +124,7 @@ export function describeWorkflowStoreContract(options: WorkflowStoreContractOpti
         attempts: 1,
         now: Temporal.Instant.from("2025-01-01T00:00:01Z"),
       });
+
       expect(released).toMatchObject({
         status: "waiting",
         lastTransitionReason: "waiting",
@@ -136,12 +141,14 @@ export function describeWorkflowStoreContract(options: WorkflowStoreContractOpti
         lastTransitionReason: "claimed",
         leaseExpiresAt: Temporal.Instant.from("2025-01-01T00:00:04Z"),
       });
+
       const reclaimed = await store.claimRun({
         runId: "run-lease",
         workerId: "worker-new",
         now: Temporal.Instant.from("2025-01-01T00:00:05Z"),
         leaseDuration: Temporal.Duration.from({ milliseconds: 1_000 }),
       });
+
       expect(reclaimed).toMatchObject({
         workerId: "worker-new",
         attempts: 2,
@@ -152,12 +159,14 @@ export function describeWorkflowStoreContract(options: WorkflowStoreContractOpti
     test("rejects stale conditional run updates and event appends", async () => {
       const store = await options.createStore();
       const run = await store.createRun(pendingRun(store, "run-stale"));
+
       const claimed = await store.claimRun({
         runId: run.id,
         workerId: "worker-a",
         now: Temporal.Instant.from("2025-01-01T00:00:00Z"),
         leaseDuration: Temporal.Duration.from({ milliseconds: 1_000 }),
       });
+
       expect(claimed).toBeDefined();
 
       const staleUpdate = await store.updateRunIfCurrent(run, {
@@ -168,6 +177,7 @@ export function describeWorkflowStoreContract(options: WorkflowStoreContractOpti
         lastTransitionReason: "waiting",
         availableAt: Temporal.Instant.from("2025-01-01T00:00:01Z"),
       });
+
       expect(staleUpdate).toBeUndefined();
 
       const staleAppend = await store.appendEventIfRunCurrent(run, workflowStarted());
@@ -226,10 +236,12 @@ export function describeWorkflowStoreContract(options: WorkflowStoreContractOpti
         hasMore: true,
       });
       expect(firstPage.nextCursor).toBeDefined();
+
       const secondPage = await store.listRunsPage({
         limit: 2,
         cursor: firstPage.nextCursor,
       });
+
       expect(secondPage).toMatchObject({
         items: [{ id: "run-list-c" }],
         hasMore: false,
@@ -250,6 +262,7 @@ describeWorkflowStoreContract({
   name: "workflow store contract: filesystem storage adapter",
   createStore: async () => {
     const directory = await temporaryDirectory();
+
     return createWorkflowStore({
       namespace: `contract-${Temporal.Now.instant().epochMilliseconds.toString(36)}-${Math.random()}`,
       storage: createStorage({
@@ -285,6 +298,7 @@ test("exports store contract types from the store entrypoint", () => {
 async function temporaryDirectory(): Promise<string> {
   const directory = await mkdtemp(join(tmpdir(), "temelj-workflow-store-"));
   temporaryDirectories.push(directory);
+
   return directory;
 }
 
@@ -294,6 +308,7 @@ function pendingRun(
   options: Partial<WorkflowRunRecord> = {},
 ): WorkflowRunRecord {
   const { id: _id, namespace: _namespace, ...patch } = options;
+
   return {
     id,
     namespace: store.namespace,

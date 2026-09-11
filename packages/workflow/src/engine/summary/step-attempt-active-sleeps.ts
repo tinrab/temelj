@@ -29,6 +29,7 @@ interface WorkflowStepAttemptActiveSleepAccumulator {
 
 export function createWorkflowStepAttemptActiveSleepSummaryReducer(): WorkflowStepAttemptActiveSleepSummaryReducer {
   const sleep = createWorkflowStepAttemptActiveSleepAccumulator();
+
   return {
     addAttempt(attempt, attemptKey) {
       if (attempt.kind === "sleep" && attempt.status === "running") {
@@ -55,6 +56,7 @@ function addWorkflowStepAttemptActiveSleep(
 ): void {
   sleep.stepIds.add(attempt.stepId);
   sleep.attemptKeys.add(attemptKey);
+
   if (shouldReplaceWorkflowEarliestDefinedInstant(sleep.nextUntil, attempt.until)) {
     sleep.nextUntil = attempt.until;
     sleep.nextStepId = attempt.stepId;
@@ -67,16 +69,19 @@ function addWorkflowStepAttemptActiveSleep(
 function finishWorkflowStepAttemptActiveSleepSummary(
   sleep: WorkflowStepAttemptActiveSleepAccumulator,
 ): WorkflowStepAttemptActiveSleepSummaryFields {
-  return {
+  const summary: WorkflowStepAttemptActiveSleepSummaryFields = {
     ...optionalSortedStringSetProperty("activeSleepStepIds", sleep.stepIds),
     ...optionalSortedStringSetProperty("activeSleepAttemptKeys", sleep.attemptKeys),
-    ...(sleep.nextUntil === undefined
-      ? {}
-      : {
-          nextSleepUntil: sleep.nextUntil,
-          ...optionalProperty("nextSleepStepId", sleep.nextStepId),
-          ...optionalProperty("nextSleepAttemptKey", sleep.nextAttemptKey),
-          ...optionalProperty("nextSleepDuration", sleep.nextDuration),
-        }),
   };
+
+  if (sleep.nextUntil !== undefined) {
+    Object.assign(summary, {
+      nextSleepUntil: sleep.nextUntil,
+      ...optionalProperty("nextSleepStepId", sleep.nextStepId),
+      ...optionalProperty("nextSleepAttemptKey", sleep.nextAttemptKey),
+      ...optionalProperty("nextSleepDuration", sleep.nextDuration),
+    } satisfies Partial<WorkflowStepAttemptActiveSleepSummaryFields>);
+  }
+
+  return summary;
 }

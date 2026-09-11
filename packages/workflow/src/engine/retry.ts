@@ -47,6 +47,7 @@ export function resolveWorkflowRetryConfig(
   label: string,
 ): WorkflowResolvedRetryConfig {
   const input = config ?? {};
+
   if (
     input.initialInterval !== undefined &&
     input.maximumInterval !== undefined &&
@@ -54,12 +55,28 @@ export function resolveWorkflowRetryConfig(
   ) {
     WorkflowOptionsError.retryMaximumIntervalTooSmall(label);
   }
-  return {
+
+  const result = {
     maximumAttempts: input.maximumAttempts ?? defaults.maximumAttempts,
-    ...(input.initialInterval === undefined ? {} : { initialInterval: input.initialInterval }),
+  } satisfies Partial<WorkflowResolvedRetryConfig>;
+
+  if (input.initialInterval !== undefined) {
+    Object.assign(result, {
+      initialInterval: input.initialInterval,
+    } satisfies Partial<WorkflowResolvedRetryConfig>);
+  }
+
+  const result1 = Object.assign(result, {
     backoffCoefficient: input.backoffCoefficient ?? defaults.backoffCoefficient,
-    ...(input.maximumInterval === undefined ? {} : { maximumInterval: input.maximumInterval }),
-  };
+  } satisfies Partial<WorkflowResolvedRetryConfig>);
+
+  if (input.maximumInterval !== undefined) {
+    Object.assign(result1, {
+      maximumInterval: input.maximumInterval,
+    } satisfies Partial<WorkflowResolvedRetryConfig>);
+  }
+
+  return result1;
 }
 
 /** Resolves missing-implementation retry options and merges them with worker defaults. */
@@ -71,18 +88,27 @@ export function resolveMissingImplementationRetryConfig(
   const input: WorkflowResolvedMissingImplementationRetryInput = config === undefined ? {} : config;
   const initialInterval = input.initialInterval ?? defaults.initialInterval;
   const maximumInterval = input.maximumInterval;
+
   if (
     maximumInterval !== undefined &&
     Temporal.Duration.compare(maximumInterval, initialInterval) < 0
   ) {
     WorkflowOptionsError.retryMaximumIntervalTooSmall(label);
   }
-  return {
+
+  const summary: WorkflowResolvedMissingImplementationRetryConfig = {
     initialInterval,
     backoffCoefficient: input.backoffCoefficient ?? defaults.backoffCoefficient,
     maximumAttempts: input.maximumAttempts ?? defaults.maximumAttempts,
-    ...(maximumInterval === undefined ? {} : { maximumInterval }),
   };
+
+  if (maximumInterval !== undefined) {
+    Object.assign(summary, {
+      maximumInterval,
+    } satisfies Partial<WorkflowResolvedMissingImplementationRetryConfig>);
+  }
+
+  return summary;
 }
 
 export function resolveChildWorkflowRetryConfig(
@@ -94,6 +120,7 @@ export function resolveChildWorkflowRetryConfig(
       backoffCoefficient: DEFAULT_STEP_RETRY_CONFIG.backoffCoefficient,
     };
   }
+
   return resolveWorkflowRetryConfig(
     options.retry,
     DEFAULT_STEP_RETRY_CONFIG,
@@ -110,9 +137,11 @@ export function shouldRetryWorkflowAttempt(
 
 export function nextWorkflowRetryAttempt(failedAttempt: number): number {
   const nextAttempt = nextPositiveSafeInteger(failedAttempt);
+
   if (nextAttempt === undefined) {
     WorkflowOptionsError.positiveSafeInteger("Workflow retry next attempt");
   }
+
   return nextAttempt;
 }
 
@@ -150,16 +179,19 @@ export function nextRetryAt(
   if (retry.initialInterval === undefined) {
     return undefined;
   }
+
   if (!isPositiveSafeInteger(failedAttempt)) {
     WorkflowOptionsError.positiveSafeInteger(`${label} attempt`);
   }
 
   const exponentialDelay =
     durationAmount(retry.initialInterval, label) * retry.backoffCoefficient ** (failedAttempt - 1);
+
   const cappedDelay =
     retry.maximumInterval === undefined
       ? exponentialDelay
       : Math.min(exponentialDelay, durationAmount(retry.maximumInterval, label));
+
   return failedAt.add(
     Temporal.Duration.from({ milliseconds: resolveSafeRetryDelay(cappedDelay, label) }),
   );
@@ -167,23 +199,28 @@ export function nextRetryAt(
 
 export function retryClassificationRetryAt(
   failedAt: Temporal.Instant,
-  error: unknown,
+  cause: unknown,
   label: string,
 ): Temporal.Instant | undefined {
-  if (!(error instanceof WorkflowRetryableError)) {
+  if (!(cause instanceof WorkflowRetryableError)) {
     return undefined;
   }
-  if (error.retryAt !== undefined) {
-    if (!(error.retryAt instanceof Temporal.Instant)) {
+
+  if (cause.retryAt !== undefined) {
+    if (!(cause.retryAt instanceof Temporal.Instant)) {
       WorkflowDurationError.retryAtInstant(label);
     }
-    return error.retryAt;
+
+    return cause.retryAt;
   }
-  if (error.retryDelay !== undefined) {
-    const retryDelay = durationAmount(error.retryDelay, label);
+
+  if (cause.retryDelay !== undefined) {
+    const retryDelay = durationAmount(cause.retryDelay, label);
+
     return failedAt.add(
       Temporal.Duration.from({ milliseconds: resolveSafeRetryDelay(retryDelay, label) }),
     );
   }
+
   return undefined;
 }

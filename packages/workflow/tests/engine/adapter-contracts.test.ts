@@ -1,6 +1,13 @@
+import {
+  ss,
+  validateStandardSchema,
+  StandardSchemaValidationError,
+  type Schema,
+} from "@temelj/standard-schema";
 import { describe, expect, test } from "vitest";
 
 import type { WorkflowClient } from "../../src/types/client.ts";
+import type { ResumeWebhookOptions } from "../../src/types/hook.ts";
 import type { StreamChunk } from "../../src/types/stream.ts";
 import type { WorkflowWorker as WorkflowWorkerContract } from "../../src/types/worker.ts";
 import type { TransformManifest } from "../../src/vite.ts";
@@ -19,15 +26,19 @@ describe("workflow adapter contracts", () => {
     const engine = createWorkflowEngine({ createRunId: () => "run_adapter_webhook" });
     const registry = new Registry();
     const client = createWorkflowClient({ engine, registry });
+
     const workflow = implementWorkflow<undefined, string>(
       { name: "adapter-webhook" },
       async ({ step }) => {
-        const webhook = step.hook.createWebhook<{ readonly ok: boolean }>({
+        const webhook = step.hook.createWebhook({
+          schema: ss.object({ ok: ss.boolean() }),
           name: "callback",
           messageId: "callback.received",
         });
+
         webhookToken = webhook.token;
         const payload = await webhook;
+
         return payload.ok ? "ok" : "failed";
       },
     );
@@ -36,6 +47,7 @@ describe("workflow adapter contracts", () => {
     await expect(engine.resumeWorkflow(workflow, handle.runId)).resolves.toMatchObject({
       kind: "waiting",
     });
+
     if (webhookToken === undefined) {
       throw new Error("Expected webhook token");
     }
@@ -57,6 +69,7 @@ describe("workflow adapter contracts", () => {
     const engine = createWorkflowEngine({ createRunId: () => "run_adapter_stream" });
     const registry = new Registry();
     const client = createWorkflowClient({ engine, registry });
+
     const workflow = implementWorkflow<undefined, string>(
       { name: "adapter-stream" },
       async ({ step }) => {
@@ -64,9 +77,11 @@ describe("workflow adapter contracts", () => {
         await stream.write("one");
         await stream.write("two");
         await stream.close();
+
         return "done";
       },
     );
+
     const chunks: StreamChunk<string>[] = [];
 
     const handle = await engine.runWorkflow(workflow, undefined);
@@ -74,7 +89,7 @@ describe("workflow adapter contracts", () => {
       kind: "completed",
       output: "done",
     });
-    await pumpStream<string>(client, handle.runId, "log", {
+    await pumpStream(client, handle.runId, "log", ss.string(), {
       async write(chunk) {
         chunks.push(chunk);
       },
@@ -85,6 +100,17 @@ describe("workflow adapter contracts", () => {
     });
 
     expect(chunks.map((chunk) => chunk.value)).toEqual(["one", "two"]);
+    await expect(
+      pumpStream(client, handle.runId, "log", ss.number(), {
+        async write() {
+          throw new Error("Invalid chunk reached the sink");
+        },
+        async close() {},
+        async fail(error) {
+          throw error;
+        },
+      }),
+    ).rejects.toThrow(StandardSchemaValidationError);
   });
 
   test("build adapters can pass transform manifests across files", () => {
@@ -120,6 +146,7 @@ export async function run(input: string) {
   test("worker host adapters can stop workers through the public lifecycle", async () => {
     const engine = createWorkflowEngine({ createRunId: () => "run_adapter_worker" });
     const registry = new Registry();
+
     const worker = new WorkflowWorker({
       engine,
       registry,
@@ -145,10 +172,15 @@ async function handleWebhook(
   client: WorkflowClient,
   request: InboundWebhookRequest,
 ): Promise<{ readonly status: number }> {
-  await client.hooks.resumeWebhook(request.token, {
-    payload: request.payload,
-    ...(request.idempotencyKey === undefined ? {} : { idempotencyKey: request.idempotencyKey }),
-  });
+  const options: ResumeWebhookOptions = { payload: request.payload };
+
+  if (request.idempotencyKey !== undefined) {
+    Object.assign(options, {
+      idempotencyKey: request.idempotencyKey,
+    } satisfies Partial<ResumeWebhookOptions>);
+  }
+
+  await client.hooks.resumeWebhook(request.token, options);
 
   return { status: 202 };
 }
@@ -156,31 +188,39 @@ async function handleWebhook(
 interface WorkflowStreamSink<TChunk> {
   write(chunk: StreamChunk<TChunk>): Promise<void>;
   close(): Promise<void>;
-  fail(error: unknown): Promise<void>;
+  fail(cause: unknown): Promise<void>;
 }
 
 async function pumpStream<TChunk>(
   client: WorkflowClient,
   runId: RunId,
   stream: string,
+  schema: Schema<unknown, TChunk>,
   sink: WorkflowStreamSink<TChunk>,
 ): Promise<void> {
   let fromIndex = 0;
 
   while (true) {
-    const state = await client.streams.read<TChunk>(runId, stream, { fromIndex });
+    const state = await client.streams.read(runId, stream, { fromIndex });
+
     for (const chunk of state.chunks) {
-      await sink.write(chunk);
+      const value = await validateStandardSchema(schema, chunk.value);
+      await sink.write({ ...chunk, value });
       fromIndex = chunk.index + 1;
     }
+
     if (state.status === "closed") {
       await sink.close();
+
       return;
     }
+
     if (state.status === "failed") {
       await sink.fail(state.error);
+
       return;
     }
+
     throw new Error("Expected stream to reach a terminal state in this adapter test");
   }
 }
@@ -196,10 +236,13 @@ function transformWorkflowFiles(
       root,
       manifests,
     });
+
     if (result === undefined) {
       return file;
     }
+
     manifests.push(result.manifest);
+
     return { id: file.id, code: result.code };
   });
 }

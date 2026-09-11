@@ -8,6 +8,7 @@ describe("workflow lock client API", () => {
     const engine = createWorkflowEngine({
       now: () => Temporal.Instant.from("2026-06-11T10:00:00Z"),
     });
+
     const client = createWorkflowClient({ engine });
 
     await expect(

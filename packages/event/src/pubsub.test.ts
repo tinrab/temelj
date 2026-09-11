@@ -30,9 +30,11 @@ describe("createPubSub", () => {
     const result = bus.emit("user:login", { userId: "user_1" });
 
     expect(isOk(result)).toBe(true);
+
     if (!isOk(result)) {
       throw new Error("expected emit to succeed");
     }
+
     expect(result.value).toEqual({ event: "user:login", handlers: 1 });
     expect(received).toEqual(["user_1"]);
   });
@@ -102,17 +104,21 @@ describe("createPubSub", () => {
     bus.on("user:login", () => err("invalid session"));
     bus.on("user:login", (payload) => {
       received.push(payload.userId);
+
       return ok(undefined);
     });
 
     const result = bus.emit("user:login", { userId: "user_1" });
 
     expect(isErr(result)).toBe(true);
+
     if (!isErr(result)) {
       throw new Error("expected emit to fail");
     }
+
     expect(result.error).toEqual([
       {
+        kind: "returned",
         event: "user:login",
         pattern: "user:login",
         error: "invalid session",
@@ -123,7 +129,7 @@ describe("createPubSub", () => {
   });
 
   it("captures thrown handler errors", () => {
-    const bus = createPubSub<AppEvents>();
+    const bus = createPubSub<AppEvents, string>();
     const thrown = new Error("boom");
 
     bus.on("system:ready", () => {
@@ -133,15 +139,25 @@ describe("createPubSub", () => {
     const result = bus.emit("system:ready");
 
     expect(isErr(result)).toBe(true);
+
     if (!isErr(result)) {
       throw new Error("expected emit to fail");
     }
-    expect(result.error[0]?.error).toBe(thrown);
+
+    const failure = result.error[0];
+
+    if (failure?.kind !== "thrown") {
+      throw new Error("expected a thrown handler failure");
+    }
+
+    expectTypeOf(failure.cause).toEqualTypeOf<unknown>();
+    expect(failure.cause).toBe(thrown);
   });
 
   it("supports unsubscribe, off, once, clear, and listener counts", () => {
     const bus = createPubSub<AppEvents>();
     let count = 0;
+
     const handler = () => {
       count += 1;
     };
@@ -174,9 +190,11 @@ describe("createPubSub", () => {
   it("returns listener snapshots", () => {
     const bus = createPubSub<AppEvents>();
     const systemHandler = () => {};
+
     const loginHandler = (payload: { userId: string }) => {
       expectTypeOf(payload).toEqualTypeOf<{ userId: string }>();
     };
+
     const wildcardHandler = (_payload: { userId: string } | void) => {};
 
     const unsubscribe = bus.on("system:ready", systemHandler);

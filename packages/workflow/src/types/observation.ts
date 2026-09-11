@@ -130,6 +130,11 @@ export interface ObservationEventMap {
   readonly "workflow:schedule-run-created": ScheduleRunCreatedObservationEvent;
 }
 
+/** An observation name paired with its corresponding payload. */
+export type ObservationEventArgs = {
+  [Key in keyof ObservationEventMap]: [name: Key, payload: ObservationEventMap[Key]];
+}[keyof ObservationEventMap];
+
 /** Type used for workflow observation event pattern values. */
 export type ObservationEventPattern = EventPattern<ObservationEventMap>;
 

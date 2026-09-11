@@ -1,5 +1,7 @@
 import type { StorageValue } from "@temelj/storage";
 
+import { isString } from "@temelj/value";
+
 import type { WorkflowRunRecord } from "../types/run.ts";
 import type { WorkflowIdempotencyKeyOptions, WorkflowStorage } from "../types/store.ts";
 
@@ -45,6 +47,7 @@ export async function createRunWithIdempotency(
   }
 
   const keyOptions = idempotencyKeyOptionsForRun(run);
+
   if (supportsWorkflowAtomicBatchWrite(storage)) {
     return await createRunAtomicallyWithIdempotency(storage, namespace, store, run, keyOptions);
   }
@@ -53,6 +56,7 @@ export async function createRunWithIdempotency(
     keyOptions === undefined
       ? undefined
       : await claimWorkflowIdempotencyIndex(storage, namespace, store, run, keyOptions);
+
   if (idempotencyClaim?.status === "existing") {
     return idempotencyClaim.run;
   }
@@ -63,6 +67,7 @@ export async function createRunWithIdempotency(
 
   try {
     await createRunRecordAndEventHistory(storage, namespace, run);
+
     return run;
   } catch (error) {
     await rollbackWorkflowIdempotencyClaim(storage, idempotencyClaim);
@@ -78,29 +83,37 @@ async function createRunRecordAndEventHistory(
   const runKey = makeRunKey(namespace, run.id);
   const eventsKey = makeEventsKey(namespace, run.id);
   let claim: WorkflowRunCreationClaim = {};
+
   try {
     if (!supportsWorkflowConditionalWrite(storage)) {
       if ((await storage.get(runKey)) !== undefined) {
         WorkflowStateError.runIdAlreadyExists(run.id);
       }
+
       if ((await storage.get(eventsKey)) !== undefined) {
         WorkflowStateError.eventHistoryAlreadyExists(run.id);
       }
+
       await storage.set(runKey, toStorageValue(run));
       claim = { runKey };
       await storage.set(eventsKey, toStorageValue([]));
+
       return { ...claim, eventsKey };
     }
 
     const claimedRun = await storage.compareAndSet(runKey, undefined, toStorageValue(run));
+
     if (!claimedRun) {
       WorkflowStateError.runIdAlreadyExists(run.id);
     }
+
     claim = { runKey };
     const claimedEvents = await storage.compareAndSet(eventsKey, undefined, toStorageValue([]));
+
     if (!claimedEvents) {
       WorkflowStateError.eventHistoryAlreadyExists(run.id);
     }
+
     return { ...claim, eventsKey };
   } catch (error) {
     await rollbackRunCreationClaim(storage, claim);
@@ -125,10 +138,13 @@ async function rollbackWorkflowIdempotencyClaim(
   if (claim?.status !== "claimed") {
     return;
   }
+
   if (!supportsWorkflowConditionalWrite(storage)) {
     await storage.delete(claim.key);
+
     return;
   }
+
   await storage.compareAndSet(claim.key, claim.value, undefined);
 }
 
@@ -141,41 +157,52 @@ async function claimWorkflowIdempotencyIndex(
 ): Promise<WorkflowIdempotencyClaim> {
   const key = makeIdempotencyKey(namespace, keyOptions);
   const value = toStorageValue(run.id);
+
   if (!supportsWorkflowConditionalWrite(storage)) {
     const existingRun = await getRunByIdempotencyKey(storage, namespace, store, keyOptions);
+
     if (existingRun !== undefined) {
       return { status: "existing", run: existingRun };
     }
+
     await storage.set(key, value);
+
     return { status: "claimed", key, value };
   }
 
   const claimed = await storage.compareAndSet(key, undefined, value);
+
   if (claimed) {
     return { status: "claimed", key, value };
   }
 
   const existingRun = await waitForRunByIdempotencyKey(storage, namespace, store, keyOptions);
+
   if (existingRun !== undefined) {
     return { status: "existing", run: existingRun };
   }
+
   if (!(await releaseStaleWorkflowIdempotencyIndex(storage, namespace, store, keyOptions))) {
     WorkflowStateError.idempotencyKeyClaimedWithoutRun(run.id);
   }
 
   const reclaimed = await storage.compareAndSet(key, undefined, value);
+
   if (reclaimed) {
     return { status: "claimed", key, value };
   }
+
   const reclaimedExistingRun = await waitForRunByIdempotencyKey(
     storage,
     namespace,
     store,
     keyOptions,
   );
+
   if (reclaimedExistingRun !== undefined) {
     return { status: "existing", run: reclaimedExistingRun };
   }
+
   WorkflowStateError.idempotencyKeyClaimedWithoutRun(run.id);
 }
 
@@ -201,25 +228,31 @@ async function createRunAtomicallyWithIdempotency(
       { key: makeRunKey(namespace, run.id), expected: undefined, value: toStorageValue(run) },
       { key: makeEventsKey(namespace, run.id), expected: undefined, value: toStorageValue([]) },
     ]);
+
     if (created) {
       return run;
     }
+
     if (keyOptions === undefined) {
       WorkflowStateError.runIdAlreadyExists(run.id);
     }
 
     const existingRun = await waitForRunByIdempotencyKey(storage, namespace, store, keyOptions);
+
     if (existingRun !== undefined) {
       return existingRun;
     }
+
     if (
       attempt === 0 &&
       (await releaseStaleWorkflowIdempotencyIndex(storage, namespace, store, keyOptions))
     ) {
       continue;
     }
+
     WorkflowStateError.idempotencyKeyClaimedWithoutRun(run.id);
   }
+
   throw WorkflowStateError.runIdAlreadyExists(run.id);
 }
 
@@ -250,10 +283,13 @@ export async function getRunByIdempotencyKey(
   options: WorkflowIdempotencyKeyOptions,
 ): Promise<WorkflowRunRecord | undefined> {
   const runId = await storage.get(makeIdempotencyKey(namespace, options));
-  if (!(typeof runId === "string" && runId.trim() !== "")) {
+
+  if (!(isString(runId) && runId.trim() !== "")) {
     return undefined;
   }
+
   const run = await store.getRun(runId);
+
   return run !== undefined &&
     isReadableWorkflowRunRecord(run, run.namespace) &&
     run.workflowName === options.workflowName &&
@@ -266,13 +302,23 @@ export async function getRunByIdempotencyKey(
 function idempotencyKeyOptionsForRun(
   run: WorkflowRunRecord,
 ): WorkflowIdempotencyKeyOptions | undefined {
-  return run.idempotencyKey === undefined
-    ? undefined
-    : {
-        workflowName: run.workflowName,
-        ...(run.workflowVersion === undefined ? {} : { workflowVersion: run.workflowVersion }),
-        idempotencyKey: run.idempotencyKey,
-      };
+  if (run.idempotencyKey === undefined) return undefined;
+
+  const result = { workflowName: run.workflowName } satisfies Partial<
+    WorkflowIdempotencyKeyOptions | undefined
+  >;
+
+  if (run.workflowVersion !== undefined) {
+    Object.assign(result, { workflowVersion: run.workflowVersion } satisfies Partial<
+      WorkflowIdempotencyKeyOptions | undefined
+    >);
+  }
+
+  const result1 = Object.assign(result, { idempotencyKey: run.idempotencyKey } satisfies Partial<
+    WorkflowIdempotencyKeyOptions | undefined
+  >);
+
+  return result1;
 }
 
 async function waitForRunByIdempotencyKey(
@@ -283,11 +329,14 @@ async function waitForRunByIdempotencyKey(
 ): Promise<WorkflowRunRecord | undefined> {
   for (let attempt = 0; attempt < MAX_IDEMPOTENT_CREATE_WAIT_ATTEMPTS; attempt++) {
     const run = await getRunByIdempotencyKey(storage, namespace, store, options);
+
     if (run !== undefined) {
       return run;
     }
+
     await Promise.resolve();
   }
+
   return undefined;
 }
 
@@ -300,13 +349,17 @@ async function releaseStaleWorkflowIdempotencyIndex(
   if (!supportsWorkflowConditionalWrite(storage)) {
     return false;
   }
+
   const key = makeIdempotencyKey(namespace, options);
   const value = await storage.get(key);
+
   if (value === undefined) {
     return false;
   }
-  if (typeof value === "string" && value.trim() !== "") {
+
+  if (isString(value) && value.trim() !== "") {
     const run = await store.getRun(value);
+
     if (
       run !== undefined &&
       isReadableWorkflowRunRecord(run, run.namespace) &&
@@ -317,5 +370,6 @@ async function releaseStaleWorkflowIdempotencyIndex(
       return false;
     }
   }
+
   return await storage.compareAndSet(key, value, undefined);
 }

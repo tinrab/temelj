@@ -1,7 +1,12 @@
+import type { StorageValue } from "@temelj/storage";
+
+import { deepEquals } from "@temelj/value";
+
 import type {
   CleanupMarkerRecord,
   CleanupRunsOptions,
   CleanupRunsResult,
+  CleanupRunResult,
   CleanupStatusFilter,
 } from "../types/cleanup.ts";
 import type { EventRecord } from "../types/events.ts";
@@ -12,6 +17,7 @@ import type {
   WorkflowCleanupIndexValue,
   WorkflowMessageIdempotencyIndex,
   WorkflowStorage,
+  WorkflowIdempotencyKeyOptions,
 } from "../types/store.ts";
 
 import { omitUndefined } from "../collection.ts";
@@ -34,7 +40,6 @@ import { isTerminalWorkflowRunStatus } from "../utility.ts";
 import { supportsWorkflowConditionalWrite } from "./capabilities.ts";
 import { getStoredCleanupEventHistory } from "./event-history.ts";
 import { messageIdempotencyIndexValuesFromEvents } from "./message-index.ts";
-import { isSameWorkflowStorageValue } from "./revision.ts";
 import { getReadableStoredWorkflowRun } from "./run.ts";
 import { toStorageValue } from "./storage-value.ts";
 import {
@@ -65,6 +70,7 @@ export async function stepAttemptKeysForCleanup(
   runId: RunId,
 ): Promise<readonly string[]> {
   const prefix = makeStepAttemptKeyPrefix(namespace, runId);
+
   return [
     ...new Set(
       (await storage.keys({ prefix })).filter((key) => isStepAttemptKey(key, namespace, runId)),
@@ -79,15 +85,18 @@ export async function messageIdempotencyIndexesForCleanup(
   events: readonly EventRecord[],
 ): Promise<readonly WorkflowCleanupIndexKey[]> {
   const candidatesByKey = new Map<string, readonly WorkflowMessageIdempotencyEventIndex[]>();
+
   for (const candidate of messageIdempotencyIndexesFromEvents(namespace, runId, events)) {
     candidatesByKey.set(candidate.key, [...(candidatesByKey.get(candidate.key) ?? []), candidate]);
   }
+
   const entries = await Promise.all(
     [...candidatesByKey.keys()].map(async (key) => ({
       key,
       value: await storage.get(key),
     })),
   );
+
   return entries
     .filter((entry): entry is typeof entry & { readonly value: WorkflowMessageIdempotencyIndex } =>
       isCurrentMessageIdempotencyIndex(candidatesByKey.get(entry.key) ?? [], entry.value),
@@ -103,8 +112,10 @@ export async function idempotencyIndexesForCleanup(
   if (run.idempotencyKey === undefined) {
     return [];
   }
+
   const key = idempotencyKeyFromRun(namespace, run);
   const value = await storage.get(key);
+
   return value === run.id ? [{ key, value }] : [];
 }
 
@@ -113,6 +124,7 @@ export async function deleteCleanupIndexes(
   indexes: readonly WorkflowCleanupIndexKey[],
 ): Promise<number> {
   const uniqueIndexes = indexes.filter(uniqueCleanupIndexKey);
+
   if (!supportsWorkflowConditionalWrite(storage)) {
     const currentIndexes = await Promise.all(
       uniqueIndexes.map(async (index) => ({
@@ -120,6 +132,7 @@ export async function deleteCleanupIndexes(
         current: await storage.get(index.key),
       })),
     );
+
     return await storage.deleteMany(
       currentIndexes.flatMap((index) =>
         workflowCleanupIndexMatchesCurrentValue(index.current, index.value) ? [index.key] : [],
@@ -132,17 +145,19 @@ export async function deleteCleanupIndexes(
       async (index) => await storage.compareAndSet(index.key, index.value, undefined),
     ),
   );
+
   return deleted.filter((value) => value).length;
 }
 
 function workflowCleanupIndexMatchesCurrentValue(
-  current: unknown,
+  current: StorageValue | undefined,
   expected: WorkflowCleanupIndexValue,
 ): boolean {
   if (isReadableMessageIdempotencyIndex(expected)) {
     return isSameMessageIdempotencyIndex(current, expected);
   }
-  return isSameWorkflowStorageValue(current, expected);
+
+  return deepEquals(current, expected);
 }
 
 function messageIdempotencyIndexesFromEvents(
@@ -162,11 +177,24 @@ function idempotencyKeyFromRun(namespace: string, run: WorkflowRunRecord): Workf
   if (run.idempotencyKey === undefined) {
     WorkflowStateError.runMissingIdempotencyKey(run.id);
   }
-  return makeIdempotencyKey(namespace, {
+
+  const result = {
     workflowName: run.workflowName,
-    ...(run.workflowVersion === undefined ? {} : { workflowVersion: run.workflowVersion }),
+  } satisfies Partial<WorkflowIdempotencyKeyOptions>;
+
+  if (run.workflowVersion !== undefined) {
+    Object.assign(result, {
+      workflowVersion: run.workflowVersion,
+    } satisfies Partial<WorkflowIdempotencyKeyOptions>);
+  }
+
+  const result1 = Object.assign(result, {
     idempotencyKey: run.idempotencyKey,
-  });
+  } satisfies Partial<WorkflowIdempotencyKeyOptions>);
+
+  const options: WorkflowIdempotencyKeyOptions = result1;
+
+  return makeIdempotencyKey(namespace, options);
 }
 
 function toCleanupIndex(entry: {
@@ -186,6 +214,7 @@ function isCurrentMessageIdempotencyIndex(
   if (!isReadableMessageIdempotencyIndex(value)) {
     return false;
   }
+
   return eventIndexes.some((eventIndex) => isSameMessageIdempotencyIndex(value, eventIndex.value));
 }
 
@@ -206,6 +235,7 @@ export async function cleanupRuns(
   const cleanupOptions = options;
   const limit = cleanupOptions.limit;
   const statusFilter = cleanupOptions.status ?? ["completed", "failed", "canceled"];
+
   const selectedRuns = (
     await runs.listRuns({
       status: Array.isArray(statusFilter) ? [...statusFilter] : statusFilter,
@@ -226,35 +256,46 @@ export async function cleanupRuns(
   const stepAttemptKeysByRun = await Promise.all(
     selectedRuns.map(async (run) => await stepAttemptKeysForCleanup(storage, namespace, run.id)),
   );
+
   const stepAttemptKeys = stepAttemptKeysByRun.flat();
   const eventKeysByRun = selectedRuns.map((run) => makeEventsKey(namespace, run.id));
+
   const storedEventsByRun = await Promise.all(
     eventKeysByRun.map(async (key) => {
       const eventHistory = await getStoredCleanupEventHistory(storage, key);
+
       return {
         exists: eventHistory.raw !== undefined,
         events: eventHistory.events,
       };
     }),
   );
+
   const runEvents = storedEventsByRun.map((entry) => entry.events);
+
   const eventKeysForCleanup = eventKeysByRun.map((key, index) =>
     storedEventsByRun[index]?.exists === true ? key : undefined,
   );
+
   const eventKeys = eventKeysForCleanup.filter(
     (key): key is WorkflowEventsKey => key !== undefined,
   );
+
   const runKeys = selectedRuns.map((run): WorkflowCleanupRunKey => ({
     key: makeRunKey(namespace, run.id),
     run,
   }));
+
   const idempotencyIndexesByRun = await Promise.all(
     selectedRuns.map(async (run) => await idempotencyIndexesForCleanup(storage, namespace, run)),
   );
+
   const idempotencyKeysByRun = idempotencyIndexesByRun.map((indexes) =>
     indexes.map((index) => index.key),
   );
+
   const idempotencyKeys = idempotencyKeysByRun.flat();
+
   const messageIdempotencyIndexesByRun = await Promise.all(
     selectedRuns.map(
       async (run, index) =>
@@ -266,9 +307,11 @@ export async function cleanupRuns(
         ),
     ),
   );
+
   const messageIdempotencyKeysByRun = messageIdempotencyIndexesByRun.map((indexes) =>
     indexes.map((index) => index.key),
   );
+
   const messageIdempotencyKeys = messageIdempotencyKeysByRun.flat();
 
   const deletionResults =
@@ -290,63 +333,110 @@ export async function cleanupRuns(
           idempotencyIndexesByRun,
           messageIdempotencyIndexesByRun,
         });
+
   const deletedRuns = countCleanupDeletionResult(deletionResults, "runDeleted");
   const createdCleanupMarkers = countCleanupDeletionResult(deletionResults, "cleanupMarkerCreated");
   const deletedCleanupMarkers = countCleanupDeletionResult(deletionResults, "cleanupMarkerDeleted");
   const deletedEvents = sumCleanupDeletionResult(deletionResults, "deletedEvents");
   const deletedStepAttempts = sumCleanupDeletionResult(deletionResults, "deletedStepAttempts");
+
   const deletedIdempotencyKeys = sumCleanupDeletionResult(
     deletionResults,
     "deletedIdempotencyKeys",
   );
+
   const deletedMessageIdempotencyKeys = sumCleanupDeletionResult(
     deletionResults,
     "deletedMessageIdempotencyKeys",
   );
 
-  return {
+  const result = {
     mode: "best_effort",
     runIds: selectedRuns.map((run) => run.id),
-    runs: selectedRuns.map((run, index) => ({
-      mode: "best_effort",
-      runId: run.id,
-      workflowName: run.workflowName,
-      ...(run.workflowVersion === undefined ? {} : { workflowVersion: run.workflowVersion }),
-      status: isTerminalWorkflowRunStatus(run.status)
-        ? run.status
-        : (() => {
-            WorkflowStateError.cleanupSelectedNonTerminalRun(run.id);
-          })(),
-      createdAt: run.createdAt,
-      updatedAt: run.updatedAt,
-      finishedAt: cleanupFinishedAt(run),
-      ...(run.idempotencyKey === undefined ? {} : { idempotencyKey: run.idempotencyKey }),
-      ...(run.parentRunId === undefined ? {} : { parentRunId: run.parentRunId }),
-      ...(run.parentStepId === undefined ? {} : { parentStepId: run.parentStepId }),
-      ...(run.parentStepName === undefined ? {} : { parentStepName: run.parentStepName }),
-      ...(run.parentStepAttempt === undefined ? {} : { parentStepAttempt: run.parentStepAttempt }),
-      events: runEvents[index]?.length ?? 0,
-      stepAttempts: stepAttemptKeysByRun[index]?.length ?? 0,
-      idempotencyKeys: idempotencyKeysByRun[index]?.length ?? 0,
-      messageIdempotencyKeys: messageIdempotencyKeysByRun[index]?.length ?? 0,
-      cleanupMarkerCreated: deletionResults[index]?.cleanupMarkerCreated ?? false,
-      cleanupMarkerDeleted: deletionResults[index]?.cleanupMarkerDeleted ?? false,
-      runDeleted: deletionResults[index]?.runDeleted ?? false,
-      deletedEvents: deletionResults[index]?.deletedEvents ?? 0,
-      deletedStepAttempts: deletionResults[index]?.deletedStepAttempts ?? 0,
-      deletedIdempotencyKeys: deletionResults[index]?.deletedIdempotencyKeys ?? 0,
-      deletedMessageIdempotencyKeys: deletionResults[index]?.deletedMessageIdempotencyKeys ?? 0,
-    })),
-    ...(cleanupOptions.dryRun === true
-      ? {
-          dryRun: true,
-          matchedRuns: selectedRuns.length,
-          matchedEvents: eventKeys.length,
-          matchedStepAttempts: stepAttemptKeys.length,
-          matchedIdempotencyKeys: idempotencyKeys.length,
-          matchedMessageIdempotencyKeys: messageIdempotencyKeys.length,
-        }
-      : {}),
+    runs: selectedRuns.map((run, index): CleanupRunResult => {
+      const result = {
+        mode: "best_effort",
+        runId: run.id,
+        workflowName: run.workflowName,
+      } satisfies Partial<CleanupRunResult>;
+
+      if (run.workflowVersion !== undefined) {
+        Object.assign(result, {
+          workflowVersion: run.workflowVersion,
+        } satisfies Partial<CleanupRunResult>);
+      }
+
+      const result1 = Object.assign(result, {
+        status: isTerminalWorkflowRunStatus(run.status)
+          ? run.status
+          : (() => {
+              WorkflowStateError.cleanupSelectedNonTerminalRun(run.id);
+            })(),
+        createdAt: run.createdAt,
+        updatedAt: run.updatedAt,
+        finishedAt: cleanupFinishedAt(run),
+      } satisfies Partial<CleanupRunResult>);
+
+      if (run.idempotencyKey !== undefined) {
+        Object.assign(result1, {
+          idempotencyKey: run.idempotencyKey,
+        } satisfies Partial<CleanupRunResult>);
+      }
+
+      if (run.parentRunId !== undefined) {
+        Object.assign(result1, {
+          parentRunId: run.parentRunId,
+        } satisfies Partial<CleanupRunResult>);
+      }
+
+      if (run.parentStepId !== undefined) {
+        Object.assign(result1, {
+          parentStepId: run.parentStepId,
+        } satisfies Partial<CleanupRunResult>);
+      }
+
+      if (run.parentStepName !== undefined) {
+        Object.assign(result1, {
+          parentStepName: run.parentStepName,
+        } satisfies Partial<CleanupRunResult>);
+      }
+
+      if (run.parentStepAttempt !== undefined) {
+        Object.assign(result1, {
+          parentStepAttempt: run.parentStepAttempt,
+        } satisfies Partial<CleanupRunResult>);
+      }
+
+      const result2 = Object.assign(result1, {
+        events: runEvents[index]?.length ?? 0,
+        stepAttempts: stepAttemptKeysByRun[index]?.length ?? 0,
+        idempotencyKeys: idempotencyKeysByRun[index]?.length ?? 0,
+        messageIdempotencyKeys: messageIdempotencyKeysByRun[index]?.length ?? 0,
+        cleanupMarkerCreated: deletionResults[index]?.cleanupMarkerCreated ?? false,
+        cleanupMarkerDeleted: deletionResults[index]?.cleanupMarkerDeleted ?? false,
+        runDeleted: deletionResults[index]?.runDeleted ?? false,
+        deletedEvents: deletionResults[index]?.deletedEvents ?? 0,
+        deletedStepAttempts: deletionResults[index]?.deletedStepAttempts ?? 0,
+        deletedIdempotencyKeys: deletionResults[index]?.deletedIdempotencyKeys ?? 0,
+        deletedMessageIdempotencyKeys: deletionResults[index]?.deletedMessageIdempotencyKeys ?? 0,
+      } satisfies Partial<CleanupRunResult>);
+
+      return result2;
+    }),
+  } satisfies Partial<Awaited<Promise<CleanupRunsResult>>>;
+
+  if (cleanupOptions.dryRun === true) {
+    Object.assign(result, {
+      dryRun: true,
+      matchedRuns: selectedRuns.length,
+      matchedEvents: eventKeys.length,
+      matchedStepAttempts: stepAttemptKeys.length,
+      matchedIdempotencyKeys: idempotencyKeys.length,
+      matchedMessageIdempotencyKeys: messageIdempotencyKeys.length,
+    } satisfies Partial<Awaited<Promise<CleanupRunsResult>>>);
+  }
+
+  const result1 = Object.assign(result, {
     deletedRuns,
     createdCleanupMarkers,
     deletedCleanupMarkers,
@@ -354,7 +444,9 @@ export async function cleanupRuns(
     deletedStepAttempts,
     deletedIdempotencyKeys,
     deletedMessageIdempotencyKeys,
-  };
+  } satisfies Partial<Awaited<Promise<CleanupRunsResult>>>);
+
+  return result1;
 }
 
 export async function listCleanupMarkers(
@@ -362,14 +454,17 @@ export async function listCleanupMarkers(
   namespace: string,
 ): Promise<readonly CleanupMarkerRecord[]> {
   const prefix = makeCleanupMarkerKeyPrefix(namespace);
+
   const markers = await Promise.all(
     (await storage.keys({ prefix }))
       .filter((key) => isCleanupMarkerKey(key, prefix))
       .map(async (key) => await storage.get(key)),
   );
+
   return markers
     .flatMap((marker) => {
       const parsed = readableCleanupMarkerRecord(marker);
+
       return parsed === undefined ? [] : [parsed];
     })
     .sort(compareCleanupMarkers);
@@ -390,6 +485,7 @@ type WorkflowCleanupRunDeletionCountKey = Exclude<
   keyof WorkflowCleanupRunDeletionResult,
   "cleanupMarkerCreated" | "cleanupMarkerDeleted" | "runDeleted"
 >;
+
 type WorkflowCleanupRunDeletionFlagKey = Extract<
   keyof WorkflowCleanupRunDeletionResult,
   "cleanupMarkerCreated" | "cleanupMarkerDeleted" | "runDeleted"
@@ -423,6 +519,7 @@ function cleanupFinishedAt(run: WorkflowRunRecord): Temporal.Instant {
   if (run.finishedAt === undefined) {
     WorkflowStateError.cleanupRunMissingFinishedAt(run.id);
   }
+
   return run.finishedAt;
 }
 
@@ -433,9 +530,11 @@ function isWorkflowRunEligibleForCleanup(
   if (!isTerminalWorkflowRunStatus(run.status) || run.finishedAt === undefined) {
     return false;
   }
+
   if (Temporal.Instant.compare(run.finishedAt, options.finishedAtBefore) >= 0) {
     return false;
   }
+
   return options.status === undefined || matchesCleanupStatus(run.status, options.status);
 }
 
@@ -448,13 +547,17 @@ function matchesCleanupStatus(
 
 function compareCleanupRuns(left: WorkflowRunRecord, right: WorkflowRunRecord): number {
   const finishedOrder = compareOptionalTimestamps(left.finishedAt, right.finishedAt);
+
   if (finishedOrder !== 0) {
     return finishedOrder;
   }
+
   const createdOrder = compareOptionalTimestamps(left.createdAt, right.createdAt);
+
   if (createdOrder !== 0) {
     return createdOrder;
   }
+
   return left.id.localeCompare(right.id);
 }
 
@@ -479,9 +582,11 @@ async function deleteCleanupRunsAndArtifacts(
 ): Promise<readonly WorkflowCleanupRunDeletionResult[]> {
   const markers = await createCleanupMarkers(storage, options);
   const deletedRuns = await deleteCleanupRunRecords(storage, options.runs);
+
   return await Promise.all(
     deletedRuns.map(async (runDeleted, index) => {
       const marker = markers[index];
+
       if (!runDeleted) {
         return {
           cleanupMarkerCreated: marker?.created ?? false,
@@ -493,8 +598,10 @@ async function deleteCleanupRunsAndArtifacts(
           deletedMessageIdempotencyKeys: 0,
         };
       }
+
       const eventKeys =
         options.eventKeysByRun[index] === undefined ? [] : [options.eventKeysByRun[index]];
+
       const [
         deletedEvents,
         deletedStepAttempts,
@@ -506,6 +613,7 @@ async function deleteCleanupRunsAndArtifacts(
         deleteCleanupIndexes(storage, options.idempotencyIndexesByRun[index] ?? []),
         deleteCleanupIndexes(storage, options.messageIdempotencyIndexesByRun[index] ?? []),
       ]);
+
       const cleanupMarkerDeleted =
         marker?.key !== undefined &&
         deletionCompleted({
@@ -519,9 +627,11 @@ async function deleteCleanupRunsAndArtifacts(
           expectedMessageIdempotencyKeys:
             options.messageIdempotencyIndexesByRun[index]?.length ?? 0,
         });
+
       if (cleanupMarkerDeleted) {
         await storage.delete(marker.key);
       }
+
       return {
         cleanupMarkerCreated: marker?.created ?? false,
         cleanupMarkerDeleted,
@@ -547,14 +657,24 @@ async function createCleanupMarkers(
   },
 ): Promise<readonly { readonly key: string; readonly created: boolean }[]> {
   const cleanupStartedAt = Temporal.Now.instant();
+
   return await Promise.all(
     options.runs.map(async ({ run }, index) => {
       const key = makeCleanupMarkerKey(options.namespace, run.id);
-      const marker: WorkflowCleanupMarker = {
+
+      const result = {
         mode: "best_effort",
         runId: run.id,
         workflowName: run.workflowName,
-        ...(run.workflowVersion === undefined ? {} : { workflowVersion: run.workflowVersion }),
+      } satisfies Partial<WorkflowCleanupMarker>;
+
+      if (run.workflowVersion !== undefined) {
+        Object.assign(result, {
+          workflowVersion: run.workflowVersion,
+        } satisfies Partial<WorkflowCleanupMarker>);
+      }
+
+      const result1 = Object.assign(result, {
         status: isTerminalWorkflowRunStatus(run.status)
           ? run.status
           : (() => {
@@ -567,8 +687,12 @@ async function createCleanupMarkers(
         stepAttempts: options.stepAttemptKeysByRun[index]?.length ?? 0,
         idempotencyKeys: options.idempotencyIndexesByRun[index]?.length ?? 0,
         messageIdempotencyKeys: options.messageIdempotencyIndexesByRun[index]?.length ?? 0,
-      };
+      } satisfies Partial<WorkflowCleanupMarker>);
+
+      const marker: WorkflowCleanupMarker = result1;
+
       await storage.set(key, toStorageValue(marker));
+
       return { key, created: true };
     }),
   );
@@ -602,14 +726,16 @@ async function deleteCleanupRunRecords(
         return await getReadableStoredWorkflowRun(storage, run.run.namespace, run.run.id);
       }),
     );
+
     const deletedRuns = latestRuns.map(
       (latest, index) =>
-        latest !== undefined &&
-        isSameWorkflowStorageValue(omitUndefined(latest), omitUndefined(runs[index]!.run)),
+        latest !== undefined && deepEquals(omitUndefined(latest), omitUndefined(runs[index]!.run)),
     );
+
     await storage.deleteMany(
       runs.flatMap((run, index) => (deletedRuns[index] === true ? [run.key] : [])),
     );
+
     return deletedRuns;
   }
 

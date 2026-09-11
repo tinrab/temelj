@@ -8,10 +8,12 @@ import { sequentialRunIds } from "../utility.ts";
 describe("workflow schedule overlap policies", () => {
   test("skips overlapping recurring runs when requested", async () => {
     let now = Temporal.Instant.from("2026-06-11T10:00:00Z");
+
     const engine = createWorkflowEngine({
       createRunId: sequentialRunIds("run_overlap_first", "run_overlap_second"),
       now: () => now,
     });
+
     const client = createWorkflowClient({ engine });
     const def = defineWorkflow<undefined, string>({ name: "overlap-schedule" });
 
@@ -40,10 +42,12 @@ describe("workflow schedule overlap policies", () => {
 
   test("buffers one overlapping recurring run until the previous run is terminal", async () => {
     let now = Temporal.Instant.from("2026-06-11T10:00:00Z");
+
     const engine = createWorkflowEngine({
       createRunId: sequentialRunIds("run_buffer_first", "run_buffer_second", "run_buffer_third"),
       now: () => now,
     });
+
     const client = createWorkflowClient({ engine });
     const def = defineWorkflow<undefined, string>({ name: "buffer-schedule" });
 
@@ -96,10 +100,12 @@ describe("workflow schedule overlap policies", () => {
 
   test("cancels overlapping recurring runs when requested", async () => {
     let now = Temporal.Instant.from("2026-06-11T10:00:00Z");
+
     const engine = createWorkflowEngine({
       createRunId: sequentialRunIds("run_cancel_overlap_first", "run_cancel_overlap_second"),
       now: () => now,
     });
+
     const client = createWorkflowClient({ engine });
     const def = defineWorkflow<undefined, string>({ name: "cancel-overlap-schedule" });
 

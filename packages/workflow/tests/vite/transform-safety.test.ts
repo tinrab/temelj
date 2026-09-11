@@ -4,7 +4,9 @@ import { makeGeneratedName } from "../../src/vite/generated-name.ts";
 import { transformWorkflowSource, WorkflowTransformError } from "../../src/vite/transform.ts";
 
 const CALL_WORKFLOW_STEP_FUNCTION_NAME = makeGeneratedName("callWorkflowStepFunction");
+
 const CONTEXT_NAME = makeGeneratedName("context");
+
 const LOAD_USER_STEP_NAME = makeGeneratedName("step", "loadUser");
 
 function callWorkflowStepFunctionText(fn: string, args: string): string {

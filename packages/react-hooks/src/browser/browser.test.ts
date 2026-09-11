@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
 /* oxlint-disable typescript/no-floating-promises, vitest/require-mock-type-parameters */
+import { defer } from "@temelj/async";
 import { err, ok } from "@temelj/result";
-import { act, renderHook, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, renderHook, waitFor } from "@testing-library/react";
+import { createElement } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import "../test/setup.ts";
@@ -27,7 +29,7 @@ import { useIntersectionObserver } from "./use-intersection-observer.ts";
 import { useIsClient } from "./use-is-client.ts";
 import { useIsMobile } from "./use-is-mobile.ts";
 import { useKeyPress } from "./use-key-press.ts";
-import { useLocalStorage } from "./use-local-storage.ts";
+import { useLocalStorage, type StorageCodec } from "./use-local-storage.ts";
 import { useLockBodyScroll } from "./use-lock-body-scroll.ts";
 import { useLongPress } from "./use-long-press.ts";
 import { useMeasure } from "./use-measure.ts";
@@ -64,7 +66,118 @@ function setDocumentValue<K extends keyof Document>(key: K, value: Document[K]) 
   });
 }
 
+const integerCodec: StorageCodec<number> = {
+  parse: (text) => {
+    const value = Number(text);
+
+    if (!Number.isInteger(value)) throw new Error("Invalid stored integer");
+
+    return value;
+  },
+  serialize: String,
+};
+
 describe("browser hooks", () => {
+  it("validates persisted values and applies batched storage updates to the latest value", () => {
+    const hook = renderHook(() => useLocalStorage("counter", 1, integerCodec));
+    expect(localStorage.getItem("counter")).toBeNull();
+    act(() => {
+      hook.result.current[1].update((value) => value + 1);
+      hook.result.current[1].update((value) => value + 1);
+    });
+    expect(hook.result.current[0]).toBe(3);
+    act(() => hook.result.current[1].remove());
+    expect(hook.result.current[0]).toBe(1);
+    expect(localStorage.getItem("counter")).toBeNull();
+    localStorage.setItem("invalid", "not an integer");
+    expect(() => renderHook(() => useLocalStorage("invalid", 0, integerCodec))).toThrow(
+      "Invalid stored integer",
+    );
+  });
+
+  it("shares loading scripts and removes them only after the last subscriber", () => {
+    const first = renderHook(() => useScript("/shared.js", { removeOnUnmount: true }));
+    const second = renderHook(() => useScript("/shared.js"));
+    const script = document.querySelector<HTMLScriptElement>("script[src='/shared.js']");
+    expect(second.result.current).toBe("loading");
+    act(() => script?.dispatchEvent(new Event("load")));
+    expect(first.result.current).toBe("ready");
+    expect(second.result.current).toBe("ready");
+    first.unmount();
+    expect(script?.isConnected).toBe(true);
+    second.unmount();
+    expect(script?.isConnected).toBe(false);
+  });
+
+  it("resets script status when its source changes and validates existing status attributes", () => {
+    const hook = renderHook(({ src }) => useScript(src), { initialProps: { src: "/first.js" } });
+    act(() => document.querySelector("script")?.dispatchEvent(new Event("load")));
+    expect(hook.result.current).toBe("ready");
+    hook.rerender({ src: "/second.js" });
+    expect(hook.result.current).toBe("loading");
+    const existing = document.createElement("script");
+    existing.src = "/existing.js";
+    existing.setAttribute("data-status", "invalid");
+    document.body.append(existing);
+    hook.rerender({ src: "/existing.js" });
+    expect(hook.result.current).toBe("unknown");
+    act(() => existing.dispatchEvent(new Event("load")));
+    expect(hook.result.current).toBe("ready");
+  });
+
+  it("handles unavailable browser APIs and rejected battery reads", async () => {
+    vi.stubGlobal("navigator", {});
+    const unsupported = renderHook(() => useBattery());
+    expect(unsupported.result.current).toMatchObject({ supported: false, loading: false });
+    const geolocation = renderHook(() => useGeolocation());
+    expect(geolocation.result.current.loading).toBe(false);
+    expect(geolocation.result.current.error).toBeInstanceOf(Error);
+    vi.stubGlobal("navigator", {
+      getBattery: async () => {
+        throw new Error("denied");
+      },
+    });
+    const failed = renderHook(() => useBattery());
+    await waitFor(() => expect(failed.result.current.loading).toBe(false));
+    expect(failed.result.current.error?.message).toBe("denied");
+  });
+
+  it("does not attach battery listeners after unmount", async () => {
+    const battery = Object.assign(new EventTarget(), {
+      level: 1,
+      charging: true,
+      chargingTime: 0,
+      dischargingTime: Infinity,
+    });
+
+    const pending = defer<typeof battery>();
+    vi.stubGlobal("navigator", { getBattery: () => pending.promise });
+    const listen = vi.spyOn(battery, "addEventListener");
+    const hook = renderHook(() => useBattery());
+    hook.unmount();
+    await act(async () => {
+      pending.resolve(battery);
+      await pending.promise;
+    });
+    expect(listen).not.toHaveBeenCalled();
+  });
+
+  it("replaces media subscriptions when named queries change", () => {
+    const lists = mockMatchMedia((query) => query === "wide");
+
+    const hook = renderHook(({ query }) => useMediaQueries({ selected: query }), {
+      initialProps: { query: "wide" },
+    });
+
+    expect(hook.result.current.selected).toBe(true);
+    hook.rerender({ query: "narrow" });
+    expect(hook.result.current.selected).toBe(false);
+    act(() => lists.get("narrow")?.setMatches(true));
+    expect(hook.result.current.selected).toBe(true);
+    act(() => lists.get("wide")?.setMatches(false));
+    expect(hook.result.current.selected).toBe(true);
+  });
+
   it("media-query hooks subscribe to matchMedia changes", async () => {
     const lists = mockMatchMedia((query) => query.includes("min-width"));
 
@@ -76,6 +189,7 @@ describe("browser hooks", () => {
     const queries = renderHook(() =>
       useMediaQueries({ wide: "(min-width: 800px)", reduced: "(prefers-reduced-motion)" }),
     );
+
     await waitFor(() => expect(queries.result.current.wide).toBe(true));
     expect(queries.result.current.reduced).toBe(false);
 
@@ -142,14 +256,29 @@ describe("browser hooks", () => {
   });
 
   it("storage hooks initialize, update, and remove stored values", () => {
-    const local = renderHook(() => useLocalStorage("local-test", 1));
+    const local = renderHook(() =>
+      useLocalStorage("local-test", 1, {
+        parse: (text) => {
+          const number = Number(text);
+
+          if (!Number.isFinite(number)) throw new Error("Invalid stored number");
+
+          return number;
+        },
+        serialize: String,
+      }),
+    );
+
     expect(local.result.current[0]).toBe(1);
-    act(() => local.result.current[1](2));
+    act(() => local.result.current[1].set(2));
     expect(local.result.current[0]).toBe(2);
     expect(window.localStorage.getItem("local-test")).toBe("2");
 
-    const session = renderHook(() => useSessionStorage("session-test", "a"));
-    act(() => session.result.current[1](null));
+    const session = renderHook(() =>
+      useSessionStorage("session-test", "a", { parse: (text) => text, serialize: (text) => text }),
+    );
+
+    act(() => session.result.current[1].remove());
     expect(window.sessionStorage.getItem("session-test")).toBeNull();
     expect(session.result.current[0]).toBe("a");
   });
@@ -168,7 +297,10 @@ describe("browser hooks", () => {
     expect(writeText).toHaveBeenCalledWith("hello");
     expect(copy.result.current[0]).toBe("hello");
 
-    const result = renderHook(() => useClipboardResult((error) => (error as Error).message));
+    const result = renderHook(() =>
+      useClipboardResult((cause) => (cause instanceof Error ? cause.message : String(cause))),
+    );
+
     await act(async () => {
       await result.result.current.copy("world");
     });
@@ -193,26 +325,25 @@ describe("browser hooks", () => {
             altitudeAccuracy: null,
             heading: null,
             speed: null,
+            toJSON: () => ({}),
           },
           timestamp: 123,
-        } as GeolocationPosition),
+          toJSON: () => ({}),
+        }),
       ),
       watchPosition: vi.fn(() => 1),
       clearWatch: vi.fn(),
-    } as Geolocation);
+    });
     const geo = renderHook(() => useGeolocation());
     await waitFor(() => expect(geo.result.current.latitude).toBe(46));
 
-    const batteryTarget = new EventTarget() as EventTarget & {
-      level: number;
-      charging: boolean;
-      chargingTime: number;
-      dischargingTime: number;
-    };
-    batteryTarget.level = 0.5;
-    batteryTarget.charging = true;
-    batteryTarget.chargingTime = 10;
-    batteryTarget.dischargingTime = Infinity;
+    const batteryTarget = Object.assign(new EventTarget(), {
+      level: 0.5,
+      charging: true,
+      chargingTime: 10,
+      dischargingTime: Infinity,
+    });
+
     Object.defineProperty(navigator, "getBattery", {
       configurable: true,
       value: vi.fn().mockResolvedValue(batteryTarget),
@@ -268,14 +399,21 @@ describe("browser hooks", () => {
     expect(leave).toHaveBeenCalledTimes(1);
 
     renderHook(() => useBeforeUnload(true, "leave?"));
-    const beforeUnload = new Event("beforeunload", { cancelable: true }) as BeforeUnloadEvent;
+    const beforeUnload = new Event("beforeunload", { cancelable: true });
     act(() => window.dispatchEvent(beforeUnload));
     expect(beforeUnload.defaultPrevented).toBe(true);
 
     const longPress = vi.fn();
-    const handlers = renderHook(() => useLongPress(longPress, { threshold: 10 }));
-    act(() => handlers.result.current.onMouseDown({} as React.MouseEvent));
-    act(() => handlers.result.current.onMouseDown({} as React.MouseEvent));
+
+    function PressButton() {
+      const handlers = useLongPress(longPress, { threshold: 10 });
+
+      return createElement("button", handlers, "Hold");
+    }
+
+    const press = render(createElement(PressButton));
+    fireEvent.mouseDown(press.getByRole("button", { name: "Hold" }));
+    fireEvent.mouseDown(press.getByRole("button", { name: "Hold" }));
     act(() => vi.advanceTimersByTime(10));
     expect(longPress).toHaveBeenCalledTimes(1);
   });
@@ -306,33 +444,54 @@ describe("browser hooks", () => {
     const resizeObserver = renderHook(() => useMeasure<HTMLDivElement>());
     act(() => resizeObserver.result.current[0](element));
     act(() => {
-      resizeCallbacks.at(-1)?.(
-        [{ target: element } as unknown as ResizeObserverEntry],
-        {} as ResizeObserver,
-      );
+      resizeCallbacks.at(-1)?.emit(element);
     });
     expect(resizeObserver.result.current[1].width).toBe(10);
   });
 
   it("intersection observer and script hooks track external DOM resources", () => {
-    let intersectionCallback: IntersectionObserverCallback | undefined;
-    class MockIntersectionObserver {
+    const instances: MockIntersectionObserver[] = [];
+
+    class MockIntersectionObserver implements IntersectionObserver {
+      readonly callback: IntersectionObserverCallback;
+      readonly root = null;
+      readonly rootMargin = "0px";
+      readonly scrollMargin = "0px";
+      readonly thresholds = [0];
+      readonly delay = 0;
+      readonly trackVisibility = false;
       constructor(callback: IntersectionObserverCallback) {
-        intersectionCallback = callback;
+        this.callback = callback;
+        instances.push(this);
       }
-      observe = vi.fn();
-      disconnect = vi.fn();
+      observe = vi.fn<(target: Element) => void>();
+      unobserve = vi.fn<(target: Element) => void>();
+      disconnect = vi.fn<() => void>();
+      takeRecords = (): IntersectionObserverEntry[] => [];
+      emit(target: Element): void {
+        const bounds = target.getBoundingClientRect();
+        this.callback(
+          [
+            {
+              target,
+              isIntersecting: true,
+              boundingClientRect: bounds,
+              intersectionRect: bounds,
+              intersectionRatio: 1,
+              rootBounds: null,
+              time: 0,
+            },
+          ],
+          this,
+        );
+      }
     }
+
     vi.stubGlobal("IntersectionObserver", MockIntersectionObserver);
     const element = document.createElement("div");
     const intersection = renderHook(() => useIntersectionObserver<HTMLDivElement>());
     act(() => intersection.result.current[0](element));
-    act(() => {
-      intersectionCallback?.(
-        [{ isIntersecting: true } as IntersectionObserverEntry],
-        {} as IntersectionObserver,
-      );
-    });
+    act(() => instances.at(-1)?.emit(element));
     expect(intersection.result.current[1]?.isIntersecting).toBe(true);
 
     const script = renderHook(() => useScript("/script.js", { removeOnUnmount: true }));
@@ -348,9 +507,11 @@ describe("browser hooks", () => {
     const trigger = document.createElement("button");
     document.body.appendChild(trigger);
     trigger.focus();
+
     const focusReturn = renderHook(({ enabled }) => useFocusReturn(enabled), {
       initialProps: { enabled: true },
     });
+
     const other = document.createElement("button");
     document.body.appendChild(other);
     other.focus();
@@ -360,6 +521,7 @@ describe("browser hooks", () => {
     const focusTrap = renderHook(({ enabled }) => useFocusTrap<HTMLDivElement>(enabled), {
       initialProps: { enabled: false },
     });
+
     const container = document.createElement("div");
     container.tabIndex = -1;
     document.body.appendChild(container);
@@ -378,6 +540,7 @@ describe("browser hooks", () => {
     const scrollLock = renderHook(({ enabled }) => useScrollLock(enabled), {
       initialProps: { enabled: true },
     });
+
     expect(document.body.style.overflow).toBe("hidden");
     scrollLock.rerender({ enabled: false });
     expect(document.body.style.overflow).toBe("");
@@ -402,7 +565,7 @@ describe("browser hooks", () => {
     expect(window.scrollTo).toHaveBeenCalledWith(10, 20);
 
     const node = document.createElement("div");
-    const objectRef = { current: null as HTMLDivElement | null };
+    const objectRef: React.RefObject<HTMLDivElement | null> = { current: null };
     const callbackRef = vi.fn();
     assignRef(objectRef, node);
     expect(objectRef.current).toBe(node);

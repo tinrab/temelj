@@ -37,28 +37,36 @@ function historyReducer<T>(state: HistoryStack<T>, action: HistoryAction<T>): Hi
     if (state.past.length === 0) {
       return state;
     }
+
     return {
       past: state.past.slice(0, -1),
+      // SAFETY: The empty-stack check above proves this array index contains a T, including undefined when T permits it.
       present: state.past[state.past.length - 1] as T,
       future: [state.present, ...state.future],
     };
   }
+
   if (action.type === "redo") {
     if (state.future.length === 0) {
       return state;
     }
+
     return {
       past: [...state.past, state.present],
+      // SAFETY: The empty-stack check above proves the first element exists and retains its original T.
       present: state.future[0] as T,
       future: state.future.slice(1),
     };
   }
+
   if (action.type === "set") {
     if (Object.is(action.value, state.present)) {
       return state;
     }
+
     return { past: [...state.past, state.present], present: action.value, future: [] };
   }
+
   return { past: [], present: action.value, future: [] };
 }
 
@@ -66,10 +74,11 @@ function historyReducer<T>(state: HistoryStack<T>, action: HistoryAction<T>): Hi
  * Manages state with undo, redo, and clear history controls.
  */
 export function useHistoryState<T>(initialPresent: T): HistoryState<T> {
-  const initialRef = React.useRef(initialPresent);
+  const [initial] = React.useState(() => initialPresent);
+
   const [history, dispatch] = React.useReducer(historyReducer<T>, {
     past: [],
-    present: initialRef.current,
+    present: initial,
     future: [],
   });
 
@@ -78,7 +87,7 @@ export function useHistoryState<T>(initialPresent: T): HistoryState<T> {
   const set = React.useCallback((value: T) => dispatch({ type: "set", value }), []);
   const undo = React.useCallback(() => dispatch({ type: "undo" }), []);
   const redo = React.useCallback(() => dispatch({ type: "redo" }), []);
-  const clear = React.useCallback(() => dispatch({ type: "clear", value: initialRef.current }), []);
+  const clear = React.useCallback(() => dispatch({ type: "clear", value: initial }), [initial]);
 
   return { state: history.present, set, undo, redo, clear, canUndo, canRedo };
 }

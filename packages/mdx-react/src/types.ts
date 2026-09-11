@@ -101,7 +101,9 @@ export interface MdxMarkdownComponents {
 }
 
 export type MathComponentProps = MathRenderInput;
+
 export type MathComponent = React.ComponentType<MathComponentProps>;
+
 export interface CompiledContentRuntimeProps {
   readonly registry?: MdxRegistry;
   readonly math?: MathComponent;
@@ -112,5 +114,4 @@ export type CompiledContentComponent<Props extends object = Record<never, never>
 
 export interface CompiledContentModule<Props extends object = Record<never, never>> {
   readonly default: CompiledContentComponent<Props>;
-  readonly [exportName: string]: unknown;
 }

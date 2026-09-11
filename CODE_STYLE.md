@@ -8,6 +8,16 @@ Generated files are governed by their generators.
 
 - `pnpm lint` is the lint authority.
 - `pnpm typecheck` is the type authority.
+- Anti-slop rules are vendored in `scripts/oxlint/anti-slop/` and enabled by
+  `.oxlintrc.json`. See the [provenance record](./scripts/oxlint/anti-slop/UPSTREAM.md)
+  for the installed source and configuration.
+- Upgrade the root `oxlint` and `@oxlint/plugins` dependencies together, keeping
+  both pinned to the same exact version.
+- Foundational type guards in `@temelj/value` may use `typeof`. Its arbitrary-value
+  inspection modules have scoped boundary exceptions recorded in the plugin
+  provenance file. Application code must validate boundary inputs before using them.
+- Standard Schema, MDX, and workflow parser inputs may use the documented boundary
+  exceptions in that provenance record. Keep parsed outputs and internal consumers typed.
 - Code style that is not mechanically enforced is still required for review.
 - Encode recurring mechanical rules in types, lint rules, generators, or scripts.
   Reserve prose rules for decisions that require judgment.

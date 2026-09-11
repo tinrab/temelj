@@ -1,4 +1,3 @@
-import type Cloudflare from "cloudflare";
 import type { ClientOptions } from "cloudflare";
 import type {
   NamespaceBulkDeleteResponse,
@@ -7,6 +6,9 @@ import type {
 } from "cloudflare/resources/kv/namespaces/namespaces";
 
 import { decodeBase64, encodeBase64 } from "@temelj/string";
+import { isString, isObject, isFunction } from "@temelj/value";
+
+import type { CloudflareKvClient } from "./client.ts";
 
 import {
   StorageEngineError,
@@ -24,6 +26,7 @@ import {
 } from "./utility.ts";
 
 const CLOUDFLARE_KV_BULK_GET_LIMIT = 100;
+
 const CLOUDFLARE_KV_BULK_MUTATION_LIMIT = 10_000;
 
 export type CloudflareKvStoredValue<TFormat extends "string" | "bytes"> = TFormat extends "string"
@@ -66,8 +69,8 @@ export interface CloudflareKvKey {
 export interface CloudflareKvEngineOptions<
   TFormat extends "string" | "bytes" = "bytes",
 > extends ClientOptions {
-  /** Representation returned by KV reads. Defaults to `"bytes"`. */
-  readonly format?: TFormat;
+  /** Representation returned by KV reads. */
+  readonly format: TFormat;
   /**
    * KV binding object or binding name. Binding mode is preferred in Cloudflare Workers.
    */
@@ -81,7 +84,7 @@ export interface CloudflareKvEngineOptions<
   /**
    * Existing Cloudflare API client for client mode.
    */
-  readonly client?: Cloudflare;
+  readonly client?: CloudflareKvClient;
 
   /**
    * Cloudflare account ID for API client mode.
@@ -127,7 +130,7 @@ export class CloudflareKvStorageEngine<
 > implements StorageEngine<CloudflareKvStoredValue<TFormat>> {
   readonly name = "cloudflare-kv";
 
-  #client: Cloudflare | undefined;
+  #client: CloudflareKvClient | undefined;
   readonly #options: CloudflareKvEngineOptions<TFormat>;
   readonly #format: TFormat;
   readonly #keyPrefix: string;
@@ -138,7 +141,7 @@ export class CloudflareKvStorageEngine<
     const separator = options.separator ?? ":";
 
     this.#options = options;
-    this.#format = (options.format ?? "bytes") as TFormat;
+    this.#format = options.format;
     this.#client = options.client;
     this.#keyPrefix = prefix.length === 0 ? "" : `${prefix}${separator}`;
     this.#minTtl = options.minTtl ?? 60_000;
@@ -147,8 +150,10 @@ export class CloudflareKvStorageEngine<
   async get(key: string): Promise<CloudflareKvStoredValue<TFormat> | undefined> {
     const storageKey = this.#prefixedKey(key);
     const binding = this.#getBinding();
+
     if (binding !== undefined) {
       const value = await binding.get(storageKey, { type: "text" });
+
       return value === null ? undefined : decodeKvValue(value, this.#format);
     }
 
@@ -159,11 +164,13 @@ export class CloudflareKvStorageEngine<
         ...this.#getNamespaceParams(),
         namespace_id: this.#getNamespaceId(),
       });
+
       return decodeKvValue(new TextDecoder().decode(await value.arrayBuffer()), this.#format);
     } catch (error) {
       if (isCloudflareNotFoundError(error)) {
         return undefined;
       }
+
       throw error;
     }
   }
@@ -176,23 +183,28 @@ export class CloudflareKvStorageEngine<
     }
 
     const binding = this.#getBinding();
+
     if (binding !== undefined) {
       const values = new Map<string, CloudflareKvStoredValue<TFormat>>();
       await Promise.all(
         keys.map(async (key) => {
           const value = await this.get(key);
+
           if (value !== undefined) {
             values.set(key, value);
           }
         }),
       );
+
       return values;
     }
 
     const values = new Map<string, CloudflareKvStoredValue<TFormat>>();
     const cloudflare = await this.#getClient();
+
     for (const keyBatch of chunkArray(keys, CLOUDFLARE_KV_BULK_GET_LIMIT)) {
       const storageKeys = keyBatch.map((key) => this.#prefixedKey(key));
+
       const result = await cloudflare.kv.namespaces.bulkGet(this.#getNamespaceId(), {
         ...this.#getNamespaceParams(),
         keys: storageKeys,
@@ -201,14 +213,16 @@ export class CloudflareKvStorageEngine<
 
       for (const [storageKey, value] of Object.entries(result?.values ?? {})) {
         if (value !== null && value !== undefined) {
-          if (typeof value !== "string") {
+          if (!isString(value)) {
             throw new TypeError("Cloudflare KV storage value is not encoded text");
           }
+
           const encoded = value;
           values.set(this.#unprefixKey(storageKey), decodeKvValue(encoded, this.#format));
         }
       }
     }
+
     return values;
   }
 
@@ -219,14 +233,18 @@ export class CloudflareKvStorageEngine<
   ): Promise<void> {
     const storageKey = this.#prefixedKey(key);
     const ttl = resolveCloudflareTtl(setOptions, this.#options, this.#minTtl);
+
     if (ttl !== undefined && ttl <= 0) {
       await this.#remove(storageKey);
+
       return;
     }
 
     const binding = this.#getBinding();
+
     if (binding !== undefined) {
       await binding.put(storageKey, encodeKvValue(value), cloudflareBindingSetOptions(ttl));
+
       return;
     }
 
@@ -249,16 +267,20 @@ export class CloudflareKvStorageEngine<
     }
 
     const binding = this.#getBinding();
+
     if (binding !== undefined) {
       await Promise.all(items.map((item) => this.set(item.key, item.value, item.options)));
+
       return;
     }
 
     const writes: NamespaceBulkUpdateParams.Body[] = [];
     const deletes: string[] = [];
+
     for (const item of items) {
       const storageKey = this.#prefixedKey(item.key);
       const ttl = resolveCloudflareTtl(item.options, this.#options, this.#minTtl);
+
       if (ttl !== undefined && ttl <= 0) {
         deletes.push(storageKey);
         continue;
@@ -272,18 +294,22 @@ export class CloudflareKvStorageEngine<
     }
 
     const cloudflare = await this.#getClient();
+
     for (const deleteBatch of chunkArray(deletes, CLOUDFLARE_KV_BULK_MUTATION_LIMIT)) {
       const result = await cloudflare.kv.namespaces.bulkDelete(this.#getNamespaceId(), {
         ...this.#getNamespaceParams(),
         body: [...deleteBatch],
       });
+
       checkCloudflareBulkOperation("delete", deleteBatch.length, result);
     }
+
     for (const writeBatch of chunkArray(writes, CLOUDFLARE_KV_BULK_MUTATION_LIMIT)) {
       const result = await cloudflare.kv.namespaces.bulkUpdate(this.#getNamespaceId(), {
         ...this.#getNamespaceParams(),
         body: [...writeBatch],
       });
+
       checkCloudflareBulkOperation("write", writeBatch.length, result);
     }
   }
@@ -291,10 +317,13 @@ export class CloudflareKvStorageEngine<
   async delete(key: string): Promise<boolean> {
     const storageKey = this.#prefixedKey(key);
     const exists = (await this.get(key)) !== undefined;
+
     if (!exists) {
       return false;
     }
+
     await this.#remove(storageKey);
+
     return true;
   }
 
@@ -304,6 +333,7 @@ export class CloudflareKvStorageEngine<
     }
 
     const binding = this.#getBinding();
+
     if (binding !== undefined) {
       let deleted = 0;
       await Promise.all(
@@ -313,6 +343,7 @@ export class CloudflareKvStorageEngine<
           }
         }),
       );
+
       return deleted;
     }
 
@@ -332,10 +363,11 @@ export class CloudflareKvStorageEngine<
     await this.#removeMany(keys);
   }
 
-  async #getClient(): Promise<Cloudflare> {
+  async #getClient(): Promise<CloudflareKvClient> {
     if (this.#client !== undefined) {
       return this.#client;
     }
+
     if (this.#options.accountId === undefined || this.#options.namespaceId === undefined) {
       StorageEngineError.cloudflareClientConfigurationMissing();
     }
@@ -346,10 +378,11 @@ export class CloudflareKvStorageEngine<
     return this.#client;
   }
 
-  #getNamespaceParams(): { readonly account_id: string } {
+  #getNamespaceParams() {
     if (this.#options.accountId === undefined) {
       StorageEngineError.cloudflareAccountIdMissing();
     }
+
     return { account_id: this.#options.accountId };
   }
 
@@ -357,6 +390,7 @@ export class CloudflareKvStorageEngine<
     if (this.#options.namespaceId === undefined) {
       StorageEngineError.cloudflareNamespaceIdMissing();
     }
+
     return this.#options.namespaceId;
   }
 
@@ -379,23 +413,28 @@ export class CloudflareKvStorageEngine<
   async #listKeys(keyOptions: StorageEngineKeyOptions | undefined): Promise<readonly string[]> {
     const matchPrefix = this.#listPrefix(keyOptions);
     const binding = this.#getBinding();
+
     if (binding !== undefined) {
       const keys: string[] = [];
       let cursor: string | undefined;
+
       do {
         const result = await binding.list({
           cursor,
           limit: this.#options.listLimit,
           prefix: matchPrefix.length === 0 ? undefined : matchPrefix,
         });
+
         keys.push(...result.keys.map((key) => key.name));
         cursor = result.list_complete ? undefined : result.cursor;
       } while (cursor !== undefined);
+
       return keys;
     }
 
     const cloudflare = await this.#getClient();
     const keys: string[] = [];
+
     for await (const key of cloudflare.kv.namespaces.keys.list(this.#getNamespaceId(), {
       ...this.#getNamespaceParams(),
       limit: this.#options.listLimit,
@@ -403,15 +442,19 @@ export class CloudflareKvStorageEngine<
     })) {
       keys.push(key.name);
     }
+
     return keys;
   }
 
   async #remove(storageKey: string): Promise<void> {
     const binding = this.#getBinding();
+
     if (binding !== undefined) {
       await binding.delete(storageKey);
+
       return;
     }
+
     await (
       await this.#getClient()
     ).kv.namespaces.values.delete(storageKey, {
@@ -426,21 +469,26 @@ export class CloudflareKvStorageEngine<
     }
 
     const binding = this.#getBinding();
+
     if (binding !== undefined) {
       await Promise.all(storageKeys.map((key) => binding.delete(key)));
+
       return storageKeys.length;
     }
 
     const cloudflare = await this.#getClient();
     let deleted = 0;
+
     for (const keyBatch of chunkArray(storageKeys, CLOUDFLARE_KV_BULK_MUTATION_LIMIT)) {
       const result = await cloudflare.kv.namespaces.bulkDelete(this.#getNamespaceId(), {
         ...this.#getNamespaceParams(),
         body: [...keyBatch],
       });
+
       checkCloudflareBulkOperation("delete", keyBatch.length, result);
       deleted += result?.successful_key_count ?? keyBatch.length;
     }
+
     return deleted;
   }
 }
@@ -451,6 +499,7 @@ function cloudflareBindingSetOptions(
   if (ttl === undefined) {
     return undefined;
   }
+
   return { expirationTtl: Math.ceil(ttl / 1000) };
 }
 
@@ -460,17 +509,19 @@ function cloudflareApiSetOptions(
   if (ttl === undefined) {
     return undefined;
   }
+
   return { expiration_ttl: Math.ceil(ttl / 1000) };
 }
 
 function encodeKvValue(value: string | Uint8Array): string {
-  return typeof value === "string" ? value : encodeBase64(value);
+  return value instanceof Uint8Array ? encodeBase64(value) : value;
 }
 
 function decodeKvValue<TFormat extends "string" | "bytes">(
   value: string,
   format: TFormat,
 ): CloudflareKvStoredValue<TFormat> {
+  // SAFETY: The string branch returns text; the bytes branch decodes exactly Uint8Array.
   return (format === "string" ? value : decodeBase64(value)) as CloudflareKvStoredValue<TFormat>;
 }
 
@@ -480,9 +531,11 @@ function checkCloudflareBulkOperation(
   result: NamespaceBulkDeleteResponse | NamespaceBulkUpdateResponse | null,
 ): void {
   const unsuccessfulKeys = result?.unsuccessful_keys ?? [];
+
   if (unsuccessfulKeys.length > 0) {
     StorageEngineError.cloudflareBulkOperationFailed(operation, unsuccessfulKeys);
   }
+
   if (result?.successful_key_count !== undefined && result.successful_key_count !== expectedCount) {
     StorageEngineError.cloudflareBulkOperationCountMismatch(
       operation,
@@ -500,16 +553,16 @@ function resolveCloudflareBinding(
 
 function isCloudflareKvBinding(value: unknown): value is CloudflareKvBinding {
   return (
-    typeof value === "object" &&
+    isObject(value) &&
     value !== null &&
     "delete" in value &&
     "get" in value &&
     "list" in value &&
     "put" in value &&
-    typeof value.delete === "function" &&
-    typeof value.get === "function" &&
-    typeof value.list === "function" &&
-    typeof value.put === "function"
+    isFunction(value.delete) &&
+    isFunction(value.get) &&
+    isFunction(value.list) &&
+    isFunction(value.put)
   );
 }
 
@@ -519,9 +572,11 @@ function resolveCloudflareTtl(
   minTtl: number,
 ): number | undefined {
   const ttl = setOptions?.ttl ?? engineOptions.defaultTtl;
+
   if (ttl === undefined || ttl <= 0) {
     return ttl;
   }
+
   return Math.max(ttl, minTtl);
 }
 

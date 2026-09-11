@@ -1,6 +1,6 @@
 import * as React from "react";
 
-import { isBrowser, useLatest } from "../internal/mod.ts";
+import { isBrowser } from "../internal/mod.ts";
 import { BrowserHookError } from "./errors.ts";
 
 /**
@@ -56,20 +56,27 @@ const defaultGeolocationState: GeolocationState = {
  * Subscribes to the browser geolocation position and returns the latest coordinates.
  */
 export function useGeolocation(options: PositionOptions = {}): GeolocationState {
-  const [state, setState] = React.useState(defaultGeolocationState);
-  const optionsRef = useLatest(options);
+  const [state, setState] = React.useState(() =>
+    isBrowser && navigator.geolocation
+      ? defaultGeolocationState
+      : {
+          ...defaultGeolocationState,
+          loading: false,
+          error: BrowserHookError.createGeolocationUnsupported(),
+        },
+  );
+
+  const { enableHighAccuracy, maximumAge, timeout } = options;
 
   React.useEffect(() => {
     if (!isBrowser || !navigator.geolocation) {
-      setState({
-        ...defaultGeolocationState,
-        loading: false,
-        error: BrowserHookError.createGeolocationUnsupported(),
-      });
       return undefined;
     }
 
+    let active = true;
+
     const onSuccess = ({ coords, timestamp }: GeolocationPosition) => {
+      if (!active) return;
       setState({
         loading: false,
         timestamp,
@@ -83,14 +90,29 @@ export function useGeolocation(options: PositionOptions = {}): GeolocationState 
         error: null,
       });
     };
+
     const onError = (error: GeolocationPositionError) => {
+      if (!active) return;
       setState((current) => ({ ...current, loading: false, error }));
     };
 
-    navigator.geolocation.getCurrentPosition(onSuccess, onError, optionsRef.current);
-    const watchId = navigator.geolocation.watchPosition(onSuccess, onError, optionsRef.current);
-    return () => navigator.geolocation.clearWatch(watchId);
-  }, [optionsRef]);
+    navigator.geolocation.getCurrentPosition(onSuccess, onError, {
+      enableHighAccuracy,
+      maximumAge,
+      timeout,
+    });
+
+    const watchId = navigator.geolocation.watchPosition(onSuccess, onError, {
+      enableHighAccuracy,
+      maximumAge,
+      timeout,
+    });
+
+    return () => {
+      active = false;
+      navigator.geolocation.clearWatch(watchId);
+    };
+  }, [enableHighAccuracy, maximumAge, timeout]);
 
   return state;
 }

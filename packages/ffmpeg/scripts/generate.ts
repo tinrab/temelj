@@ -5,6 +5,7 @@ import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 
 const GENERATED_DIR = join(import.meta.dirname, "../src/generated");
+
 const JSON_PATH = join(GENERATED_DIR, "ffmpeg-options.json");
 
 interface RawOption {
@@ -37,93 +38,102 @@ interface Normalized {
 }
 
 // Manual flag name overrides (scraper-produced flag name → actual ffmpeg flag)
-const FLAG_OVERRIDES: Record<string, string> = {
-  programst: "-program",
-  stream_groupst: "-stream_group",
-};
+const FLAG_OVERRIDES = new Map<string, string>(
+  Object.entries({
+    programst: "-program",
+    stream_groupst: "-stream_group",
+  }),
+);
 
 // Custom type alias definitions emitted in generated output.
 // Keep only types that can't be auto-generated from scraped possible_values.
-const CUSTOM_TYPES: Record<string, string> = {
-  Bitrate: "`${number}k` | `${number}M` | `${number}G`",
-  FrameSize: "`${number}x${number}`",
-  Timestamp:
-    "number | `${number}` | `${number}ms` | `${number}us` | `${number}s` | `${number}m` | `${number}h` | `${number}:${number}` | `${number}:${number}:${number}` | `${number}:${number}:${number}.${number}`",
-  FrameRate:
-    'number | `${number}` | `${number}/${number}` | "ntsc" | "pal" | "qntsc" | "qpal" | "sntsc" | "spal" | "film" | "ntsc-film"',
-  Timecode: "`${number}:${number}:${number}:${number}` | `${number}:${number}:${number};${number}`",
-  LogLevel:
-    '"quiet" | "panic" | "fatal" | "error" | "warning" | "info" | "verbose" | "debug" | "trace"',
-  Vsync: '"passthrough" | "cfr" | "vfr" | "drop" | "auto" | number',
-  Target:
-    '"vcd" | "svcd" | "dvd" | "dv" | "dv50" | "pal-vcd" | "pal-svcd" | "pal-dvd" | "ntsc-vcd" | "ntsc-svcd" | "ntsc-dvd"',
-  AspectRatio: "`${number}:${number}` | `${number}/${number}` | number",
-  /** Encoder preset (not from scraped JSON — -preset is an encoder AVOption, not a CLI option with documented possible_values) */
-  Preset:
-    '"ultrafast" | "superfast" | "veryfast" | "faster" | "fast" | "medium" | "slow" | "slower" | "veryslow" | "placebo"',
-  PixelFormat:
-    '"yuv420p" | "yuvj420p" | "yuv422p" | "yuv444p" | "nv12" | "nv21" | "rgb24" | "bgr24" | "rgba" | "bgra" | "gray" | (string & Record<never, never>)',
-  SampleFormat:
-    '"u8" | "s16" | "s32" | "s64" | "flt" | "dbl" | "u8p" | "s16p" | "s32p" | "s64p" | "fltp" | "dblp" | (string & Record<never, never>)',
-  ChannelLayout:
-    '"mono" | "stereo" | "2.1" | "3.0" | "3.0(back)" | "3.1" | "4.0" | "quad" | "quad(side)" | "4.1" | "5.0" | "5.0(side)" | "5.1" | "5.1(side)" | "6.1" | "6.1(back)" | "7.0" | "7.0(front)" | "7.1" | "7.1(wide)" | "7.1(wide-side)" | "octagonal" | "hexagonal" | (string & Record<never, never>)',
-};
+const CUSTOM_TYPES = new Map<string, string>(
+  Object.entries({
+    Bitrate: "`${number}k` | `${number}M` | `${number}G`",
+    FrameSize: "`${number}x${number}`",
+    Timestamp:
+      "number | `${number}` | `${number}ms` | `${number}us` | `${number}s` | `${number}m` | `${number}h` | `${number}:${number}` | `${number}:${number}:${number}` | `${number}:${number}:${number}.${number}`",
+    FrameRate:
+      'number | `${number}` | `${number}/${number}` | "ntsc" | "pal" | "qntsc" | "qpal" | "sntsc" | "spal" | "film" | "ntsc-film"',
+    Timecode:
+      "`${number}:${number}:${number}:${number}` | `${number}:${number}:${number};${number}`",
+    LogLevel:
+      '"quiet" | "panic" | "fatal" | "error" | "warning" | "info" | "verbose" | "debug" | "trace"',
+    Vsync: '"passthrough" | "cfr" | "vfr" | "drop" | "auto" | number',
+    Target:
+      '"vcd" | "svcd" | "dvd" | "dv" | "dv50" | "pal-vcd" | "pal-svcd" | "pal-dvd" | "ntsc-vcd" | "ntsc-svcd" | "ntsc-dvd"',
+    AspectRatio: "`${number}:${number}` | `${number}/${number}` | number",
+    /** Encoder preset (not from scraped JSON — -preset is an encoder AVOption, not a CLI option with documented possible_values) */
+    Preset:
+      '"ultrafast" | "superfast" | "veryfast" | "faster" | "fast" | "medium" | "slow" | "slower" | "veryslow" | "placebo"',
+    PixelFormat:
+      '"yuv420p" | "yuvj420p" | "yuv422p" | "yuv444p" | "nv12" | "nv21" | "rgb24" | "bgr24" | "rgba" | "bgra" | "gray" | (string & Record<never, never>)',
+    SampleFormat:
+      '"u8" | "s16" | "s32" | "s64" | "flt" | "dbl" | "u8p" | "s16p" | "s32p" | "s64p" | "fltp" | "dblp" | (string & Record<never, never>)',
+    ChannelLayout:
+      '"mono" | "stereo" | "2.1" | "3.0" | "3.0(back)" | "3.1" | "4.0" | "quad" | "quad(side)" | "4.1" | "5.0" | "5.0(side)" | "5.1" | "5.1(side)" | "6.1" | "6.1(back)" | "7.0" | "7.0(front)" | "7.1" | "7.1(wide)" | "7.1(wide-side)" | "octagonal" | "hexagonal" | (string & Record<never, never>)',
+  }),
+);
 
 // Maps property names to custom type aliases above
-const TYPE_ALIASES: Record<string, string> = {
-  videoBitrate: "Bitrate",
-  audioBitrate: "Bitrate",
-  subtitleBitrate: "Bitrate",
-  minrate: "Bitrate",
-  maxrate: "Bitrate",
-  bufsize: "Bitrate",
-  s: "FrameSize",
-  canvasSize: "FrameSize",
-  ss: "Timestamp",
-  to: "Timestamp",
-  t: "Timestamp",
-  itsoffset: "Timestamp",
-  sseof: "Timestamp",
-  muxdelay: "Timestamp",
-  muxpreload: "Timestamp",
-  shortestBufDuration: "Timestamp",
-  readrate: "Timestamp",
-  readrateCatchup: "Timestamp",
-  readrateInitialBurst: "Timestamp",
-  timelimit: "Timestamp",
-  statsPeriod: "Timestamp",
-  loglevel: "LogLevel",
-  timecode: "Timecode",
-  r: "FrameRate",
-  vsync: "Vsync",
-  target: "Target",
-  aspect: "AspectRatio",
-  preset: "Preset",
-  pixFmt: "PixelFormat",
-  sampleFmt: "SampleFormat",
-  channelLayout: "ChannelLayout",
-  chLayout: "ChannelLayout",
-  swsFlags: "SwsFlag",
-  movflags: "MovFlag",
-  strict: "Strict",
-  avoidNegativeTs: "AvoidNegativeTs",
-  errDetect: "ErrDetect",
-  fflags: "FFlags",
-  defaultMode: "DefaultMode",
-};
+const TYPE_ALIASES = new Map<string, string>(
+  Object.entries({
+    videoBitrate: "Bitrate",
+    audioBitrate: "Bitrate",
+    subtitleBitrate: "Bitrate",
+    minrate: "Bitrate",
+    maxrate: "Bitrate",
+    bufsize: "Bitrate",
+    s: "FrameSize",
+    canvasSize: "FrameSize",
+    ss: "Timestamp",
+    to: "Timestamp",
+    t: "Timestamp",
+    itsoffset: "Timestamp",
+    sseof: "Timestamp",
+    muxdelay: "Timestamp",
+    muxpreload: "Timestamp",
+    shortestBufDuration: "Timestamp",
+    readrate: "Timestamp",
+    readrateCatchup: "Timestamp",
+    readrateInitialBurst: "Timestamp",
+    timelimit: "Timestamp",
+    statsPeriod: "Timestamp",
+    loglevel: "LogLevel",
+    timecode: "Timecode",
+    r: "FrameRate",
+    vsync: "Vsync",
+    target: "Target",
+    aspect: "AspectRatio",
+    preset: "Preset",
+    pixFmt: "PixelFormat",
+    sampleFmt: "SampleFormat",
+    channelLayout: "ChannelLayout",
+    chLayout: "ChannelLayout",
+    swsFlags: "SwsFlag",
+    movflags: "MovFlag",
+    strict: "Strict",
+    avoidNegativeTs: "AvoidNegativeTs",
+    errDetect: "ErrDetect",
+    fflags: "FFlags",
+    defaultMode: "DefaultMode",
+  }),
+);
 
 // Flag names from non-ffmpeg pages whose possible_values should auto-generate named types.
 // These are looked up in the full scraped JSON at generation time.
 // The generated type is widened with a string fallback to allow values like "+faststart".
-const EXTRA_ENUM_TYPES: Record<string, string> = {
-  movflags: "MovFlag",
-  strict: "Strict",
-  avoid_negative_ts: "AvoidNegativeTs",
-  err_detect: "ErrDetect",
-  fflags: "FFlags",
-  default_mode: "DefaultMode",
-  sws_flags: "SwsFlag",
-};
+const EXTRA_ENUM_TYPES = new Map<string, string>(
+  Object.entries({
+    movflags: "MovFlag",
+    strict: "Strict",
+    avoid_negative_ts: "AvoidNegativeTs",
+    err_detect: "ErrDetect",
+    fflags: "FFlags",
+    default_mode: "DefaultMode",
+    sws_flags: "SwsFlag",
+  }),
+);
 
 // Flag names whose possible_values from the scraped JSON can generate union types.
 // These must have clean, finite enum values documented in ffmpeg's option table.
@@ -137,6 +147,7 @@ function cleanEnumValue(raw: string): string {
   let v = raw.trim();
   v = v.replace(/^['\u2018\u2019]\s*/, "").replace(/\s*['\u2018\u2019]$/, "");
   v = v.replace(/\s*\(.*?\)\s*$/, "").trim();
+
   return v;
 }
 
@@ -145,12 +156,16 @@ function generateEnumType(
   possibleValues: Array<{ value: string; description: string }> | null,
 ): string | null {
   if (!possibleValues || possibleValues.length === 0) return null;
-  if (!ENUM_FLAGS.has(flagName) && !(flagName in EXTRA_ENUM_TYPES)) return null;
+
+  if (!ENUM_FLAGS.has(flagName) && !EXTRA_ENUM_TYPES.has(flagName)) return null;
 
   const literals: string[] = [];
+
   for (const pv of possibleValues) {
     const cleaned = cleanEnumValue(pv.value);
+
     if (!cleaned) return null;
+
     if (/^-?\d+(\.\d+)?$/.test(cleaned)) {
       literals.push(cleaned);
     } else if (/^[a-zA-Z_]\w*$/.test(cleaned)) {
@@ -159,210 +174,215 @@ function generateEnumType(
       return null;
     }
   }
+
   return literals.join(" | ");
 }
 
 // Maps snake_case or raw ffmpeg flag names to camelCase property names
-const PROP_OVERRIDES: Record<string, string> = {
-  accurate_seek: "accurateSeek",
-  seek_timestamp: "seekTimestamp",
-  stream_loop: "streamLoop",
-  readrate_catchup: "readrateCatchup",
-  guess_layout_max: "guessLayoutMax",
-  hwaccel_device: "hwaccelDevice",
-  init_hw_device: "initHwDevice",
-  filter_hw_device: "filterHwDevice",
-  fix_sub_duration_heartbeat: "fixSubDurationHeartbeat",
-  readrate_initial_burst: "readrateInitialBurst",
-  dts_delta_threshold: "dtsDeltaThreshold",
-  dts_error_threshold: "dtsErrorThreshold",
-  thread_queue_size: "threadQueueSize",
-  display_rotation: "displayRotation",
-  display_hflip: "displayHflip",
-  display_vflip: "displayVflip",
-  mastering_display: "masteringDisplay",
-  content_light: "contentLight",
-  apply_cropping: "applyCropping",
-  dump_attachment: "dumpAttachment",
-  reinit_filter: "reinitFilter",
-  drop_changed: "dropChanged",
-  force_key_frames: "forceKeyFrames",
-  pix_fmt: "pixFmt",
-  sample_fmt: "sampleFmt",
-  channel_layout: "channelLayout",
-  ch_layout: "chLayout",
-  sws_flags: "swsFlags",
-  rc_override: "rcOverride",
-  passlogfile: "passLogfile",
-  vstats_file: "vstatsFile",
-  vstats_version: "vstatsVersion",
-  enc_time_base: "encTimeBase",
-  bits_per_raw_sample: "bitsPerRawSample",
-  stats_enc_pre: "statsEncPre",
-  stats_enc_pre_fmt: "statsEncPreFmt",
-  stats_enc_post: "statsEncPost",
-  stats_enc_post_fmt: "statsEncPostFmt",
-  max_muxing_queue_size: "maxMuxingQueueSize",
-  muxing_queue_data_threshold: "muxingQueueDataThreshold",
-  shortest_buf_duration: "shortestBufDuration",
-  auto_conversion_filters: "autoConversionFilters",
-  fix_sub_duration: "fixSubDuration",
-  max_error_rate: "maxErrorRate",
-  filter_complex: "filterComplex",
-  filter_complex_threads: "filterComplexThreads",
-  filter_threads: "filterThreads",
-  filter_buffered_frames: "filterBufferedFrames",
-  print_graphs: "printGraphs",
-  print_graphs_file: "printGraphsFile",
-  print_graphs_format: "printGraphsFormat",
-  stats_period: "statsPeriod",
-  benchmark_all: "benchmarkAll",
-  debug_ts: "debugTs",
-  no_stdin: "noStdin",
-  no_stats: "noStats",
-  sdp_file: "sdpFile",
-  frame_drop_threshold: "frameDropThreshold",
-  recast_media: "recastMedia",
-  hide_banner: "hideBanner",
-  map_chapters: "mapChapters",
-  map_metadata: "mapMetadata",
-  stream_groupst: "streamGroup",
-  programst: "program",
-  copyts: "copyTs",
-  start_at_zero: "startAtZero",
-  copytb: "copyTb",
-  bitexact: "bitExact",
-};
+const PROP_OVERRIDES = new Map<string, string>(
+  Object.entries({
+    accurate_seek: "accurateSeek",
+    seek_timestamp: "seekTimestamp",
+    stream_loop: "streamLoop",
+    readrate_catchup: "readrateCatchup",
+    guess_layout_max: "guessLayoutMax",
+    hwaccel_device: "hwaccelDevice",
+    init_hw_device: "initHwDevice",
+    filter_hw_device: "filterHwDevice",
+    fix_sub_duration_heartbeat: "fixSubDurationHeartbeat",
+    readrate_initial_burst: "readrateInitialBurst",
+    dts_delta_threshold: "dtsDeltaThreshold",
+    dts_error_threshold: "dtsErrorThreshold",
+    thread_queue_size: "threadQueueSize",
+    display_rotation: "displayRotation",
+    display_hflip: "displayHflip",
+    display_vflip: "displayVflip",
+    mastering_display: "masteringDisplay",
+    content_light: "contentLight",
+    apply_cropping: "applyCropping",
+    dump_attachment: "dumpAttachment",
+    reinit_filter: "reinitFilter",
+    drop_changed: "dropChanged",
+    force_key_frames: "forceKeyFrames",
+    pix_fmt: "pixFmt",
+    sample_fmt: "sampleFmt",
+    channel_layout: "channelLayout",
+    ch_layout: "chLayout",
+    sws_flags: "swsFlags",
+    rc_override: "rcOverride",
+    passlogfile: "passLogfile",
+    vstats_file: "vstatsFile",
+    vstats_version: "vstatsVersion",
+    enc_time_base: "encTimeBase",
+    bits_per_raw_sample: "bitsPerRawSample",
+    stats_enc_pre: "statsEncPre",
+    stats_enc_pre_fmt: "statsEncPreFmt",
+    stats_enc_post: "statsEncPost",
+    stats_enc_post_fmt: "statsEncPostFmt",
+    max_muxing_queue_size: "maxMuxingQueueSize",
+    muxing_queue_data_threshold: "muxingQueueDataThreshold",
+    shortest_buf_duration: "shortestBufDuration",
+    auto_conversion_filters: "autoConversionFilters",
+    fix_sub_duration: "fixSubDuration",
+    max_error_rate: "maxErrorRate",
+    filter_complex: "filterComplex",
+    filter_complex_threads: "filterComplexThreads",
+    filter_threads: "filterThreads",
+    filter_buffered_frames: "filterBufferedFrames",
+    print_graphs: "printGraphs",
+    print_graphs_file: "printGraphsFile",
+    print_graphs_format: "printGraphsFormat",
+    stats_period: "statsPeriod",
+    benchmark_all: "benchmarkAll",
+    debug_ts: "debugTs",
+    no_stdin: "noStdin",
+    no_stats: "noStats",
+    sdp_file: "sdpFile",
+    frame_drop_threshold: "frameDropThreshold",
+    recast_media: "recastMedia",
+    hide_banner: "hideBanner",
+    map_chapters: "mapChapters",
+    map_metadata: "mapMetadata",
+    stream_groupst: "streamGroup",
+    programst: "program",
+    copyts: "copyTs",
+    start_at_zero: "startAtZero",
+    copytb: "copyTb",
+    bitexact: "bitExact",
+  }),
+);
 
 // Manual category overrides
-const OPT_CAT: Record<string, Cat[]> = {
-  i: ["input"],
-  stream_loop: ["input"],
-  re: ["input"],
-  isync: ["input"],
-  sseof: ["input"],
-  itsoffset: ["input"],
-  itsscale: ["input"],
-  hwaccel: ["input"],
-  hwaccel_device: ["input"],
-  init_hw_device: ["input"],
-  filter_hw_device: ["input"],
-  readrate: ["input"],
-  readrate_catchup: ["input"],
-  readrate_initial_burst: ["input"],
-  discard: ["input"],
-  guess_layout_max: ["input"],
-  thread_queue_size: ["input", "output"],
-  display_rotation: ["input"],
-  display_hflip: ["input"],
-  display_vflip: ["input"],
-  mastering_display: ["input"],
-  content_light: ["input"],
-  apply_cropping: ["input"],
-  dump_attachment: ["input"],
-  reinit_filter: ["input"],
-  drop_changed: ["input"],
-  fix_sub_duration_heartbeat: ["input"],
-  accurate_seek: ["input"],
-  seek_timestamp: ["input"],
-  copyts: ["input"],
-  start_at_zero: ["input"],
-  copytb: ["input"],
-  dts_delta_threshold: ["input"],
-  dts_error_threshold: ["input"],
-  timecode: ["input"],
-  bitexact: ["input"],
-  ignore_unknown: ["input"],
-  copy_unknown: ["input"],
-  vn: ["input", "output"],
-  an: ["input", "output"],
-  sn: ["input", "output"],
-  dn: ["input", "output"],
-  r: ["input", "output"],
+const OPT_CAT = new Map<string, Cat[]>(
+  Object.entries({
+    i: ["input"],
+    stream_loop: ["input"],
+    re: ["input"],
+    isync: ["input"],
+    sseof: ["input"],
+    itsoffset: ["input"],
+    itsscale: ["input"],
+    hwaccel: ["input"],
+    hwaccel_device: ["input"],
+    init_hw_device: ["input"],
+    filter_hw_device: ["input"],
+    readrate: ["input"],
+    readrate_catchup: ["input"],
+    readrate_initial_burst: ["input"],
+    discard: ["input"],
+    guess_layout_max: ["input"],
+    thread_queue_size: ["input", "output"],
+    display_rotation: ["input"],
+    display_hflip: ["input"],
+    display_vflip: ["input"],
+    mastering_display: ["input"],
+    content_light: ["input"],
+    apply_cropping: ["input"],
+    dump_attachment: ["input"],
+    reinit_filter: ["input"],
+    drop_changed: ["input"],
+    fix_sub_duration_heartbeat: ["input"],
+    accurate_seek: ["input"],
+    seek_timestamp: ["input"],
+    copyts: ["input"],
+    start_at_zero: ["input"],
+    copytb: ["input"],
+    dts_delta_threshold: ["input"],
+    dts_error_threshold: ["input"],
+    timecode: ["input"],
+    bitexact: ["input"],
+    ignore_unknown: ["input"],
+    copy_unknown: ["input"],
+    vn: ["input", "output"],
+    an: ["input", "output"],
+    sn: ["input", "output"],
+    dn: ["input", "output"],
+    r: ["input", "output"],
 
-  // Output
-  map: ["output"],
-  map_metadata: ["output"],
-  map_chapters: ["output"],
-  metadata: ["output"],
-  disposition: ["output"],
-  target: ["output"],
-  programst: ["output"],
-  stream_groupst: ["output"],
-  attach: ["output"],
-  apad: ["output"],
-  streamid: ["output"],
-  vstats: ["output"],
-  vstats_file: ["output"],
-  vstats_version: ["output"],
-  fs: ["output"],
-  timestamp: ["output"],
-  bsf: ["input", "output"],
-  copyinkf: ["output"],
-  pre: ["output"],
-  force_key_frames: ["output"],
-  enc_time_base: ["output"],
-  bits_per_raw_sample: ["output"],
-  stats_enc_pre: ["output"],
-  stats_enc_pre_fmt: ["output"],
-  ch_layout: ["output"],
-  channel_layout: ["output"],
-  sample_fmt: ["output"],
-  pix_fmt: ["input", "output"],
-  sws_flags: ["input", "output"],
-  canvas_size: ["output"],
-  shortest_buf_duration: ["output"],
-  rc_override: ["output"],
-  passlogfile: ["output"],
-  vtag: ["output"],
-  atag: ["output"],
-  scodec: ["output"],
-  muxing_queue_data_threshold: ["output"],
+    // Output
+    map: ["output"],
+    map_metadata: ["output"],
+    map_chapters: ["output"],
+    metadata: ["output"],
+    disposition: ["output"],
+    target: ["output"],
+    programst: ["output"],
+    stream_groupst: ["output"],
+    attach: ["output"],
+    apad: ["output"],
+    streamid: ["output"],
+    vstats: ["output"],
+    vstats_file: ["output"],
+    vstats_version: ["output"],
+    fs: ["output"],
+    timestamp: ["output"],
+    bsf: ["input", "output"],
+    copyinkf: ["output"],
+    pre: ["output"],
+    force_key_frames: ["output"],
+    enc_time_base: ["output"],
+    bits_per_raw_sample: ["output"],
+    stats_enc_pre: ["output"],
+    stats_enc_pre_fmt: ["output"],
+    ch_layout: ["output"],
+    channel_layout: ["output"],
+    sample_fmt: ["output"],
+    pix_fmt: ["input", "output"],
+    sws_flags: ["input", "output"],
+    canvas_size: ["output"],
+    shortest_buf_duration: ["output"],
+    rc_override: ["output"],
+    passlogfile: ["output"],
+    vtag: ["output"],
+    atag: ["output"],
+    scodec: ["output"],
+    muxing_queue_data_threshold: ["output"],
 
-  // Global
-  y: ["global"],
-  n: ["global"],
-  loglevel: ["global"],
-  stats: ["global"],
-  stats_period: ["global"],
-  progress: ["global"],
-  benchmark: ["global"],
-  benchmark_all: ["global"],
-  timelimit: ["global"],
-  vsync: ["global"],
-  filter_complex: ["global"],
-  filter_complex_threads: ["global"],
-  lavfi: ["global"],
-  report: ["global"],
-  xerror: ["global"],
-  stdin: ["global"],
-  cpuflags: ["global"],
-  cpucount: ["global"],
-  debug_ts: ["global"],
-  dump: ["global"],
-  hex: ["global"],
-  auto_conversion_filters: ["global"],
-  fix_sub_duration: ["global"],
-  abort_on: ["global"],
-  max_error_rate: ["global"],
-  recast_media: ["global"],
-  sdp_file: ["global"],
-  print_graphs: ["global"],
-  print_graphs_file: ["global"],
-  print_graphs_format: ["global"],
-  frame_drop_threshold: ["global"],
-  autorotate: ["global"],
-  autoscale: ["global"],
-  hide_banner: ["global"],
-  filter_threads: ["global"],
-  filter_buffered_frames: ["global"],
+    // Global
+    y: ["global"],
+    n: ["global"],
+    loglevel: ["global"],
+    stats: ["global"],
+    stats_period: ["global"],
+    progress: ["global"],
+    benchmark: ["global"],
+    benchmark_all: ["global"],
+    timelimit: ["global"],
+    vsync: ["global"],
+    filter_complex: ["global"],
+    filter_complex_threads: ["global"],
+    lavfi: ["global"],
+    report: ["global"],
+    xerror: ["global"],
+    stdin: ["global"],
+    cpuflags: ["global"],
+    cpucount: ["global"],
+    debug_ts: ["global"],
+    dump: ["global"],
+    hex: ["global"],
+    auto_conversion_filters: ["global"],
+    fix_sub_duration: ["global"],
+    abort_on: ["global"],
+    max_error_rate: ["global"],
+    recast_media: ["global"],
+    sdp_file: ["global"],
+    print_graphs: ["global"],
+    print_graphs_file: ["global"],
+    print_graphs_format: ["global"],
+    frame_drop_threshold: ["global"],
+    autorotate: ["global"],
+    autoscale: ["global"],
+    hide_banner: ["global"],
+    filter_threads: ["global"],
+    filter_buffered_frames: ["global"],
 
-  // Input/output (both)
-  ss: ["input", "output"],
-  t: ["input", "output"],
-  to: ["input", "output"],
-  f: ["input", "output"],
-};
+    // Input/output (both)
+    ss: ["input", "output"],
+    t: ["input", "output"],
+    to: ["input", "output"],
+    f: ["input", "output"],
+  }),
+);
 
 const KNOWN_ARG_WORDS = new Set([
   "number",
@@ -469,22 +489,29 @@ const KNOWN_ARG_WORDS = new Set([
 
 function cleanFlagName(rawName: string): string {
   let f = rawName.trim();
+
   if (!f.startsWith("-")) return f;
   const spaceIdx = f.indexOf(" ");
+
   if (spaceIdx > 0) {
     const before = f.slice(0, spaceIdx).replace(/=$/, "");
     const after = f.slice(spaceIdx + 1).trim();
     const words = after.split(/[\s,|/]+/).filter(Boolean);
     const allKnown = words.length > 0 && words.every((w) => KNOWN_ARG_WORDS.has(w));
+
     if (allKnown || words.length <= 3) {
       return before;
     }
   }
+
   return f;
 }
 
 function toCamel(s: string): string {
-  if (PROP_OVERRIDES[s]) return PROP_OVERRIDES[s];
+  const override = PROP_OVERRIDES.get(s);
+
+  if (override !== undefined) return override;
+
   return s.replace(/[-_][a-z]/g, (m) => m[1].toUpperCase());
 }
 
@@ -492,6 +519,7 @@ function toPropName(flag: string): string {
   let p = flag.replace(/^-/, "");
   p = p.replace(/[:-]/g, "_");
   p = p.replace(/[^a-zA-Z0-9_]/g, "");
+
   return toCamel(p);
 }
 
@@ -501,7 +529,7 @@ function inferType(
   rawType: string | null,
   possibleValues: Array<{ value: string; description: string }> | null,
   description: string,
-): { tsType: string; isFlag: boolean; isArray: boolean } {
+): Pick<Normalized, "tsType" | "isFlag" | "isArray"> {
   const flagName = flag.replace(/^-/, "");
   const descLower = description.toLowerCase();
   const rawNameLower = rawName.toLowerCase();
@@ -547,6 +575,7 @@ function inferType(
     "display_hflip",
     "display_vflip",
   ]);
+
   if (boolFlags.has(flagName)) {
     return { tsType: "boolean", isFlag: true, isArray: false };
   }
@@ -576,6 +605,7 @@ function inferType(
     "q",
     "itsscale",
   ]);
+
   if (numFlags.has(flagName)) {
     return { tsType: "number", isFlag: false, isArray: false };
   }
@@ -596,6 +626,7 @@ function inferType(
     "readrate_initial_burst",
     "r",
   ]);
+
   if (durFlags.has(flagName)) {
     return { tsType: "Duration", isFlag: false, isArray: false };
   }
@@ -610,11 +641,13 @@ function inferType(
     "programst",
     "stream_groupst",
   ]);
+
   if (arrFlags.has(flagName)) {
     return { tsType: "string", isFlag: false, isArray: true };
   }
 
   const stringFlags = new Set(["fix_sub_duration_heartbeat"]);
+
   if (stringFlags.has(flagName)) {
     return { tsType: "string", isFlag: false, isArray: false };
   }
@@ -622,12 +655,15 @@ function inferType(
   if (rawType === "integer" || rawType === "int64") {
     return { tsType: "number", isFlag: false, isArray: false };
   }
+
   if (rawType === "boolean") {
     return { tsType: "boolean", isFlag: false, isArray: false };
   }
+
   if (rawType === "duration") {
     return { tsType: "Duration", isFlag: false, isArray: false };
   }
+
   if (rawType === "float" || rawType === "double" || rawType === "rational") {
     return { tsType: "number", isFlag: false, isArray: false };
   }
@@ -643,6 +679,7 @@ function inferType(
   ) {
     return { tsType: "number", isFlag: false, isArray: false };
   }
+
   if (
     rawNameLower.includes("duration") ||
     rawNameLower.includes("position") ||
@@ -666,7 +703,8 @@ function inferType(
 
 function classify(flagName: string, raw: RawOption): Cat[] {
   // Check manual overrides FIRST
-  const catFromOpt = OPT_CAT[flagName] ?? null;
+  const catFromOpt = OPT_CAT.get(flagName) ?? null;
+
   if (catFromOpt) {
     return [...catFromOpt];
   }
@@ -675,8 +713,11 @@ function classify(flagName: string, raw: RawOption): Cat[] {
   const cats = raw.categories.map((c: string) => c.toLowerCase().trim());
 
   const result: Cat[] = [];
+
   if (cats.includes("input") || cats.includes("input/output")) result.push("input");
+
   if (cats.includes("output") || cats.includes("input/output")) result.push("output");
+
   if (cats.includes("global")) result.push("global");
 
   return result;
@@ -684,9 +725,13 @@ function classify(flagName: string, raw: RawOption): Cat[] {
 
 function shouldExclude(raw: RawOption): boolean {
   const name = raw.name.trim();
+
   if (/^(stream_index|stream_type|g:|p:|m:|disp:|# )/.test(name)) return true;
+
   if (name === "u") return true;
+
   if (/^(avg_br|br|frame|out|PSNR|q|f_size|s_size|st|time|type)$/.test(name)) return true;
+
   if (["generic", "private"].includes(name)) return true;
 
   const infoFlags = new Set([
@@ -715,14 +760,19 @@ function shouldExclude(raw: RawOption): boolean {
     "max_alloc",
     "init_hw_device",
   ]);
+
   const firstWord = name.startsWith("-") ? name.slice(1).split(/\s/)[0] : "";
+
   if (infoFlags.has(firstWord)) return true;
+
   if (name.startsWith("-sources") || name.startsWith("-sinks")) return true;
+
   return false;
 }
 
 async function loadJSON(): Promise<RawOption[]> {
   const data = JSON.parse(await readFile(JSON_PATH, "utf-8"));
+
   return data.options;
 }
 
@@ -731,11 +781,12 @@ function normalize(raw: RawOption[]): Normalized[] {
 
   for (const opt of raw) {
     if (opt.page !== "ffmpeg") continue;
+
     if (shouldExclude(opt)) continue;
 
     const cleanName = cleanFlagName(opt.name);
     const flagName = cleanName.replace(/^-/, "");
-    const flag = FLAG_OVERRIDES[flagName] ?? cleanName;
+    const flag = FLAG_OVERRIDES.get(flagName) ?? cleanName;
 
     const categories = classify(flagName, opt);
 
@@ -752,6 +803,7 @@ function normalize(raw: RawOption[]): Normalized[] {
     );
 
     const enumType = generateEnumType(flagName, opt.possible_values);
+
     if (enumType) {
       tsType = enumType;
     }
@@ -764,6 +816,7 @@ function normalize(raw: RawOption[]): Normalized[] {
     for (const cat of categories) {
       const dedupKey = `${prop}:${cat}`;
       const existing = entries.get(dedupKey);
+
       if (existing) {
         existing.supportsStreamSpecifier ||= supportsStreamSpecifier;
         existing.supportsMetadataSpecifier ||= supportsMetadataSpecifier;
@@ -1187,6 +1240,7 @@ function normalize(raw: RawOption[]): Normalized[] {
   for (const extra of extras) {
     const dedupKey = `${extra.prop}:${extra.cat}`;
     const existing = entries.get(dedupKey);
+
     if (existing) {
       existing.supportsStreamSpecifier ||= extra.supportsStreamSpecifier;
       existing.supportsMetadataSpecifier ||= extra.supportsMetadataSpecifier;
@@ -1201,6 +1255,7 @@ function normalize(raw: RawOption[]): Normalized[] {
 
 function generateInterfaces(normals: Normalized[], meta: any): string {
   const byCat: Record<Cat, Normalized[]> = { input: [], output: [], global: [] };
+
   for (const n of normals) {
     if (n.cat === "input") byCat.input.push(n);
     else if (n.cat === "output") byCat.output.push(n);
@@ -1235,9 +1290,7 @@ function generateInterfaces(normals: Normalized[], meta: any): string {
       | \`p:\${number}\`
     export type MetadataOptionBag<T> = Partial<Record<MetadataSpecifier, T>>
 
-    ${Object.entries(CUSTOM_TYPES)
-      .map(([name, def]) => `export type ${name} = ${def}`)
-      .join("\n")}
+    ${[...CUSTOM_TYPES].map(([name, def]) => `export type ${name} = ${def}`).join("\n")}
 
   `;
 
@@ -1247,27 +1300,34 @@ function generateInterfaces(normals: Normalized[], meta: any): string {
     out += `export interface ${name} {\n`;
     items.sort((a, b) => {
       if (a.description && !b.description) return -1;
+
       if (!a.description && b.description) return 1;
+
       return a.prop.localeCompare(b.prop);
     });
+
     for (const item of items) {
       if (item.description) {
         out += `  /** ${item.description} */\n`;
       }
-      const alias = TYPE_ALIASES[item.prop];
+
+      const alias = TYPE_ALIASES.get(item.prop);
       const optType = alias ?? (item.isArray ? "string | string[]" : item.tsType);
       out += `  ${item.prop}?: ${optType}\n`;
     }
+
     if (cat === "input") {
       out += `  /** Stream-specifier scoped input options, serialized as flags like -r:v:0 or -hwaccel:a. */\n`;
       out += `  streams?: StreamOptionBag<InputStreamOptions>\n`;
     }
+
     if (cat === "output") {
       out += `  /** Stream-specifier scoped output options, serialized as flags like -c:v:0 or -b:a. */\n`;
       out += `  streams?: StreamOptionBag<OutputStreamOptions>\n`;
       out += `  /** Metadata-specifier scoped output options, serialized as flags like -metadata:s:v:0. */\n`;
       out += `  metadataScopes?: MetadataOptionBag<OutputMetadataOptions>\n`;
     }
+
     out += `  /** Escape hatch for raw ffmpeg flags not modeled by this interface yet. Keys must be full CLI flags, e.g. "-metadata:s:v". */\n`;
     out += `  raw?: RawOptionBag\n`;
     out += `}\n\n`;
@@ -1279,11 +1339,13 @@ function generateInterfaces(normals: Normalized[], meta: any): string {
 
   const emitScopedInterface = (name: string, items: Normalized[]) => {
     out += `export interface ${name} {\n`;
+
     for (const item of items.sort((a, b) => a.prop.localeCompare(b.prop))) {
-      const alias = TYPE_ALIASES[item.prop];
+      const alias = TYPE_ALIASES.get(item.prop);
       const optType = alias ?? (item.isArray ? "string | string[]" : item.tsType);
       out += `  ${item.prop}?: ${optType}\n`;
     }
+
     out += `}\n\n`;
   };
 
@@ -1296,6 +1358,7 @@ function generateInterfaces(normals: Normalized[], meta: any): string {
 
 function generateSerialize(normals: Normalized[], meta: any): string {
   const byCat: Record<Cat, Normalized[]> = { input: [], output: [], global: [] };
+
   for (const n of normals) {
     if (n.cat === "input") {
       byCat.input.push(n);
@@ -1310,36 +1373,48 @@ function generateSerialize(normals: Normalized[], meta: any): string {
 // scraper run: ${meta.generated}
 // source: ${meta.source}
 
-const makeFlag = (flag: string) => ({ flag, isFlag: true as const, isArray: false as const })
-const makeValue = (flag: string) => ({ flag, isFlag: false as const, isArray: false as const })
-const makeArray = (flag: string) => ({ flag, isFlag: false as const, isArray: true as const })
+import type { InputOptions, OutputOptions, GlobalOptions, InputStreamOptions, OutputStreamOptions, OutputMetadataOptions, SerializedOptionValue } from "./options.ts";
+
+export type OptionKind = "flag" | "value" | "array";
+
+export interface OptionDefinition<TOptions> {
+  readonly flag: string;
+  readonly kind: OptionKind;
+  read(options: TOptions): SerializedOptionValue | undefined;
+}
 
 `;
 
-  for (const [cat, items] of Object.entries(byCat)) {
-    if (items.length === 0) continue;
-    const name = `generated${cat.charAt(0).toUpperCase() + cat.slice(1)}Defs`;
-    out += `export const ${name}: Record<string, { flag: string; isFlag: boolean; isArray: boolean }> = {\n`;
-    for (const item of items) {
-      const maker = item.isArray ? "makeArray" : item.isFlag ? "makeFlag" : "makeValue";
-      out += `  ${item.prop}: ${maker}("${item.flag}"),\n`;
-    }
-    out += `}\n\n`;
-  }
-
-  const scopedDefs = [
-    ["generatedInputStreamDefs", byCat.input.filter((item) => item.supportsStreamSpecifier)],
-    ["generatedOutputStreamDefs", byCat.output.filter((item) => item.supportsStreamSpecifier)],
-    ["generatedOutputMetadataDefs", byCat.output.filter((item) => item.supportsMetadataSpecifier)],
+  const groups = [
+    ["generatedInputDefs", "InputOptions", byCat.input],
+    ["generatedOutputDefs", "OutputOptions", byCat.output],
+    ["generatedGlobalDefs", "GlobalOptions", byCat.global],
+    [
+      "generatedInputStreamDefs",
+      "InputStreamOptions",
+      byCat.input.filter((item) => item.supportsStreamSpecifier),
+    ],
+    [
+      "generatedOutputStreamDefs",
+      "OutputStreamOptions",
+      byCat.output.filter((item) => item.supportsStreamSpecifier),
+    ],
+    [
+      "generatedOutputMetadataDefs",
+      "OutputMetadataOptions",
+      byCat.output.filter((item) => item.supportsMetadataSpecifier),
+    ],
   ] as const;
 
-  for (const [name, items] of scopedDefs) {
-    out += `export const ${name}: Record<string, { flag: string; isFlag: boolean; isArray: boolean }> = {\n`;
+  for (const [name, optionsType, items] of groups) {
+    out += `export const ${name}: readonly OptionDefinition<${optionsType}>[] = [\n`;
+
     for (const item of items) {
-      const maker = item.isArray ? "makeArray" : item.isFlag ? "makeFlag" : "makeValue";
-      out += `  ${item.prop}: ${maker}("${item.flag}"),\n`;
+      const kind = item.isArray ? "array" : item.isFlag ? "flag" : "value";
+      out += `  { flag: "${item.flag}", kind: "${kind}", read: (options) => options.${item.prop} },\n`;
     }
-    out += `}\n\n`;
+
+    out += `]\n\n`;
   }
 
   return out;
@@ -1350,22 +1425,25 @@ async function main() {
   console.log(`Loaded ${raw.length} options`);
 
   // Auto-generate types from scraped possible_values for explicitly listed flags.
-  for (const [flagName, typeName] of Object.entries(EXTRA_ENUM_TYPES)) {
+  for (const [flagName, typeName] of EXTRA_ENUM_TYPES) {
     const rawOpt = raw.find(
       (o) =>
         o.possible_values &&
         o.possible_values.length > 0 &&
         o.name.replace(/^-/, "").startsWith(flagName),
     );
+
     if (!rawOpt?.possible_values) {
       console.warn(
         `  WARN: No possible_values found for "${flagName}" — skipping type "${typeName}"`,
       );
       continue;
     }
+
     const enumType = generateEnumType(flagName, rawOpt.possible_values);
+
     if (enumType) {
-      CUSTOM_TYPES[typeName] = `${enumType} | (string & Record<never, never>)`;
+      CUSTOM_TYPES.set(typeName, `${enumType} | (string & Record<never, never>)`);
       console.log(
         `  Auto-generated type "${typeName}" = ${enumType} (widened with string fallback)`,
       );
@@ -1378,9 +1456,11 @@ async function main() {
   console.log(`Normalized ${normals.length} options`);
 
   const byCat: Record<string, number> = {};
+
   for (const n of normals) {
     byCat[n.cat] = (byCat[n.cat] || 0) + 1;
   }
+
   console.log("By category:", byCat);
 
   await mkdir(GENERATED_DIR, { recursive: true });
@@ -1399,6 +1479,7 @@ async function main() {
   console.log(
     `\nGenerated ${generatedProps.size} unique properties across ${normals.length} entries`,
   );
+
   if (normals.length < 180) {
     console.warn(
       `WARNING: Low option count (${normals.length}) — check scraper data or exclude filter`,

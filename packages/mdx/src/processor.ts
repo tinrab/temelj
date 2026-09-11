@@ -1,3 +1,5 @@
+import { isString } from "@temelj/value";
+
 import type { Diagnostic } from "./diagnostics.ts";
 import type { HtmlDocumentNode, HtmlRenderOptions } from "./html.ts";
 import type { ParseOutcome, ParserLimits } from "./parser.ts";
@@ -66,28 +68,35 @@ export class Processor {
 
   public async process(input: ProcessInput, options: ProcessOptions = {}): Promise<ProcessOutcome> {
     options.signal?.throwIfAborted();
-    const outcome =
-      input instanceof SourceFile || typeof input === "string" ? this.parse(input) : input;
+
+    const outcome = input instanceof SourceFile || isString(input) ? this.parse(input) : input;
+
     if (outcome.kind !== "parsed") {
       return outcome;
     }
+
     const diagnostics = new DiagnosticBag(outcome.diagnostics);
+
     const result = await runNativePipeline(
       this.pipelineOptions(outcome.document, outcome.file, diagnostics, options.signal),
     );
+
     return processedOutcome(result.document, result.html, outcome.file, diagnostics);
   }
 
   public processSync(input: ProcessInput): ProcessOutcome {
-    const outcome =
-      input instanceof SourceFile || typeof input === "string" ? this.parse(input) : input;
+    const outcome = input instanceof SourceFile || isString(input) ? this.parse(input) : input;
+
     if (outcome.kind !== "parsed") {
       return outcome;
     }
+
     const diagnostics = new DiagnosticBag(outcome.diagnostics);
+
     const result = runNativePipelineSync(
       this.pipelineOptions(outcome.document, outcome.file, diagnostics),
     );
+
     return processedOutcome(result.document, result.html, outcome.file, diagnostics);
   }
 

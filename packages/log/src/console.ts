@@ -3,11 +3,11 @@ import type { LogRecord, LogSink } from "./types.ts";
 import { formatLogRecord, formatLogRecordText } from "./format.ts";
 
 export interface ConsoleLogWriter {
-  readonly debug: (message?: unknown, ...args: unknown[]) => void;
-  readonly error: (message?: unknown, ...args: unknown[]) => void;
-  readonly info: (message?: unknown, ...args: unknown[]) => void;
-  readonly log: (message?: unknown, ...args: unknown[]) => void;
-  readonly warn: (message?: unknown, ...args: unknown[]) => void;
+  readonly debug: (message: string) => void;
+  readonly error: (message: string) => void;
+  readonly info: (message: string) => void;
+  readonly log: (message: string) => void;
+  readonly warn: (message: string) => void;
 }
 
 export interface ConsoleLogSinkOptions {
@@ -16,6 +16,7 @@ export interface ConsoleLogSinkOptions {
 
 export function createConsoleSink(options: ConsoleLogSinkOptions = {}): LogSink {
   const writer = options.writer ?? console;
+
   return {
     write: (record) => {
       writeConsoleRecord(writer, record, formatLogRecordText(record));
@@ -25,6 +26,7 @@ export function createConsoleSink(options: ConsoleLogSinkOptions = {}): LogSink 
 
 export function createJsonConsoleSink(options: ConsoleLogSinkOptions = {}): LogSink {
   const writer = options.writer ?? console;
+
   return {
     write: (record) => {
       writeConsoleRecord(writer, record, JSON.stringify(formatLogRecord(record)));

@@ -1,40 +1,52 @@
 /* oxlint-disable react-hooks/exhaustive-deps */
 import type { Result } from "@temelj/result";
 
-import { fromThrowable } from "@temelj/result";
+import { fromThrowable, ok } from "@temelj/result";
 import * as React from "react";
 
-/**
- * Effect callback accepted by useResultEffect.
- */
-export type ResultEffectCallback<T> = () => T | (() => void);
+import { AsyncResultStore } from "../internal/async-result-store.ts";
+import { mapThrownError } from "../internal/error.ts";
 
-/**
- * Runs a React effect and stores whether the synchronous effect body succeeded.
- */
-export function useResultEffect<T = void, E = unknown>(
+/** The effect's value and optional cleanup are separate, so values may themselves be functions. */
+export interface ResultEffectValue<T> {
+  readonly value: T;
+  readonly cleanup?: () => void;
+}
+
+/** Effect callback accepted by useResultEffect. */
+export type ResultEffectCallback<T> = () => ResultEffectValue<T>;
+
+/** Runs a React effect and stores whether the synchronous effect body succeeded. */
+export function useResultEffect<T = void, E = never>(
   effect: ResultEffectCallback<T>,
   dependencies: React.DependencyList,
-  mapError?: (error: unknown) => E,
-): Result<T, E> | null {
-  const [result, setResult] = React.useState<Result<T, E> | null>(null);
+  mapError?: (cause: unknown) => E,
+): Result<T, E | Error> | null {
+  const [store] = React.useState(() => new AsyncResultStore<T, E | Error>());
+
+  const state = React.useSyncExternalStore(
+    store.subscribe,
+    store.getSnapshot,
+    store.getServerSnapshot,
+  );
 
   React.useEffect(() => {
-    let cleanup: (() => void) | undefined;
-    const next = fromThrowable(
-      () => effect(),
-      (error) => (mapError ? mapError(error) : (error as E)),
-    );
+    store.activate();
+    const callId = store.begin();
+    const next = fromThrowable(effect, (cause) => mapThrownError(cause, mapError));
 
-    if (next.kind === "ok" && typeof next.value === "function") {
-      cleanup = next.value as () => void;
-      setResult({ kind: "ok", value: undefined as T });
+    if (next.kind === "ok") {
+      store.settle(callId, ok(next.value.value));
     } else {
-      setResult(next as Result<T, E>);
+      store.settle(callId, next);
     }
 
-    return () => cleanup?.();
+    return () => {
+      store.deactivate();
+
+      if (next.kind === "ok") next.value.cleanup?.();
+    };
   }, dependencies);
 
-  return result;
+  return state.result;
 }

@@ -15,10 +15,12 @@ interface WorkflowRunAvailabilityAccumulator {
   oldestRunningAt?: Temporal.Instant;
 }
 
-export function createWorkflowRunAvailabilitySummaryReducer(): {
+export interface WorkflowRunAvailabilitySummaryReducer {
   readonly addRun: (run: WorkflowRunRecord) => void;
   readonly finish: () => WorkflowRunAvailabilitySummaryFields;
-} {
+}
+
+export function createWorkflowRunAvailabilitySummaryReducer(): WorkflowRunAvailabilitySummaryReducer {
   const availability = createWorkflowRunAvailabilityAccumulator();
 
   return {
@@ -42,6 +44,7 @@ function addWorkflowRunAvailability(
   if (isScheduledWorkflowRunStatus(run.status)) {
     setWorkflowRunAvailabilityScheduled(availability, run);
   }
+
   if (run.status === "running") {
     setWorkflowRunAvailabilityRunning(availability, run);
   }
@@ -74,15 +77,25 @@ function setWorkflowRunAvailabilityRunning(
 function finishWorkflowRunAvailabilitySummary(
   availability: WorkflowRunAvailabilityAccumulator,
 ): WorkflowRunAvailabilitySummaryFields {
-  return {
-    ...(availability.nextAvailableAt === undefined
-      ? {}
-      : { nextAvailableAt: availability.nextAvailableAt }),
-    ...(availability.oldestPendingAt === undefined
-      ? {}
-      : { oldestPendingAt: availability.oldestPendingAt }),
-    ...(availability.oldestRunningAt === undefined
-      ? {}
-      : { oldestRunningAt: availability.oldestRunningAt }),
-  };
+  const summary: WorkflowRunAvailabilitySummaryFields = {};
+
+  if (availability.nextAvailableAt !== undefined) {
+    Object.assign(summary, {
+      nextAvailableAt: availability.nextAvailableAt,
+    } satisfies Partial<WorkflowRunAvailabilitySummaryFields>);
+  }
+
+  if (availability.oldestPendingAt !== undefined) {
+    Object.assign(summary, {
+      oldestPendingAt: availability.oldestPendingAt,
+    } satisfies Partial<WorkflowRunAvailabilitySummaryFields>);
+  }
+
+  if (availability.oldestRunningAt !== undefined) {
+    Object.assign(summary, {
+      oldestRunningAt: availability.oldestRunningAt,
+    } satisfies Partial<WorkflowRunAvailabilitySummaryFields>);
+  }
+
+  return summary;
 }

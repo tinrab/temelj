@@ -9,15 +9,14 @@ import { AbortError, TimeoutError } from "./errors";
  * If a `fallback` value is provided, it is returned instead of throwing on timeout.
  */
 export function timeout<T>(
-  promise: PromiseLike<T> | (() => PromiseLike<T> | T),
+  promise: PromiseLike<T>,
   ms: number,
   options?: StandardOptions & { fallback?: T },
 ): Promise<T> {
-  const p = typeof promise === "function" ? Promise.try(promise) : promise;
-
   return new Promise<T>((resolve, reject) => {
     if (options?.signal?.aborted) {
       reject(AbortError.create());
+
       return;
     }
 
@@ -27,8 +26,9 @@ export function timeout<T>(
       if (settled) return;
       settled = true;
       cleanup();
-      if (options && "fallback" in options) {
-        resolve(options.fallback as T);
+
+      if (options?.fallback !== undefined) {
+        resolve(options.fallback);
       } else {
         reject(TimeoutError.create());
       }
@@ -48,7 +48,7 @@ export function timeout<T>(
 
     options?.signal?.addEventListener("abort", onAbort);
 
-    p.then(
+    promise.then(
       (value) => {
         if (settled) return;
         settled = true;

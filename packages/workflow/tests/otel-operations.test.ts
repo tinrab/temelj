@@ -34,9 +34,11 @@ describe("OpenTelemetry workflow operation telemetry", () => {
 
   test("emits stream operation spans without high-cardinality stream metric attributes", async () => {
     const spanExporter = new InMemorySpanExporter();
+
     const tracerProvider = new BasicTracerProvider({
       spanProcessors: [new SimpleSpanProcessor(spanExporter)],
     });
+
     const metricExporter = new InMemoryMetricExporter(AggregationTemporality.CUMULATIVE);
     const metricReader = new PeriodicExportingMetricReader({ exporter: metricExporter });
     const meterProvider = new MeterProvider({ readers: [metricReader] });
@@ -47,15 +49,19 @@ describe("OpenTelemetry workflow operation telemetry", () => {
       createRunId: sequentialRunIds("run-otel-stream-closed", "run-otel-stream-failed"),
       telemetry: createOpenTelemetryTelemetry(),
     });
+
     const closedWorkflow = implementWorkflow({ name: "otel-stream-closed" }, async ({ step }) => {
       const stream = step.stream.create<string>("progress");
       await stream.write("started");
       await stream.close();
+
       return "done";
     });
+
     const failedWorkflow = implementWorkflow({ name: "otel-stream-failed" }, async ({ step }) => {
       const stream = step.stream.create<string>("progress");
       await stream.error(new Error("stream failed"));
+
       return "failed stream recorded";
     });
 
@@ -71,6 +77,7 @@ describe("OpenTelemetry workflow operation telemetry", () => {
     const streamSpans = spanExporter
       .getFinishedSpans()
       .filter((span) => span.name === WORKFLOW_SPAN_NAMES.streamOperation);
+
     expect(
       streamSpans
         .map((span) => String(span.attributes[WORKFLOW_ATTRIBUTES.streamEventKind]))
@@ -103,9 +110,11 @@ describe("OpenTelemetry workflow operation telemetry", () => {
         }),
       ]),
     );
+
     const failedSpan = streamSpans.find(
       (span) => span.attributes[WORKFLOW_ATTRIBUTES.streamEventKind] === "stream_failed",
     );
+
     expect(failedSpan?.status.code).toBe(SpanStatusCode.ERROR);
     expect(exceptionMessages(failedSpan)).toContain("stream failed");
 
@@ -113,6 +122,7 @@ describe("OpenTelemetry workflow operation telemetry", () => {
     expect(metricData.map((metric) => metric.descriptor.name)).toEqual(
       expect.arrayContaining([WORKFLOW_METRIC_NAMES.streamUpdates]),
     );
+
     for (const attributes of metricAttributes(metricData, WORKFLOW_METRIC_NAMES.streamUpdates)) {
       expect(attributes).toHaveProperty(WORKFLOW_ATTRIBUTES.system, WORKFLOW_SYSTEM);
       expect(attributes).toHaveProperty(WORKFLOW_ATTRIBUTES.streamEventKind);
@@ -125,19 +135,24 @@ describe("OpenTelemetry workflow operation telemetry", () => {
 
   test("emits durable sleep completion spans", async () => {
     const spanExporter = new InMemorySpanExporter();
+
     const tracerProvider = new BasicTracerProvider({
       spanProcessors: [new SimpleSpanProcessor(spanExporter)],
     });
+
     trace.setGlobalTracerProvider(tracerProvider);
 
     let now = Temporal.Instant.from("2026-06-15T10:00:00Z");
+
     const engine = createWorkflowEngine({
       createRunId: () => "run-otel-sleep",
       now: () => now,
       telemetry: createOpenTelemetryTelemetry(),
     });
+
     const workflow = implementWorkflow({ name: "otel-sleep" }, async ({ step }) => {
       await step.task.sleep("pause", Temporal.Duration.from({ seconds: 5 }));
+
       return "awake";
     });
 
@@ -154,6 +169,7 @@ describe("OpenTelemetry workflow operation telemetry", () => {
     const sleepSpan = spanExporter
       .getFinishedSpans()
       .find((span) => span.name === WORKFLOW_SPAN_NAMES.sleep);
+
     expect(sleepSpan?.attributes).toEqual(
       expect.objectContaining({
         [WORKFLOW_ATTRIBUTES.system]: WORKFLOW_SYSTEM,
@@ -188,12 +204,15 @@ function metricAttributes(
 
 function sequentialRunIds(...ids: readonly string[]): () => string {
   let index = 0;
+
   return () => {
     const value = ids[index];
     index++;
+
     if (value === undefined) {
       throw new Error("Unexpected run ID request");
     }
+
     return value;
   };
 }

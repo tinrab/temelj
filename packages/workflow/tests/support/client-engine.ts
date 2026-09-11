@@ -1,36 +1,64 @@
-import type {
-  WorkflowCleanupAdmin,
-  WorkflowHookManager,
-  LockManager,
-  WorkflowMessageSender,
-  WorkflowRunMaintenance,
-  WorkflowRunReader,
-  WorkflowRunRerunner,
-  WorkflowScheduler,
-  WorkflowStarter,
-  WorkflowStepAttemptReader,
-  WorkflowStreamReader,
-} from "../../src/types/engine.ts";
+import type { WorkflowClientEngine } from "../../src/types/engine.ts";
 
-export type WorkflowClientTestRuntimeEngine = WorkflowStarter &
-  WorkflowScheduler &
-  LockManager &
-  WorkflowRunReader &
-  WorkflowStepAttemptReader &
-  WorkflowRunMaintenance &
-  WorkflowCleanupAdmin &
-  WorkflowRunRerunner &
-  WorkflowHookManager &
-  WorkflowStreamReader &
-  WorkflowMessageSender & {
-    close?(): Promise<void>;
+/** Provides a working client engine without exposing worker storage or execution. */
+export function withoutWorkflowWorkerStore(engine: WorkflowClientEngine): WorkflowClientEngine {
+  return {
+    startWorkflow: engine.startWorkflow.bind(engine),
+    startWorkflows: engine.startWorkflows.bind(engine),
+    cancelRun: engine.cancelRun.bind(engine),
+    rescheduleRun: engine.rescheduleRun.bind(engine),
+    releaseStaleRunLease: engine.releaseStaleRunLease.bind(engine),
+    retryFailedRun: engine.retryFailedRun.bind(engine),
+    markRunPermanentlyFailed: engine.markRunPermanentlyFailed.bind(engine),
+    updateRunMetadata: engine.updateRunMetadata.bind(engine),
+    setRunAttributes: engine.setRunAttributes.bind(engine),
+    scheduleNextWorkflow: engine.scheduleNextWorkflow.bind(engine),
+    createSchedule: engine.createSchedule.bind(engine),
+    upsertSchedule: engine.upsertSchedule.bind(engine),
+    getSchedule: engine.getSchedule.bind(engine),
+    listSchedules: engine.listSchedules.bind(engine),
+    listSchedulesPage: engine.listSchedulesPage.bind(engine),
+    pauseSchedule: engine.pauseSchedule.bind(engine),
+    resumeSchedule: engine.resumeSchedule.bind(engine),
+    archiveSchedule: engine.archiveSchedule.bind(engine),
+    deleteSchedule: engine.deleteSchedule.bind(engine),
+    tickSchedules: engine.tickSchedules.bind(engine),
+    acquireLock: engine.acquireLock.bind(engine),
+    getLock: engine.getLock.bind(engine),
+    listLocks: engine.listLocks.bind(engine),
+    releaseLock: engine.releaseLock.bind(engine),
+    releaseStaleLock: engine.releaseStaleLock.bind(engine),
+    getRun: engine.getRun.bind(engine),
+    getEvents: engine.getEvents.bind(engine),
+    getTimeline: engine.getTimeline.bind(engine),
+    listEventsPage: engine.listEventsPage.bind(engine),
+    listRuns: engine.listRuns.bind(engine),
+    listRunsPage: engine.listRunsPage.bind(engine),
+    countRuns: engine.countRuns.bind(engine),
+    getRunSummary: engine.getRunSummary.bind(engine),
+    getRecoverySummary: engine.getRecoverySummary.bind(engine),
+    listStepAttempts: engine.listStepAttempts.bind(engine),
+    listStepAttemptsPage: engine.listStepAttemptsPage.bind(engine),
+    countStepAttempts: engine.countStepAttempts.bind(engine),
+    getStepAttemptSummary: engine.getStepAttemptSummary.bind(engine),
+    cleanupRuns: engine.cleanupRuns.bind(engine),
+    listCleanupMarkers: engine.listCleanupMarkers.bind(engine),
+    applyRetentionPolicy: engine.applyRetentionPolicy.bind(engine),
+    rerunWorkflow: engine.rerunWorkflow.bind(engine),
+    resumeHook: engine.resumeHook.bind(engine),
+    resumeWebhook: engine.resumeWebhook.bind(engine),
+    disposeHook: engine.disposeHook.bind(engine),
+    disposeWebhook: engine.disposeWebhook.bind(engine),
+    getHookByToken: engine.getHookByToken.bind(engine),
+    getStreamInfo: engine.getStreamInfo.bind(engine),
+    followStream: engine.followStream.bind(engine),
+    waitForStream: engine.waitForStream.bind(engine),
+    waitForStreamChunk: engine.waitForStreamChunk.bind(engine),
+    waitForStreamTerminal: engine.waitForStreamTerminal.bind(engine),
+    readStream: engine.readStream.bind(engine),
+    readStreamPage: engine.readStreamPage.bind(engine),
+    sendMessage: engine.sendMessage.bind(engine),
+    broadcastMessage: engine.broadcastMessage.bind(engine),
+    close: engine.close?.bind(engine),
   };
-
-export function withoutWorkflowWorkerStore(
-  engine: WorkflowClientTestRuntimeEngine,
-): WorkflowClientTestRuntimeEngine {
-  return new Proxy(engine, {
-    get: (target, property, receiver) =>
-      property === "store" ? undefined : Reflect.get(target, property, receiver),
-  });
 }

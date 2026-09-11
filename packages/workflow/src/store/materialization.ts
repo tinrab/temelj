@@ -18,7 +18,9 @@ import { toStorageValue } from "./storage-value.ts";
 import { parseStoredWorkflowStepAttemptRecord } from "./validation.ts";
 
 const MAX_MATERIALIZE_STEP_ATTEMPT_ATTEMPTS = 16;
+
 type WorkflowMaterializedStepAttemptField = keyof WorkflowStepAttemptRecord;
+
 type WorkflowMaterializedStepDescriptor = {
   readonly identityFields: readonly WorkflowMaterializedStepAttemptField[];
 };
@@ -82,6 +84,7 @@ async function materializeStepAttempt(
   event: EventRecord,
 ): Promise<void> {
   const storageKey = getWorkflowStepAttemptMaterializationStorageKey(namespace, runId, event);
+
   if (storageKey === undefined) {
     return;
   }
@@ -112,6 +115,7 @@ export async function materializeStepAttemptForAppendOutcome(
         outcome.previousEventHistory,
       );
     }
+
     throw error;
   }
 }
@@ -122,11 +126,13 @@ function getWorkflowStepAttemptMaterializationStorageKey(
   event: EventRecord,
 ): string | undefined {
   let attemptKey: string | undefined;
+
   try {
     attemptKey = getWorkflowEventStepAttemptKey(event);
   } catch {
     attemptKey = undefined;
   }
+
   return attemptKey === undefined ? undefined : makeStepAttemptKey(namespace, runId, attemptKey);
 }
 
@@ -137,15 +143,28 @@ function createWorkflowStepAttemptMaterializationUpdate(
   current: WorkflowStepAttemptRecord | undefined,
 ): WorkflowStepAttemptMaterializationUpdate | undefined {
   const storageKey = getWorkflowStepAttemptMaterializationStorageKey(namespace, runId, event);
+
   if (storageKey === undefined) {
     return undefined;
   }
+
   const next = applyWorkflowStepAttemptEvent(runId, event, current);
-  return {
-    storageKey,
-    ...(next === undefined ? {} : { next }),
+
+  const result = { storageKey } satisfies Partial<
+    WorkflowStepAttemptMaterializationUpdate | undefined
+  >;
+
+  if (next !== undefined) {
+    Object.assign(result, { next } satisfies Partial<
+      WorkflowStepAttemptMaterializationUpdate | undefined
+    >);
+  }
+
+  const result1 = Object.assign(result, {
     shouldStore: next !== undefined && shouldStoreStepAttempt(current, next),
-  };
+  } satisfies Partial<WorkflowStepAttemptMaterializationUpdate | undefined>);
+
+  return result1;
 }
 
 export async function createWorkflowStepAttemptMaterializationStoragePlan(
@@ -155,31 +174,42 @@ export async function createWorkflowStepAttemptMaterializationStoragePlan(
   event: EventRecord,
 ): Promise<WorkflowStepAttemptMaterializationStoragePlan> {
   const storageKey = getWorkflowStepAttemptMaterializationStorageKey(namespace, runId, event);
+
   if (storageKey === undefined) {
     return { materializes: false };
   }
 
   const { raw, current } = await readStoredWorkflowStepAttempt(storage, storageKey);
+
   const materialization = createWorkflowStepAttemptMaterializationUpdate(
     namespace,
     runId,
     event,
     current,
   );
-  return {
+
+  const summary: Awaited<Promise<WorkflowStepAttemptMaterializationStoragePlan>> = {
     materializes: true,
     storageKey,
-    ...(current === undefined ? {} : { current }),
-    ...(materialization?.shouldStore === true && materialization.next !== undefined
-      ? {
-          item: {
-            key: materialization.storageKey,
-            expected: raw,
-            value: toStorageValue(omitUndefined(materialization.next)),
-          },
-        }
-      : {}),
   };
+
+  if (current !== undefined) {
+    Object.assign(summary, { current } satisfies Partial<
+      Awaited<Promise<WorkflowStepAttemptMaterializationStoragePlan>>
+    >);
+  }
+
+  if (materialization?.shouldStore === true && materialization.next !== undefined) {
+    Object.assign(summary, {
+      item: {
+        key: materialization.storageKey,
+        expected: raw,
+        value: toStorageValue(omitUndefined(materialization.next)),
+      },
+    } satisfies Partial<Awaited<Promise<WorkflowStepAttemptMaterializationStoragePlan>>>);
+  }
+
+  return summary;
 }
 
 export async function reconcileStepAttempts(
@@ -205,6 +235,7 @@ export async function reconcileStepAttempts(
       ),
     ),
   );
+
   return attempts;
 }
 
@@ -222,15 +253,18 @@ export async function materializeStepAttemptIfCurrent(
     // The CAS path below is used whenever the storage backend can reject stale writes.
     const { current } = await readStoredWorkflowStepAttempt(storage, storageKey);
     const next = createNext(current);
+
     if (next !== undefined && shouldStoreStepAttempt(current, next, options)) {
       await storage.set(storageKey, toStorageValue(omitUndefined(next)));
     }
+
     return;
   }
 
   for (let attempt = 0; attempt < MAX_MATERIALIZE_STEP_ATTEMPT_ATTEMPTS; attempt++) {
     const { raw, current } = await readStoredWorkflowStepAttempt(storage, storageKey);
     const next = createNext(current);
+
     if (next === undefined || !shouldStoreStepAttempt(current, next, options)) {
       return;
     }
@@ -240,6 +274,7 @@ export async function materializeStepAttemptIfCurrent(
       raw,
       toStorageValue(omitUndefined(next)),
     );
+
     if (updated) {
       return;
     }
@@ -253,6 +288,7 @@ async function readStoredWorkflowStepAttempt(
   storageKey: string,
 ): Promise<StoredWorkflowStepAttempt> {
   const raw = await storage.get(storageKey);
+
   return {
     raw,
     current: parseStoredWorkflowStepAttemptRecord(raw),
@@ -267,12 +303,15 @@ export function shouldStoreStepAttempt(
   if (current === undefined) {
     return true;
   }
+
   if (!isSameStepAttemptIdentity(current, next)) {
     return true;
   }
+
   if ((current.status === "abandoned") !== (next.status === "abandoned")) {
     return true;
   }
+
   if (options.repairStatusMismatch === true && current.status !== next.status) {
     return true;
   }
@@ -281,24 +320,30 @@ export function shouldStoreStepAttempt(
   // When two events have the same timestamp, terminal states win over running so a completion is not lost.
   const currentTimestamp = current.finishedAt ?? current.startedAt;
   const nextTimestamp = next.finishedAt ?? next.startedAt;
+
   if (currentTimestamp === undefined) {
     return true;
   }
+
   if (nextTimestamp === undefined) {
     return false;
   }
+
   if (Temporal.Instant.compare(currentTimestamp, nextTimestamp) > 0) {
     return false;
   }
+
   if (Temporal.Instant.compare(currentTimestamp, nextTimestamp) < 0) {
     return true;
   }
+
   const nextRank =
     next.status === "running"
       ? 0
       : next.status === "abandoned" || next.status === "failed" || next.status === "completed"
         ? 1
         : 0;
+
   const currentRank =
     current.status === "running"
       ? 0
@@ -307,6 +352,7 @@ export function shouldStoreStepAttempt(
           current.status === "completed"
         ? 1
         : 0;
+
   return nextRank >= currentRank;
 }
 
@@ -326,6 +372,7 @@ export function isSameStepAttemptIdentity(
   ) {
     return false;
   }
+
   return isSameMaterializedStepAttemptFields(
     current,
     next,

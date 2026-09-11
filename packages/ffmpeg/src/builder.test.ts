@@ -1,6 +1,6 @@
 import { assert, describe, it } from "vitest";
 
-import { ffmpeg, FFmpegBuilder, type FFmpegOutputBuilder } from "./builder.ts";
+import { ffmpeg, FFmpegBuilder } from "./builder.ts";
 import { FilterGraphStream } from "./filter-graph.ts";
 import { unsafe } from "./structured.ts";
 
@@ -311,31 +311,31 @@ describe("FFmpegBuilder", () => {
 
   it("rejects build when inputs exist but no output is defined", () => {
     assert.throws(() => {
-      (ffmpeg().input("in.mp4") as unknown as FFmpegBuilder).build();
+      new FFmpegBuilder().input("in.mp4").build();
     }, /No output defined/);
   });
 
   it("rejects input-scoped fluent methods before an input exists", () => {
     assert.throws(() => {
-      (ffmpeg() as unknown as FFmpegBuilder).seekInput("00:00:05");
+      new FFmpegBuilder().seekInput("00:00:05");
     }, /No input defined/);
 
     assert.throws(() => {
-      (ffmpeg() as unknown as FFmpegBuilder).inputOptions({ ss: "00:00:05" });
+      new FFmpegBuilder().inputOptions({ ss: "00:00:05" });
     }, /No input defined/);
   });
 
   it("rejects output-scoped fluent methods before an output exists", () => {
     assert.throws(() => {
-      (ffmpeg() as unknown as FFmpegBuilder).videoCodec("libx264");
+      new FFmpegBuilder().videoCodec("libx264");
     }, /No output defined/);
 
     assert.throws(() => {
-      (ffmpeg() as unknown as FFmpegOutputBuilder).mapLabel(new FilterGraphStream("outv", "video"));
+      new FFmpegBuilder().mapLabel(new FilterGraphStream("outv", "video"));
     }, /No output defined/);
 
     assert.throws(() => {
-      (ffmpeg() as unknown as FFmpegBuilder).outputOptions({ videoCodec: "libx264" });
+      new FFmpegBuilder().outputOptions({ videoCodec: "libx264" });
     }, /No output defined/);
   });
 

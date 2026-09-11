@@ -39,6 +39,7 @@ export function permutations<T>(iterable: Iterable<T>): T[][] {
   function permute(current: T[], remaining: T[]) {
     if (remaining.length === 0) {
       result.push([...current]);
+
       return;
     }
 
@@ -52,6 +53,7 @@ export function permutations<T>(iterable: Iterable<T>): T[][] {
   }
 
   permute([], arr);
+
   return result;
 }
 
@@ -82,6 +84,7 @@ export function combinations<T>(iterable: Iterable<T>, n: number): T[][] {
   function combine(start: number, current: T[]) {
     if (current.length === n) {
       result.push([...current]);
+
       return;
     }
 
@@ -93,5 +96,6 @@ export function combinations<T>(iterable: Iterable<T>, n: number): T[][] {
   }
 
   combine(0, []);
+
   return result;
 }

@@ -1,3 +1,5 @@
+import { isString } from "@temelj/value";
+
 import type { SourceRange } from "./ranges.ts";
 
 import { InputError } from "./errors.ts";
@@ -29,8 +31,8 @@ export class SourceFile {
   public readonly text: string;
 
   public constructor(input: string | SourceFileInput) {
-    this.text = typeof input === "string" ? input : input.text;
-    this.name = typeof input === "string" ? "source.mdx" : (input.name ?? "source.mdx");
+    this.text = isString(input) ? input : input.text;
+    this.name = isString(input) ? "source.mdx" : (input.name ?? "source.mdx");
     Object.freeze(this);
   }
 
@@ -42,8 +44,10 @@ export class SourceFile {
     const lines = this.lines();
     let low = 0;
     let high = lines.length;
+
     while (low + 1 < high) {
       const middle = Math.floor((low + high) / 2);
+
       if (lines[middle].range.start <= offset) {
         low = middle;
       } else {
@@ -52,9 +56,11 @@ export class SourceFile {
     }
 
     let column = 1;
+
     for (let index = lines[low].range.start; index < offset; index++) {
       column = this.text[index] === "\t" ? nextTabColumn(column) : column + 1;
     }
+
     return Object.freeze({ offset, line: low + 1, column });
   }
 
@@ -78,7 +84,9 @@ export class SourceFile {
     if (!Number.isSafeInteger(offset) || offset < 0 || offset > this.text.length) {
       InputError.sourceOffsetOutsideFile(offset, this.text.length);
     }
+
     const value = this.text[offset];
+
     return value === undefined ? undefined : semanticCharacter(value);
   }
 
@@ -92,6 +100,7 @@ export class SourceFile {
     ) {
       InputError.replacementRangeOutsideSource(range.start, range.end, this.text.length);
     }
+
     return this.text.slice(range.start, range.end);
   }
 
@@ -101,12 +110,14 @@ export class SourceFile {
 
   private lines(): readonly PhysicalLine[] {
     this.#lines ??= Object.freeze(indexLines(this.text));
+
     return this.#lines;
   }
 }
 
 function indexLines(source: string): PhysicalLine[] {
   const scanner = new PhysicalLineScanner();
+
   return [...scanner.append(source), ...scanner.complete()];
 }
 
@@ -136,9 +147,11 @@ export class PhysicalLineScanner {
   public constructor(options: Readonly<{ offset?: number; line?: number }> = {}) {
     const offset = options.offset ?? 0;
     const line = options.line ?? 1;
+
     if (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(line) || line < 1) {
       throw new RangeError("Invalid physical-line scanner origin");
     }
+
     this.#length = offset;
     this.#lineStart = offset;
     this.#line = line;
@@ -148,26 +161,33 @@ export class PhysicalLineScanner {
     if (this.#complete) {
       throw new Error("Cannot append to a completed physical-line scanner");
     }
+
     const lines: PhysicalLine[] = [];
+
     for (let index = 0; index < text.length; index++) {
       const offset = this.#length + index;
       const character = text[index];
+
       if (this.#pendingCarriageReturn !== undefined) {
         if (character === "\n") {
           lines.push(this.emit(this.#pendingCarriageReturn, offset + 1, "\r\n"));
           this.#pendingCarriageReturn = undefined;
           continue;
         }
+
         lines.push(this.emit(this.#pendingCarriageReturn, this.#pendingCarriageReturn + 1, "\r"));
         this.#pendingCarriageReturn = undefined;
       }
+
       if (character === "\r") {
         this.#pendingCarriageReturn = offset;
       } else if (character === "\n") {
         lines.push(this.emit(offset, offset + 1, "\n"));
       }
     }
+
     this.#length += text.length;
+
     return Object.freeze(lines);
   }
 
@@ -176,6 +196,7 @@ export class PhysicalLineScanner {
     copy.#complete = this.#complete;
     copy.#lineStart = this.#lineStart;
     copy.#pendingCarriageReturn = this.#pendingCarriageReturn;
+
     return copy;
   }
 
@@ -183,13 +204,17 @@ export class PhysicalLineScanner {
     if (this.#complete) {
       throw new Error("Physical-line scanner is already complete");
     }
+
     this.#complete = true;
     const lines: PhysicalLine[] = [];
+
     if (this.#pendingCarriageReturn !== undefined) {
       lines.push(this.emit(this.#pendingCarriageReturn, this.#pendingCarriageReturn + 1, "\r"));
       this.#pendingCarriageReturn = undefined;
     }
+
     lines.push(physicalLine(this.#line, this.#lineStart, this.#length, this.#length, ""));
+
     return Object.freeze(lines);
   }
 
@@ -200,6 +225,7 @@ export class PhysicalLineScanner {
   ): PhysicalLine {
     const line = physicalLine(this.#line++, this.#lineStart, contentEnd, end, ending);
     this.#lineStart = end;
+
     return line;
   }
 }

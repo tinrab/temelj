@@ -1,3 +1,5 @@
+import { isString, isNumber } from "@temelj/value";
+
 import { InputError } from "./errors.ts";
 import { formatHtml } from "./html-format.ts";
 import { JsxFlowElementNode, JsxTextElementNode, type SourceSpan } from "./model.ts";
@@ -33,7 +35,11 @@ export interface HtmlFormatOptions {
 }
 
 export type HtmlAttributeList = readonly (number | string)[];
+
+export type HtmlAttributes = Record<string, HtmlAttributeValue>;
+
 export type HtmlAttributeValue = boolean | number | string | HtmlAttributeList;
+
 export type MathRenderStyle = "display" | "inline";
 
 export interface MathRenderInput {
@@ -187,19 +193,23 @@ export class HtmlElementNode extends HtmlParentNode<"element"> {
     origin?: SourceSpan,
   ) {
     super(children, origin);
+
     if (!/^[A-Za-z][A-Za-z0-9:-]*$/u.test(tagName)) {
       InputError.invalidHtmlTagName(tagName);
     }
+
     this.tagName = tagName;
     this.attributes = ownAttributes(attributes);
     const value = this.attributes.class;
-    const classNames =
-      typeof value === "string"
-        ? value.split(/\s+/u).filter((item) => item.length > 0)
-        : Array.isArray(value)
-          ? value.filter((item) => typeof item === "string")
-          : [];
+
+    const classNames = isString(value)
+      ? value.split(/\s+/u).filter((item) => item.length > 0)
+      : Array.isArray(value)
+        ? value.filter((item) => isString(item))
+        : [];
+
     this.classNames = Object.freeze(classNames);
+
     if (new.target === HtmlElementNode) {
       Object.freeze(this);
     }
@@ -219,6 +229,7 @@ export class HtmlElementNode extends HtmlParentNode<"element"> {
     const tagName = changes.tagName ?? this.tagName;
     const attributes = changes.attributes ?? this.attributes;
     const children = changes.children ?? this.children;
+
     return tagName === this.tagName &&
       sameHtmlAttributes(attributes, this.attributes) &&
       sameSequence(this.children, children)
@@ -234,6 +245,7 @@ export class HtmlMathNode extends HtmlElementNode {
   public constructor(math: MathRenderInput, origin?: SourceSpan) {
     const value =
       math.style === "display" && math.source.length > 0 ? `${math.source}\n` : math.source;
+
     super(
       math.style === "display" ? "pre" : "code",
       math.style === "display"
@@ -341,12 +353,15 @@ function ownAttributes(
   attributes: Readonly<Record<string, HtmlAttributeValue>>,
 ): Readonly<Record<string, HtmlAttributeValue>> {
   const result: Record<string, HtmlAttributeValue> = {};
+
   for (const [name, value] of Object.entries(attributes)) {
     if (!/^[A-Za-z_:][A-Za-z0-9:._-]*$/u.test(name)) {
       InputError.invalidHtmlAttributeName(name);
     }
+
     result[name] = isHtmlAttributeList(value) ? Object.freeze([...value]) : value;
   }
+
   return Object.freeze(result);
 }
 
@@ -357,12 +372,15 @@ function sameHtmlAttributes(
   if (left === right) {
     return true;
   }
+
   const leftEntries = Object.entries(left);
   const rightNames = Object.keys(right);
+
   return (
     leftEntries.length === rightNames.length &&
     leftEntries.every(([name, value]) => {
       const other = right[name];
+
       return Array.isArray(value) && Array.isArray(other)
         ? sameSequence(value, other)
         : value === other;
@@ -371,8 +389,5 @@ function sameHtmlAttributes(
 }
 
 export function isHtmlAttributeList(value: HtmlAttributeValue): value is HtmlAttributeList {
-  return (
-    Array.isArray(value) &&
-    value.every((item) => typeof item === "string" || typeof item === "number")
-  );
+  return Array.isArray(value) && value.every((item) => isString(item) || isNumber(item));
 }

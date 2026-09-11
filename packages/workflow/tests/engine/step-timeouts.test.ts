@@ -11,16 +11,21 @@ import { workflowErrorFromRecord } from "../../src/errors/records.ts";
 describe("workflow step timeouts", () => {
   test("run cancellation aborts active step contexts", async () => {
     vi.useFakeTimers();
+
     try {
       const engine = createWorkflowEngine({
         createRunId: () => "run_step_cancel_signal",
         now: () => Temporal.Instant.from("2026-06-11T10:00:00Z"),
       });
+
       let stepStarted!: () => void;
+
       const stepStartedPromise = new Promise<void>((resolve) => {
         stepStarted = resolve;
       });
+
       let observedAbort = false;
+
       const workflow = implementWorkflow<undefined, string>(
         { name: "step-cancel-signal" },
         async ({ step }) => {
@@ -41,6 +46,7 @@ describe("workflow step timeouts", () => {
               throw context.signal.reason;
             },
           );
+
           return "unreachable";
         },
       );
@@ -69,7 +75,9 @@ describe("workflow step timeouts", () => {
       createRunId: () => "run_step_timeout_cooperative",
       now: () => Temporal.Instant.from("2026-06-11T10:00:00Z"),
     });
+
     let observedAbort = false;
+
     const workflow = implementWorkflow<undefined, string>(
       { name: "step-timeout-cooperative" },
       async ({ step }) => {
@@ -93,6 +101,7 @@ describe("workflow step timeouts", () => {
             throw context.signal.reason;
           },
         );
+
         return "unreachable";
       },
     );
@@ -106,9 +115,11 @@ describe("workflow step timeouts", () => {
     expect(attempts[0]?.timeoutAt).toEqual(Temporal.Instant.from("2026-06-11T10:00:00.001Z"));
     expect(attempts[0]?.error).toBeDefined();
     const attemptError = attempts[0]?.error;
+
     if (attemptError === undefined) {
       throw new Error("Expected step timeout attempt error");
     }
+
     expect(workflowErrorFromRecord(attemptError)).toBeInstanceOf(WorkflowStepTimeoutError);
   });
 
@@ -117,7 +128,9 @@ describe("workflow step timeouts", () => {
       createRunId: () => "run_step_timeout_noncooperative",
       now: () => Temporal.Instant.from("2026-06-11T10:00:00Z"),
     });
+
     let callbackStarted = false;
+
     const workflow = implementWorkflow<undefined, string>(
       { name: "step-timeout-noncooperative" },
       async ({ step }) => {
@@ -129,9 +142,11 @@ describe("workflow step timeouts", () => {
           },
           () => {
             callbackStarted = true;
+
             return new Promise<string>(() => {});
           },
         );
+
         return "unreachable";
       },
     );
@@ -144,9 +159,11 @@ describe("workflow step timeouts", () => {
     expect(events.map((event) => event.kind)).toContain("step_failed");
     const attempts = await engine.listStepAttempts("run_step_timeout_noncooperative");
     const attemptError = attempts[0]?.error;
+
     if (attemptError === undefined) {
       throw new Error("Expected non-cooperative step timeout attempt error");
     }
+
     expect(workflowErrorFromRecord(attemptError)).toBeInstanceOf(WorkflowStepTimeoutError);
   });
 
@@ -155,6 +172,7 @@ describe("workflow step timeouts", () => {
       createRunId: () => "run_step_timeout_deadline",
       now: () => Temporal.Instant.from("2026-06-11T10:00:00Z"),
     });
+
     const workflow = implementWorkflow<undefined, string>(
       { name: "step-timeout-deadline" },
       async ({ step }) => {
@@ -166,6 +184,7 @@ describe("workflow step timeouts", () => {
           },
           () => new Promise<string>(() => {}),
         );
+
         return "unreachable";
       },
     );
@@ -175,9 +194,11 @@ describe("workflow step timeouts", () => {
     });
 
     expect(result.kind).toBe("failed");
+
     if (result.kind !== "failed") {
       throw new Error("Expected workflow to fail at the run deadline");
     }
+
     expect(workflowErrorFromRecord(result.error)).toBeInstanceOf(WorkflowRunDeadlineExceededError);
     expect(result.run.retryAt).toBeUndefined();
   });

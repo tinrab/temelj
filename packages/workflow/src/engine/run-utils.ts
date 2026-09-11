@@ -1,5 +1,3 @@
-import type { StorageValue } from "@temelj/storage";
-
 import type { CleanupRunsOptions, RetentionPolicyOptions } from "../types/cleanup.ts";
 import type { WorkflowDefinition } from "../types/definition.ts";
 import type {
@@ -14,6 +12,7 @@ import type { WorkflowEventReader, WorkflowRunReaderRepository } from "../types/
 import { WorkflowRunCanceledError } from "../errors/mod.ts";
 import { getRequiredRun } from "../utility.ts";
 import { serializeError } from "./serialization.ts";
+import { requireDefinitionMatchesRun } from "./state.ts";
 
 type WorkflowRunLookup = WorkflowRunReaderRepository;
 
@@ -24,21 +23,66 @@ export function retentionCleanupOptions(
   engineNow: () => Temporal.Instant,
 ): CleanupRunsOptions {
   const now = options.now === undefined ? engineNow() : options.now;
-  return {
+
+  const summary: CleanupRunsOptions = {
     finishedAtBefore: now.toZonedDateTimeISO("UTC").subtract(options.olderThan).toInstant(),
-    ...(options.status === undefined ? {} : { status: options.status }),
-    ...(options.workflowName === undefined ? {} : { workflowName: options.workflowName }),
-    ...(options.workflowVersion === undefined ? {} : { workflowVersion: options.workflowVersion }),
-    ...(options.idempotencyKey === undefined ? {} : { idempotencyKey: options.idempotencyKey }),
-    ...(options.parentRunId === undefined ? {} : { parentRunId: options.parentRunId }),
-    ...(options.parentStepId === undefined ? {} : { parentStepId: options.parentStepId }),
-    ...(options.parentStepName === undefined ? {} : { parentStepName: options.parentStepName }),
-    ...(options.parentStepAttempt === undefined
-      ? {}
-      : { parentStepAttempt: options.parentStepAttempt }),
-    ...(options.dryRun === undefined ? {} : { dryRun: options.dryRun }),
-    ...(options.limit === undefined ? {} : { limit: options.limit }),
   };
+
+  if (options.status !== undefined) {
+    Object.assign(summary, { status: options.status } satisfies Partial<CleanupRunsOptions>);
+  }
+
+  if (options.workflowName !== undefined) {
+    Object.assign(summary, {
+      workflowName: options.workflowName,
+    } satisfies Partial<CleanupRunsOptions>);
+  }
+
+  if (options.workflowVersion !== undefined) {
+    Object.assign(summary, {
+      workflowVersion: options.workflowVersion,
+    } satisfies Partial<CleanupRunsOptions>);
+  }
+
+  if (options.idempotencyKey !== undefined) {
+    Object.assign(summary, {
+      idempotencyKey: options.idempotencyKey,
+    } satisfies Partial<CleanupRunsOptions>);
+  }
+
+  if (options.parentRunId !== undefined) {
+    Object.assign(summary, {
+      parentRunId: options.parentRunId,
+    } satisfies Partial<CleanupRunsOptions>);
+  }
+
+  if (options.parentStepId !== undefined) {
+    Object.assign(summary, {
+      parentStepId: options.parentStepId,
+    } satisfies Partial<CleanupRunsOptions>);
+  }
+
+  if (options.parentStepName !== undefined) {
+    Object.assign(summary, {
+      parentStepName: options.parentStepName,
+    } satisfies Partial<CleanupRunsOptions>);
+  }
+
+  if (options.parentStepAttempt !== undefined) {
+    Object.assign(summary, {
+      parentStepAttempt: options.parentStepAttempt,
+    } satisfies Partial<CleanupRunsOptions>);
+  }
+
+  if (options.dryRun !== undefined) {
+    Object.assign(summary, { dryRun: options.dryRun } satisfies Partial<CleanupRunsOptions>);
+  }
+
+  if (options.limit !== undefined) {
+    Object.assign(summary, { limit: options.limit } satisfies Partial<CleanupRunsOptions>);
+  }
+
+  return summary;
 }
 
 export function workflowHandle<TOutput>(
@@ -48,15 +92,24 @@ export function workflowHandle<TOutput>(
   now: () => Temporal.Instant,
   operations: HandleOperations,
 ): WorkflowHandle<TOutput> {
+  const identity = { runId: runId, workflowName: definition.name } satisfies Partial<
+    WorkflowHandle<TOutput>
+  >;
+
+  if (definition.version !== undefined) {
+    Object.assign(identity, { workflowVersion: definition.version } satisfies Partial<
+      WorkflowHandle<TOutput>
+    >);
+  }
+
   return {
-    runId,
-    workflowName: definition.name,
-    ...(definition.version === undefined ? {} : { workflowVersion: definition.version }),
+    ...identity,
     async getRun() {
       return await getRequiredRun(store, runId);
     },
     async status() {
       const run = await getRequiredRun(store, runId);
+
       return run.status;
     },
     async events() {
@@ -65,7 +118,7 @@ export function workflowHandle<TOutput>(
     async timeline() {
       return await operations.getTimeline(runId);
     },
-    result: async () => await readRunResult<TOutput>(store, runId, now()),
+    result: async () => await readRunResult(store, definition, runId, now()),
     async setMetadata(metadata) {
       return await operations.setMetadata(runId, metadata);
     },
@@ -80,13 +133,16 @@ export function workflowHandle<TOutput>(
 
 export async function readRunResult<TOutput>(
   store: WorkflowRunLookup,
+  definition: WorkflowDefinition<unknown, TOutput, unknown>,
   runId: RunId,
   fallbackAvailableAt: Temporal.Instant,
 ): Promise<ExecutionResult<TOutput>> {
   const run = await getRequiredRun(store, runId);
+
   if (run.status === "completed") {
-    return makeCompletedRunResult<TOutput>(run);
+    return makeCompletedRunResult(definition, run);
   }
+
   if (run.status === "failed") {
     return {
       kind: "failed",
@@ -97,9 +153,11 @@ export async function readRunResult<TOutput>(
       },
     };
   }
+
   if (run.status === "canceled") {
     return makeCanceledRunResult(run);
   }
+
   return {
     kind: "waiting",
     run,
@@ -107,10 +165,20 @@ export async function readRunResult<TOutput>(
   };
 }
 
-export function makeCompletedRunResult<TOutput>(run: WorkflowRunRecord): CompletedResult<TOutput> {
+export function makeCompletedRunResult<TOutput>(
+  definition: WorkflowDefinition<unknown, TOutput, unknown>,
+  run: WorkflowRunRecord,
+): CompletedResult<TOutput> {
+  requireDefinitionMatchesRun(definition, run);
+
+  if (run.status !== "completed") {
+    throw new TypeError("A completed workflow result requires a completed run");
+  }
+
+  // SAFETY: This completed record matches the workflow contract; completion persists only that handler's serialization-validated output.
   return {
     kind: "completed",
-    run: run as WorkflowRunRecord<StorageValue, TOutput>,
+    run: run,
     output: run.output as TOutput,
   };
 }

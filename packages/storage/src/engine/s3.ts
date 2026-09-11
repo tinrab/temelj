@@ -7,10 +7,11 @@ import {
   PutObjectCommand,
   S3Client,
   type S3ClientConfig,
+  type HeadObjectCommandOutput,
 } from "@aws-sdk/client-s3";
+import { isObject } from "@temelj/value";
 
 import {
-  StorageEngineError,
   type StorageEngine,
   type StorageEngineKeyOptions,
   type StorageEngineSetManyItem,
@@ -61,25 +62,8 @@ export interface S3EngineOptions extends S3ClientConfig {
   readonly dispose?: boolean;
 }
 
-interface S3HeadObjectResult {
-  readonly Metadata?: Record<string, string>;
-}
-
-interface S3GetObjectResult extends S3HeadObjectResult {
-  readonly Body?: unknown;
-}
-
-interface S3ListObjectsResult {
-  readonly Contents?: readonly S3ListObject[];
-  readonly IsTruncated?: boolean;
-  readonly NextContinuationToken?: string;
-}
-
-interface S3ListObject {
-  readonly Key?: string;
-}
-
 const EXPIRES_AT_METADATA_KEY = "expires-at";
+
 const DELETE_OBJECT_BATCH_SIZE = 1000;
 
 /**
@@ -104,22 +88,25 @@ export class S3StorageEngine implements StorageEngine<Uint8Array> {
 
   async get(key: string): Promise<Uint8Array | undefined> {
     const storageKey = this.#prefixKey(key);
+
     try {
-      const result = (await this.#getClient().send(
+      const result = await this.#getClient().send(
         new GetObjectCommand({
           Bucket: this.#options.bucket,
           Key: storageKey,
         }),
-      )) as S3GetObjectResult;
+      );
 
       if (await this.#deleteIfExpired(storageKey, result.Metadata)) {
         return undefined;
       }
-      return result.Body === undefined ? undefined : await bodyToUint8Array(result.Body);
+
+      return result.Body === undefined ? undefined : await result.Body.transformToByteArray();
     } catch (error) {
       if (isNotFoundError(error)) {
         return undefined;
       }
+
       throw error;
     }
   }
@@ -129,19 +116,23 @@ export class S3StorageEngine implements StorageEngine<Uint8Array> {
     await Promise.all(
       keys.map(async (key) => {
         const value = await this.get(key);
+
         if (value !== undefined) {
           values.set(key, value);
         }
       }),
     );
+
     return values;
   }
 
   async set(key: string, value: Uint8Array, setOptions?: StorageEngineSetOptions): Promise<void> {
     const storageKey = this.#prefixKey(key);
     const expiresAt = resolveExpiresAt(setOptions, this.#options);
+
     if (expiresAt !== undefined && expiresAt <= Date.now()) {
       await this.#removeObject(storageKey);
+
       return;
     }
 
@@ -162,15 +153,19 @@ export class S3StorageEngine implements StorageEngine<Uint8Array> {
 
   async delete(key: string): Promise<boolean> {
     const storageKey = this.#prefixKey(key);
+
     if (!(await this.#existingObject(storageKey))) {
       return false;
     }
+
     await this.#removeObject(storageKey);
+
     return true;
   }
 
   async deleteMany(keys: readonly string[]): Promise<number> {
     const results = await Promise.all(keys.map((key) => this.delete(key)));
+
     return results.filter(Boolean).length;
   }
 
@@ -184,6 +179,7 @@ export class S3StorageEngine implements StorageEngine<Uint8Array> {
 
   async clear(keyOptions?: StorageEngineKeyOptions): Promise<void> {
     const keys = await this.#listStorageKeys(keyOptions);
+
     for (let index = 0; index < keys.length; index += DELETE_OBJECT_BATCH_SIZE) {
       const batch = keys.slice(index, index + DELETE_OBJECT_BATCH_SIZE);
       await this.#getClient().send(
@@ -202,11 +198,13 @@ export class S3StorageEngine implements StorageEngine<Uint8Array> {
     if (this.#shouldDispose) {
       this.#client?.destroy?.();
     }
+
     this.#client = undefined;
   }
 
   #getClient(): S3EngineClient {
     this.#client ??= new S3Client(this.#options);
+
     return this.#client;
   }
 
@@ -231,18 +229,19 @@ export class S3StorageEngine implements StorageEngine<Uint8Array> {
     );
   }
 
-  async #headObject(storageKey: string): Promise<S3HeadObjectResult | undefined> {
+  async #headObject(storageKey: string): Promise<HeadObjectCommandOutput | undefined> {
     try {
-      return (await this.#getClient().send(
+      return await this.#getClient().send(
         new HeadObjectCommand({
           Bucket: this.#options.bucket,
           Key: storageKey,
         }),
-      )) as S3HeadObjectResult;
+      );
     } catch (error) {
       if (isNotFoundError(error)) {
         return undefined;
       }
+
       throw error;
     }
   }
@@ -254,15 +253,19 @@ export class S3StorageEngine implements StorageEngine<Uint8Array> {
     if (!isExpired(metadata)) {
       return false;
     }
+
     await this.#removeObject(storageKey);
+
     return true;
   }
 
   async #existingObject(storageKey: string): Promise<boolean> {
     const head = await this.#headObject(storageKey);
+
     if (head === undefined) {
       return false;
     }
+
     return !(await this.#deleteIfExpired(storageKey, head.Metadata));
   }
 
@@ -271,19 +274,20 @@ export class S3StorageEngine implements StorageEngine<Uint8Array> {
     let continuationToken: string | undefined;
 
     do {
-      const result = (await this.#getClient().send(
+      const result = await this.#getClient().send(
         new ListObjectsV2Command({
           Bucket: this.#options.bucket,
           ContinuationToken: continuationToken,
           Prefix: this.#listPrefix(keyOptions),
         }),
-      )) as S3ListObjectsResult;
+      );
 
       for (const item of result.Contents ?? []) {
         if (item.Key !== undefined) {
           keys.push(item.Key);
         }
       }
+
       continuationToken = result.IsTruncated === true ? result.NextContinuationToken : undefined;
     } while (continuationToken !== undefined);
 
@@ -292,11 +296,13 @@ export class S3StorageEngine implements StorageEngine<Uint8Array> {
 
   async #liveStorageKeys(keyOptions: StorageEngineKeyOptions | undefined): Promise<string[]> {
     const keys: string[] = [];
+
     for (const storageKey of await this.#listStorageKeys(keyOptions)) {
       if (await this.#existingObject(storageKey)) {
         keys.push(storageKey);
       }
     }
+
     return keys;
   }
 }
@@ -306,79 +312,34 @@ function resolveExpiresAt(
   engineOptions: S3EngineOptions,
 ): number | undefined {
   const ttl = setOptions?.ttl ?? engineOptions.defaultTtl;
+
   return ttl === undefined ? undefined : Date.now() + ttl;
 }
 
 function isExpired(metadata: Record<string, string> | undefined): boolean {
   const expiresAt = metadata?.[EXPIRES_AT_METADATA_KEY];
+
   return expiresAt !== undefined && Number(expiresAt) <= Date.now();
 }
 
-async function bodyToUint8Array(body: unknown): Promise<Uint8Array> {
-  if (body instanceof Uint8Array) {
-    return body.slice();
-  }
-  if (body instanceof ArrayBuffer) {
-    return new Uint8Array(body).slice();
-  }
-  if (isTransformableBody(body)) {
-    return await body.transformToByteArray();
-  }
-  if (isAsyncIterableBody(body)) {
-    const chunks: Uint8Array[] = [];
-    for await (const chunk of body) {
-      chunks.push(chunk instanceof Uint8Array ? chunk : new Uint8Array(chunk));
-    }
-    return concatenate(chunks);
-  }
-  StorageEngineError.objectBodyInvalid("S3");
-}
-
-function isTransformableBody(
-  value: unknown,
-): value is { transformToByteArray(): Promise<Uint8Array> } {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "transformToByteArray" in value &&
-    typeof value.transformToByteArray === "function"
-  );
-}
-
-function isAsyncIterableBody(value: unknown): value is AsyncIterable<Uint8Array | ArrayBuffer> {
-  return typeof value === "object" && value !== null && Symbol.asyncIterator in value;
-}
-
-function concatenate(chunks: readonly Uint8Array[]): Uint8Array {
-  const length = chunks.reduce((total, chunk) => total + chunk.byteLength, 0);
-  const result = new Uint8Array(length);
-  let offset = 0;
-  for (const chunk of chunks) {
-    result.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return result;
-}
-
-function isNotFoundError(error: unknown): boolean {
-  if (typeof error !== "object" || error === null) {
+function isNotFoundError(cause: unknown): boolean {
+  if (!isObject(cause)) {
     return false;
   }
 
-  const candidate = error as {
-    readonly $metadata?: { readonly httpStatusCode?: number };
-    readonly name?: string;
-    readonly Code?: string;
-    readonly code?: string;
-  };
+  if (
+    "$metadata" in cause &&
+    isObject(cause.$metadata) &&
+    "httpStatusCode" in cause.$metadata &&
+    cause.$metadata.httpStatusCode === 404
+  ) {
+    return true;
+  }
+
   return (
-    candidate.$metadata?.httpStatusCode === 404 ||
-    candidate.name === "NoSuchKey" ||
-    candidate.name === "NotFound" ||
-    candidate.Code === "NoSuchKey" ||
-    candidate.Code === "NotFound" ||
-    candidate.code === "NoSuchKey" ||
-    candidate.code === "NotFound"
+    ("name" in cause && (cause.name === "NoSuchKey" || cause.name === "NotFound")) ||
+    ("Code" in cause && (cause.Code === "NoSuchKey" || cause.Code === "NotFound")) ||
+    ("code" in cause && (cause.code === "NoSuchKey" || cause.code === "NotFound"))
   );
 }
 

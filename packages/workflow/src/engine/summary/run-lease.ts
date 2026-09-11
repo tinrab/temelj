@@ -54,20 +54,26 @@ function addWorkflowRunLease(
 ): void {
   lease.total++;
   lease.runIds.add(run.id);
+
   if (run.workerId !== undefined) {
     lease.workerIds.add(run.workerId);
   }
+
   if (run.workerId === undefined || run.leaseExpiresAt === undefined) {
     lease.expired++;
     lease.expiredRunIds.add(run.id);
+
     return;
   }
+
   if (Temporal.Instant.compare(run.leaseExpiresAt, now) <= 0) {
     lease.expired++;
     lease.expiredRunIds.add(run.id);
     setWorkflowRunLeaseOldestExpiration(lease, run);
+
     return;
   }
+
   setWorkflowRunLeaseNextExpiration(lease, run.id, run.leaseExpiresAt);
 }
 
@@ -89,6 +95,7 @@ function setWorkflowRunLeaseNextExpiration(
   ) {
     return;
   }
+
   lease.nextExpiresAt = leaseExpiresAt;
   lease.nextExpiringRunId = runId;
 }
@@ -96,20 +103,31 @@ function setWorkflowRunLeaseNextExpiration(
 function finishWorkflowRunLeaseSummary(
   lease: WorkflowRunLeaseAccumulator,
 ): WorkflowRunLeaseSummary {
-  return {
+  const result1: WorkflowRunLeaseSummary = {
     total: lease.total,
     expired: lease.expired,
     runIds: [...lease.runIds].sort(),
     expiredRunIds: [...lease.expiredRunIds].sort(),
     workerIds: [...lease.workerIds].sort(),
-    ...(lease.nextExpiresAt === undefined
-      ? {}
-      : {
-          nextExpiresAt: lease.nextExpiresAt,
-          ...(lease.nextExpiringRunId === undefined
-            ? {}
-            : { nextExpiringRunId: lease.nextExpiringRunId }),
-        }),
-    ...(lease.oldestExpiredAt === undefined ? {} : { oldestExpiredAt: lease.oldestExpiredAt }),
   };
+
+  if (lease.nextExpiresAt !== undefined) {
+    Object.assign(result1, {
+      nextExpiresAt: lease.nextExpiresAt,
+    } satisfies Partial<WorkflowRunLeaseSummary>);
+
+    if (lease.nextExpiringRunId !== undefined) {
+      Object.assign(result1, {
+        nextExpiringRunId: lease.nextExpiringRunId,
+      } satisfies Partial<WorkflowRunLeaseSummary>);
+    }
+  }
+
+  if (lease.oldestExpiredAt !== undefined) {
+    Object.assign(result1, {
+      oldestExpiredAt: lease.oldestExpiredAt,
+    } satisfies Partial<WorkflowRunLeaseSummary>);
+  }
+
+  return result1;
 }

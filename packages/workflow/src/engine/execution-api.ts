@@ -89,6 +89,7 @@ export function createWorkflowEngineExecutionApi(
         input,
         executionOptions?.start,
       );
+
       return await service.resumer.resumeWorkflow(implementation, handle.runId, {
         signal: executionOptions?.signal,
       });
@@ -103,7 +104,7 @@ export function createWorkflowEngineExecutionApi(
       requireDefinitionMatchesRun(implementation.definition, run);
 
       if (run.status === "completed") {
-        return makeCompletedRunResult<TOutput>(run);
+        return makeCompletedRunResult(implementation.definition, run);
       }
 
       if (run.status === "canceled") {
@@ -111,17 +112,25 @@ export function createWorkflowEngineExecutionApi(
       }
 
       const timestamp = service.now();
+
       if (
         run.deadlineAt !== undefined &&
         Temporal.Instant.compare(run.deadlineAt, timestamp) <= 0
       ) {
         return await service.emitResultLifecycleEvent(
-          await failRunForDeadline(service.store, run, run.deadlineAt, timestamp),
+          await failRunForDeadline(
+            service.store,
+            implementation.definition,
+            run,
+            run.deadlineAt,
+            timestamp,
+          ),
           run,
         );
       }
 
       const availableAt = run.availableAt;
+
       if (availableAt !== undefined && Temporal.Instant.compare(availableAt, timestamp) > 0) {
         return {
           kind: "waiting",

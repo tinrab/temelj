@@ -12,9 +12,11 @@ export function useFocusReturn(enabled: boolean): void {
     if (!isBrowser) {
       return undefined;
     }
+
     if (enabled) {
       previousElementRef.current =
         document.activeElement instanceof HTMLElement ? document.activeElement : null;
+
       return undefined;
     }
 

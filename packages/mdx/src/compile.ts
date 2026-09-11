@@ -57,14 +57,17 @@ export function emitContent(
   state: CompilerState,
 ): void {
   const children = visible(document.children);
+
   if (state.footnotes.length === 0) {
     if (children.length > 1) {
       emitElement(writer, "_Fragment", [], children, document, state);
     } else {
       emitChildren(writer, children, state);
     }
+
     return;
   }
+
   emitElementExpression(
     writer,
     "_Fragment",
@@ -73,10 +76,12 @@ export function emitContent(
     state,
     () => {
       writer.write("children:[");
+
       for (const child of children) {
         emitNode(writer, child, state);
         writer.write(",");
       }
+
       emitFootnoteSection(writer, state);
       writer.write("]");
     },
@@ -90,6 +95,7 @@ export function documentUsesAwait(document: DocumentNode): boolean {
       return true;
     }
   }
+
   return false;
 }
 
@@ -97,6 +103,7 @@ function nodeUsesAwait(node: SyntaxNode<string>): boolean {
   if (node instanceof InlineExpressionNode || node instanceof BlockExpressionNode) {
     return hasJavaScriptToken(node.code) && javascriptExpressionUsesAwait(node.code);
   }
+
   if (node instanceof JsxTextElementNode || node instanceof JsxFlowElementNode) {
     for (const attribute of node.attributes) {
       const code =
@@ -105,11 +112,13 @@ function nodeUsesAwait(node: SyntaxNode<string>): boolean {
           : attribute.value instanceof JsxAttributeValueExpressionNode
             ? attribute.value.code
             : undefined;
+
       if (code !== undefined && javascriptExpressionUsesAwait(code)) {
         return true;
       }
     }
   }
+
   return node.children.some((child) => nodeUsesAwait(child));
 }
 
@@ -159,6 +168,7 @@ function emitNode(
     );
   } else if (node instanceof LinkReferenceNode) {
     const definition = state.definitions.get(normalizeIdentifier(node.identifier));
+
     if (definition === undefined) {
       writer.write(JSON.stringify(node.toSource()), sourceSpan(node));
     } else {
@@ -182,6 +192,7 @@ function emitNode(
     );
   } else if (node instanceof ImageReferenceNode) {
     const definition = state.definitions.get(normalizeIdentifier(node.identifier));
+
     if (definition === undefined) {
       writer.write(JSON.stringify(node.toSource()), sourceSpan(node));
     } else {
@@ -196,6 +207,7 @@ function emitNode(
     }
   } else if (node instanceof FootnoteReferenceNode) {
     const reference = state.footnoteReferences.get(node);
+
     if (reference === undefined) {
       writer.write(JSON.stringify(node.toSource()), sourceSpan(node));
     } else {
@@ -230,13 +242,16 @@ function emitNode(
       state,
     );
     writer.write(" : ");
+
     const properties: Property[] =
       node.language === undefined
         ? []
         : [["className", JSON.stringify(`language-${node.language}`)]];
+
     if (node.meta !== undefined) {
       properties.push(["data-meta", JSON.stringify(node.meta)]);
     }
+
     emitElementExpression(writer, intrinsicTag("pre", state), [], node, state, () => {
       writer.write("children:");
       emitElement(
@@ -256,6 +271,7 @@ function emitNode(
   } else if (node instanceof ListNode) {
     const properties =
       node.ordered && node.start !== 1 ? [["start", String(node.start)] as const] : [];
+
     emitElement(
       writer,
       intrinsicTag(node.ordered ? "ol" : "ul", state),
@@ -266,6 +282,7 @@ function emitNode(
     );
   } else if (node instanceof ListItemNode) {
     const children: Array<FlowContent | PhrasingContent> = [...visible(node.children)];
+
     if (node.checked !== undefined) {
       intrinsicTag("input", state);
       children.unshift(
@@ -278,6 +295,7 @@ function emitNode(
         ),
       );
     }
+
     emitElement(writer, intrinsicTag("li", state), [], children, node, state);
   } else if (node instanceof TableNode) {
     emitTable(writer, node, state);
@@ -319,15 +337,18 @@ function emitNode(
 
 function codeBlockProperties(node: CodeBlockNode): readonly Property[] {
   const source = node.origin;
+
   const sourceProperty =
     source === undefined
       ? ""
       : `, source:{name:${JSON.stringify(source.file.name)},start:${source.start},end:${source.end}}`;
+
   const descriptor = `{kind:"element",name:"pre",attributes:{},codeBlock:{code:${JSON.stringify(
     node.value,
   )},language:${JSON.stringify(node.language ?? "")}${
     node.meta === undefined ? "" : `,meta:${JSON.stringify(node.meta)}`
   }}${sourceProperty}}`;
+
   return [
     ["code", JSON.stringify(node.value)],
     ["language", JSON.stringify(node.language ?? "")],
@@ -370,10 +391,12 @@ function emitFootnoteSection(writer: CodeWriter, state: CompilerState): void {
         state,
         () => {
           writer.write("children:[");
+
           for (const footnote of state.footnotes) {
             emitFootnoteItem(writer, footnote, state);
             writer.write(",");
           }
+
           writer.write("]");
         },
         true,
@@ -398,10 +421,12 @@ function emitFootnoteItem(
     state,
     () => {
       writer.write("children:[");
+
       for (const child of visible(footnote.definition.children)) {
         emitNode(writer, child, state);
         writer.write(",");
       }
+
       for (let occurrence = 1; occurrence <= footnote.count; occurrence++) {
         emitFootnoteBackreference(
           writer,
@@ -413,6 +438,7 @@ function emitFootnoteItem(
         );
         writer.write(",");
       }
+
       writer.write("]");
     },
     true,
@@ -450,15 +476,19 @@ function emitMath(
 ): void {
   const style = node instanceof InlineMathNode ? "inline" : "display";
   writer.write("(props.math ? ");
+
   const properties: Property[] = [
     ["source", JSON.stringify(node.value)],
     ["style", JSON.stringify(style)],
   ];
+
   if (node instanceof DisplayMathNode && node.meta !== undefined) {
     properties.push(["meta", JSON.stringify(node.meta)]);
   }
+
   emitElementExpression(writer, "props.math", properties, node, state);
   writer.write(" : ");
+
   if (node instanceof InlineMathNode) {
     emitElement(
       writer,
@@ -471,6 +501,7 @@ function emitMath(
   } else {
     const properties: Property[] =
       node.meta === undefined ? [] : [["data-math-meta", JSON.stringify(node.meta)]];
+
     emitElementExpression(writer, intrinsicTag("pre", state), properties, node, state, () => {
       writer.write("children:");
       emitElement(
@@ -483,6 +514,7 @@ function emitMath(
       );
     });
   }
+
   writer.write(")");
 }
 
@@ -534,23 +566,30 @@ function emitElementExpression(
   );
   writer.write(`${tag}, {`);
   let emitted = false;
+
   for (const [name, value] of properties) {
     if (emitted) {
       writer.write(", ");
     }
+
     writer.write(name === "..." ? `...${value}` : `${javascriptPropertyName(name)}:${value}`);
     emitted = true;
   }
+
   if (emitExtra !== undefined) {
     if (emitted) {
       writer.write(", ");
     }
+
     emitExtra();
   }
+
   writer.write("}");
+
   if (state.development) {
     writer.write(`, undefined, ${multipleChildren}, ${developmentSource(node, state)}, undefined`);
   }
+
   writer.write(")");
 }
 
@@ -575,6 +614,7 @@ function emitChildren(
       if (index > 0) {
         writer.write(", ");
       }
+
       emitNode(writer, child, state);
     });
     writer.write("]");
@@ -607,10 +647,13 @@ function jsxProperties(
         )})`,
       ];
     }
+
     if (!(attribute instanceof JsxAttributeNode)) {
       CompileError.unsupportedJsxAttribute();
     }
+
     const value = attribute.value;
+
     return [
       attribute.name,
       value === undefined
@@ -633,12 +676,15 @@ function jsxTag(name: string | undefined): string {
 function emitTable(writer: CodeWriter, table: TableNode, state: CompilerState): void {
   const rows = table.children;
   const parts: Array<{ tag: "tbody" | "thead"; rows: readonly TableRowNode[] }> = [];
+
   if (rows.length > 0) {
     parts.push({ tag: "thead", rows: rows.slice(0, 1) });
   }
+
   if (rows.length > 1) {
     parts.push({ tag: "tbody", rows: rows.slice(1) });
   }
+
   emitElementExpression(
     writer,
     intrinsicTag("table", state),
@@ -647,6 +693,7 @@ function emitTable(writer: CodeWriter, table: TableNode, state: CompilerState): 
     state,
     () => {
       writer.write("children:");
+
       if (parts.length === 1) {
         emitTablePart(writer, parts[0], table, state);
       } else {
@@ -655,6 +702,7 @@ function emitTable(writer: CodeWriter, table: TableNode, state: CompilerState): 
           if (index > 0) {
             writer.write(", ");
           }
+
           emitTablePart(writer, part, table, state);
         });
         writer.write("]");
@@ -678,6 +726,7 @@ function emitTablePart(
     state,
     () => {
       writer.write("children:");
+
       if (part.rows.length === 1) {
         emitTableRow(writer, part.rows[0], part.tag === "thead", table, state);
       } else {
@@ -686,6 +735,7 @@ function emitTablePart(
           if (index > 0) {
             writer.write(", ");
           }
+
           emitTableRow(writer, row, false, table, state);
         });
         writer.write("]");
@@ -715,11 +765,14 @@ function emitTableRow(
         if (index > 0) {
           writer.write(", ");
         }
+
         const alignment = table.alignments[index];
+
         const properties =
           alignment === undefined || alignment === "none"
             ? []
             : [["style", `{textAlign:${JSON.stringify(alignment)}}`] as const];
+
         emitElement(
           writer,
           intrinsicTag(header ? "th" : "td", state),
@@ -776,15 +829,19 @@ function javascriptOrigin(
   relativeOffset: number,
 ): { readonly file: SourceSpan["file"]; readonly offset: number } | undefined {
   const span = sourceSpan(node);
+
   return span === undefined ? undefined : { file: span.file, offset: span.start + relativeOffset };
 }
 
 function developmentSource(node: SyntaxNode<string>, state: CompilerState): string {
   const span = sourceSpan(node);
+
   if (span === undefined) {
     return "undefined";
   }
+
   const location = span.file.location(span.start);
+
   return `{fileName:${JSON.stringify(state.sourceName)},lineNumber:${location.line},columnNumber:${location.column}}`;
 }
 

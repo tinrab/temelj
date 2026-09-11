@@ -1,6 +1,6 @@
 import type { StandardOptions } from "./types";
 
-import { type Deferred, defer } from "./defer";
+import { defer } from "./defer";
 import { AbortError } from "./errors";
 
 /**
@@ -14,9 +14,10 @@ export function limit<Args extends unknown[], R>(
 ): (...args: Args) => Promise<R> {
   const signal = options?.signal;
   let activeCount = 0;
+
   const waiting: Array<{
     run: () => void;
-    reject: (reason?: unknown) => void;
+    reject: (cause?: unknown) => void;
   }> = [];
 
   return (...args: Args): Promise<R> => {
@@ -24,9 +25,7 @@ export function limit<Args extends unknown[], R>(
       return Promise.reject(AbortError.create());
     }
 
-    const deferred = defer<R>() as {
-      -readonly [P in keyof Deferred<R>]: Deferred<R>[P];
-    };
+    const deferred = { ...defer<R>() };
 
     const run = () => {
       activeCount++;
@@ -34,6 +33,7 @@ export function limit<Args extends unknown[], R>(
         (value) => {
           activeCount--;
           deferred.resolve(value);
+
           if (waiting.length > 0) {
             waiting.shift()?.run();
           }
@@ -41,6 +41,7 @@ export function limit<Args extends unknown[], R>(
         (error) => {
           activeCount--;
           deferred.reject(error);
+
           if (waiting.length > 0) {
             waiting.shift()?.run();
           }
@@ -57,11 +58,14 @@ export function limit<Args extends unknown[], R>(
       if (signal) {
         const onAbort = () => {
           const index = waiting.indexOf(waiter);
+
           if (index !== -1) {
             waiting.splice(index, 1);
           }
+
           deferred.reject(AbortError.create());
         };
+
         signal.addEventListener("abort", onAbort, { once: true });
 
         const originalResolve = deferred.resolve;

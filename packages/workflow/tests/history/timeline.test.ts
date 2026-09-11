@@ -18,7 +18,8 @@ describe("workflow timeline validation", () => {
           lastTransitionAt: Temporal.Instant.from("2025-01-01T00:00:00Z"),
           lastTransitionReason: "completed",
         },
-        [{ type: "unknown", timestamp: Temporal.Instant.from("2025-01-01T00:00:00Z") } as never],
+        // @ts-expect-error Exercise malformed history supplied by a JavaScript adapter.
+        [{ type: "unknown", timestamp: Temporal.Instant.from("2025-01-01T00:00:00Z") }],
       ),
     ).toThrow("Invalid discriminator value");
   });

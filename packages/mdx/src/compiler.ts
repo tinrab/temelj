@@ -1,5 +1,7 @@
 import type { Schema, SchemaIssue, SchemaOutput } from "@temelj/standard-schema";
 
+import { isObject, isBoolean, isNumber, isBigInt, isString } from "@temelj/value";
+
 import type { Diagnostic } from "./diagnostics.ts";
 import type { FrontmatterObject } from "./model.ts";
 import type { ParserLimit, ParserLimits } from "./parser.ts";
@@ -21,6 +23,7 @@ import { CodeWriter, type SourceMap } from "./source-map.ts";
 import { SourceFile } from "./source.ts";
 
 const defaultMaximumGeneratedCodeBytes = 10 * 1024 * 1024;
+
 const defaultMaximumSourceMapBytes = 5 * 1024 * 1024;
 
 export interface CompileOptions {
@@ -71,6 +74,7 @@ export interface FunctionBodyCompileArtifact extends CompileArtifactBase {
 export type CompileArtifact = ProgramCompileArtifact | FunctionBodyCompileArtifact;
 
 export type CompilerLimit = "maximumGeneratedCodeBytes" | "maximumSourceMapBytes";
+
 export type MdxCompileLimit = ParserLimit | CompilerLimit;
 
 export interface CompileDocumentOptions extends CompileOptions {
@@ -122,6 +126,7 @@ export function compileDocument(
     ) {
       ConfigurationError.invalidCompilerOutputFormat(options.outputFormat);
     }
+
     if (
       options.maximumGeneratedCodeBytes !== undefined &&
       (!Number.isSafeInteger(options.maximumGeneratedCodeBytes) ||
@@ -132,6 +137,7 @@ export function compileDocument(
         options.maximumGeneratedCodeBytes,
       );
     }
+
     if (
       options.maximumSourceMapBytes !== undefined &&
       (!Number.isSafeInteger(options.maximumSourceMapBytes) || options.maximumSourceMapBytes < 0)
@@ -141,6 +147,7 @@ export function compileDocument(
         options.maximumSourceMapBytes,
       );
     }
+
     const state = analyzeDocument(document, options);
     const usesAwait = documentUsesAwait(document);
 
@@ -148,18 +155,23 @@ export function compileDocument(
     emitModulePreamble(writer, state, options);
     emitContentFunction(writer, document, state, options, usesAwait);
     emitPublicComponent(writer, state, options, usesAwait);
+
     if (state.missingReferences.size > 0) {
       emitMissingReferenceHelper(writer);
     }
 
     const program = writer.toString();
+
     const runtimeImportSource = `${options.jsxImportSource ?? "react"}/${
       options.development ? "jsx-dev-runtime" : "jsx-runtime"
     }`;
+
     const functionBody =
       options.outputFormat === "program" ? undefined : toFunctionBody(program, runtimeImportSource);
+
     const code = functionBody?.code ?? program;
     enforceGeneratedCodeLimit(code, options.maximumGeneratedCodeBytes);
+
     try {
       if (functionBody === undefined) {
         parseJavaScriptProgram(code);
@@ -171,6 +183,7 @@ export function compileDocument(
     const map = writer.sourceMap(options.sourceName ?? "source.mdx", options.outputName);
     enforceSourceMapLimit(map, options.maximumSourceMapBytes);
     const frontmatter = options.frontmatter ?? Object.freeze({});
+
     return functionBody === undefined
       ? Object.freeze({ format: "program", code, map, frontmatter })
       : Object.freeze({
@@ -184,6 +197,7 @@ export function compileDocument(
     if (cause instanceof MdxError) {
       throw cause;
     }
+
     CompileError.generationFailed(cause);
   }
 }
@@ -203,10 +217,13 @@ export async function compileMdx(
 ): Promise<MdxCompileOutcome<unknown>> {
   options.signal?.throwIfAborted();
   const parsed = parse(input, { syntax: options.syntax, limits: options.parserLimits });
+
   if (parsed.kind !== "parsed") {
     return parsed;
   }
+
   const diagnostics = new DiagnosticBag(parsed.diagnostics);
+
   const document = await runDocumentTransforms({
     diagnostics,
     document: parsed.document,
@@ -215,22 +232,29 @@ export async function compileMdx(
     signal: options.signal,
     syntax: Object.freeze({ ...options.syntax }),
   });
+
   const transformedDiagnostics = diagnostics.snapshot();
+
   if (hasErrorDiagnostics(transformedDiagnostics)) {
     return invalidOutcome(parsed.file, transformedDiagnostics);
   }
+
   const frontmatterInput = document.frontmatter?.data ?? Object.freeze({});
+
   const frontmatter = await validateFrontmatter(
     parsed.file,
     document,
     frontmatterInput,
     options.frontmatterSchema,
   );
+
   if (frontmatter.kind === "invalid") {
     return frontmatter;
   }
+
   try {
     const transportedFrontmatter = transportFrontmatter(frontmatter.value);
+
     if (transportedFrontmatter.kind === "unsupported") {
       const diagnostic = createDiagnostic({
         severity: "error",
@@ -239,8 +263,10 @@ export async function compileMdx(
         notes: [transportedFrontmatter.reason],
         span: document.frontmatter?.origin,
       });
+
       return invalidOutcome(parsed.file, [diagnostic]);
     }
+
     const artifact = compileDocument(document, {
       development: options.development,
       frontmatter: transportedFrontmatter.value,
@@ -252,6 +278,7 @@ export async function compileMdx(
       providerImportSource: options.providerImportSource,
       sourceName: options.sourceName,
     });
+
     return Object.freeze({
       kind: "compiled",
       file: parsed.file,
@@ -264,17 +291,22 @@ export async function compileMdx(
     if (!(cause instanceof CompileError)) {
       throw cause;
     }
+
     const limit = compilerLimit(cause);
+
     if (limit === undefined) {
       throw cause;
     }
+
     const diagnostic = createDiagnostic({
       severity: "error",
       code: `mdx.limit.${limit}`,
       message: cause.message,
       span: document.origin,
     });
+
     const diagnostics: readonly [Diagnostic] = Object.freeze([diagnostic]);
+
     return Object.freeze({
       kind: "limitExceeded",
       file: parsed.file,
@@ -296,10 +328,13 @@ async function validateFrontmatter(
   if (schema === undefined) {
     return Object.freeze({ kind: "valid", value });
   }
+
   const result = await schema["~standard"].validate(value);
+
   if (result.issues === undefined) {
     return Object.freeze({ kind: "valid", value: result.value });
   }
+
   const diagnostics = result.issues.map((issue) =>
     createDiagnostic({
       severity: "error",
@@ -308,13 +343,13 @@ async function validateFrontmatter(
       span: document.frontmatter?.origin,
     }),
   );
+
   return invalidOutcome(file, diagnostics);
 }
 
 function formatSchemaIssue(issue: SchemaIssue): string {
-  const path = issue.path
-    ?.map((part) => String(typeof part === "object" ? part.key : part))
-    .join(".");
+  const path = issue.path?.map((part) => String(isObject(part) ? part.key : part)).join(".");
+
   return path === undefined || path.length === 0 ? issue.message : `${path}: ${issue.message}`;
 }
 
@@ -322,76 +357,100 @@ type TransportFrontmatterResult =
   | Readonly<{ kind: "transportable"; value: MdxTransportValue }>
   | Readonly<{ kind: "unsupported"; reason: string }>;
 
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- A user-provided schema may produce values that still need transport validation.
 function transportFrontmatter(value: unknown): TransportFrontmatterResult {
   return copyTransportValue(value, "frontmatter", new WeakSet<object>());
 }
 
 function copyTransportValue(
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Recursively validates external schema output against the MDX transport contract.
   value: unknown,
   path: string,
   ancestors: WeakSet<object>,
 ): TransportFrontmatterResult {
-  if (
-    value === null ||
-    typeof value === "boolean" ||
-    typeof value === "number" ||
-    typeof value === "bigint" ||
-    typeof value === "string"
-  ) {
+  if (value === null || isBoolean(value) || isNumber(value) || isBigInt(value) || isString(value)) {
     return Object.freeze({ kind: "transportable", value });
   }
+
   if (value instanceof FrontmatterTemporal) {
     return Object.freeze({
       kind: "transportable",
       value: Object.freeze({ kind: value.kind, value: value.value }),
     });
   }
-  if (typeof value !== "object") {
-    return unsupportedTransport(`${path} contains unsupported ${typeof value}`);
+
+  if (!isObject(value)) {
+    return unsupportedTransport(
+      `${path} contains unsupported ${Object.prototype.toString.call(value)}`,
+    );
   }
+
   if (ancestors.has(value)) {
     return unsupportedTransport(`${path} contains a cycle`);
   }
+
   ancestors.add(value);
+
   if (Array.isArray(value)) {
     const output: MdxTransportValue[] = [];
+
     for (let index = 0; index < value.length; index++) {
       const item = copyTransportValue(value[index], `${path}[${index}]`, ancestors);
+
       if (item.kind === "unsupported") {
         ancestors.delete(value);
+
         return item;
       }
+
       output.push(item.value);
     }
+
     ancestors.delete(value);
+
     return Object.freeze({ kind: "transportable", value: Object.freeze(output) });
   }
+
   const prototype: unknown = Object.getPrototypeOf(value);
+
   if (prototype !== Object.prototype && prototype !== null) {
     ancestors.delete(value);
+
     return unsupportedTransport(`${path} contains a non-plain object`);
   }
+
   if (Object.getOwnPropertySymbols(value).length > 0) {
     ancestors.delete(value);
+
     return unsupportedTransport(`${path} contains a symbol property`);
   }
+
   const output: Record<string, MdxTransportValue> = {};
+
   for (const [key, descriptor] of Object.entries(Object.getOwnPropertyDescriptors(value))) {
     if (!descriptor.enumerable) {
       continue;
     }
+
     if (!("value" in descriptor)) {
       ancestors.delete(value);
+
       return unsupportedTransport(`${path}.${key} is an accessor property`);
     }
+
     const item = copyTransportValue(descriptor.value, `${path}.${key}`, ancestors);
+
     if (item.kind === "unsupported") {
       ancestors.delete(value);
+
       return item;
     }
+
     output[key] = item.value;
   }
+
   ancestors.delete(value);
+
   return Object.freeze({ kind: "transportable", value: Object.freeze(output) });
 }
 
@@ -404,13 +463,16 @@ function invalidOutcome(
   diagnostics: readonly Diagnostic[],
 ): Extract<MdxCompileOutcome<never>, { kind: "invalid" }> {
   const first = diagnostics[0];
+
   if (first === undefined) {
     throw new Error("Invalid compilation outcome requires a diagnostic");
   }
+
   const nonEmpty: readonly [Diagnostic, ...Diagnostic[]] = Object.freeze([
     first,
     ...diagnostics.slice(1),
   ]);
+
   return Object.freeze({
     kind: "invalid",
     file,
@@ -434,12 +496,14 @@ function emitModulePreamble(
   for (const entry of state.esm) {
     writer.write(`${entry.code.trimEnd()}\n`, entry.span);
   }
+
   const importSource = options.jsxImportSource ?? "react";
   writer.write(
     state.development
       ? `import {Fragment as _Fragment, jsxDEV as _jsxDEV} from ${JSON.stringify(`${importSource}/jsx-dev-runtime`)};\n`
       : `import {Fragment as _Fragment, jsx as _jsx, jsxs as _jsxs} from ${JSON.stringify(`${importSource}/jsx-runtime`)};\n`,
   );
+
   if (options.providerImportSource !== undefined) {
     writer.write(
       `import {useMDXComponents as _provideComponents} from ${JSON.stringify(options.providerImportSource)};\n`,
@@ -461,26 +525,32 @@ function emitContentFunction(
     if (index > 0) {
       writer.write(", ");
     }
+
     writer.write(`${javascriptPropertyName(tag)}:${JSON.stringify(tag)}`);
   });
+
   if (options.providerImportSource !== undefined) {
     writer.write(`${tags.length === 0 ? "" : ", "}..._provideComponents()`);
   }
+
   writer.write(
     `${tags.length === 0 && options.providerImportSource === undefined ? "" : ", "}...props.registry?.html};\n`,
   );
 
   const components = [...state.referencedComponents].sort();
+
   for (const component of components) {
     writer.write(
       `  const ${component} = props.registry?.jsx?.[${JSON.stringify(component)}]?.component ?? _components[${JSON.stringify(component)}];\n`,
     );
   }
+
   for (const [reference, component] of state.missingReferences) {
     writer.write(
       `  if (!${reference}) _missingReference(${JSON.stringify(reference)}, ${component});\n`,
     );
   }
+
   writer.write("  return ");
   emitContent(writer, document, state);
   writer.write(";\n}\n");
@@ -494,18 +564,22 @@ function emitPublicComponent(
 ): void {
   writer.write(`export default ${usesAwait ? "async " : ""}function Content(props = {}) {\n`);
   const content = `${usesAwait ? "await " : ""}_createContent(props)`;
+
   if (state.hasInternalLayout) {
     writer.write(`  return ${runtimeCall(state, "Layout", `{...props, children: ${content}}`)};\n`);
   } else {
     writer.write("  const {wrapper: Layout} = {");
+
     if (options.providerImportSource !== undefined) {
       writer.write("..._provideComponents(), ");
     }
+
     writer.write("...props.registry?.html};\n");
     writer.write(
       `  return Layout ? ${runtimeCall(state, "Layout", `{...props, children: ${content}}`)} : ${content};\n`,
     );
   }
+
   writer.write("}\n");
 }
 
@@ -526,6 +600,7 @@ function emitMissingReferenceHelper(writer: CodeWriter): void {
 function enforceGeneratedCodeLimit(code: string, configuredMaximum: number | undefined): void {
   const maximum = configuredMaximum ?? defaultMaximumGeneratedCodeBytes;
   const actual = new TextEncoder().encode(code).byteLength;
+
   if (actual > maximum) {
     CompileError.generatedCodeLimitExceeded(actual, maximum);
   }
@@ -534,6 +609,7 @@ function enforceGeneratedCodeLimit(code: string, configuredMaximum: number | und
 function enforceSourceMapLimit(map: SourceMap, configuredMaximum: number | undefined): void {
   const maximum = configuredMaximum ?? defaultMaximumSourceMapBytes;
   const actual = new TextEncoder().encode(JSON.stringify(map)).byteLength;
+
   if (actual > maximum) {
     CompileError.sourceMapLimitExceeded(actual, maximum);
   }

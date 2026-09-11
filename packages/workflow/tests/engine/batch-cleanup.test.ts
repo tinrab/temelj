@@ -14,6 +14,7 @@ describe("workflow batches and cleanup", () => {
     const engine = createWorkflowEngine({
       createRunId: sequentialRunIds("run_batch_first", "run_batch_second"),
     });
+
     const client = createWorkflowClient({ engine });
     const def = defineWorkflow<string, string>({ name: "batch-start" });
     client.implementWorkflow(def, ({ input }) => input.toUpperCase());
@@ -22,6 +23,7 @@ describe("workflow batches and cleanup", () => {
       { input: "first", options: { idempotencyKey: "first" } },
       { input: "second", options: { idempotencyKey: "second" } },
     ]);
+
     expect(engineHandles.map((handle) => handle.runId)).toEqual([
       "run_batch_first",
       "run_batch_second",
@@ -31,6 +33,7 @@ describe("workflow batches and cleanup", () => {
       { input: "ignored", options: { idempotencyKey: "first" } },
       { input: "ignored", options: { idempotencyKey: "second" } },
     ]);
+
     expect(duplicateHandles.map((handle) => handle.runId)).toEqual([
       "run_batch_first",
       "run_batch_second",
@@ -41,12 +44,14 @@ describe("workflow batches and cleanup", () => {
     const engine = createWorkflowEngine({
       createRunId: sequentialRunIds("run_batch_partial_first", "run_batch_partial_second"),
     });
+
     const def = defineWorkflow<StorageValue, StorageValue>({ name: "batch-partial" });
 
     await expect(
       engine.startWorkflows(def, [
         { input: "created" },
-        { input: { bad: () => "not persisted" } as never },
+        // @ts-expect-error Verify that a JavaScript caller cannot persist a function.
+        { input: { bad: () => "not persisted" } },
       ]),
     ).rejects.toThrow(WorkflowSerializationError);
 
@@ -60,10 +65,12 @@ describe("workflow batches and cleanup", () => {
 
   test("retention policy cleanup applies strict age cutoffs and filters", async () => {
     let now = Temporal.Instant.from("2026-06-01T10:00:00Z");
+
     const engine = createWorkflowEngine({
       now: () => now,
       createRunId: sequentialRunIds("run_retention_old", "run_retention_recent"),
     });
+
     const client = createWorkflowClient({ engine });
     const def = implementWorkflow<undefined, string>({ name: "retention" }, () => "done");
 

@@ -20,6 +20,7 @@ interface WorkflowRecoveryFailedRunAccumulator {
 
 export function createWorkflowRecoveryFailedRunSummaryReducer(): WorkflowRecoveryFailedRunSummaryReducer {
   const failed = createWorkflowRecoveryFailedRunAccumulator();
+
   return {
     addRun(run) {
       addWorkflowRecoveryFailedRun(failed, run);
@@ -44,6 +45,7 @@ function addWorkflowRecoveryFailedRun(
   if (run.status !== "failed") {
     return;
   }
+
   failed.runIds.add(run.id);
   failed.latestFailedAt = latestOptionalWorkflowRecoveryInstant(
     failed.latestFailedAt,
@@ -54,9 +56,16 @@ function addWorkflowRecoveryFailedRun(
 function finishWorkflowRecoveryFailedSummary(
   failed: WorkflowRecoveryFailedRunAccumulator,
 ): WorkflowRecoveryFailedSummary {
-  return {
+  const result1: WorkflowRecoveryFailedSummary = {
     total: failed.runIds.size,
     runIds: [...failed.runIds].sort(),
-    ...(failed.latestFailedAt === undefined ? {} : { latestFailedAt: failed.latestFailedAt }),
   };
+
+  if (failed.latestFailedAt !== undefined) {
+    Object.assign(result1, {
+      latestFailedAt: failed.latestFailedAt,
+    } satisfies Partial<WorkflowRecoveryFailedSummary>);
+  }
+
+  return result1;
 }

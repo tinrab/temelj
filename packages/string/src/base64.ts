@@ -20,6 +20,7 @@ export function encodeBase64(value: Uint8Array): string {
   if ("toBase64" in value) {
     return value.toBase64();
   }
+
   return btoa(bytesToBinary(value));
 }
 
@@ -28,6 +29,7 @@ export function decodeBase64(value: string): Uint8Array {
   if ("fromBase64" in Uint8Array) {
     return Uint8Array.fromBase64(value);
   }
+
   return binaryToBytes(atob(value));
 }
 
@@ -46,6 +48,7 @@ export function encodeBase64Url(value: Uint8Array): string {
   if ("toBase64" in value) {
     return value.toBase64({ alphabet: "base64url", omitPadding: true });
   }
+
   return encodeBase64(value).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
 }
 
@@ -54,16 +57,20 @@ export function decodeBase64Url(value: string): Uint8Array {
   if (value.length % 4 === 1) {
     Base64UrlError.invalidValue();
   }
+
   for (const character of value) {
     if (character !== "=" && !BASE64URL_ALPHABET.includes(character)) {
       Base64UrlError.invalidValue();
     }
   }
+
   const base64 = value.replaceAll("-", "+").replaceAll("_", "/");
   const padding = "=".repeat((4 - (base64.length % 4)) % 4);
+
   if ("fromBase64" in Uint8Array) {
     return Uint8Array.fromBase64(`${value}${padding}`, { alphabet: "base64url" });
   }
+
   return decodeBase64(`${base64}${padding}`);
 }
 
@@ -79,16 +86,20 @@ export function decodeBase64UrlString(value: string): string {
 
 function bytesToBinary(value: Uint8Array): string {
   let binary = "";
+
   for (const byte of value) {
     binary += String.fromCharCode(byte);
   }
+
   return binary;
 }
 
 function binaryToBytes(value: string): Uint8Array {
   const bytes = new Uint8Array(value.length);
+
   for (let index = 0; index < value.length; index++) {
     bytes[index] = value.charCodeAt(index);
   }
+
   return bytes;
 }

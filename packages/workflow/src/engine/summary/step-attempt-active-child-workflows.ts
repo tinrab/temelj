@@ -41,6 +41,7 @@ interface WorkflowStepAttemptActiveChildWorkflowAccumulator {
 
 export function createWorkflowStepAttemptActiveChildWorkflowSummaryReducer(): WorkflowStepAttemptActiveChildWorkflowSummaryReducer {
   const childWorkflow = createWorkflowStepAttemptActiveChildWorkflowAccumulator();
+
   return {
     addAttempt(attempt, attemptKey) {
       if (attempt.kind === "workflow" && attempt.status === "running") {
@@ -75,14 +76,17 @@ function addWorkflowStepAttemptActiveChildWorkflow(
     childWorkflow.oldestStartedAt,
     attempt.startedAt,
   );
+
   if (shouldReplaceWorkflowEarliestDefinedInstant(childWorkflow.nextTimeoutAt, attempt.timeoutAt)) {
     childWorkflow.nextTimeoutAt = attempt.timeoutAt;
     childWorkflow.nextTimeoutStepId = attempt.stepId;
     childWorkflow.nextTimeoutAttemptKey = attemptKey;
   }
+
   if (attempt.childRunId !== undefined) {
     childWorkflow.childRunIds.add(attempt.childRunId);
   }
+
   if (attempt.workflowName !== undefined) {
     childWorkflow.workflows.add(
       attempt.workflowVersion === undefined

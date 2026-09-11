@@ -100,6 +100,7 @@ export function materializeStrictDocument(
   limits: ResolvedParserLimits,
 ): StrictMaterializeResult {
   const indexes = collectIndexes(blocks);
+
   const context: MaterializeContext = {
     definitions: indexes.definitions,
     diagnostics: new DiagnosticBag(),
@@ -113,12 +114,15 @@ export function materializeStrictDocument(
     authoredInvalid: false,
     limit: undefined,
   };
+
   const children: FlowContent[] = [];
   const materializedBlocks: MaterializedBlock[] = [];
+
   for (const block of blocks) {
     const candidates: ReferenceCandidate[] = [];
     context.candidates = candidates;
     const child = materializeBlock(block, context);
+
     if (child !== undefined) {
       children.push(child);
       materializedBlocks.push(
@@ -126,45 +130,59 @@ export function materializeStrictDocument(
       );
     }
   }
+
   context.candidates = undefined;
+
   if (context.limit !== undefined) {
     const diagnostic = limitDiagnostic(file, context.limit);
     const diagnostics: readonly [Diagnostic] = Object.freeze([diagnostic]);
+
     return Object.freeze({
       kind: "limitExceeded",
       limit: context.limit,
       diagnostics,
     });
   }
+
   const diagnostics = context.diagnostics.snapshot();
+
   if (context.authoredInvalid) {
     const errors = diagnostics.filter((diagnostic) => diagnostic.severity === "error");
+
     if (errors.length === 0) {
       throw new Error("Invalid MDX draft did not produce an error diagnostic");
     }
+
     const [first, ...rest] = errors;
+
     if (first === undefined) {
       throw new Error("Invalid MDX diagnostic collection changed unexpectedly");
     }
+
     const invalidDiagnostics: readonly [Diagnostic, ...Diagnostic[]] = Object.freeze([
       first,
       ...rest,
     ]);
+
     return Object.freeze({
       kind: "invalid",
       diagnostics: invalidDiagnostics,
     });
   }
+
   const document = counted(context, new DocumentNode(children, origin(file, 0, file.text.length)));
+
   if (document === undefined || context.limit !== undefined) {
     const diagnostic = limitDiagnostic(file, "maximumNodes");
     const diagnostics: readonly [Diagnostic] = Object.freeze([diagnostic]);
+
     return Object.freeze({
       kind: "limitExceeded",
       limit: "maximumNodes",
       diagnostics,
     });
   }
+
   return Object.freeze({
     kind: "parsed",
     document,
@@ -180,8 +198,10 @@ function materializeBlock(
   if (!enter(context)) {
     return;
   }
+
   try {
     const blockOrigin = origin(context.file, block.range.start, block.range.end);
+
     switch (block.kind) {
       case "paragraph":
         return counted(
@@ -252,22 +272,26 @@ function materializeBlock(
       case "frontmatter": {
         const rawValue = trimFinalLineEnding(context.file.slice(block.value));
         const value = rawValue.replace(/\r\n?|\n/gu, "\n");
+
         const valueOrigin = origin(
           context.file,
           block.value.start,
           block.value.start + rawValue.length,
         );
+
         const data = decodeFrontmatter({
           diagnostics: context.diagnostics,
           format: block.format,
           source: rawValue,
           span: valueOrigin,
         });
+
         return counted(
           context,
           new FrontmatterNode(block.format, value, { data, origin: blockOrigin, valueOrigin }),
         );
       }
+
       case "directive":
         return counted(
           context,
@@ -310,6 +334,7 @@ function materializeBlock(
                 new TableRowNode(
                   row.cells.map((cell) => {
                     const cellRange = inlineSegmentsRange(cell, row.range);
+
                     return new TableCellNode(
                       materializeInline(cell, context),
                       origin(context.file, cellRange.start, cellRange.end),
@@ -323,6 +348,7 @@ function materializeBlock(
         );
       case "expression": {
         const authored = context.file.slice(block.range);
+
         return counted(
           context,
           new BlockExpressionNode(
@@ -331,6 +357,7 @@ function materializeBlock(
           ),
         );
       }
+
       case "esm":
         return counted(
           context,
@@ -349,6 +376,7 @@ function materializeBlock(
           severity: "error",
           span: blockOrigin,
         });
+
         return;
     }
   } finally {
@@ -361,12 +389,15 @@ function materializeBlocks(
   context: MaterializeContext,
 ): FlowContent[] {
   const children: FlowContent[] = [];
+
   for (const block of blocks) {
     const child = materializeBlock(block, context);
+
     if (child !== undefined) {
       children.push(child);
     }
   }
+
   return children;
 }
 
@@ -375,9 +406,11 @@ function materializeInline(
   context: MaterializeContext,
 ): PhrasingContent[] {
   const result = parseInline(new InlineInput(context.file, segments), context.syntax);
+
   if (context.candidates !== undefined) {
     collectReferenceCandidates(result.nodes, context.candidates);
   }
+
   for (const invalid of result.invalid) {
     context.authoredInvalid = true;
     context.diagnostics.add({
@@ -387,6 +420,7 @@ function materializeInline(
       span: origin(context.file, invalid.range.start, invalid.range.end),
     });
   }
+
   return result.nodes.flatMap((node) => materializeInlineNode(node, context));
 }
 
@@ -398,9 +432,11 @@ function collectReferenceCandidates(
     if (node.kind === "reference" || node.kind === "footnoteReference") {
       candidates.push(node);
     }
+
     if ("children" in node) {
       collectReferenceCandidates(node.children, candidates);
     }
+
     if (node.kind === "directive") {
       collectReferenceCandidates(node.label, candidates);
     }
@@ -409,10 +445,12 @@ function collectReferenceCandidates(
 
 function materializeInlineNode(node: InlineSyntax, context: MaterializeContext): PhrasingContent[] {
   const nodeOrigin = origin(context.file, node.range.start, node.range.end);
+
   const children =
     "children" in node
       ? node.children.flatMap((child) => materializeInlineNode(child, context))
       : [];
+
   switch (node.kind) {
     case "text":
       return countedArray(context, new TextNode(node.value, nodeOrigin));
@@ -440,6 +478,7 @@ function materializeInlineNode(node: InlineSyntax, context: MaterializeContext):
       if (!context.definitions.has(node.identifier)) {
         return countedArray(context, new TextNode(context.file.slice(node.range), nodeOrigin));
       }
+
       return countedArray(
         context,
         node.image
@@ -494,7 +533,9 @@ function materializeDirectiveLabel(
   if (label === undefined) {
     return;
   }
+
   const range = inlineSegmentsRange(label, { start: 0, end: 0 });
+
   return new DirectiveLabelNode(
     materializeInline(label, context),
     origin(context.file, range.start, range.end),
@@ -515,6 +556,7 @@ function materializeFlowJsx(
   context: MaterializeContext,
 ): JsxFlowElementNode {
   const parsed = jsxParts(context.file, authored, jsxOrigin.start);
+
   const children =
     parsed.children === undefined || parsed.children.start === parsed.children.end
       ? []
@@ -524,6 +566,7 @@ function materializeFlowJsx(
             origin(context.file, parsed.children.start, parsed.children.end),
           ),
         ];
+
   return new JsxFlowElementNode(parsed.name, parsed.attributes, children, jsxOrigin);
 }
 
@@ -533,10 +576,12 @@ function materializeTextJsx(
   context: MaterializeContext,
 ): JsxTextElementNode {
   const parsed = jsxParts(context.file, authored, jsxOrigin.start);
+
   const children =
     parsed.children === undefined
       ? []
       : materializeInline([{ kind: "source", range: parsed.children }], context);
+
   return new JsxTextElementNode(parsed.name, parsed.attributes, children, jsxOrigin);
 }
 
@@ -549,16 +594,19 @@ interface JsxParts {
 function jsxParts(file: SourceFile, authored: string, sourceOffset: number): JsxParts {
   if (authored.startsWith("<>")) {
     const close = authored.lastIndexOf("</>");
+
     return {
       attributes: [],
       children: close < 2 ? undefined : { start: sourceOffset + 2, end: sourceOffset + close },
       name: undefined,
     };
   }
+
   const name = /^<([A-Za-z_$][\w$:.-]*)/u.exec(authored)?.[1];
   const openingEnd = jsxOpeningEnd(authored);
   const selfClosing = authored.slice(0, openingEnd).trimEnd().endsWith("/>");
   const closingStart = name === undefined ? -1 : authored.lastIndexOf(`</${name}`);
+
   return {
     attributes: jsxAttributes(file, authored, sourceOffset, name?.length ?? 0, openingEnd),
     children:
@@ -572,8 +620,10 @@ function jsxParts(file: SourceFile, authored: string, sourceOffset: number): Jsx
 function jsxOpeningEnd(authored: string): number {
   let quote: "'" | '"' | undefined;
   let braces = 0;
+
   for (let offset = 1; offset < authored.length; offset++) {
     const character = authored[offset];
+
     if (quote !== undefined) {
       if (character === quote && !escapedAt(authored, offset)) {
         quote = undefined;
@@ -588,6 +638,7 @@ function jsxOpeningEnd(authored: string): number {
       return offset + 1;
     }
   }
+
   return authored.length;
 }
 
@@ -601,12 +652,15 @@ function jsxAttributes(
   const attributes: (JsxAttributeNode | JsxSpreadAttributeNode)[] = [];
   const start = nameLength === 0 ? 1 : nameLength + 1;
   const source = authored.slice(start, Math.max(start, openingEnd - 1)).replace(/\/$/u, "");
+
   const pattern =
     /\{\.\.\.([^}]+)\}|([A-Za-z_$][\w$:.-]*)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|\{([^}]*)\}))?/gu;
+
   for (const match of source.matchAll(pattern)) {
     const attributeStart = sourceOffset + start + (match.index ?? 0);
     const attributeEnd = attributeStart + match[0].length;
     const attributeOrigin = origin(file, attributeStart, attributeEnd);
+
     if (match[1] !== undefined) {
       attributes.push(new JsxSpreadAttributeNode(match[1], attributeOrigin));
     } else if (match[2] !== undefined) {
@@ -614,6 +668,7 @@ function jsxAttributes(
         match[5] === undefined
           ? undefined
           : new JsxAttributeValueExpressionNode(match[5], attributeOrigin);
+
       attributes.push(
         new JsxAttributeNode(match[2], {
           value: expression ?? match[3] ?? match[4],
@@ -622,14 +677,17 @@ function jsxAttributes(
       );
     }
   }
+
   return attributes;
 }
 
 function escapedAt(value: string, offset: number): boolean {
   let slashes = 0;
+
   for (let index = offset - 1; index >= 0 && value[index] === "\\"; index--) {
     slashes++;
   }
+
   return slashes % 2 === 1;
 }
 
@@ -641,12 +699,14 @@ interface DependencyIndexes {
 function collectIndexes(blocks: readonly BlockSyntax[]): DependencyIndexes {
   const definitions = new Set<string>();
   const footnotes = new Set<string>();
+
   const visit = (block: BlockSyntax): void => {
     if (block.kind === "definition") {
       definitions.add(normalizeIdentifier(block.identifier));
     } else if (block.kind === "footnoteDefinition") {
       footnotes.add(normalizeIdentifier(block.identifier));
     }
+
     if (
       block.kind === "blockQuote" ||
       block.kind === "footnoteDefinition" ||
@@ -657,7 +717,9 @@ function collectIndexes(blocks: readonly BlockSyntax[]): DependencyIndexes {
       block.items.forEach((item) => item.children.forEach(visit));
     }
   };
+
   blocks.forEach(visit);
+
   return { definitions, footnotes };
 }
 
@@ -674,6 +736,7 @@ function inlineSegmentsRange(
 ): SourceRange {
   const first = segments.find((segment) => segment.kind === "source");
   const last = segments.findLast((segment) => segment.kind === "source");
+
   return first?.kind === "source" && last?.kind === "source"
     ? { start: first.range.start, end: last.range.end }
     : fallback;
@@ -704,20 +767,26 @@ function origin(file: SourceFile, start: number, end: number): SourceSpan {
 
 function enter(context: MaterializeContext): boolean {
   context.depth++;
+
   if (context.depth > context.limits.maximumNestingDepth) {
     context.limit = "maximumNestingDepth";
     context.depth--;
+
     return false;
   }
+
   return true;
 }
 
 function counted<T>(context: MaterializeContext, node: T): T | undefined {
   context.nodes++;
+
   if (context.nodes > context.limits.maximumNodes) {
     context.limit = "maximumNodes";
+
     return;
   }
+
   return node;
 }
 

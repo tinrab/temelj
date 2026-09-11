@@ -128,43 +128,52 @@ export function createWorkflowEngineInspectionApi(
 
     async getTimeline(runId) {
       const run = await getRequiredRun(store, runId);
+
       return createTimeline(run, await store.getEvents(runId));
     },
 
     async listStepAttempts(runId, options?: WorkflowListStepAttemptsOptions) {
       await getRequiredRun(store, runId);
+
       return await store.listStepAttempts(runId, options);
     },
 
     async listStepAttemptsPage(runId, options) {
       await getRequiredRun(store, runId);
+
       return await store.listStepAttemptsPage(runId, options);
     },
 
     async countStepAttempts(runId, options?: WorkflowListStepAttemptsOptions) {
       await getRequiredRun(store, runId);
+
       return await store.countStepAttempts(runId, options);
     },
 
     async repairStepAttempts(runId) {
       await getRequiredRun(store, runId);
+
       return await store.repairStepAttempts(runId);
     },
 
     async repairMessageIdempotencyIndexes(runId) {
       await getRequiredRun(store, runId);
+
       return await store.repairMessageIdempotencyIndexes(runId);
     },
 
     async getStepAttemptSummary(runId, options?: WorkflowListStepAttemptsOptions) {
       await getRequiredRun(store, runId);
       const attempts = await store.listStepAttempts(runId, options);
+
       const reducer = createWorkflowStepAttemptSummaryReducer(
         await getChildRunsForAttempts(store, runId, attempts),
       );
+
       for (const attempt of attempts) {
         reducer.addAttempt(attempt);
       }
+
       return reducer.finish();
     },
   };

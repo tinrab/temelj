@@ -8,6 +8,7 @@ import type {
 } from "./types.ts";
 
 type HtmlComponents = Readonly<Record<string, React.ElementType>>;
+
 type JsxComponents = Readonly<Record<string, React.ElementType>>;
 
 type JsxDefinitions<Components extends JsxComponents> = {
@@ -40,12 +41,14 @@ export function defineMdxRegistry<
   const Jsx extends JsxComponents = Record<never, never>,
 >(definition: MdxRegistryDefinition<Html, Jsx>): MdxRegistry {
   const jsx: Record<string, MdxRegistryEntry> = {};
+
   for (const [name, entry] of Object.entries(definition.jsx ?? {})) {
     jsx[name] = Object.freeze({
       component: entry.component,
       pending: entry.pending,
     });
   }
+
   return Object.freeze({
     html: Object.freeze({ ...definition.html }),
     jsx: Object.freeze(jsx),

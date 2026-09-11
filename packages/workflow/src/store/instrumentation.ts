@@ -22,7 +22,9 @@ export function instrumentWorkflowStorage(
   if (telemetry?.withStorageOperation === undefined) {
     return storage;
   }
+
   const backend = storage.engine.name;
+
   const run = async <T>(
     operation: StorageTelemetryOperation,
     callback: () => Promise<T>,

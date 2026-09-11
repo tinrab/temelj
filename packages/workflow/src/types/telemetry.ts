@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import type { ObservationEventMap } from "./observation.ts";
+import type { ObservationEventArgs } from "./observation.ts";
 import type { ExecutionResult } from "./result.ts";
 import type { WorkflowResolvedStepRetryConfig } from "./retry.ts";
 import type { WorkflowRunRecord } from "./run.ts";
@@ -94,7 +94,10 @@ export interface Telemetry {
   /** Captures ambient trace context for a newly-created workflow run. */
   captureContext?(): TelemetryContext | undefined;
   /** Runs a workflow execution callback with telemetry context. */
-  withRunExecution?<T>(context: RunTelemetryContext, callback: () => Promise<T>): Promise<T>;
+  withRunExecution?<T extends ExecutionResult>(
+    context: RunTelemetryContext,
+    callback: () => Promise<T>,
+  ): Promise<T>;
   /** Runs a durable task callback with telemetry context. */
   withStepExecution?<T>(context: StepTelemetryContext, callback: () => Promise<T>): Promise<T>;
   /** Runs a workflow storage/backend operation callback with telemetry context. */
@@ -107,10 +110,7 @@ export interface Telemetry {
   /** Observes the final outcome of a durable task callback. */
   recordStepExecution?(context: StepTelemetryResultContext): void;
   /** Observes committed workflow observation events. */
-  observe?<Key extends keyof ObservationEventMap>(
-    name: Key,
-    payload: ObservationEventMap[Key],
-  ): void;
+  observe?(...event: ObservationEventArgs): void;
   /** Binds the telemetry adapter to an engine after engine creation. */
   bindEngine?(engine: TelemetryEngine): void;
   /** Releases telemetry resources owned by the adapter. */

@@ -15,8 +15,10 @@ export function useClickAway<T extends Element>(
     if (!isBrowser) {
       return undefined;
     }
+
     const handler = (event: Event) => {
       const node = ref.current;
+
       if (node && event.target instanceof Node && !node.contains(event.target)) {
         callbackRef.current(event);
       }

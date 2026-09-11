@@ -34,13 +34,15 @@ interface WorkflowRunStateSummary {
 }
 
 /** Creates an accumulator for run-record summary fields. */
+export interface WorkflowRunStateSummaryReducer {
+  readonly addRun: (run: WorkflowRunRecord) => void;
+  readonly finish: () => WorkflowRunStateSummary;
+}
+
 export function createWorkflowRunStateSummaryReducer(
   now: Temporal.Instant,
   cleanupCutoff: Temporal.Instant | undefined,
-): {
-  readonly addRun: (run: WorkflowRunRecord) => void;
-  readonly finish: () => WorkflowRunStateSummary;
-} {
+): WorkflowRunStateSummaryReducer {
   const status = createWorkflowRunStatusSummaryReducer();
   const workflow = createWorkflowRunWorkflowSummaryReducer();
   const transition = createWorkflowRunTransitionSummaryReducer();
@@ -55,6 +57,7 @@ export function createWorkflowRunStateSummaryReducer(
       if (!isWorkflowRunStatus(run.status)) {
         return;
       }
+
       status.addRun(run);
       workflow.addRun(run);
       transition.addRun(run);

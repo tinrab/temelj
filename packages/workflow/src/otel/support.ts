@@ -8,8 +8,10 @@ import {
 } from "@opentelemetry/api";
 
 import type { StreamEventKind } from "../types/events.ts";
+import type { ExecutionResult } from "../types/result.ts";
 import type { TelemetryContext } from "../types/telemetry.ts";
 
+import { omitUndefined } from "../collection.ts";
 import { WORKFLOW_ATTRIBUTES } from "../telemetry.ts";
 
 class WorkflowTelemetryException extends Error {
@@ -33,19 +35,23 @@ class WorkflowTelemetryException extends Error {
     );
   }
 
-  static fromUnknown(this: void, error: unknown): WorkflowTelemetryException {
+  static fromUnknown(this: void, cause: unknown): WorkflowTelemetryException {
     return new WorkflowTelemetryException(
-      String(error),
+      String(cause),
       "Error",
       WorkflowTelemetryException.fromUnknown,
     );
   }
 }
 
-export async function withRunSpanStatus<T>(span: Span, callback: () => Promise<T>): Promise<T> {
+export async function withRunSpanStatus<T extends ExecutionResult>(
+  span: Span,
+  callback: () => Promise<T>,
+): Promise<T> {
   try {
     const result = await callback();
     recordWorkflowResultOnSpan(span, result);
+
     return result;
   } catch (error) {
     span.recordException(toException(error));
@@ -60,6 +66,7 @@ export async function withSpanStatus<T>(span: Span, callback: () => Promise<T>):
   try {
     const result = await callback();
     span.setStatus({ code: SpanStatusCode.OK });
+
     return result;
   } catch (error) {
     span.recordException(toException(error));
@@ -70,48 +77,28 @@ export async function withSpanStatus<T>(span: Span, callback: () => Promise<T>):
   }
 }
 
-function recordWorkflowResultOnSpan(span: Span, result: unknown): void {
-  if (!isExecutionResult(result)) {
-    span.setStatus({ code: SpanStatusCode.OK });
-    return;
-  }
+function recordWorkflowResultOnSpan(span: Span, result: ExecutionResult): void {
   span.setAttributes({
     [WORKFLOW_ATTRIBUTES.runStatus]: result.run.status,
     [WORKFLOW_ATTRIBUTES.runTransition]: result.run.lastTransitionReason,
   });
+
   if (result.kind === "failed") {
     span.recordException(result.error);
     span.setStatus({ code: SpanStatusCode.ERROR, message: result.error.message });
+
     return;
   }
-  span.setStatus({ code: SpanStatusCode.OK });
-}
 
-function isExecutionResult(result: unknown): result is
-  | {
-      readonly kind: "completed" | "waiting";
-      readonly run: { readonly lastTransitionReason: string; readonly status: string };
-    }
-  | {
-      readonly error: Error;
-      readonly kind: "failed";
-      readonly run: { readonly lastTransitionReason: string; readonly status: string };
-    } {
-  if (typeof result !== "object" || result === null || !("kind" in result) || !("run" in result)) {
-    return false;
-  }
-  const kind = result.kind;
-  return kind === "completed" || kind === "failed" || kind === "waiting";
+  span.setStatus({ code: SpanStatusCode.OK });
 }
 
 export function contextFromTraceContext(traceContext: TelemetryContext | undefined): Context {
   if (traceContext === undefined) {
     return context.active();
   }
-  return propagation.extract(context.active(), {
-    ...(traceContext.traceparent === undefined ? {} : { traceparent: traceContext.traceparent }),
-    ...(traceContext.tracestate === undefined ? {} : { tracestate: traceContext.tracestate }),
-  });
+
+  return propagation.extract(context.active(), omitUndefined(traceContext));
 }
 
 export function spanLinkFromTraceContext(
@@ -120,14 +107,19 @@ export function spanLinkFromTraceContext(
   if (traceContext?.traceparent === undefined) {
     return undefined;
   }
+
   const match = /^00-([0-9a-f]{32})-([0-9a-f]{16})-([0-9a-f]{2})$/iu.exec(traceContext.traceparent);
+
   if (match === null) {
     return undefined;
   }
+
   const [, traceId, spanId, flags] = match;
+
   if (traceId === "0".repeat(32) || spanId === "0".repeat(16)) {
     return undefined;
   }
+
   return {
     context: {
       traceId,
@@ -158,9 +150,10 @@ export function errorRecordToException(error: {
   return WorkflowTelemetryException.fromRecord(error);
 }
 
-export function toException(error: unknown): Error {
-  if (error instanceof Error) {
-    return error;
+export function toException(cause: unknown): Error {
+  if (cause instanceof Error) {
+    return cause;
   }
-  return WorkflowTelemetryException.fromUnknown(error);
+
+  return WorkflowTelemetryException.fromUnknown(cause);
 }

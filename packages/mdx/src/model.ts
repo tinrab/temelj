@@ -74,6 +74,7 @@ export abstract class BlockNode<
   TKind extends string,
   TChild extends MdxNode = MdxNode,
 > extends ParentNode<TKind, TChild> {}
+
 export abstract class InlineNode<
   TKind extends string,
   TChild extends MdxNode = MdxNode,
@@ -178,6 +179,7 @@ export class LinkNode extends InlineNode<"link", PhrasingContent> {
     const url = changes.url ?? this.url;
     const title = applyOptionalUpdate(this.title, changes.title);
     const children = changes.children ?? this.children;
+
     return url === this.url && title === this.title && sameSequence(this.children, children)
       ? this
       : new LinkNode(url, children, { title, origin: this.origin });
@@ -207,6 +209,7 @@ export class ImageNode extends InlineNode<"image", never> {
     const url = changes.url ?? this.url;
     const alt = changes.alt ?? this.alt;
     const title = applyOptionalUpdate(this.title, changes.title);
+
     return url === this.url && alt === this.alt && title === this.title
       ? this
       : new ImageNode(url, alt, { title, origin: this.origin });
@@ -229,6 +232,7 @@ export class FootnoteReferenceNode extends InlineNode<"footnoteReference", never
   public with(changes: Readonly<{ identifier?: string; label?: string }>): FootnoteReferenceNode {
     const identifier = normalizeIdentifier(changes.identifier ?? this.identifier);
     const label = changes.label ?? this.label;
+
     return identifier === this.identifier && label === this.label
       ? this
       : new FootnoteReferenceNode(identifier, { label, origin: this.origin });
@@ -258,6 +262,7 @@ export class DefinitionNode extends BlockNode<"definition", never> {
     const identifier = normalizeIdentifier(changes.identifier ?? this.identifier);
     const url = changes.url ?? this.url;
     const title = applyOptionalUpdate(this.title, changes.title);
+
     return identifier === this.identifier && url === this.url && title === this.title
       ? this
       : new DefinitionNode(identifier, url, { title, origin: this.origin });
@@ -288,6 +293,7 @@ export class FootnoteDefinitionNode extends BlockNode<"footnoteDefinition", Flow
     const identifier = normalizeIdentifier(changes.identifier ?? this.identifier);
     const label = changes.label ?? this.label;
     const children = changes.children ?? this.children;
+
     return identifier === this.identifier &&
       label === this.label &&
       sameSequence(this.children, children)
@@ -323,6 +329,7 @@ export class FrontmatterNode extends BlockNode<"frontmatter", never> {
   public with(changes: Readonly<{ value?: string; format?: FrontmatterFormat }>): FrontmatterNode {
     const value = changes.value ?? this.value;
     const format = changes.format ?? this.format;
+
     return value === this.value && format === this.format
       ? this
       : new FrontmatterNode(format, value, { origin: this.origin });
@@ -380,12 +387,15 @@ export class DirectiveAttributes implements Iterable<DirectiveAttribute> {
 
   public constructor(entries: readonly DirectiveAttribute[] = []) {
     const names = new Set<string>();
+
     for (const entry of entries) {
       if (names.has(entry.name)) {
         InputError.duplicateDirectiveAttribute(entry.name);
       }
+
       names.add(entry.name);
     }
+
     this.entries = Object.freeze([...entries]);
     Object.freeze(this);
   }
@@ -400,6 +410,7 @@ export class DirectiveAttributes implements Iterable<DirectiveAttribute> {
         return entry.value;
       }
     }
+
     return undefined;
   }
 
@@ -409,16 +420,20 @@ export class DirectiveAttributes implements Iterable<DirectiveAttribute> {
 
   public set(name: string, value: string): DirectiveAttributes {
     const index = this.entries.findIndex((entry) => entry.name === name);
+
     if (index !== -1 && this.entries[index].value === value) {
       return this;
     }
+
     const entries = [...this.entries];
     const attribute = new DirectiveAttribute(name, value);
+
     if (index === -1) {
       entries.push(attribute);
     } else {
       entries.splice(index, 1, attribute);
     }
+
     return new DirectiveAttributes(entries);
   }
 
@@ -439,6 +454,7 @@ function sameDirectiveAttributes(left: DirectiveAttributes, right: DirectiveAttr
     (left.size === right.size &&
       left.entries.every((entry, index) => {
         const other = right.entries[index];
+
         return entry.name === other.name && entry.value === other.value;
       }))
   );
@@ -493,6 +509,7 @@ export class TextDirectiveNode extends InlineNode<"textDirective", DirectiveLabe
     const name = changes.name ?? this.name;
     const label = applyOptionalUpdate(this.label, changes.label);
     const attributes = changes.attributes ?? this.attributes;
+
     return name === this.name &&
       label === this.label &&
       sameDirectiveAttributes(attributes, this.attributes)
@@ -529,6 +546,7 @@ export class LeafDirectiveNode extends BlockNode<"leafDirective", DirectiveLabel
     const name = changes.name ?? this.name;
     const label = applyOptionalUpdate(this.label, changes.label);
     const attributes = changes.attributes ?? this.attributes;
+
     return name === this.name &&
       label === this.label &&
       sameDirectiveAttributes(attributes, this.attributes)
@@ -572,6 +590,7 @@ export class ContainerDirectiveNode extends BlockNode<
     const label = applyOptionalUpdate(this.label, changes.label);
     const attributes = changes.attributes ?? this.attributes;
     const body = changes.body ?? this.body;
+
     return name === this.name &&
       label === this.label &&
       sameDirectiveAttributes(attributes, this.attributes) &&
@@ -591,9 +610,11 @@ export class InlineMathNode extends InlineNode<"inlineMath", never> {
     options: Readonly<{ format: MathFormat; origin?: SourceSpan }>,
   ) {
     super([], options.origin);
+
     if (options.format === "tex" && value.includes("\\)")) {
       InputError.mathDelimiterCollision("inlineMath", "\\)");
     }
+
     this.format = options.format;
     this.value = value;
     Object.freeze(this);
@@ -606,6 +627,7 @@ export class InlineMathNode extends InlineNode<"inlineMath", never> {
   public with(changes: Readonly<{ value?: string; format?: MathFormat }>): InlineMathNode {
     const value = changes.value ?? this.value;
     const format = changes.format ?? this.format;
+
     return value === this.value && format === this.format
       ? this
       : new InlineMathNode(value, { format, origin: this.origin });
@@ -624,14 +646,17 @@ export class DisplayMathNode extends BlockNode<"displayMath", never> {
 
   public constructor(value: string, options: DisplayMathOptions) {
     super([], options.origin);
+
     if (options.format === "tex") {
       if (options.meta !== undefined) {
         InputError.mathMetadataUnsupported();
       }
+
       if (value.includes("\\]")) {
         InputError.mathDelimiterCollision("displayMath", "\\]");
       }
     }
+
     this.format = options.format;
     this.value = value;
     this.meta = options.meta;
@@ -647,15 +672,19 @@ export class DisplayMathNode extends BlockNode<"displayMath", never> {
   ): DisplayMathNode {
     const value = changes.value ?? this.value;
     const format = changes.format ?? this.format;
+
     if (format === "tex") {
       if (changes.meta !== undefined && changes.meta !== null) {
         InputError.mathMetadataUnsupported();
       }
+
       return value === this.value && format === this.format && this.meta === undefined
         ? this
         : new DisplayMathNode(value, { format, origin: this.origin });
     }
+
     const meta = applyOptionalUpdate(this.meta, changes.meta);
+
     return value === this.value && format === this.format && meta === this.meta
       ? this
       : new DisplayMathNode(value, { format, meta, origin: this.origin });
@@ -688,6 +717,7 @@ export class LinkReferenceNode extends InlineNode<"linkReference", PhrasingConte
     const identifier = normalizeIdentifier(changes.identifier ?? this.identifier);
     const referenceKind = changes.referenceKind ?? this.referenceKind;
     const children = changes.children ?? this.children;
+
     return identifier === this.identifier &&
       referenceKind === this.referenceKind &&
       sameSequence(this.children, children)
@@ -728,6 +758,7 @@ export class ImageReferenceNode extends InlineNode<"imageReference", never> {
     const identifier = normalizeIdentifier(changes.identifier ?? this.identifier);
     const alt = changes.alt ?? this.alt;
     const referenceKind = changes.referenceKind ?? this.referenceKind;
+
     return identifier === this.identifier &&
       alt === this.alt &&
       referenceKind === this.referenceKind
@@ -803,6 +834,7 @@ export class HeadingNode extends BlockNode<"heading", PhrasingContent> {
   ): HeadingNode {
     const depth = changes.depth ?? this.depth;
     const children = changes.children ?? this.children;
+
     return depth === this.depth && sameSequence(this.children, children)
       ? this
       : new HeadingNode(depth, children, this.origin);
@@ -833,6 +865,7 @@ export class CodeBlockNode extends BlockNode<"codeBlock", never> {
     const value = changes.value ?? this.value;
     const language = applyOptionalUpdate(this.language, changes.language);
     const meta = applyOptionalUpdate(this.meta, changes.meta);
+
     return value === this.value && language === this.language && meta === this.meta
       ? this
       : new CodeBlockNode(value, { language, meta, origin: this.origin });
@@ -883,6 +916,7 @@ export class ListItemNode extends BlockNode<"listItem", FlowContent> {
     const checked = applyOptionalUpdate(this.checked, changes.checked);
     const spread = changes.spread ?? this.spread;
     const children = changes.children ?? this.children;
+
     return checked === this.checked &&
       spread === this.spread &&
       sameSequence(this.children, children)
@@ -929,6 +963,7 @@ export class ListNode extends BlockNode<"list", ListItemNode> {
     const spread = changes.spread ?? this.spread;
     const start = changes.start ?? this.start;
     const items = changes.items ?? this.items;
+
     return ordered === this.ordered &&
       spread === this.spread &&
       start === this.start &&
@@ -992,6 +1027,7 @@ export class TableNode extends BlockNode<"table", TableRowNode> {
   ): TableNode {
     const alignments = changes.alignments ?? this.alignments;
     const children = changes.children ?? this.children;
+
     return sameSequence(this.alignments, alignments) && sameSequence(this.children, children)
       ? this
       : new TableNode(alignments, children, this.origin);
@@ -1006,6 +1042,7 @@ export class DocumentNode extends BlockNode<"document", FlowContent> {
     super(children, origin);
     const definitions = new Map<string, DefinitionNode>();
     const footnotes = new Map<string, FootnoteDefinitionNode>();
+
     for (const child of children) {
       for (const { node: definition } of selectTree<MdxNode, "definition">(
         child,
@@ -1013,10 +1050,12 @@ export class DocumentNode extends BlockNode<"document", FlowContent> {
         (node) => node.children,
       )) {
         const identifier = normalizeIdentifier(definition.identifier);
+
         if (!definitions.has(identifier)) {
           definitions.set(identifier, definition);
         }
       }
+
       for (const { node: footnote } of selectTree<MdxNode, "footnoteDefinition">(
         child,
         "footnoteDefinition",
@@ -1027,6 +1066,7 @@ export class DocumentNode extends BlockNode<"document", FlowContent> {
         }
       }
     }
+
     this.definitionIndex = definitions;
     this.footnoteIndex = footnotes;
     Object.freeze(this);
@@ -1036,6 +1076,7 @@ export class DocumentNode extends BlockNode<"document", FlowContent> {
   }
   public get frontmatter(): FrontmatterNode | undefined {
     const first = this.children[0];
+
     return first instanceof FrontmatterNode ? first : undefined;
   }
   public footnote(identifier: string): FootnoteDefinitionNode | undefined {
@@ -1060,6 +1101,7 @@ export class InlineExpressionNode extends InlineNode<"inlineExpression", never> 
     Object.freeze(this);
   }
 }
+
 export class BlockExpressionNode extends BlockNode<"blockExpression", never> {
   public readonly kind = "blockExpression";
   public readonly code: string;
@@ -1069,6 +1111,7 @@ export class BlockExpressionNode extends BlockNode<"blockExpression", never> {
     Object.freeze(this);
   }
 }
+
 export class EsmNode extends BlockNode<"esm", never> {
   public readonly kind = "esm";
   public readonly code: string;
@@ -1120,6 +1163,7 @@ export class JsxAttributeNode extends SyntaxNode<"jsxAttribute"> {
   ): JsxAttributeNode {
     const name = changes.name ?? this.name;
     const value = applyOptionalUpdate(this.value, changes.value);
+
     return name === this.name && value === this.value
       ? this
       : new JsxAttributeNode(name, { value, origin: this.origin });
@@ -1167,6 +1211,7 @@ export class JsxTextElementNode extends InlineNode<"jsxTextElement", PhrasingCon
     const name = applyOptionalUpdate(this.name, changes.name);
     const attributes = changes.attributes ?? this.attributes;
     const children = changes.children ?? this.children;
+
     return name === this.name &&
       sameSequence(attributes, this.attributes) &&
       sameSequence(children, this.children)
@@ -1203,6 +1248,7 @@ export class JsxFlowElementNode extends BlockNode<"jsxFlowElement", FlowContent>
     const name = applyOptionalUpdate(this.name, changes.name);
     const attributes = changes.attributes ?? this.attributes;
     const children = changes.children ?? this.children;
+
     return name === this.name &&
       sameSequence(attributes, this.attributes) &&
       sameSequence(children, this.children)

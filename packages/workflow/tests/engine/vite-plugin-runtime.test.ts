@@ -1,6 +1,9 @@
+import { isObject, isFunction } from "@temelj/value";
 import { transformSync } from "esbuild";
 import vm from "node:vm";
 import { describe, expect, it } from "vitest";
+
+import type { WorkflowImplementation } from "../../src/types/definition.ts";
 
 import { createWorkflowClient } from "../../src/client/create.ts";
 import { createWorkflowEngine } from "../../src/engine/create.ts";
@@ -9,7 +12,7 @@ import { Registry } from "../../src/registry.ts";
 import { transformWorkflowSource } from "../../src/vite.ts";
 
 interface EvaluatedWorkflowModule {
-  readonly exports: Record<string, unknown>;
+  readonly exports: object;
 }
 
 describe("Vite plugin runtime", () => {
@@ -28,10 +31,12 @@ export async function calculate(value: number) {
 }
 `,
     );
-    const calculate = mod.exports.calculate as (value: number) => Promise<number>;
+
+    const calculate = workflowFromModule(mod, "calculate");
     const client = createWorkflowClient();
 
-    const handle = await workflowRuntime.runWorkflowFunction(client, calculate, 20);
+    client.register(calculate);
+    const handle = await client.runs.start(calculate.definition, [20]);
     await client.workers.processRun(handle.runId);
 
     await expect(handle.result()).resolves.toBe(42);
@@ -60,10 +65,12 @@ export async function processValue(value: string) {
 }
 `,
     );
-    const processValue = mod.exports.processValue as (value: string) => Promise<string>;
+
+    const processValue = workflowFromModule(mod, "processValue");
     const client = createWorkflowClient();
 
-    const handle = await workflowRuntime.runWorkflowFunction(client, processValue, "  abc  ");
+    client.register(processValue);
+    const handle = await client.runs.start(processValue.definition, ["  abc  "]);
     await client.workers.processRun(handle.runId);
 
     await expect(handle.result()).resolves.toBe("ABC");
@@ -89,13 +96,14 @@ export async function calculate(value: number) {
 }
 `,
     );
-    const calculate = mod.exports.calculate as (value: number) => Promise<number>;
+
+    const calculate = workflowFromModule(mod, "calculate");
     const engine = createWorkflowEngine();
     const registry = new Registry();
     const client = createWorkflowClient({ engine, registry });
 
-    workflowRuntime.registerWorkflowFunctions(registry, [calculate]);
-    const handle = await workflowRuntime.runWorkflowFunction(client, calculate, 20);
+    client.register(calculate);
+    const handle = await client.runs.start(calculate.definition, [20]);
     await client.workers.processRun(handle.runId);
 
     await expect(handle.result()).resolves.toBe(42);
@@ -135,25 +143,17 @@ export async function fanOutWorkflow(incidentId: string, message: string) {
 }
 `,
     );
-    const fanOutWorkflow = mod.exports.fanOutWorkflow as (
-      incidentId: string,
-      message: string,
-    ) => Promise<{
-      readonly incidentId: string;
-      readonly delivered: number;
-      readonly failed: number;
-    }>;
+
+    const fanOutWorkflow = workflowFromModule(mod, "fanOutWorkflow");
+
     const engine = createWorkflowEngine();
     const registry = new Registry();
     const client = createWorkflowClient({ engine, registry });
 
-    workflowRuntime.registerWorkflowFunctions(registry, [fanOutWorkflow]);
-    const handle = await workflowRuntime.runWorkflowFunction(
-      client,
-      fanOutWorkflow,
-      "inc_1",
-      "wake up",
-    );
+    client.register(fanOutWorkflow);
+
+    const handle = await client.runs.start(fanOutWorkflow.definition, ["inc_1", "wake up"]);
+
     await client.workers.processRun(handle.runId);
 
     await expect(handle.result()).resolves.toEqual({
@@ -182,9 +182,11 @@ export async function loadUser(userId: string) {
       "/repo/workflows/steps.ts",
       { root: "/repo" },
     );
+
     if (steps === undefined) {
       throw new Error("Expected steps module to transform");
     }
+
     const main = transformWorkflowSource(
       `
 import { loadUser as readUser } from "./steps";
@@ -198,6 +200,7 @@ export async function welcomeUser(userId: string) {
       "/repo/workflows/main.ts",
       { root: "/repo", manifests: [steps.manifest] },
     );
+
     if (main === undefined) {
       throw new Error("Expected main module to transform");
     }
@@ -206,12 +209,13 @@ export async function welcomeUser(userId: string) {
       "./steps": steps.code,
       "./main": main.code,
     });
-    const welcomeUser = modules["./main"]!.exports.welcomeUser as (
-      userId: string,
-    ) => Promise<string>;
+
+    const welcomeUser = workflowFromModule(modules["./main"]!, "welcomeUser");
+
     const client = createWorkflowClient();
 
-    const handle = await workflowRuntime.runWorkflowFunction(client, welcomeUser, "ada");
+    client.register(welcomeUser);
+    const handle = await client.runs.start(welcomeUser.definition, ["ada"]);
     await client.workers.processRun(handle.runId);
 
     await expect(handle.result()).resolves.toBe("hello ADA");
@@ -226,6 +230,7 @@ function evaluateTransformedWorkflowModule(source: string): EvaluatedWorkflowMod
   const transformed = transformWorkflowSource(source, "/repo/workflows/runtime.ts", {
     root: "/repo",
   });
+
   if (transformed === undefined) {
     throw new Error("Expected workflow source to transform");
   }
@@ -235,27 +240,31 @@ function evaluateTransformedWorkflowModule(source: string): EvaluatedWorkflowMod
     loader: "ts",
     target: "es2022",
   });
-  const module = { exports: {} as Record<string, unknown> };
+
+  const module: EvaluatedModuleState = { exports: {}, evaluated: false };
+
   const context = vm.createContext({
     exports: module.exports,
     module,
-    require(specifier: string): unknown {
+    require(specifier: string): typeof workflowRuntime {
       if (specifier === "@temelj/workflow") {
         return workflowRuntime;
       }
+
       throw new Error(`Unexpected module import: ${specifier}`);
     },
   });
 
   vm.runInContext(output.code, context);
 
-  return { exports: module.exports };
+  return validatedWorkflowModule(module);
 }
 
 function evaluateTransformedWorkflowModules(
   sources: Record<string, string>,
 ): Record<string, EvaluatedWorkflowModule> {
-  const modules: Record<string, { exports: Record<string, unknown>; evaluated: boolean }> = {};
+  const modules: Record<string, EvaluatedModuleState> = {};
+
   for (const specifier of Object.keys(sources)) {
     modules[specifier] = { exports: {}, evaluated: false };
   }
@@ -263,37 +272,71 @@ function evaluateTransformedWorkflowModules(
   const evaluate = (specifier: string): EvaluatedWorkflowModule => {
     const module = modules[specifier];
     const source = sources[specifier];
+
     if (module === undefined || source === undefined) {
       throw new Error(`Unexpected module import: ${specifier}`);
     }
+
     if (module.evaluated) {
-      return { exports: module.exports };
+      return validatedWorkflowModule(module);
     }
+
     const output = transformSync(source, {
       format: "cjs",
       loader: "ts",
       target: "es2022",
     });
+
     const context = vm.createContext({
       exports: module.exports,
       module,
-      require(requiredSpecifier: string): unknown {
+      require(requiredSpecifier: string): object {
         if (requiredSpecifier === "@temelj/workflow") {
           return workflowRuntime;
         }
+
         return evaluate(requiredSpecifier).exports;
       },
     });
 
     vm.runInContext(output.code, context);
     module.evaluated = true;
-    return { exports: module.exports };
+
+    return validatedWorkflowModule(module);
   };
 
   for (const specifier of Object.keys(sources)) {
     evaluate(specifier);
   }
+
   return Object.fromEntries(
-    Object.entries(modules).map(([specifier, module]) => [specifier, { exports: module.exports }]),
+    Object.entries(modules).map(([specifier, module]) => [
+      specifier,
+      validatedWorkflowModule(module),
+    ]),
   );
+}
+
+interface EvaluatedModuleState {
+  exports: unknown;
+  evaluated: boolean;
+}
+
+function validatedWorkflowModule(module: EvaluatedModuleState): EvaluatedWorkflowModule {
+  if (!isObject(module.exports)) throw new TypeError("Expected an object of module exports");
+
+  return { exports: module.exports };
+}
+
+function workflowFromModule(module: EvaluatedWorkflowModule, name: string): WorkflowImplementation {
+  const exported = Object.entries(module.exports).find(([exportName]) => exportName === name)?.[1];
+
+  if (!isFunction(exported)) throw new TypeError("Expected exported workflow function " + name);
+  const registry = new Registry();
+  workflowRuntime.registerWorkflowFunctions(registry, [exported]);
+  const workflow = registry.entries()[0];
+
+  if (workflow === undefined) throw new Error("Expected registered compiled workflow " + name);
+
+  return workflow;
 }

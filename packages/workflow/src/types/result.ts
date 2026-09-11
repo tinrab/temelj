@@ -23,7 +23,7 @@ export type ExecutionResult<TOutput = unknown> =
 /** Execution result for a workflow run that completed during the attempt. */
 export interface CompletedResult<TOutput> {
   readonly kind: "completed";
-  readonly run: WorkflowRunRecord<StorageValue, TOutput>;
+  readonly run: WorkflowRunRecord;
   readonly output: TOutput;
 }
 
@@ -51,7 +51,7 @@ export interface WorkflowHandle<TOutput = unknown> {
   events(): Promise<readonly EventRecord[]>;
   timeline(): Promise<Timeline>;
   result(): Promise<ExecutionResult<TOutput>>;
-  setMetadata(metadata: unknown): Promise<WorkflowRunRecord>;
+  setMetadata(metadata: StorageValue): Promise<WorkflowRunRecord>;
   setAttributes(attributes: WorkflowAttributePatch): Promise<WorkflowRunRecord>;
   cancel(): Promise<WorkflowRunRecord>;
 }
@@ -59,7 +59,7 @@ export interface WorkflowHandle<TOutput = unknown> {
 /** Operations backing a workflow run handle facade. */
 export interface HandleOperations {
   getTimeline(runId: RunId): Promise<Timeline>;
-  setMetadata(runId: RunId, metadata: unknown): Promise<WorkflowRunRecord>;
+  setMetadata(runId: RunId, metadata: StorageValue): Promise<WorkflowRunRecord>;
   setAttributes(runId: RunId, attributes: WorkflowAttributePatch): Promise<WorkflowRunRecord>;
   cancel(runId: RunId): Promise<WorkflowRunRecord>;
 }
