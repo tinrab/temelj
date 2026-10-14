@@ -36,17 +36,27 @@ $ deno add jsr:@temelj/mdx-react # or jsr add @temelj/mdx-react
 ```
 
 React bindings for `@temelj/mdx`.
+React bindings for `@temelj/mdx`. Every renderer resolves components through one
+registry, renders inert content by default, and never runs plugins or evaluates
+code during render.
+
+## Define a registry
 
 ```tsx
-import { defineMdxRegistry, SourceContent, StreamingSourceContent } from "@temelj/mdx-react";
+import {
+  defineMdxRegistry,
+  HighlightedCode,
+  type MdxCodeBlockComponentProps,
+} from "@temelj/mdx-react";
 
-const registry = defineMdxRegistry({
+function CodeBlock({ code, language, meta }: MdxCodeBlockComponentProps) {
+  return <HighlightedCode code={code} highlighter={highlighter} language={language} meta={meta} />;
+}
+
+export const registry = defineMdxRegistry({
   html: { h1: Heading },
-  markdown: {
-    codeBlock: ({ code, language, meta }) => (
-      <HighlightedCode code={code} language={language} meta={meta} />
-    ),
-  },
+  markdown: { codeBlock: CodeBlock },
+  math: KaTeXMath,
   jsx: {
     Alert: { component: Alert },
     Note: {
@@ -60,145 +70,167 @@ const registry = defineMdxRegistry({
     markdown: PendingMarkdown,
   },
 });
-
-<SourceContent registry={registry} source="# Hello" />;
-<StreamingSourceContent registry={registry} source={source} status="streaming" />;
 ```
 
-Both components use safe HTML lowering and never compile or evaluate source.
-Pass syntax options directly when optional syntax is needed. Source components do
-not accept processors, so user plugins never execute during React render.
-`StreamingSourceContent` owns one `MdxStream`. Source edits happen outside React
-render. When status becomes `"complete"`, it completes that stream once and
-passes the strict document to the processor without parsing the source again.
-Changing `syntax` starts a new stream. Unaffected blocks keep their IDs and React
-instances.
-An incomplete registered JSX element renders its entry-specific `pending`
-component first, then `pending.jsx`. Set `pending: null` on an entry to render
-nothing. The renderer waits for an exact committed name, so `<Ale` does not
-invoke the `Alert` fallback.
+- `html` overrides lowered elements by tag name. Components receive the
+  element's props and a plain `node` with its tag name, attributes, and origin.
+- `jsx` lists the components authored JSX may render. Only literal string and
+  boolean attributes are passed. An expression, a spread, or an authored
+  `children`, `key`, `node`, or `ref` attribute keeps the element inert.
+- `markdown.codeBlock` renders fenced code both while it streams and after it
+  settles, so it stays mounted. `status` is `"pending"` or `"complete"`.
+- `math` renders inline and display math. Without it, math keeps a readable code
+  fallback.
+- `pending` renders unfinished JSX and unfinished Markdown while streaming.
 
-`pending.markdown` receives every safe provisional Markdown node through the
-exhaustive `StreamingPendingMarkdownNode` union. This includes unfinished
-emphasis, strong text, deletion, code, fences, links, and images; unresolved
-references; and resolved footnote references and their provisional document-wide
-section. `children` is the node's complete safe default rendering, so returning it
-is a pass-through. Return `null` for `footnoteReference`, `footnoteSection`, and
-`unresolvedFootnoteReference` to withhold footnotes until strict completion.
-Unresolved nodes expose their normalized identifier but never a destination,
-image source, or footnote body. Without a callback, unresolved references render
-exactly as authored.
+The registry is passed as a prop rather than through context, so the static
+renderers also work in React Server Components.
 
-`markdown.codeBlock` is the semantic renderer for both open and closed fenced
-code. Its `status` is `"pending"` while the closing fence is missing and
-`"complete"` once the fence has settled. Using one component for both states
-keeps the highlighted code block mounted as streamed lines arrive and when the
-closing fence is received. When it is omitted, complete code blocks continue
-through `html.pre`, and open fences continue through `pending.markdown`.
+## Render content
 
-Pending props contain only completed quoted strings and committed boolean
-attributes. Every prop is optional because a stream can stop before its value.
-Expressions, spreads, and authored `children`, `key`, `node`, or `ref`
-attributes keep the JSX inert and never invoke registered code. Child
-expressions and raw HTML also remain inert, while Markdown children render as
-they arrive.
-
-Pending math, expressions, ESM, unsafe JSX, JSX expressions, and spreads never
-invoke `pending.markdown`. Committed math uses the caller's `math` component.
-Streaming footnotes share document-wide numbering and one live footnote section
-unless the pending Markdown component replaces or withholds them.
-
-A syntactically complete component renders immediately, even when later
-document content is still streaming. Switching from a pending renderer to the
-real component remounts that JSX subtree because its React element type changes.
-Surrounding stream blocks keep their identity. Strict completion reports
-unfinished JSX through `diagnosticFallback`.
-
-Run configured processors outside React, then pass their outcome to
-`ProcessedContent`:
+`HtmlContent` renders a lowered HTML tree: a `Processor` outcome, a
+`lowerHtml()` result, or a tree sent from a server as JSON. It is hook-free.
 
 ```tsx
+import { Processor } from "@temelj/mdx";
+import { HtmlContent } from "@temelj/mdx-react";
+
 const outcome = await processor.process(source);
-<ProcessedContent outcome={outcome} registry={registry} />;
+
+if (outcome.kind === "ok") {
+  return <HtmlContent registry={registry} tree={outcome.html} />;
+}
 ```
 
-## Trusted compilation and SSR
+`SourceContent` parses and lowers source during render without plugins. Parse
+outside React, or memoize, when the same source renders often.
 
-`compileTrustedMdx()` restores the direct server workflow for executable MDX.
-It parses, validates, compiles, and evaluates once, then returns a discriminated
-outcome containing the module. The typed result exposes the validated default
-component. Named exports remain on the runtime module and need their own validation
-before use. Import resolvers return module objects, and scope bindings retain the
-type of the supplied object:
+```tsx
+<SourceContent registry={registry} source="# Hello" syntax={{ math: "auto" }} fallback="Invalid" />
+```
+
+## Stream content
+
+`useMdxStream` owns one document session. `consume()` reads a `Response`, a
+`ReadableStream`, or an async iterable of strings or bytes; it decodes chunks,
+publishes at most once per frame, and completes the document at EOF.
+
+```tsx
+import { StreamContent, useMdxStream } from "@temelj/mdx-react";
+
+function Answer() {
+  const { view, consume } = useMdxStream({ syntax: { math: "auto" } });
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    fetch("/api/answer", { signal: controller.signal })
+      .then((response) => consume(response, { signal: controller.signal }))
+      .catch(() => {});
+
+    return () => controller.abort();
+  }, [consume]);
+
+  return <StreamContent registry={registry} view={view} />;
+}
+```
+
+Aborting, or calling `reset()`, stops reading and leaves the preview open; the
+promise rejects with the abort reason. The hook also returns `append`, `edit`,
+`complete`, and `reset` for applications that receive text deltas themselves.
+Their identities are stable.
+
+`view` is `streaming`, `complete`, or `failed`:
+
+- `streaming` holds the current preview. Errors stay local to the blocks that
+  contain them; the preview always renders.
+- `complete` holds the strict completion and its lowered HTML. Pass `html` and
+  synchronous `htmlPlugins` to the hook to run them in the store, outside render,
+  so completed output matches a `Processor`.
+- `failed` holds a failed strict completion and the last preview, which stays
+  editable. `StreamContent` renders its `fallback` when one is given.
+
+`StreamContent` keys top-level blocks by `BlockId` and memoizes them, so settled
+blocks do not re-render as the tail grows, and they stay mounted on completion.
+Inside a block, `useMdxBlockStatus()` returns `"pending"` for the open tail and
+`"complete"` otherwise, so components can defer expensive work. An open fence
+renders in groups of four lines, so the DOM only updates the last group.
+
+For a string that grows, such as a chat message from an AI SDK, use
+`StreamSourceContent`. Appends reuse the parser session; other changes become
+edits. Updates apply in a layout effect, so text never lags a frame.
+
+```tsx
+<StreamSourceContent
+  registry={registry}
+  source={message.content}
+  status={done ? "complete" : "streaming"}
+/>
+```
+
+## Highlighted code
+
+`HighlightedCode` accepts a synchronous or asynchronous `SyntaxHighlighter`,
+such as the Shiki adapter from `@temelj/mdx/plugins`. While its block is
+pending, it highlights only completed lines and appends the open line as text,
+so a synchronous highlighter runs once per line rather than once per chunk.
+Asynchronous results keep the previous highlight mounted until the next one
+settles.
+
+## Trusted compilation
+
+`compileTrustedMdx()` parses, transforms, compiles, and evaluates once, then
+returns the module. Only call it for code that is allowed to execute.
 
 ```tsx
 const outcome = await compileTrustedMdx(source, {
+  syntax: { frontmatter: "yaml" },
   resolveImport: (specifier) => trustedModules[specifier],
+  scope: { name: "Ada" },
 });
 
-if (outcome.kind === "compiled") {
+if (outcome.kind === "ok") {
   return <CompiledContent module={outcome.module} registry={registry} />;
 }
 ```
 
-Only call the trusted APIs for code that is allowed to execute. Compilation
-alone does not run expressions or ESM. `evaluateTrustedMdx()` uses dynamic
-function evaluation, so browser use also requires a CSP that permits it.
-
-In a Next.js App Router application, call `compileTrustedMdx()` inside a Server
-Component and render the resulting module there. Do not send the module or the
-semantic document to a Client Component.
-
-TanStack Start uses SSR followed by browser hydration. Compile with
-`compileMdx()` in a server function, return its function-body artifact, and call
-`evaluateTrustedMdx()` during SSR and hydration. The artifact is transportable;
-an evaluated module is not.
-
-The package keeps one root export. Static content renderers and trusted
-compilation are hook-free. `StreamingSourceContent` and `HighlightedCode` carry
-their own `"use client"` directives for React Server Component bundlers.
+In a Next.js Server Component, compile and render there. With TanStack Start,
+call `compile()` in a server function, return the function-body artifact, and
+call `evaluateTrustedMdx()` during SSR and hydration. The artifact is
+transportable; an evaluated module is not. `evaluateTrustedMdx()` uses dynamic
+function evaluation, so browser use requires a CSP that permits it.
 
 ## KaTeX
 
-Pass one semantic math component to parsed, streaming, direct HTML, or compiled
-content. KaTeX and its stylesheet remain application dependencies:
+KaTeX and its stylesheet remain application dependencies:
 
 ```tsx
 import type { MathComponentProps } from "@temelj/mdx-react";
-import katex from "katex";
-import type React from "react";
-import "katex/dist/katex.min.css";
 
-function KaTeXMath({ source, style }: MathComponentProps): React.ReactNode {
+import katex from "katex";
+
+function KaTeXMath({ source, style }: MathComponentProps) {
   const html = katex.renderToString(source, {
     displayMode: style === "display",
     throwOnError: false,
     trust: false,
   });
+
   return style === "display" ? (
     <div dangerouslySetInnerHTML={{ __html: html }} />
   ) : (
     <span dangerouslySetInnerHTML={{ __html: html }} />
   );
 }
-
-<SourceContent source={source} syntax={{ math: "auto" }} math={KaTeXMath} />;
-<StreamingSourceContent source={source} status="complete" math={KaTeXMath} />;
-<CompiledContent module={trustedModule} math={KaTeXMath} />;
 ```
 
 Only the caller-owned KaTeX result enters `dangerouslySetInnerHTML`. Authored raw
-HTML remains inert. Keep `trust: false` unless the application has reviewed the
-KaTeX trust implications for its own input.
+HTML stays inert.
 
-`HighlightedCode` accepts a caller-owned highlighting service. Processor plugins
-belong outside React and their result can be rendered with `ProcessedContent`.
-The React renderer converts HAST attribute names and CSS style strings to React
-props. To highlight an open fence while it streams, render `HighlightedCode`
-from the `pendingFencedCode` branch of `pending.markdown`, using the node's
-`value`, `language`, and `meta`. Each source update replaces the previous
-highlighting request. Synchronous highlighters render the updated code in the
-same React render. Asynchronous highlighters keep the last highlighted block
-mounted until the new result arrives. The same `SyntaxHighlighter` can be passed
-to `SyntaxHighlightPlugin` for strict processing. Import its type from
-`@temelj/mdx/plugin`, which also exports the optional Shiki adapter.
+## Measure bundles and rendering
+
+Run `pnpm --filter @temelj/mdx-react measure:bundles` for minified and gzip
+sizes. Bundle tests cap the core stream, the hook with renderer, and the
+snapshot renderer alone, and keep Shiki and Unified out of them. Run
+`pnpm --filter @temelj/mdx-react measure:rendering` to measure server rendering
+of successive snapshots.

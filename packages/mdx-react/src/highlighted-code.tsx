@@ -1,28 +1,23 @@
 "use client";
 
-import { HtmlElementNode, HtmlTextNode, type HtmlAttributeValue } from "@temelj/mdx";
+import type { HtmlElementNode } from "@temelj/mdx";
+
+import { htmlFallback, InputError } from "@temelj/mdx";
 import {
-  SyntaxHighlightMetadataError,
   parseCodeBlockMetadata,
-  type SyntaxHighlightRequest,
   type SyntaxHighlighter,
-} from "@temelj/mdx/plugin";
-import React, { useEffect, useRef, useState } from "react";
+  type SyntaxHighlightRequest,
+} from "@temelj/mdx/plugins";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 
 import type { MdxRegistry } from "./registry.ts";
 
-import { HtmlNodeContent } from "./source-content.tsx";
-
-type CodeRender = (signal: AbortSignal) => Promise<HtmlElementNode | undefined>;
+import { HtmlContent } from "./content.tsx";
+import { useMdxBlockStatus } from "./stream-content.tsx";
 
 type CodeRenderResult =
-  | Readonly<{
-      element: HtmlElementNode;
-      kind: "highlighted";
-    }>
-  | Readonly<{
-      kind: "unavailable";
-    }>;
+  | Readonly<{ element: HtmlElementNode; kind: "highlighted" }>
+  | Readonly<{ kind: "unavailable" }>;
 
 type SynchronousCodeResult =
   | Readonly<{ element: HtmlElementNode | undefined; kind: "settled" }>
@@ -35,6 +30,12 @@ export interface HighlightedCodeProps {
   readonly highlighter?: SyntaxHighlighter;
   readonly language?: string;
   readonly meta?: string;
+  /**
+   * While `pending`, only completed lines are highlighted and the open line is
+   * appended as text, so a growing fence is highlighted once per line. Defaults
+   * to the enclosing stream block's status.
+   */
+  readonly status?: "complete" | "pending";
   readonly onError?: (cause: unknown) => void;
 }
 
@@ -46,62 +47,75 @@ export function HighlightedCode({
   highlighter,
   language,
   meta,
+  status,
   onError,
 }: HighlightedCodeProps): React.ReactNode {
+  const blockStatus = useMdxBlockStatus();
+  const pending = (status ?? blockStatus) === "pending";
+  const lineEnd = pending ? code.lastIndexOf("\n") : code.length;
+  const stable = lineEnd < 0 ? "" : code.slice(0, lineEnd);
+  const tail = lineEnd < 0 ? code : code.slice(lineEnd);
   const normalizedLanguage = normalizeLanguage(language);
-  const metadata = React.useMemo(() => parseCodeBlockMetadata(meta), [meta]);
+  const metadata = useMemo(() => parseCodeBlockMetadata(meta), [meta]);
   const onErrorReference = useRef(onError);
+
   useEffect(() => {
     onErrorReference.current = onError;
   }, [onError]);
+
   useEffect(() => {
     if (metadata.kind === "invalid") {
-      onErrorReference.current?.(new SyntaxHighlightMetadataError(metadata.issues));
+      try {
+        InputError.invalidCodeBlockMetadata(metadata.issues.map((issue) => issue.message));
+      } catch (cause) {
+        onErrorReference.current?.(cause);
+      }
     }
-  }, [metadata, onErrorReference]);
+  }, [metadata]);
 
-  const request = React.useMemo<SyntaxHighlightRequest | undefined>(
+  const request = useMemo<SyntaxHighlightRequest | undefined>(
     () =>
-      normalizedLanguage === undefined
+      normalizedLanguage === undefined || stable.length === 0
         ? undefined
-        : { code, language: normalizedLanguage, metadata: metadata.metadata },
-    [code, metadata, normalizedLanguage],
+        : { code: stable, language: normalizedLanguage, metadata: metadata.metadata },
+    [metadata, normalizedLanguage, stable],
   );
 
-  const synchronousResult = React.useMemo(
+  const synchronous = useMemo(
     () => synchronousHighlight(highlighter, request),
     [highlighter, request],
   );
 
   useEffect(() => {
-    if (synchronousResult?.kind === "failed") {
-      onErrorReference.current?.(synchronousResult.error);
+    if (synchronous?.kind === "failed") {
+      onErrorReference.current?.(synchronous.error);
     }
-  }, [onErrorReference, synchronousResult]);
+  }, [synchronous]);
 
-  const element = React.useMemo(
-    () => codeFallbackElement(code, normalizedLanguage),
-    [code, normalizedLanguage],
-  );
+  const asynchronous = useAsynchronousHighlight(highlighter, request, onErrorReference);
+  const rendered = synchronous?.kind === "settled" ? synchronous.element : asynchronous;
 
-  const render = React.useMemo(
-    () =>
-      highlighter?.kind !== "asynchronous" || request === undefined
-        ? undefined
-        : (signal: AbortSignal) => highlighter.highlight({ ...request, signal }),
-    [highlighter, request],
-  );
-
-  const asynchronousElement = useRenderedElement(render, onErrorReference);
-
-  const rendered =
-    synchronousResult?.kind === "settled" ? synchronousResult.element : asynchronousElement;
-
-  if (rendered === undefined) {
-    return fallback ?? <HtmlNodeContent node={element} registry={registry} />;
+  if (rendered !== undefined) {
+    return (
+      <HtmlContent
+        registry={registry}
+        tree={tail.length === 0 ? rendered : withTail(rendered, tail)}
+      />
+    );
   }
 
-  return <HtmlNodeContent node={rendered} registry={registry} />;
+  return (
+    fallback ?? (
+      <HtmlContent
+        registry={registry}
+        tree={
+          normalizedLanguage === undefined
+            ? plainCode(code)
+            : htmlFallback({ kind: "codeBlock", code, language: normalizedLanguage })
+        }
+      />
+    )
+  );
 }
 
 function synchronousHighlight(
@@ -109,7 +123,7 @@ function synchronousHighlight(
   request: SyntaxHighlightRequest | undefined,
 ): SynchronousCodeResult | undefined {
   if (highlighter?.kind !== "synchronous" || request === undefined) {
-    return;
+    return undefined;
   }
 
   try {
@@ -119,42 +133,44 @@ function synchronousHighlight(
   }
 }
 
-function useRenderedElement(
-  render: CodeRender | undefined,
+/** Keeps the last highlighted element until a newer request settles. */
+function useAsynchronousHighlight(
+  highlighter: SyntaxHighlighter | undefined,
+  request: SyntaxHighlightRequest | undefined,
   onErrorReference: React.RefObject<((cause: unknown) => void) | undefined>,
 ): HtmlElementNode | undefined {
   const [result, setResult] = useState<CodeRenderResult>();
-  useEffect(() => {
-    const controller = new AbortController();
+  const active = highlighter?.kind === "asynchronous" && request !== undefined;
 
-    if (render === undefined) {
-      return () => controller.abort();
+  useEffect(() => {
+    if (highlighter?.kind !== "asynchronous" || request === undefined) {
+      return;
     }
 
+    const controller = new AbortController();
+
     Promise.resolve()
-      .then(() => render(controller.signal))
-      .then((value) => {
-        if (!controller.signal.aborted) {
-          setResult(
-            value === undefined ? { kind: "unavailable" } : { element: value, kind: "highlighted" },
-          );
-        }
-      })
-      .catch((cause: unknown) => {
-        if (!controller.signal.aborted) {
-          setResult({ kind: "unavailable" });
-          onErrorReference.current?.(cause);
-        }
-      });
+      .then(() => highlighter.highlight({ ...request, signal: controller.signal }))
+      .then(
+        (element) => {
+          if (!controller.signal.aborted) {
+            setResult(
+              element === undefined ? { kind: "unavailable" } : { element, kind: "highlighted" },
+            );
+          }
+        },
+        (cause: unknown) => {
+          if (!controller.signal.aborted) {
+            setResult({ kind: "unavailable" });
+            onErrorReference.current?.(cause);
+          }
+        },
+      );
 
     return () => controller.abort();
-  }, [onErrorReference, render]);
+  }, [highlighter, onErrorReference, request]);
 
-  if (render === undefined || result?.kind !== "highlighted") {
-    return undefined;
-  }
-
-  return result.element;
+  return active && result?.kind === "highlighted" ? result.element : undefined;
 }
 
 function normalizeLanguage(language: string | undefined): string | undefined {
@@ -163,13 +179,36 @@ function normalizeLanguage(language: string | undefined): string | undefined {
   return normalized === undefined || normalized.length === 0 ? undefined : normalized;
 }
 
-function codeFallbackElement(code: string, language: string | undefined): HtmlElementNode {
-  const attributes: Readonly<Record<string, HtmlAttributeValue>> =
-    language === undefined ? {} : { class: [`language-${language}`] };
+/** Appends the open line to the innermost `code` element, or to the root element. */
+function withTail(element: HtmlElementNode, tail: string): HtmlElementNode {
+  const index = element.children.findLastIndex(
+    (child) => child.kind === "element" && child.tagName === "code",
+  );
 
-  return new HtmlElementNode("pre", {}, [
-    new HtmlElementNode("code", attributes, [
-      new HtmlTextNode(code.length === 0 ? "" : `${code}\n`),
-    ]),
-  ]);
+  const code = element.children[index];
+
+  if (code?.kind === "element") {
+    const children = [...element.children];
+    children[index] = withTail(code, tail);
+
+    return { ...element, children };
+  }
+
+  return { ...element, children: [...element.children, { kind: "text", value: tail }] };
+}
+
+function plainCode(code: string): HtmlElementNode {
+  return {
+    kind: "element",
+    tagName: "pre",
+    attributes: {},
+    children: [
+      {
+        kind: "element",
+        tagName: "code",
+        attributes: {},
+        children: [{ kind: "text", value: code.length === 0 ? "" : `${code}\n` }],
+      },
+    ],
+  };
 }

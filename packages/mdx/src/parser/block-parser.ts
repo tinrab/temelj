@@ -1,4 +1,4 @@
-import type { PhysicalLine } from "../source.ts";
+import type { SourceRange } from "../ranges.ts";
 import type { ResolvedSyntaxOptions } from "../syntax-options.ts";
 import type {
   BlockSyntax,
@@ -11,8 +11,8 @@ import type { InlineSegment } from "./inline-input.ts";
 import type { RecognizerResult } from "./recognizer.ts";
 
 import { rangeLength, sourceRange } from "../ranges.ts";
-import { consumeIndent } from "../utility.ts";
-import { isBlank } from "../utility.ts";
+import { PhysicalLineScanner, type PhysicalLine } from "../source.ts";
+import { consumeIndent, isBlank } from "../utility.ts";
 import {
   blockQuoteMarker,
   footnoteMarker,
@@ -47,7 +47,8 @@ import { parseJavaScriptBoundary } from "./javascript-boundary.ts";
 import { matched, noMatch } from "./recognizer.ts";
 
 export interface BlockParserCheckpoint {
-  readonly blocks: readonly BlockSyntax[];
+  readonly length: number;
+  readonly tail: BlockSyntax | undefined;
 }
 
 export class BlockParser {
@@ -56,19 +57,26 @@ export class BlockParser {
   readonly #leaf: LeafParser;
   readonly #syntax: ResolvedSyntaxOptions;
 
-  public constructor(
-    syntax: ResolvedSyntaxOptions,
-    checkpoint: BlockParserCheckpoint = { blocks: [] },
-  ) {
+  public constructor(syntax: ResolvedSyntaxOptions, blocks: readonly BlockSyntax[] = []) {
     this.#syntax = syntax;
     this.#leaf = new LeafParser(syntax);
-    this.#blocks.push(...checkpoint.blocks);
+    this.#blocks.push(...blocks);
   }
 
   public checkpoint(): BlockParserCheckpoint | undefined {
     return this.#containers.length === 0 && this.#leaf.idle
-      ? { blocks: [...this.#blocks] }
+      ? { length: this.#blocks.length, tail: this.#blocks.at(-1) }
       : undefined;
+  }
+
+  public fork(checkpoint: BlockParserCheckpoint): BlockParser {
+    const blocks = this.#blocks.slice(0, checkpoint.length);
+
+    if (checkpoint.tail !== undefined) {
+      blocks[blocks.length - 1] = checkpoint.tail;
+    }
+
+    return new BlockParser(this.#syntax, blocks);
   }
 
   public clone(): BlockParser {
@@ -174,6 +182,8 @@ export class BlockParser {
 
     if (isBlank(source.slice(line.content.start, line.content.end))) {
       markListBlank(this.#containers);
+    } else {
+      settleListBlank(this.#containers, lazy ? this.#containers.length : matchedContainers);
     }
 
     const allowFrontmatter =
@@ -304,7 +314,15 @@ class LeafParser {
       };
     }
 
-    if (active.kind === "jsx" || active.kind === "expression" || active.kind === "esm") {
+    if (active.kind === "jsx") {
+      return {
+        kind: "jsx",
+        range: sourceRange(active.start, active.end),
+        opening: this.#jsxScanner?.opening(),
+      };
+    }
+
+    if (active.kind === "expression" || active.kind === "esm") {
       return {
         kind: active.kind,
         range: sourceRange(active.start, active.end),
@@ -588,25 +606,32 @@ class LeafParser {
       const start =
         embedded.value.kind === "expression" ? embedded.value.markerEnd : line.content.start;
 
+      const text = source.slice(start, line.range.end);
+      let result;
+
       if (embedded.value.kind === "expression") {
-        const scanner = new ExpressionBoundaryScanner();
-        this.#expressionScanner = scanner;
-        const result = scanner.append(source.slice(start, line.range.end));
-
-        if (result.kind !== "open") {
-          blocks.push(this.finishEmbedded(source, result.kind === "invalid"));
-        }
+        this.#expressionScanner = new ExpressionBoundaryScanner();
+        result = this.#expressionScanner.append(text);
       } else {
-        const scanner = new JsxBoundaryScanner();
-        this.#jsxScanner = scanner;
-        const result = scanner.append(source.slice(start, line.range.end));
-
-        if (result.kind !== "open") {
-          blocks.push(this.finishEmbedded(source, result.kind === "invalid"));
-        }
+        this.#jsxScanner = new JsxBoundaryScanner();
+        result = this.#jsxScanner.append(text);
       }
 
-      return blocks;
+      // Like MDX, a construct followed by more content on its line is phrasing content.
+      const phrasing =
+        result.kind === "closed" && !isBlank(source.slice(start + result.offset, line.content.end));
+
+      if (!phrasing) {
+        if (result.kind !== "open") {
+          blocks.push(this.finishEmbedded(source, result.kind === "invalid"));
+        }
+
+        return blocks;
+      }
+
+      this.#active = undefined;
+      this.#expressionScanner = undefined;
+      this.#jsxScanner = undefined;
     }
 
     for (const recognize of [
@@ -690,6 +715,7 @@ class LeafParser {
       this.#active?.kind === "esm"
     ) {
       const active = this.#active;
+      const opening = this.#jsxScanner?.opening();
       this.#active = undefined;
       this.#expressionScanner = undefined;
       this.#jsxScanner = undefined;
@@ -700,6 +726,7 @@ class LeafParser {
           range: sourceRange(active.start, active.end),
           syntax: active.kind,
           state: "incomplete",
+          opening,
         },
       ];
     }
@@ -743,7 +770,8 @@ class LeafParser {
           kind: "invalidMdx",
           range: sourceRange(active.start, active.end),
           syntax: active.kind,
-          state: boundary?.kind === "incompleteAtPhysicalEof" ? "incomplete" : "invalid",
+          // The construct is structurally closed, so later input cannot repair it.
+          state: "invalid",
         };
   }
 
@@ -930,8 +958,9 @@ function appendListItem(
     siblings[siblings.length - 1] = {
       ...previous,
       range: sourceRange(previous.range.start, frame.end),
-      spread: previous.spread || frame.spread,
+      spread: previous.spread || previous.trailingBlank || frame.spread,
       items: [...previous.items, item],
+      trailingBlank: frame.blankPending,
     };
   } else {
     siblings.push({
@@ -942,6 +971,7 @@ function appendListItem(
       spread: frame.spread,
       marker: frame.markerCharacter,
       items: [item],
+      trailingBlank: frame.blankPending,
     });
   }
 
@@ -1072,6 +1102,7 @@ function openContainers(
       start: list.start,
       checked: undefined,
       spread: false,
+      blankPending: false,
       rangeStart: list.markerStart,
       end: line.range.end,
       children: [],
@@ -1124,11 +1155,47 @@ function indentedCodeLine(
       ];
 }
 
+/** Records a blank line in the trailing list items that directly contain it. */
 function markListBlank(containers: ContainerFrame[]): void {
-  for (const [index, frame] of containers.entries()) {
-    if (frame.kind === "listItem" && !frame.spread) {
-      containers[index] = { ...frame, spread: true };
+  for (let index = containers.length - 1; index >= 0; index--) {
+    const frame = containers[index];
+
+    if (frame.kind !== "listItem") {
+      return;
     }
+
+    containers[index] = { ...frame, blankPending: true };
+  }
+}
+
+/**
+ * Resolves pending blank lines once content arrives. Only the deepest surviving
+ * item receives a new direct child after the blank line, which makes it loose. A
+ * new sibling item of a nested list keeps the blank inside that nested list.
+ */
+function settleListBlank(containers: ContainerFrame[], surviving: number): void {
+  const opened = containers[surviving];
+
+  for (let index = 0; index < surviving; index++) {
+    const frame = containers[index];
+
+    if (frame.kind !== "listItem" || !frame.blankPending) {
+      continue;
+    }
+
+    const last = frame.children.at(-1);
+
+    const nestedSibling =
+      opened?.kind === "listItem" &&
+      last?.kind === "list" &&
+      last.ordered === opened.ordered &&
+      last.marker === opened.markerCharacter;
+
+    containers[index] = {
+      ...frame,
+      blankPending: false,
+      spread: frame.spread || (index === surviving - 1 && !nestedSibling),
+    };
   }
 }
 
@@ -1139,6 +1206,28 @@ function contentLine(line: PhysicalLine, contentStart: number): PhysicalLine {
     content: sourceRange(contentStart, line.content.end),
     ending: line.ending,
   };
+}
+
+/**
+ * Parses a nested flow region, such as multi-line JSX children, with offsets in
+ * the enclosing source. Frontmatter is never recognized inside the region.
+ */
+export function parseFlowRange(
+  source: string,
+  range: SourceRange,
+  syntax: ResolvedSyntaxOptions,
+): readonly BlockSyntax[] {
+  const scanner = new PhysicalLineScanner({ offset: range.start });
+  const parser = new BlockParser({ ...syntax, frontmatter: [] });
+
+  for (const physicalLine of [
+    ...scanner.append(source.slice(range.start, range.end)),
+    ...scanner.complete(),
+  ]) {
+    parser.write(source, physicalLine);
+  }
+
+  return parser.finish(source);
 }
 
 export function blockLength(block: BlockSyntax): number {

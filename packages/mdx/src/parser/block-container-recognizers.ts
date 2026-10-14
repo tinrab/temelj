@@ -2,8 +2,7 @@ import type { PhysicalLine } from "../source.ts";
 import type { ContainerFrame } from "./block-syntax.ts";
 
 import { normalizeIdentifier } from "../identifier.ts";
-import { consumeIndent } from "../utility.ts";
-import { findUnescaped, isAsciiDigit, isSpaceOrTab } from "../utility.ts";
+import { consumeIndent, findUnescaped, isAsciiDigit, isBlank, isSpaceOrTab } from "../utility.ts";
 
 export interface QuoteMarker {
   readonly markerStart: number;
@@ -124,6 +123,12 @@ export function listMarker(
   }
 
   const markerEnd = offset;
+
+  // An empty list item cannot interrupt a paragraph.
+  if (interruptingParagraph && isBlank(source.slice(markerEnd, end))) {
+    return;
+  }
+
   const padding = consumeIndent(source, offset, end, 4);
 
   const contentIndent =

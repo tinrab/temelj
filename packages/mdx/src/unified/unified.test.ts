@@ -5,15 +5,23 @@ import { isString } from "@temelj/value";
 import rehypeSlug from "rehype-slug";
 import remarkToc from "remark-toc";
 import { createHighlighter } from "shiki";
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 
-import { ConfigurationError, HtmlTextNode, Processor, TextNode } from "../mod.ts";
-import {
-  DocumentTransformPlugin,
-  HtmlTransformPlugin,
-  type DocumentTransformContext,
-  type HtmlTransformContext,
+import type {
+  DocumentPlugin,
+  DocumentPluginContext,
+  HtmlPlugin,
+  HtmlPluginContext,
 } from "../plugins/mod.ts";
+
+import {
+  ConfigurationError,
+  formatHtml,
+  formatMdx,
+  htmlText,
+  nodeText,
+  Processor,
+} from "../mod.ts";
 import { RehypePluginAdapter, RemarkPluginAdapter } from "./mod.ts";
 
 declare module "unified" {
@@ -38,20 +46,20 @@ const highlighter = await createHighlighter({
   themes: ["github-light", "github-dark"],
 });
 
-class NativeTextPlugin extends DocumentTransformPlugin {
+class NativeTextPlugin implements DocumentPlugin {
   public readonly name = "native";
 
-  public transform(context: DocumentTransformContext) {
-    return context.rewrite({ text: ({ node }) => new TextNode(`${node.value}!`, node.origin) });
+  public transform(context: DocumentPluginContext) {
+    return context.rewrite({ text: ({ node }) => ({ ...node, value: `${node.value}!` }) });
   }
 }
 
-class NativeHtmlTextPlugin extends HtmlTransformPlugin {
+class NativeHtmlTextPlugin implements HtmlPlugin {
   public readonly name = "native-html";
 
-  public transform(context: HtmlTransformContext) {
+  public transform(context: HtmlPluginContext) {
     return context.rewrite({
-      text: ({ node }) => new HtmlTextNode(`${node.value}!`, node.origin),
+      text: ({ node }) => ({ ...node, value: `${node.value}!` }),
     });
   }
 }
@@ -65,9 +73,9 @@ describe("Unified plugin adapters", () => {
 
     const result = processed(processor.processSync("# Table of contents\n\n# Alpha\n\n## Beta\n"));
 
-    expect(result.document.toSource()).toContain("- [Alpha](#alpha)");
-    expect(result.html.toHtml()).toContain('<h1 id="alpha">Alpha</h1>');
-    expect(result.html.toHtml()).toContain('<a href="#beta">Beta</a>');
+    expect(formatMdx(result.document)).toContain("- [Alpha](#alpha)");
+    expect(result.htmlString).toContain('<h1 id="alpha">Alpha</h1>');
+    expect(result.htmlString).toContain('<a href="#beta">Beta</a>');
   });
 
   it("supports options, mutation, root replacement, callbacks, and promises", async () => {
@@ -101,9 +109,7 @@ describe("Unified plugin adapters", () => {
     });
 
     await expect(processor.process("ignored")).resolves.toMatchObject({
-      value: {
-        document: { children: [{ children: [{ value: "replacement" }, { value: " callback" }] }] },
-      },
+      document: { children: [{ children: [{ value: "replacement" }, { value: " callback" }] }] },
     });
     expect(() => processor.processSync("ignored")).toThrow(ConfigurationError);
   });
@@ -126,7 +132,7 @@ describe("Unified plugin adapters", () => {
       }).processSync("value"),
     );
 
-    expect(result.document.toString()).toBe("value preset");
+    expect(nodeText(result.document)).toBe("value preset");
   });
 
   it("groups plugins with presets and converts messages", () => {
@@ -202,7 +208,7 @@ describe("Unified plugin adapters", () => {
       }).processSync("order"),
     );
 
-    expect(result.document.toString()).toBe("order!?");
+    expect(nodeText(result.document)).toBe("order!?");
   });
 
   it("keeps external and native HTML plugins in declared order", () => {
@@ -221,7 +227,7 @@ describe("Unified plugin adapters", () => {
       }).processSync("order"),
     );
 
-    expect(result.html.toString()).toBe("order?!");
+    expect(htmlText(result.html)).toBe("order?!");
   });
 
   it("normalizes HTML and SVG properties without losing data or ARIA names", () => {
@@ -253,7 +259,7 @@ describe("Unified plugin adapters", () => {
       new Processor({
         htmlPlugins: [new RehypePluginAdapter(properties)],
       }).processSync("text"),
-    ).html.toHtml();
+    ).htmlString;
 
     expect(html).toBe(
       '<svg aria-label="chart" class="plot" data-theme="dark" viewBox="0 0 10 10"><path stroke-linecap="round" stroke-width="2"></path></svg>',
@@ -273,16 +279,16 @@ describe("Unified plugin adapters", () => {
 
     const highlighted = processed(
       processor.processSync("```ts\nconst answer = 42\n```"),
-    ).html.toHtml();
+    ).htmlString;
 
-    const fallback = processed(processor.processSync("```unknown\nplain text\n```")).html.toHtml();
+    const fallback = processed(processor.processSync("```unknown\nplain text\n```")).htmlString;
 
     const math = processed(
       new Processor({
         htmlPlugins: [new RehypePluginAdapter(shiki)],
         syntax: { math: "dollar" },
       }).processSync("$$ equation\nx^2\n$$"),
-    ).html.toHtml();
+    ).htmlString;
 
     expect(highlighted).toContain('<pre class="shiki shiki-themes github-light github-dark"');
     expect(highlighted).toContain('<code class="language-ts"');
@@ -325,7 +331,7 @@ describe("Unified plugin adapters", () => {
       documentPlugins: [new RemarkPluginAdapter(fatal)],
     }).processSync("original");
 
-    expect(processed(report).document.toString()).toBe("original");
+    expect(nodeText(processed(report).document)).toBe("original");
     expect(report.diagnostics).toMatchObject([
       { code: "mdx.plugin.unified", message: "stop here", severity: "error" },
     ]);
@@ -373,9 +379,9 @@ describe("Unified plugin adapters", () => {
       }).processSync(source),
     );
 
-    expect(result.document.toString()).toContain("Heading");
-    expect(result.document.toSource()).toContain(':::note[Label]{tone="info"}');
-    expect(result.html.toHtml()).toContain("language-math");
+    expect(nodeText(result.document)).toContain("Heading");
+    expect(formatMdx(result.document)).toContain(':::note[Label]{tone="info"}');
+    expect(result.htmlString).toContain("language-math");
   });
 
   it("rejects parser and compiler plugins at the adapter boundary", () => {
@@ -399,7 +405,7 @@ describe("Unified plugin adapters", () => {
     ).toThrow(ConfigurationError);
   });
 
-  it("uses nominal stage-specific plugin contracts", () => {
+  it("uses stage-specific plugin contracts", () => {
     function rejectInvalidTypes(): void {
       const lookalike = { name: "lookalike" };
       // @ts-expect-error Structural objects are not document plugins.
@@ -410,23 +416,14 @@ describe("Unified plugin adapters", () => {
       new RemarkPluginAdapter({ plugins: [] }, "option");
     }
 
-    void rejectInvalidTypes;
-
-    const wrongStage = new RehypePluginAdapter(rehypeSlug);
-    expect(
-      () =>
-        new Processor({
-          // @ts-expect-error Deliberately supplies a plugin for the wrong stage to verify the runtime boundary.
-          documentPlugins: [wrongStage],
-        }),
-    ).toThrow(ConfigurationError);
+    expectTypeOf(rejectInvalidTypes).toBeFunction();
   });
 });
 
 function processed(outcome: ReturnType<Processor["processSync"]>) {
-  if (outcome.kind !== "processed") {
+  if (outcome.kind !== "ok") {
     throw new Error(`Expected processed outcome, received ${outcome.kind}`);
   }
 
-  return outcome.value;
+  return { ...outcome, htmlString: formatHtml(outcome.html) };
 }

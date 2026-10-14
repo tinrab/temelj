@@ -11,6 +11,7 @@ import { isString } from "@temelj/value";
 import { shikiHighlighter } from "../lib/shiki";
 import { cn } from "../lib/utils";
 import { InlineCode } from "./InlineCode";
+import { KaTeXMath } from "./KaTeXMath";
 import { MdxCodeBlock } from "./MdxCodeBlock";
 import { Alert as UiAlert, AlertDescription, AlertTitle } from "./ui/alert";
 
@@ -91,6 +92,7 @@ export const mdxRegistry = defineMdxRegistry({
       <InlineCode {...props} />
     ),
   },
+  math: KaTeXMath,
   markdown: { codeBlock: CodeBlock },
   jsx: {
     Alert: { component: MdxAlert },

@@ -1,161 +1,48 @@
 "use client";
 
-import { StreamingSourceContent } from "@temelj/mdx-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { StreamContent, useMdxStream } from "@temelj/mdx-react";
+import { useEffect, useState } from "react";
 
-import { KaTeXMath } from "@/components/katex-math";
 import { mdxRegistry } from "@/components/mdx-registry";
-import { Button } from "@/components/ui/button";
 
 import { mdxSyntax } from "../../content.ts";
 
-type StreamState = "idle" | "streaming" | "stopped" | "complete" | "error";
-
 export function StreamingExample(): React.ReactNode {
-  const [source, setSource] = useState("");
-  const [state, setState] = useState<StreamState>("idle");
-  const [errorMessage, setErrorMessage] = useState<string>();
-  const activeRequest = useRef<AbortController | undefined>(undefined);
+  const { view, consume } = useMdxStream({ syntax: mdxSyntax });
+  const [error, setError] = useState<string>();
 
-  useEffect(() => () => activeRequest.current?.abort(), []);
-
-  const start = useCallback(async () => {
-    activeRequest.current?.abort();
+  useEffect(() => {
     const controller = new AbortController();
-    activeRequest.current = controller;
-    setSource("");
-    setErrorMessage(undefined);
-    setState("streaming");
 
-    try {
-      const response = await fetch("/api/mdx", {
-        cache: "no-store",
-        signal: controller.signal,
+    fetch("/api/mdx", { signal: controller.signal })
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error("Could not load the MDX stream");
+        }
+
+        return consume(response, { signal: controller.signal });
+      })
+      .catch((cause: unknown) => {
+        if (!controller.signal.aborted) {
+          setError(cause instanceof Error ? cause.message : "The stream failed");
+        }
       });
 
-      if (!response.ok) {
-        throw new Error(`The stream returned HTTP ${response.status}`);
-      }
-
-      if (response.body === null) {
-        throw new Error("The stream response did not include a body");
-      }
-
-      const decoder = new TextDecoder();
-      const reader = response.body.getReader();
-
-      while (true) {
-        const result = await reader.read();
-
-        if (result.done) {
-          break;
-        }
-
-        const content = decoder.decode(result.value, { stream: true });
-
-        if (content.length > 0) {
-          setSource((current) => current + content);
-        }
-      }
-
-      const remaining = decoder.decode();
-
-      if (remaining.length > 0) {
-        setSource((current) => current + remaining);
-      }
-
-      if (activeRequest.current === controller) {
-        setState("complete");
-      }
-    } catch (error) {
-      if (!controller.signal.aborted && activeRequest.current === controller) {
-        setErrorMessage(error instanceof Error ? error.message : "The stream failed");
-        setState("error");
-      }
-    } finally {
-      if (activeRequest.current === controller) {
-        activeRequest.current = undefined;
-      }
-    }
-  }, []);
-
-  const stop = useCallback(() => {
-    activeRequest.current?.abort();
-    activeRequest.current = undefined;
-    setState("stopped");
-  }, []);
+    return () => controller.abort();
+  }, [consume]);
 
   return (
     <>
       <h1 className="text-3xl font-bold">Streaming MDX</h1>
-
-      <div className="flex items-center gap-3">
-        <Button onPress={state === "streaming" ? stop : () => void start()}>
-          {streamButtonLabel(state)}
-        </Button>
-        <output aria-live="polite" className="text-muted-foreground text-sm">
-          {statusLabel(state)}
-        </output>
-      </div>
-
       <section
-        aria-busy={state === "streaming"}
+        aria-busy={view.kind === "streaming" && error === undefined}
         aria-label="Streamed MDX output"
-        className="min-h-80 rounded-lg border p-4"
+        className="typeset streaming-caret min-h-80 rounded-lg border p-4"
+        data-streaming={view.kind === "streaming"}
       >
-        {source.length === 0 ? (
-          <p className="text-muted-foreground">Start the stream to render the incoming MDX.</p>
-        ) : (
-          <div className="typeset">
-            <StreamingSourceContent
-              registry={mdxRegistry}
-              math={KaTeXMath}
-              source={source}
-              status={state === "complete" ? "complete" : "streaming"}
-              syntax={mdxSyntax}
-            />
-            {state === "streaming" ? (
-              <span aria-hidden="true" className="inline-block animate-pulse">
-                ▋
-              </span>
-            ) : null}
-          </div>
-        )}
+        <StreamContent registry={mdxRegistry} view={view} />
       </section>
-
-      {errorMessage === undefined ? null : (
-        <p className="text-destructive" role="alert">
-          {errorMessage}
-        </p>
-      )}
+      {error && <p role="alert">{error}</p>}
     </>
   );
-}
-
-function statusLabel(state: StreamState): string {
-  switch (state) {
-    case "idle":
-      return "Ready";
-    case "streaming":
-      return "Receiving MDX...";
-    case "stopped":
-      return "Stream stopped";
-    case "complete":
-      return "Stream complete";
-    case "error":
-      return "Stream failed";
-  }
-}
-
-function streamButtonLabel(state: StreamState): string {
-  switch (state) {
-    case "streaming":
-      return "Stop stream";
-    case "complete":
-    case "error":
-      return "Stream again";
-    case "idle":
-    case "stopped":
-      return "Start stream";
-  }
 }

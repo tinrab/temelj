@@ -1,42 +1,34 @@
 import { isFunction } from "@temelj/value";
 
-import type { HtmlAttributes } from "./html.ts";
+import type {
+  HtmlAttributes,
+  HtmlElementNode,
+  HtmlFootnoteSectionNode,
+  HtmlNode,
+  HtmlRootNode,
+  HtmlTextNode,
+} from "./html.ts";
 import type {
   ContainerDirectiveNode,
-  DefinitionNode,
+  DirectiveAttribute,
+  DocumentIndex,
   DocumentNode,
   FootnoteReferenceNode,
-  LinkNode,
-  LinkReferenceNode,
   LeafDirectiveNode,
+  LinkReferenceNode,
   ListItemNode,
   ListNode,
-  TableCellNode,
+  MdxNode,
+  SourceRange,
+  TableAlignment,
   TableNode,
   TableRowNode,
   TextDirectiveNode,
-  MdxNode,
-  SourceSpan,
-  TableAlignment,
 } from "./model.ts";
+import type { SourceFile } from "./source.ts";
 
-import {
-  HtmlCodeBlockNode,
-  HtmlCommentNode,
-  HtmlDoctypeNode,
-  HtmlDocumentNode,
-  HtmlElementNode,
-  HtmlFragmentNode,
-  HtmlFootnoteReferenceNode,
-  HtmlFootnoteSectionNode,
-  HtmlJsxNode,
-  HtmlMathNode,
-  HtmlRawNode,
-  HtmlTextNode,
-  isHtmlNode,
-  type HtmlNode,
-} from "./html.ts";
-import { selectTree } from "./tree.ts";
+import { formatMdx } from "./format.ts";
+import { indexDocument, mdxChildren } from "./model.ts";
 import { normalizeUri } from "./uri.ts";
 import { isUrlControlCharacter } from "./utility.ts";
 
@@ -48,6 +40,17 @@ export interface HtmlRenderOptions {
     | ((referenceIndex: number, rereferenceIndex: number) => string);
   readonly footnoteLabel?: string;
   readonly footnoteLabelTagName?: string;
+  /** The file that node origins refer to. Inert fallbacks then keep authored text. */
+  readonly source?: SourceFile;
+  /**
+   * Rewrites link and image URLs. `sanitized` is the default policy result, or
+   * `undefined` when the default removes the URL; returning `undefined` removes it.
+   */
+  readonly urlTransform?: (
+    url: string,
+    kind: "image" | "link",
+    sanitized: string | undefined,
+  ) => string | undefined;
 }
 
 interface FootnoteReferenceInfo {
@@ -55,14 +58,28 @@ interface FootnoteReferenceInfo {
   readonly reuse: number;
 }
 
+/**
+ * Lowered HTML by node identity, separately for tight and loose list context. A
+ * cache is valid while definitions and footnote numbering are unchanged.
+ */
+export interface HtmlLoweringCache {
+  readonly loose: WeakMap<MdxNode, LoweredHtml>;
+  readonly tight: WeakMap<MdxNode, LoweredHtml>;
+}
+
 interface HtmlLoweringContext {
-  readonly definition: (identifier: string) => DefinitionNode | undefined;
+  readonly cache: HtmlLoweringCache | undefined;
+  readonly index: DocumentIndex;
   readonly footnoteReference: (node: FootnoteReferenceNode) => HtmlNode;
   readonly listLoose: boolean;
   readonly options: HtmlRenderOptions;
 }
 
 type LoweredHtml = HtmlNode | readonly HtmlNode[] | undefined;
+
+export function createHtmlLoweringCache(): HtmlLoweringCache {
+  return { loose: new WeakMap(), tight: new WeakMap() };
+}
 
 const percentEncodedByteLength = 2;
 
@@ -74,73 +91,147 @@ const linkSchemes = new Set(["http", "https", "irc", "ircs", "mailto", "xmpp"]);
 
 const imageSchemes = new Set(["http", "https"]);
 
-export function renderHtml(
-  document: DocumentNode,
-  options: HtmlRenderOptions = {},
-): HtmlDocumentNode {
-  const order: string[] = [];
-  const indexes = new Map<string, number>();
-  const counts = new Map<string, number>();
-  const references = new Map<FootnoteReferenceNode, FootnoteReferenceInfo>();
-
-  for (const { node: reference } of selectTree<MdxNode, "footnoteReference">(
-    document,
-    "footnoteReference",
-    (node) => node.children,
-  )) {
-    if (document.footnote(reference.identifier) === undefined) {
-      continue;
-    }
-
-    let index = indexes.get(reference.identifier);
-
-    if (index === undefined) {
-      order.push(reference.identifier);
-      index = order.length - 1;
-      indexes.set(reference.identifier, index);
-    }
-
-    const reuse = (counts.get(reference.identifier) ?? 0) + 1;
-    counts.set(reference.identifier, reuse);
-    references.set(reference, { index, reuse });
-  }
-
-  const context: HtmlLoweringContext = {
-    definition: (identifier) => document.definition(identifier),
-    footnoteReference: (reference) =>
-      lowerFootnoteReference(reference, references.get(reference), options),
-    listLoose: false,
-    options,
-  };
-
-  const children = lowerChildren(document.children, context);
-  const footnotes = lowerFootnoteSection(document, order, counts, context);
+export function lowerHtml(document: DocumentNode, options: HtmlRenderOptions = {}): HtmlRootNode {
+  const renderer = createBlockHtmlRenderer(document, options);
+  const children = renderer.render(document.children);
+  const footnotes = renderer.footnotes();
 
   if (footnotes !== undefined) {
     children.push(footnotes);
   }
 
-  return new HtmlDocumentNode(wrap(children, false), document.origin);
+  return { kind: "root", children: wrap(children, false), origin: document.origin };
+}
+
+export interface BlockHtmlRenderer {
+  readonly render: (nodes: readonly MdxNode[]) => HtmlNode[];
+  readonly footnotes: () => HtmlFootnoteSectionNode | undefined;
+  readonly referenceContext: (ranges: readonly SourceRange[]) => string;
+}
+
+/** Shares one document-wide footnote layout across separately rendered blocks. */
+export function createBlockHtmlRenderer(
+  document: DocumentNode,
+  options: HtmlRenderOptions = {},
+  referenceNodes: readonly FootnoteReferenceNode[] = footnoteReferences(document),
+  cache?: HtmlLoweringCache,
+): BlockHtmlRenderer {
+  const index = indexDocument(document);
+  const order: string[] = [];
+  const indexes = new Map<string, number>();
+  const counts = new Map<string, number>();
+  const references = new Map<FootnoteReferenceNode, FootnoteReferenceInfo>();
+  const referencesByRange = new Map<string, FootnoteReferenceInfo>();
+
+  for (const reference of referenceNodes) {
+    if (!index.footnotes.has(reference.identifier)) {
+      continue;
+    }
+
+    let position = indexes.get(reference.identifier);
+
+    if (position === undefined) {
+      order.push(reference.identifier);
+      position = order.length - 1;
+      indexes.set(reference.identifier, position);
+    }
+
+    const reuse = (counts.get(reference.identifier) ?? 0) + 1;
+    counts.set(reference.identifier, reuse);
+    const info = { index: position, reuse };
+    references.set(reference, info);
+
+    if (reference.origin !== undefined) {
+      referencesByRange.set(rangeKey(reference.origin), info);
+    }
+  }
+
+  const context: HtmlLoweringContext = {
+    cache,
+    index,
+    footnoteReference: (reference) =>
+      lowerFootnoteReference(
+        reference,
+        references.get(reference) ??
+          (reference.origin === undefined
+            ? undefined
+            : referencesByRange.get(rangeKey(reference.origin))),
+        options,
+      ),
+    listLoose: false,
+    options,
+  };
+
+  return {
+    render: (nodes) => lowerChildren(nodes, context),
+    footnotes: () => lowerFootnoteSection(order, counts, context),
+    referenceContext: (ranges) =>
+      JSON.stringify(ranges.map((range) => referencesByRange.get(rangeKey(range)))),
+  };
+}
+
+function footnoteReferences(document: DocumentNode): FootnoteReferenceNode[] {
+  const result: FootnoteReferenceNode[] = [];
+
+  const visit = (node: MdxNode): void => {
+    if (node.kind === "footnoteReference") {
+      result.push(node);
+    }
+
+    mdxChildren(node).forEach(visit);
+  };
+
+  visit(document);
+
+  return result;
+}
+
+function rangeKey(range: SourceRange): string {
+  return `${range.start}:${range.end}`;
 }
 
 function lowerHtmlNode(node: MdxNode, context: HtmlLoweringContext): LoweredHtml {
-  const result = lowerHtmlNodeCore(node, context);
+  const cache = context.listLoose ? context.cache?.loose : context.cache?.tight;
 
-  if (result === undefined) {
-    return undefined;
+  if (cache?.has(node) === true) {
+    return cache.get(node);
   }
 
-  if (isHtmlNode(result)) {
-    return htmlNodeWithOrigin(result, node.origin);
-  }
+  const lowered = lowerHtmlNodeCore(node, context);
 
-  return result.map((item) => htmlNodeWithOrigin(item, node.origin));
+  const result =
+    lowered === undefined || node.origin === undefined
+      ? lowered
+      : isHtmlNodeArray(lowered)
+        ? lowered.map((item) => withOrigin(item, node.origin))
+        : withOrigin(lowered, node.origin);
+
+  cache?.set(node, result);
+
+  return result;
+}
+
+function isHtmlNodeArray(value: HtmlNode | readonly HtmlNode[]): value is readonly HtmlNode[] {
+  return Array.isArray(value);
+}
+
+function withOrigin(node: HtmlNode, origin: SourceRange | undefined): HtmlNode {
+  return origin === undefined || node.origin !== undefined ? node : { ...node, origin };
+}
+
+/** Authored source when the file is known, otherwise canonical MDX. */
+function authored(node: MdxNode, context: HtmlLoweringContext): string {
+  const source = context.options.source;
+
+  return source !== undefined && node.origin !== undefined
+    ? source.slice(node.origin)
+    : formatMdx(node);
 }
 
 function lowerHtmlNodeCore(node: MdxNode, context: HtmlLoweringContext): LoweredHtml {
   switch (node.kind) {
     case "text":
-      return new HtmlTextNode(node.value);
+      return text(node.value);
     case "emphasis":
       return htmlElement("em", node.children, context);
     case "strong":
@@ -148,37 +239,32 @@ function lowerHtmlNodeCore(node: MdxNode, context: HtmlLoweringContext): Lowered
     case "delete":
       return htmlElement("del", node.children, context);
     case "directiveLabel":
-      return new HtmlFragmentNode(lowerChildren(node.children, context));
+      return lowerChildren(node.children, context);
     case "textDirective":
       return lowerTextDirective(node, context);
     case "inlineCode":
-      return new HtmlElementNode("code", {}, [
-        new HtmlTextNode(node.value.replace(/\r\n?|\n/gu, " ")),
-      ]);
+      return element("code", {}, [text(node.value.replace(/\r\n?|\n/gu, " "))]);
     case "inlineMath":
-      return new HtmlMathNode({
-        source: node.value.replace(/\r\n?|\n/gu, " "),
-        style: "inline",
-      });
+      return { kind: "math", source: node.value.replace(/\r\n?|\n/gu, " "), style: "inline" };
     case "hardBreak":
-      return [new HtmlElementNode("br"), new HtmlTextNode("\n")];
+      return [element("br"), text("\n")];
     case "link":
-      return lowerLink(node, context);
+      return lowerLink(node.url, node.title, node.children, context);
     case "linkReference": {
-      const definition = context.definition(node.identifier);
+      const definition = context.index.definitions.get(node.identifier);
 
       return definition === undefined
         ? revertReference(node, context)
-        : lowerDefinedLink(node.children, definition, context);
+        : lowerLink(definition.url, definition.title, node.children, context);
     }
 
     case "image":
       return lowerImage(node.url, node.alt, node.title, context);
     case "imageReference": {
-      const definition = context.definition(node.identifier);
+      const definition = context.index.definitions.get(node.identifier);
 
       return definition === undefined
-        ? new HtmlTextNode(node.toSource())
+        ? text(formatMdx(node))
         : lowerImage(definition.url, node.alt, definition.title, context);
     }
 
@@ -187,6 +273,7 @@ function lowerHtmlNodeCore(node: MdxNode, context: HtmlLoweringContext): Lowered
     case "definition":
     case "footnoteDefinition":
     case "frontmatter":
+    case "esm":
       return undefined;
     case "leafDirective":
       return lowerLeafDirective(node, context);
@@ -194,53 +281,40 @@ function lowerHtmlNodeCore(node: MdxNode, context: HtmlLoweringContext): Lowered
       return lowerContainerDirective(node, context);
     case "rawHtmlBlock":
     case "rawHtmlInline":
-      return new HtmlRawNode(node.value);
+      return { kind: "raw", value: node.value };
     case "inlineExpression":
     case "blockExpression":
-      return new HtmlTextNode(node.sourceText() ?? node.toSource());
+      return { kind: "expression", code: node.code, fallback: authored(node, context) };
     case "jsxTextElement":
-    case "jsxFlowElement": {
-      return new HtmlJsxNode(node.sourceText() ?? node.toSource(), {
-        kind: "complete",
+    case "jsxFlowElement":
+      return {
+        kind: "jsx",
         node,
+        fallback: authored(node, context),
         children: lowerChildren(node.children, context),
-      });
-    }
-
-    case "jsxAttribute":
-    case "jsxAttributeValueExpression":
-    case "jsxSpreadAttribute":
-      return new HtmlTextNode(node.sourceText() ?? node.toSource());
-    case "esm":
-      return undefined;
+      };
     case "paragraph":
-      return htmlElement("p", node.children, context);
+      // Like MDX, a paragraph of only JSX and expressions does not produce a `p`.
+      return node.children.every(isEmbeddedPhrasing) &&
+        node.children.some((child) => child.kind !== "text")
+        ? lowerChildren(node.children, context)
+        : htmlElement("p", node.children, context);
     case "heading":
       return htmlElement(`h${node.depth}`, node.children, context);
     case "codeBlock": {
       const language = node.language?.trim().split(/\s+/u)[0];
 
       return language === undefined || language.length === 0
-        ? new HtmlElementNode("pre", {}, [
-            new HtmlElementNode("code", {}, [
-              new HtmlTextNode(node.value.length === 0 ? "" : `${node.value}\n`),
-            ]),
+        ? element("pre", {}, [
+            element("code", {}, [text(node.value.length === 0 ? "" : `${node.value}\n`)]),
           ])
-        : new HtmlCodeBlockNode({
-            code: node.value,
-            language,
-            meta: node.meta,
-          });
+        : { kind: "codeBlock", code: node.value, language, meta: node.meta };
     }
 
     case "displayMath":
-      return new HtmlMathNode({
-        source: node.value,
-        style: "display",
-        meta: node.meta,
-      });
+      return { kind: "math", source: node.value, style: "display", meta: node.meta };
     case "thematicBreak":
-      return new HtmlElementNode("hr");
+      return element("hr");
     case "list":
       return lowerList(node, context);
     case "listItem":
@@ -252,13 +326,9 @@ function lowerHtmlNodeCore(node: MdxNode, context: HtmlLoweringContext): Lowered
     case "tableCell":
       return htmlElement("td", node.children, context);
     case "blockquote":
-      return new HtmlElementNode(
-        "blockquote",
-        {},
-        wrap(lowerChildren(node.children, context), true),
-      );
+      return element("blockquote", {}, wrap(lowerChildren(node.children, context), true));
     case "document":
-      return new HtmlFragmentNode(wrap(lowerChildren(node.children, context), false));
+      return wrap(lowerChildren(node.children, context), false);
     default: {
       const exhaustive: never = node;
 
@@ -267,69 +337,21 @@ function lowerHtmlNodeCore(node: MdxNode, context: HtmlLoweringContext): Lowered
   }
 }
 
-function htmlNodeWithOrigin(node: HtmlNode, origin: SourceSpan | undefined): HtmlNode {
-  if (origin === undefined || node.origin !== undefined) {
-    return node;
-  }
-
-  if (node instanceof HtmlJsxNode) {
-    return new HtmlJsxNode(node.value, node.request, origin);
-  }
-
-  if (node instanceof HtmlTextNode) {
-    return new HtmlTextNode(node.value, origin);
-  }
-
-  if (node instanceof HtmlRawNode) {
-    return new HtmlRawNode(node.value, origin);
-  }
-
-  if (node instanceof HtmlCommentNode) {
-    return new HtmlCommentNode(node.value, origin);
-  }
-
-  if (node instanceof HtmlDoctypeNode) {
-    return new HtmlDoctypeNode(origin);
-  }
-
-  if (node instanceof HtmlCodeBlockNode) {
-    return new HtmlCodeBlockNode(node.codeBlock, origin);
-  }
-
-  if (node instanceof HtmlFootnoteReferenceNode) {
-    return new HtmlFootnoteReferenceNode(node.footnoteReference, node.children, origin);
-  }
-
-  if (node instanceof HtmlFootnoteSectionNode) {
-    return new HtmlFootnoteSectionNode(node.footnoteSection, node.children, origin);
-  }
-
-  if (node instanceof HtmlMathNode) {
-    return new HtmlMathNode(node.math, origin);
-  }
-
-  if (node instanceof HtmlElementNode) {
-    return new HtmlElementNode(node.tagName, node.attributes, node.children, origin);
-  }
-
-  if (node instanceof HtmlDocumentNode) {
-    return new HtmlDocumentNode(node.children, origin);
-  }
-
-  if (node instanceof HtmlFragmentNode) {
-    return new HtmlFragmentNode(node.children, origin);
-  }
-
-  return node;
+function isEmbeddedPhrasing(node: MdxNode): boolean {
+  return (
+    node.kind === "jsxTextElement" ||
+    node.kind === "inlineExpression" ||
+    (node.kind === "text" && node.value.trim() === "")
+  );
 }
 
 function lowerTextDirective(
   node: TextDirectiveNode,
   context: HtmlLoweringContext,
 ): HtmlElementNode {
-  return new HtmlElementNode(
+  return element(
     "span",
-    directiveHtmlAttributes(node.name, "text", node.attributes.entries),
+    directiveHtmlAttributes(node.name, "text", node.attributes),
     node.label === undefined ? [] : lowerChildren(node.label.children, context),
   );
 }
@@ -338,21 +360,10 @@ function lowerLeafDirective(
   node: LeafDirectiveNode,
   context: HtmlLoweringContext,
 ): HtmlElementNode {
-  const children =
-    node.label === undefined
-      ? []
-      : [
-          new HtmlElementNode(
-            "span",
-            { "data-directive-label": "" },
-            lowerChildren(node.label.children, context),
-          ),
-        ];
-
-  return new HtmlElementNode(
+  return element(
     "div",
-    directiveHtmlAttributes(node.name, "leaf", node.attributes.entries),
-    children,
+    directiveHtmlAttributes(node.name, "leaf", node.attributes),
+    node.label === undefined ? [] : [directiveLabel(node, context)],
   );
 }
 
@@ -363,38 +374,44 @@ function lowerContainerDirective(
   const children: HtmlNode[] = [];
 
   if (node.label !== undefined) {
-    children.push(
-      new HtmlElementNode(
-        "span",
-        { "data-directive-label": "" },
-        lowerChildren(node.label.children, context),
-      ),
-    );
+    children.push(directiveLabel(node, context));
   }
 
-  children.push(...lowerChildren(node.body, context));
+  children.push(...lowerChildren(node.children, context));
 
-  return new HtmlElementNode(
+  return element(
     "div",
-    directiveHtmlAttributes(node.name, "container", node.attributes.entries),
+    directiveHtmlAttributes(node.name, "container", node.attributes),
     wrap(children, true),
+  );
+}
+
+function directiveLabel(
+  node: LeafDirectiveNode | ContainerDirectiveNode,
+  context: HtmlLoweringContext,
+): HtmlElementNode {
+  return element(
+    "span",
+    { "data-directive-label": "" },
+    lowerChildren(node.label?.children ?? [], context),
   );
 }
 
 function directiveHtmlAttributes(
   name: string,
   kind: "container" | "leaf" | "text",
-  entries: readonly { readonly name: string; readonly value: string }[],
-): Readonly<HtmlAttributes> {
-  const attributes: HtmlAttributes = { "data-directive": name, "data-directive-kind": kind };
+  entries: readonly DirectiveAttribute[],
+): HtmlAttributes {
+  const attributes = { "data-directive": name, "data-directive-kind": kind };
 
-  if (entries.length > 0) {
-    attributes["data-directive-attributes"] = JSON.stringify(
-      entries.map((entry) => [entry.name, entry.value]),
-    );
-  }
-
-  return attributes;
+  return entries.length === 0
+    ? attributes
+    : {
+        ...attributes,
+        "data-directive-attributes": JSON.stringify(
+          entries.map((entry) => [entry.name, entry.value]),
+        ),
+      };
 }
 
 function lowerFootnoteReference(
@@ -403,21 +420,20 @@ function lowerFootnoteReference(
   options: HtmlRenderOptions,
 ): HtmlNode {
   if (info === undefined) {
-    return new HtmlTextNode(node.toSource());
+    return text(formatMdx(node));
   }
 
   const prefix = options.clobberPrefix ?? "user-content-";
   const identifier = normalizeUri(node.identifier.toLowerCase());
   const suffix = info.reuse > 1 ? `-${info.reuse}` : "";
 
-  return new HtmlFootnoteReferenceNode(
-    {
-      identifier: node.identifier,
-      occurrence: info.reuse,
-      ordinal: info.index + 1,
-    },
-    [
-      new HtmlElementNode(
+  return {
+    kind: "footnoteReference",
+    identifier: node.identifier,
+    occurrence: info.reuse,
+    ordinal: info.index + 1,
+    children: [
+      element(
         "a",
         {
           href: `#${prefix}fn-${identifier}`,
@@ -425,18 +441,17 @@ function lowerFootnoteReference(
           "data-footnote-ref": "",
           "aria-describedby": "footnote-label",
         },
-        [new HtmlTextNode(String(info.index + 1))],
+        [text(String(info.index + 1))],
       ),
     ],
-  );
+  };
 }
 
 function lowerFootnoteSection(
-  document: DocumentNode,
   order: readonly string[],
   counts: ReadonlyMap<string, number>,
   context: HtmlLoweringContext,
-): HtmlElementNode | undefined {
+): HtmlFootnoteSectionNode | undefined {
   if (order.length === 0) {
     return undefined;
   }
@@ -446,7 +461,7 @@ function lowerFootnoteSection(
 
   for (let index = 0; index < order.length; index++) {
     const identifier = order[index];
-    const definition = document.footnote(identifier);
+    const definition = context.index.footnotes.get(identifier);
 
     if (definition === undefined) {
       continue;
@@ -465,37 +480,37 @@ function lowerFootnoteSection(
 
     const tail = blocks.at(-1);
 
-    if (tail instanceof HtmlElementNode && tail.tagName === "p") {
-      blocks[blocks.length - 1] = tail.with({
+    if (tail?.kind === "element" && tail.tagName === "p") {
+      blocks[blocks.length - 1] = {
+        ...tail,
         children: [
           ...tail.children,
-          ...(tail.children.length === 0 ? [] : [new HtmlTextNode(" ")]),
+          ...(tail.children.length === 0 ? [] : [text(" ")]),
           ...backreferences,
         ],
-      });
+      };
     } else {
       if (blocks.length > 0) {
-        blocks.push(new HtmlTextNode("\n"));
+        blocks.push(text("\n"));
       }
 
       blocks.push(...backreferences);
     }
 
-    items.push(
-      new HtmlElementNode("li", { id: `${prefix}fn-${safeIdentifier}` }, wrap(blocks, true)),
-    );
+    items.push(element("li", { id: `${prefix}fn-${safeIdentifier}` }, wrap(blocks, true)));
   }
 
-  const heading = new HtmlElementNode(
+  const heading = element(
     context.options.footnoteLabelTagName ?? "h2",
     { id: "footnote-label", class: ["sr-only"] },
-    [new HtmlTextNode(context.options.footnoteLabel ?? "Footnotes")],
+    [text(context.options.footnoteLabel ?? "Footnotes")],
   );
 
-  return new HtmlFootnoteSectionNode(
-    { identifiers: order },
-    wrap([heading, new HtmlElementNode("ol", {}, wrap(items, true))], true),
-  );
+  return {
+    kind: "footnoteSection",
+    identifiers: order,
+    children: wrap([heading, element("ol", {}, wrap(items, true))], true),
+  };
 }
 
 function footnoteBackreferences(
@@ -509,7 +524,7 @@ function footnoteBackreferences(
 
   for (let reuse = 1; reuse <= count; reuse++) {
     if (values.length > 0) {
-      values.push(new HtmlTextNode(" "));
+      values.push(text(" "));
     }
 
     const configured = options.footnoteBackLabel;
@@ -519,7 +534,7 @@ function footnoteBackreferences(
       : (configured ?? defaultFootnoteBackLabel(referenceIndex, reuse));
 
     values.push(
-      new HtmlElementNode(
+      element(
         "a",
         {
           href: `#${prefix}fnref-${identifier}${reuse > 1 ? `-${reuse}` : ""}`,
@@ -527,10 +542,7 @@ function footnoteBackreferences(
           "aria-label": label,
           class: ["data-footnote-backref"],
         },
-        [
-          new HtmlTextNode("↩"),
-          ...(reuse > 1 ? [new HtmlElementNode("sup", {}, [new HtmlTextNode(String(reuse))])] : []),
-        ],
+        [text("↩"), ...(reuse > 1 ? [element("sup", {}, [text(String(reuse))])] : [])],
       ),
     );
   }
@@ -547,14 +559,12 @@ function lowerTable(node: TableNode, context: HtmlLoweringContext): HtmlElementN
   const children: HtmlNode[] = [];
 
   if (head !== undefined) {
-    children.push(
-      new HtmlElementNode("thead", {}, [lowerTableRow(head, node.alignments, true, context)]),
-    );
+    children.push(element("thead", {}, [lowerTableRow(head, node.alignments, true, context)]));
   }
 
   if (node.children.length > 1) {
     children.push(
-      new HtmlElementNode(
+      element(
         "tbody",
         {},
         node.children.slice(1).map((row) => lowerTableRow(row, node.alignments, false, context)),
@@ -562,7 +572,7 @@ function lowerTable(node: TableNode, context: HtmlLoweringContext): HtmlElementN
     );
   }
 
-  return new HtmlElementNode("table", {}, children);
+  return element("table", {}, children);
 }
 
 function lowerTableRow(
@@ -575,10 +585,10 @@ function lowerTableRow(
   const cells: HtmlElementNode[] = [];
 
   for (let index = 0; index < length; index++) {
-    const cell: TableCellNode | undefined = node.children[index];
+    const cell = node.children.at(index);
     const alignment = alignments?.[index];
     cells.push(
-      new HtmlElementNode(
+      element(
         heading ? "th" : "td",
         alignment === undefined || alignment === "none" ? {} : { align: alignment },
         cell === undefined ? [] : lowerChildren(cell.children, context),
@@ -586,41 +596,21 @@ function lowerTableRow(
     );
   }
 
-  return new HtmlElementNode("tr", {}, cells);
+  return element("tr", {}, cells);
 }
 
-function lowerLink(node: LinkNode, context: HtmlLoweringContext): HtmlElementNode {
-  const url = sanitizeUrl(node.url, context.options, "link");
-  const attributes: HtmlAttributes = {};
-
-  if (url !== undefined) {
-    attributes.href = url;
-
-    if (node.title !== undefined) {
-      attributes.title = node.title;
-    }
-  }
-
-  return new HtmlElementNode("a", attributes, lowerChildren(node.children, context));
-}
-
-function lowerDefinedLink(
+function lowerLink(
+  url: string,
+  title: string | undefined,
   children: readonly MdxNode[],
-  definition: DefinitionNode,
   context: HtmlLoweringContext,
 ): HtmlElementNode {
-  const url = sanitizeUrl(definition.url, context.options, "link");
-  const attributes: HtmlAttributes = {};
+  const href = resolveUrl(url, "link", context.options);
 
-  if (url !== undefined) {
-    attributes.href = url;
+  const attributes: HtmlAttributes =
+    href === undefined ? {} : title === undefined ? { href } : { href, title };
 
-    if (definition.title !== undefined) {
-      attributes.title = definition.title;
-    }
-  }
-
-  return new HtmlElementNode("a", attributes, lowerChildren(children, context));
+  return element("a", attributes, lowerChildren(children, context));
 }
 
 function lowerImage(
@@ -629,63 +619,56 @@ function lowerImage(
   title: string | undefined,
   context: HtmlLoweringContext,
 ): HtmlNode {
-  const url = sanitizeUrl(source, context.options, "image");
+  const src = resolveUrl(source, "image", context.options);
 
-  if (url === undefined) {
-    return new HtmlTextNode(alt);
+  if (src === undefined) {
+    return text(alt);
   }
 
-  const attributes: HtmlAttributes = { src: url, alt };
-
-  if (title !== undefined) {
-    attributes.title = title;
-  }
-
-  return new HtmlElementNode("img", attributes);
+  return element("img", title === undefined ? { src, alt } : { src, alt, title });
 }
 
 function lowerList(node: ListNode, context: HtmlLoweringContext): HtmlElementNode {
-  const loose = node.spread || node.items.some((item) => item.spread);
+  const loose = node.spread || node.children.some((item) => item.spread);
   const itemContext: HtmlLoweringContext = { ...context, listLoose: loose };
-  const items = node.items.map((item) => lowerListItem(item, itemContext));
-  const containsTasks = items.some((item) => item.hasClass("task-list-item"));
-  const attributes: HtmlAttributes = {};
+  const items = node.children.flatMap((item) => lowerHtmlNode(item, itemContext) ?? []);
+  const attributes: Record<string, number | readonly string[]> = {};
 
   if (node.ordered && node.start !== 1) {
     attributes.start = node.start;
   }
 
-  if (containsTasks) {
+  if (node.children.some((item) => item.checked !== undefined)) {
     attributes.class = ["contains-task-list"];
   }
 
-  return new HtmlElementNode(node.ordered ? "ol" : "ul", attributes, wrap(items, true));
+  return element(node.ordered ? "ol" : "ul", attributes, wrap(items, true));
 }
 
 function lowerListItem(node: ListItemNode, context: HtmlLoweringContext): HtmlElementNode {
   const blocks = [...lowerChildren(node.children, context)];
 
   if (node.checked !== undefined) {
-    const attributes: HtmlAttributes = { type: "checkbox", disabled: true };
-
-    if (node.checked) {
-      attributes.checked = true;
-    }
-
-    const checkbox = new HtmlElementNode("input", attributes);
+    const checkbox = element(
+      "input",
+      node.checked
+        ? { type: "checkbox", disabled: true, checked: true }
+        : { type: "checkbox", disabled: true },
+    );
 
     const first = blocks[0];
 
-    if (first instanceof HtmlElementNode && first.tagName === "p") {
-      blocks[0] = first.with({
+    if (first?.kind === "element" && first.tagName === "p") {
+      blocks[0] = {
+        ...first,
         children: [
           checkbox,
-          ...(first.children.length === 0 ? [] : [new HtmlTextNode(" ")]),
+          ...(first.children.length === 0 ? [] : [text(" ")]),
           ...first.children,
         ],
-      });
+      };
     } else {
-      blocks.unshift(new HtmlElementNode("p", {}, [checkbox]));
+      blocks.unshift(element("p", {}, [checkbox]));
     }
   }
 
@@ -693,17 +676,13 @@ function lowerListItem(node: ListItemNode, context: HtmlLoweringContext): HtmlEl
 
   for (let index = 0; index < blocks.length; index++) {
     const child = blocks[index];
+    const paragraph = child.kind === "element" && child.tagName === "p";
 
-    if (
-      context.listLoose ||
-      index !== 0 ||
-      !(child instanceof HtmlElementNode) ||
-      child.tagName !== "p"
-    ) {
-      children.push(new HtmlTextNode("\n"));
+    if (context.listLoose || index !== 0 || !paragraph) {
+      children.push(text("\n"));
     }
 
-    if (child instanceof HtmlElementNode && child.tagName === "p" && !context.listLoose) {
+    if (paragraph && !context.listLoose) {
       children.push(...child.children);
     } else {
       children.push(child);
@@ -714,16 +693,12 @@ function lowerListItem(node: ListItemNode, context: HtmlLoweringContext): HtmlEl
 
   if (
     tail !== undefined &&
-    (context.listLoose || !(tail instanceof HtmlElementNode) || tail.tagName !== "p")
+    (context.listLoose || tail.kind !== "element" || tail.tagName !== "p")
   ) {
-    children.push(new HtmlTextNode("\n"));
+    children.push(text("\n"));
   }
 
-  return new HtmlElementNode(
-    "li",
-    node.checked === undefined ? {} : { class: ["task-list-item"] },
-    children,
-  );
+  return element("li", node.checked === undefined ? {} : { class: ["task-list-item"] }, children);
 }
 
 function revertReference(
@@ -740,21 +715,23 @@ function revertReference(
         : `][${node.identifier}]`;
 
   if (children.length === 0) {
-    return [new HtmlTextNode(`[${suffix}`)];
+    return [text(`[${suffix}`)];
   }
 
-  const result = [...children];
-  const first = result[0];
-  result[0] =
-    first instanceof HtmlTextNode
-      ? new HtmlTextNode(`[${first.value}`)
-      : new HtmlFragmentNode([new HtmlTextNode("["), first]);
-  const lastIndex = result.length - 1;
-  const last = result[lastIndex];
-  result[lastIndex] =
-    last instanceof HtmlTextNode
-      ? new HtmlTextNode(last.value + suffix)
-      : new HtmlFragmentNode([last, new HtmlTextNode(suffix)]);
+  const first = children[0];
+
+  const result: HtmlNode[] =
+    first.kind === "text"
+      ? [text(`[${first.value}`), ...children.slice(1)]
+      : [text("["), ...children];
+
+  const last = result[result.length - 1];
+
+  if (last.kind === "text") {
+    result[result.length - 1] = text(last.value + suffix);
+  } else {
+    result.push(text(suffix));
+  }
 
   return result;
 }
@@ -770,7 +747,7 @@ function lowerChildren(children: readonly MdxNode[], context: HtmlLoweringContex
       continue;
     }
 
-    const additions = isHtmlNode(lowered) ? [lowered] : [...lowered];
+    const additions = isHtmlNodeArray(lowered) ? [...lowered] : [lowered];
 
     if (children[index - 1]?.kind === "hardBreak" && additions.length > 0) {
       additions[0] = trimSpaceStart(additions[0]);
@@ -787,22 +764,37 @@ function htmlElement(
   children: readonly MdxNode[],
   context: HtmlLoweringContext,
 ): HtmlElementNode {
-  return new HtmlElementNode(tagName, {}, lowerChildren(children, context));
+  return element(tagName, {}, lowerChildren(children, context));
+}
+
+function element(
+  tagName: string,
+  attributes: HtmlAttributes = {},
+  children: readonly HtmlNode[] = [],
+): HtmlElementNode {
+  return { kind: "element", tagName, attributes, children };
+}
+
+function text(value: string): HtmlTextNode {
+  return { kind: "text", value };
 }
 
 function trimSpaceStart(node: HtmlNode): HtmlNode {
-  if (node instanceof HtmlTextNode) {
-    return new HtmlTextNode(node.value.replace(/^[\t ]+/u, ""));
+  if (node.kind === "text") {
+    return { ...node, value: node.value.replace(/^[\t ]+/u, "") };
   }
 
-  if (node instanceof HtmlElementNode) {
+  if (node.kind === "element") {
     const first = node.children[0];
 
-    if (first instanceof HtmlTextNode) {
-      return new HtmlElementNode(node.tagName, node.attributes, [
-        new HtmlTextNode(first.value.replace(/^[\t ]+/u, "")),
-        ...node.children.slice(1),
-      ]);
+    if (first?.kind === "text") {
+      return {
+        ...node,
+        children: [
+          { ...first, value: first.value.replace(/^[\t ]+/u, "") },
+          ...node.children.slice(1),
+        ],
+      };
     }
   }
 
@@ -813,25 +805,37 @@ function wrap(nodes: readonly HtmlNode[], loose: boolean): HtmlNode[] {
   const result: HtmlNode[] = [];
 
   if (loose) {
-    result.push(new HtmlTextNode("\n"));
+    result.push(text("\n"));
   }
 
   nodes.forEach((node, index) => {
     if (index > 0) {
-      result.push(new HtmlTextNode("\n"));
+      result.push(text("\n"));
     }
 
     result.push(node);
   });
 
   if (loose && nodes.length > 0) {
-    result.push(new HtmlTextNode("\n"));
+    result.push(text("\n"));
   }
 
   return result;
 }
 
-function sanitizeUrl(
+function resolveUrl(
+  url: string,
+  kind: "image" | "link",
+  options: HtmlRenderOptions,
+): string | undefined {
+  const sanitized = sanitizeUrl(url, options, kind);
+
+  return options.urlTransform === undefined
+    ? sanitized
+    : options.urlTransform(url, kind, sanitized);
+}
+
+export function sanitizeUrl(
   value: string,
   options: HtmlRenderOptions,
   use: "image" | "link",

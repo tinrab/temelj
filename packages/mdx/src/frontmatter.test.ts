@@ -1,19 +1,24 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 
 import {
-  FrontmatterNode,
+  compile,
+  documentFrontmatter,
+  formatHtml,
+  formatMdx,
   FrontmatterTemporal,
+  lowerHtml,
   MdxStream,
-  compileDocument,
   parse,
-  renderHtml,
+  type FrontmatterNode,
   type FrontmatterObject,
   type FrontmatterValue,
 } from "./mod.ts";
 
 describe("frontmatter", () => {
   it("is opt-in and selects formats by the opening fence", () => {
-    expect(expectParsed(parse("---\ntitle: disabled\n---")).document.frontmatter).toBeUndefined();
+    expect(
+      documentFrontmatter(expectParsed(parse("---\ntitle: disabled\n---")).document),
+    ).toBeUndefined();
 
     const yaml = expectParsed(parse("---\ntitle: YAML\n---", { syntax: { frontmatter: "auto" } }));
 
@@ -21,26 +26,33 @@ describe("frontmatter", () => {
       parse('+++\ntitle = "TOML"\n+++', { syntax: { frontmatter: "auto" } }),
     );
 
-    expect(yaml.document.frontmatter?.format).toBe("yaml");
-    expect(yaml.document.frontmatter?.data).toEqual({ title: "YAML" });
-    expect(toml.document.frontmatter?.format).toBe("toml");
-    expect(toml.document.frontmatter?.data).toEqual({ title: "TOML" });
+    expect(documentFrontmatter(yaml.document)?.format).toBe("yaml");
+    expect(documentFrontmatter(yaml.document)?.data).toEqual({ title: "YAML" });
+    expect(documentFrontmatter(toml.document)?.format).toBe("toml");
+    expect(documentFrontmatter(toml.document)?.data).toEqual({ title: "TOML" });
 
     expect(
-      expectParsed(parse('+++\ntitle = "excluded"\n+++', { syntax: { frontmatter: "yaml" } }))
-        .document.frontmatter,
+      documentFrontmatter(
+        expectParsed(parse('+++\ntitle = "excluded"\n+++', { syntax: { frontmatter: "yaml" } }))
+          .document,
+      ),
     ).toBeUndefined();
     expect(
-      expectParsed(parse("---\ntitle: excluded\n---", { syntax: { frontmatter: "toml" } })).document
-        .frontmatter,
+      documentFrontmatter(
+        expectParsed(parse("---\ntitle: excluded\n---", { syntax: { frontmatter: "toml" } }))
+          .document,
+      ),
     ).toBeUndefined();
     expect(
-      expectParsed(parse("---\ntitle: open\n+++", { syntax: { frontmatter: "auto" } })).document
-        .frontmatter,
+      documentFrontmatter(
+        expectParsed(parse("---\ntitle: open\n+++", { syntax: { frontmatter: "auto" } })).document,
+      ),
     ).toBeUndefined();
     expect(
-      expectParsed(parse("--- \t\ntitle: spaced\n---\t ", { syntax: { frontmatter: "yaml" } }))
-        .document.frontmatter?.data,
+      documentFrontmatter(
+        expectParsed(parse("--- \t\ntitle: spaced\n---\t ", { syntax: { frontmatter: "yaml" } }))
+          .document,
+      )?.data,
     ).toEqual({ title: "spaced" });
   });
 
@@ -58,8 +70,9 @@ describe("frontmatter", () => {
       "---",
     ].join("\n");
 
-    const data = expectParsed(parse(source, { syntax: { frontmatter: "yaml" } })).document
-      .frontmatter?.data;
+    const data = documentFrontmatter(
+      expectParsed(parse(source, { syntax: { frontmatter: "yaml" } })).document,
+    )?.data;
 
     expect(data).toEqual({
       title: "Notes",
@@ -73,11 +86,13 @@ describe("frontmatter", () => {
   });
 
   it("keeps prototype-looking keys as ordinary metadata", () => {
-    const data = expectParsed(
-      parse("---\n__proto__: safe\nconstructor: ordinary\n---", {
-        syntax: { frontmatter: "yaml" },
-      }),
-    ).document.frontmatter?.data;
+    const data = documentFrontmatter(
+      expectParsed(
+        parse("---\n__proto__: safe\nconstructor: ordinary\n---", {
+          syntax: { frontmatter: "yaml" },
+        }),
+      ).document,
+    )?.data;
 
     expect(data?.__proto__).toBe("safe");
     expect(data?.constructor).toBe("ordinary");
@@ -86,12 +101,14 @@ describe("frontmatter", () => {
 
   it("treats empty and comment-only YAML as an empty object", () => {
     expect(
-      expectParsed(parse("---\n---", { syntax: { frontmatter: "yaml" } })).document.frontmatter
-        ?.data,
+      documentFrontmatter(
+        expectParsed(parse("---\n---", { syntax: { frontmatter: "yaml" } })).document,
+      )?.data,
     ).toEqual({});
     expect(
-      expectParsed(parse("---\n# comment\n---", { syntax: { frontmatter: "yaml" } })).document
-        .frontmatter?.data,
+      documentFrontmatter(
+        expectParsed(parse("---\n# comment\n---", { syntax: { frontmatter: "yaml" } })).document,
+      )?.data,
     ).toEqual({});
   });
 
@@ -110,8 +127,9 @@ describe("frontmatter", () => {
       "+++",
     ].join("\n");
 
-    const data = expectParsed(parse(source, { syntax: { frontmatter: "toml" } })).document
-      .frontmatter?.data;
+    const data = documentFrontmatter(
+      expectParsed(parse(source, { syntax: { frontmatter: "toml" } })).document,
+    )?.data;
 
     expect(data?.safe).toBe(42);
     expect(data?.unsafe).toBe(9_007_199_254_740_993n);
@@ -141,21 +159,23 @@ describe("frontmatter", () => {
       }),
     );
 
-    expect(duplicate.document.frontmatter?.data).toBeUndefined();
+    expect(documentFrontmatter(duplicate.document)?.data).toBeUndefined();
     expect(duplicate.diagnostics[0]?.code).toBe("mdx.frontmatter.yaml");
 
     const invalidToml = expectParsed(parse("+++\na = [\n+++", { syntax: { frontmatter: "toml" } }));
-    expect(invalidToml.document.frontmatter?.value).toBe("a = [");
-    expect(invalidToml.document.frontmatter?.data).toBeUndefined();
+    expect(documentFrontmatter(invalidToml.document)?.value).toBe("a = [");
+    expect(documentFrontmatter(invalidToml.document)?.data).toBeUndefined();
     expect(invalidToml.diagnostics[0]?.code).toBe("mdx.frontmatter.toml");
   });
 
   it("clones aliases and rejects cyclic aliases", () => {
-    const aliases = expectParsed(
-      parse("---\nbase: &base { value: 1 }\ncopy: *base\n---", {
-        syntax: { frontmatter: "yaml" },
-      }),
-    ).document.frontmatter?.data;
+    const aliases = documentFrontmatter(
+      expectParsed(
+        parse("---\nbase: &base { value: 1 }\ncopy: *base\n---", {
+          syntax: { frontmatter: "yaml" },
+        }),
+      ).document,
+    )?.data;
 
     expect(aliases?.base).toEqual({ value: 1 });
     expect(aliases?.copy).toEqual({ value: 1 });
@@ -167,7 +187,7 @@ describe("frontmatter", () => {
       }),
     );
 
-    expect(cyclic.document.frontmatter?.data).toBeUndefined();
+    expect(documentFrontmatter(cyclic.document)?.data).toBeUndefined();
     expect(cyclic.diagnostics.some(({ code }) => code === "mdx.frontmatter.value")).toBe(true);
   });
 
@@ -187,7 +207,7 @@ describe("frontmatter", () => {
       }),
     );
 
-    expect(resource.document.frontmatter?.data).toBeUndefined();
+    expect(documentFrontmatter(resource.document)?.data).toBeUndefined();
     expect(resource.diagnostics[0]?.code).toBe("mdx.frontmatter.yaml");
   });
 
@@ -195,56 +215,60 @@ describe("frontmatter", () => {
     const source = "---\r\nemoji: 😀\r\nbad: [\r\n---";
     const report = expectParsed(parse(source, { syntax: { frontmatter: "yaml" } }));
     const diagnostic = report.diagnostics[0];
-    expect(diagnostic?.span?.file).toBe(report.document.origin?.file);
+    expect(diagnostic?.span?.file).toBe(report.file);
     expect(
       diagnostic?.span === undefined
         ? undefined
         : diagnostic.span.file.location(diagnostic.span.start),
     ).toEqual({ offset: 22, line: 3, column: 7 });
-    expect(report.document.frontmatter?.valueOrigin.file.text).toBe(source);
-    expect(report.document.frontmatter?.value).toBe("emoji: 😀\nbad: [");
+    const valueOrigin = documentFrontmatter(report.document)?.valueOrigin;
+    expect(valueOrigin === undefined ? undefined : report.file.slice(valueOrigin)).toBe(
+      "emoji: 😀\r\nbad: [",
+    );
+    expect(documentFrontmatter(report.document)?.value).toBe("emoji: 😀\nbad: [");
 
     const tomlSource = '+++\r\nemoji = "😀"\r\nbad = [\r\n+++';
     const toml = expectParsed(parse(tomlSource, { syntax: { frontmatter: "toml" } }));
     const tomlSpan = toml.diagnostics[0]?.span;
     expect(tomlSpan === undefined ? undefined : tomlSpan.file.location(tomlSpan.start)).toEqual({
-      offset: 26,
+      offset: tomlSource.indexOf("["),
       line: 3,
-      column: 8,
+      column: 7,
     });
   });
 
-  it("formats from authored text and clears decoded data after structural edits", () => {
+  it("formats from the authored value", () => {
     const source = "---\n# keep this\nvalue: 1.0\n---";
 
-    const node = expectParsed(parse(source, { syntax: { frontmatter: "yaml" } })).document
-      .frontmatter;
+    const node = documentFrontmatter(
+      expectParsed(parse(source, { syntax: { frontmatter: "yaml" } })).document,
+    );
 
-    expect(node).toBeInstanceOf(FrontmatterNode);
+    expect(node?.kind).toBe("frontmatter");
 
     if (node === undefined) {
       return;
     }
 
-    expect(node.toSource()).toBe(source);
+    expect(formatMdx(node)).toBe(source);
     expect(
-      expectParsed(parse(node.toSource(), { syntax: { frontmatter: "auto" } })).document.frontmatter
-        ?.value,
+      documentFrontmatter(
+        expectParsed(parse(formatMdx(node), { syntax: { frontmatter: "auto" } })).document,
+      )?.value,
     ).toBe("# keep this\nvalue: 1.0");
-    expect(node.with({})).toBe(node);
-    expect(node.with({ value: "value: 2" }).data).toBeUndefined();
-    expect(node.with({ format: "toml" }).data).toBeUndefined();
   });
 
-  it("omits frontmatter from HTML and compiled output", () => {
-    const document = expectParsed(
+  it("omits frontmatter from HTML and compiled output", async () => {
+    const parsed = expectParsed(
       parse("---\ntitle: Hidden\n---\n\n# Visible", {
         syntax: { frontmatter: "yaml" },
       }),
-    ).document;
+    );
 
-    expect(renderHtml(document).toHtml()).not.toContain("Hidden");
-    expect(compileDocument(document, { outputFormat: "program" }).code).not.toContain("Hidden");
+    expect(formatHtml(lowerHtml(parsed.document))).not.toContain("Hidden");
+
+    const compiled = await compile(parsed, { outputFormat: "program" });
+    expect(compiled.kind === "ok" ? compiled.artifact.code : "").not.toContain("Hidden");
   });
 
   it("decodes frontmatter when a stream completes", () => {
@@ -258,13 +282,13 @@ describe("frontmatter", () => {
       text: "[]\n---",
     });
     const completed = stream.complete();
-    expect(completed.kind).toBe("parsed");
+    expect(completed.kind).toBe("ok");
 
-    if (completed.kind !== "parsed") {
+    if (completed.kind !== "ok") {
       throw new Error(`Expected parsed outcome, received ${completed.kind}`);
     }
 
-    expect(completed.document.frontmatter?.data).toEqual({ value: [] });
+    expect(documentFrontmatter(completed.document)?.data).toEqual({ value: [] });
   });
 
   it("exports its recursive metadata types", () => {
@@ -284,8 +308,8 @@ describe("frontmatter", () => {
 
 function expectParsed(
   outcome: ReturnType<typeof parse>,
-): Extract<ReturnType<typeof parse>, { kind: "parsed" }> {
-  if (outcome.kind !== "parsed") {
+): Extract<ReturnType<typeof parse>, { kind: "ok" }> {
+  if (outcome.kind !== "ok") {
     throw new Error(`Expected parsed outcome, received ${outcome.kind}`);
   }
 

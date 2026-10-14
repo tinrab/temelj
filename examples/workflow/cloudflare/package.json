@@ -9,7 +9,6 @@
     "dev": "wrangler dev",
     "predeploy": "pnpm --filter @temelj/workflow build",
     "deploy": "wrangler deploy",
-    "pretypecheck": "pnpm --filter @temelj/workflow build",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

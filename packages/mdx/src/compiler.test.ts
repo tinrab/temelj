@@ -3,39 +3,45 @@ import type { Schema } from "@temelj/standard-schema";
 import { isObject, isString } from "@temelj/value";
 import { expect, expectTypeOf, test } from "vitest";
 
-import { compileDocument, compileMdx, parse } from "./mod.ts";
+import {
+  compile,
+  formatHtml,
+  lowerHtml,
+  parse,
+  Processor,
+  type CompileOutcome,
+  type HtmlRenderOptions,
+  type ParseOptions,
+} from "./mod.ts";
 
-test("compiled math accepts a semantic renderer and keeps readable fallbacks", () => {
-  const document = expectParsed(
-    parse("$x$\n\n$$ equation\ny\n$$\n", {
-      syntax: { math: "dollar" },
-    }),
-  ).document;
+test("compiled math accepts a semantic renderer and keeps readable fallbacks", async () => {
+  const outcome = await compile(
+    expectParsed(parse("$x$\n\n$$ equation\ny\n$$\n", { syntax: { math: "dollar" } })),
+    { outputFormat: "program" },
+  );
 
-  const artifact = compileDocument(document, { outputFormat: "program" });
-
-  expect(artifact.code).toContain("props.math ?");
-  expect(artifact.code).toContain('source:"x", style:"inline"');
-  expect(artifact.code).toContain('source:"y", style:"display", meta:"equation"');
-  expect(artifact.code).toContain("language-math math-inline");
-  expect(artifact.code).toContain("language-math math-display");
-  expect(artifact.code).toContain('"data-math-meta":"equation"');
+  const code = expectCompiled(outcome).artifact.code;
+  expect(code).toContain("props.registry?.math ?");
+  expect(code).toContain('source:"x", style:"inline"');
+  expect(code).toContain('source:"y", style:"display", meta:"equation"');
+  expect(code).toContain("language-math math-inline");
+  expect(code).toContain("language-math math-display");
+  expect(code).toContain('"data-math-meta":"equation"');
 });
 
-test("compileMdx emits a transportable function body from source", async () => {
-  const outcome = await compileMdx("# Hello {name}\n", { outputFormat: "functionBody" });
-  expect(outcome.kind).toBe("compiled");
+test("compile emits a transportable function body from source", async () => {
+  const outcome = await compile(await new Processor().transform("# Hello {name}\n"), {
+    outputFormat: "functionBody",
+  });
 
-  if (outcome.kind !== "compiled") {
-    return;
-  }
+  const compiled = expectCompiled(outcome);
 
-  expect(outcome.artifact.format).toBe("functionBody");
-  expect(structuredClone(outcome.artifact)).toEqual(outcome.artifact);
-  expect(outcome.artifact.code).not.toMatch(/^\s*(?:export|import)\s/mu);
+  expect(compiled.artifact.format).toBe("functionBody");
+  expect(structuredClone(compiled.artifact)).toEqual(compiled.artifact);
+  expect(compiled.artifact.code).not.toMatch(/^\s*(?:export|import)\s/mu);
 });
 
-test("compileMdx returns typed validated frontmatter", async () => {
+test("compile returns typed validated frontmatter", async () => {
   const schema: Schema<unknown, { readonly title: string }> = {
     "~standard": {
       version: 1,
@@ -50,18 +56,19 @@ test("compileMdx returns typed validated frontmatter", async () => {
     },
   };
 
-  const outcome = await compileMdx("---\ntitle: Hello\n---\n\n# Page\n", {
-    syntax: { frontmatter: "yaml" },
+  const processor = new Processor({ syntax: { frontmatter: "yaml" } });
+
+  const outcome = await compile(await processor.transform("---\ntitle: Hello\n---\n\n# Page\n"), {
     frontmatterSchema: schema,
   });
 
-  expectTypeOf(outcome).toMatchTypeOf<Awaited<ReturnType<typeof compileMdx<typeof schema>>>>();
+  expectTypeOf(outcome).toEqualTypeOf<CompileOutcome<{ readonly title: string }>>();
   const compiled = expectCompiled(outcome);
   expect(compiled.frontmatter).toEqual({ title: "Hello" });
   expect(compiled.artifact.frontmatter).toEqual({ title: "Hello" });
 });
 
-test("compileMdx rejects non-transportable validated frontmatter", async () => {
+test("compile rejects non-transportable validated frontmatter", async () => {
   const schema: Schema<unknown, Date> = {
     "~standard": {
       version: 1,
@@ -72,20 +79,153 @@ test("compileMdx rejects non-transportable validated frontmatter", async () => {
     },
   };
 
-  const outcome = await compileMdx("---\ntitle: Hello\n---\n", {
-    syntax: { frontmatter: "yaml" },
+  const processor = new Processor({ syntax: { frontmatter: "yaml" } });
+
+  const outcome = await compile(await processor.transform("---\ntitle: Hello\n---\n"), {
     frontmatterSchema: schema,
   });
 
-  expect(expectInvalid(outcome).diagnostics[0]).toMatchObject({
-    code: "mdx.frontmatter.transport",
-  });
+  expect(outcome.kind).toBe("invalid");
+  expect(outcome.diagnostics[0]).toMatchObject({ code: "mdx.frontmatter.transport" });
 });
+
+const parityFixtures: ReadonlyArray<readonly [string, string, ParseOptions]> = [
+  ["tight and loose lists", "- one\n- two\n\n1. a\n\n2. b\n", {}],
+  ["task lists", "- [x] done\n- [ ] todo\n", {}],
+  [
+    "inline markup",
+    'Some **strong _nested_** `code` ~~gone~~ and [a link](https://x.test "t").\n',
+    {},
+  ],
+  ["references", "[ref][r] ![img][i]\n\n[r]: https://r.test\n[i]: https://i.test/x.png\n", {}],
+  ["unsafe urls", "[bad](javascript:alert(1)) ![bad](data:text/html,x)\n", {}],
+  ["footnotes", "One[^a] two[^b] again[^a].\n\n[^a]: First.\n[^b]: Second.\n", {}],
+  ["tables", "| a | b |\n| :- | -: |\n| 1 | 2 |\n", {}],
+  ["code and breaks", "```ts\nconst a = 1;\n```\n\nline\\\nbreak\n\n---\n\n> quote\n", {}],
+  ["directives", ":::note[Label]{#id .x}\nBody\n:::\n", { syntax: { directives: true } }],
+  ["math", "$a$\n\n$$\nb\n$$\n", { syntax: { math: "dollar" } }],
+];
+
+test.each(parityFixtures)(
+  "compiled %s render the same HTML as lowering",
+  async (_, source, options) => {
+    const parsed = expectParsed(parse(source, options));
+    const html: HtmlRenderOptions = { clobberPrefix: "doc-", footnoteLabel: "Notes" };
+    const expected = formatHtml(lowerHtml(parsed.document, { ...html, source: parsed.file }));
+    const compiled = expectCompiled(await compile(parsed, html));
+
+    expect(normalizeWhitespace(await renderCompiled(compiled.artifact.code))).toBe(
+      normalizeWhitespace(expected),
+    );
+  },
+);
+
+test("compiled and lowered output share the URL policy", async () => {
+  const parsed = expectParsed(parse("[docs](/docs) ![logo](/logo.png)\n"));
+
+  const html: HtmlRenderOptions = {
+    urlTransform: (url, kind, sanitized) =>
+      kind === "link" ? `https://site.test${url}` : sanitized,
+  };
+
+  const compiled = expectCompiled(await compile(parsed, html));
+  const rendered = await renderCompiled(compiled.artifact.code);
+
+  expect(rendered).toContain('href="https://site.test/docs"');
+  expect(rendered).toContain('src="/logo.png"');
+  expect(formatHtml(lowerHtml(parsed.document, html))).toContain('href="https://site.test/docs"');
+});
+
+test("a paragraph of only JSX and expressions renders without a p", async () => {
+  const parsed = expectParsed(parse("<A /> {1}\n\n<B>text</B>\n"));
+  const html = formatHtml(lowerHtml(parsed.document, { source: parsed.file }));
+
+  expect(html).not.toContain("<p>");
+});
+
+/** Evaluates a compiled function body with a string-rendering JSX runtime. */
+async function renderCompiled(code: string): Promise<string> {
+  const fragment = Symbol("Fragment");
+
+  const element = (type: string | symbol, props: RenderedProps): RenderedElement =>
+    new RenderedElement(type, props);
+
+  const runtime = { Fragment: fragment, jsx: element, jsxs: element };
+  const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor;
+  const run = new AsyncFunction("__mdxRuntime", "__resolveMdxImport", "frontmatter", code);
+  const module = await run(runtime, () => {}, {});
+
+  return renderString(module.default({}), fragment);
+}
+
+type RenderedValue =
+  | string
+  | number
+  | boolean
+  | null
+  | undefined
+  | RenderedElement
+  | readonly RenderedValue[];
+
+type RenderedProps = Readonly<Record<string, RenderedValue>>;
+
+class RenderedElement {
+  public readonly type: string | symbol;
+  public readonly props: RenderedProps;
+
+  public constructor(type: string | symbol, props: RenderedProps) {
+    this.type = type;
+    this.props = props;
+  }
+}
+
+function renderString(value: RenderedValue, fragment: symbol): string {
+  if (value === null || value === undefined || value === false || value === true) {
+    return "";
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((item) => renderString(item, fragment)).join("");
+  }
+
+  if (!(value instanceof RenderedElement)) {
+    return String(value).replaceAll("&", "&amp;").replaceAll("<", "&lt;");
+  }
+
+  const children = renderString(value.props.children, fragment);
+
+  if (value.type === fragment) {
+    return children;
+  }
+
+  const tagName = String(value.type);
+
+  const attributes = Object.entries(value.props).flatMap(([name, item]) => {
+    if (name === "children" || item === false || item === undefined) {
+      return [];
+    }
+
+    const attribute = name === "className" ? "class" : name;
+
+    return item === true
+      ? [attribute]
+      : [`${attribute}="${String(item).replaceAll("&", "&amp;").replaceAll('"', "&#x22;")}"`];
+  });
+
+  const opening = `<${tagName}${attributes.length === 0 ? "" : ` ${attributes.join(" ")}`}>`;
+  const isVoid = ["br", "hr", "img", "input"].includes(tagName);
+
+  return isVoid ? opening : `${opening}${children}</${tagName}>`;
+}
+
+function normalizeWhitespace(html: string): string {
+  return html.replace(/>\s+</gu, "><").trim();
+}
 
 function expectParsed(
   outcome: ReturnType<typeof parse>,
-): Extract<ReturnType<typeof parse>, { kind: "parsed" }> {
-  if (outcome.kind !== "parsed") {
+): Extract<ReturnType<typeof parse>, { kind: "ok" }> {
+  if (outcome.kind !== "ok") {
     throw new Error(`Expected parsed outcome, received ${outcome.kind}`);
   }
 
@@ -93,22 +233,10 @@ function expectParsed(
 }
 
 function expectCompiled<TFrontmatter>(
-  outcome: import("./compiler.ts").MdxCompileOutcome<TFrontmatter>,
-): Extract<import("./compiler.ts").MdxCompileOutcome<TFrontmatter>, { kind: "compiled" }> {
-  expect(outcome.kind).toBe("compiled");
-
-  if (outcome.kind !== "compiled") {
+  outcome: CompileOutcome<TFrontmatter>,
+): Extract<CompileOutcome<TFrontmatter>, { kind: "ok" }> {
+  if (outcome.kind !== "ok") {
     throw new Error(`Expected compiled outcome, received ${outcome.kind}`);
-  }
-
-  return outcome;
-}
-
-function expectInvalid<TFrontmatter>(
-  outcome: import("./compiler.ts").MdxCompileOutcome<TFrontmatter>,
-): Extract<import("./compiler.ts").MdxCompileOutcome<TFrontmatter>, { kind: "invalid" }> {
-  if (outcome.kind !== "invalid") {
-    throw new Error(`Expected invalid outcome, received ${outcome.kind}`);
   }
 
   return outcome;

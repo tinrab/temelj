@@ -1,170 +1,182 @@
 import { isPromise } from "@temelj/value";
 
-import type { DiagnosticBag, DiagnosticReporter } from "./diagnostics.ts";
-import type { DocumentNode, SourceFile } from "./model.ts";
-import type { DocumentTransformContext, HtmlTransformContext } from "./plugin.ts";
-import type { SyntaxOptions } from "./syntax-options.ts";
-import type { HtmlRewriteHandlers, MdxRewriteHandlers } from "./traversal.ts";
-
-import { ConfigurationError } from "./errors.ts";
-import { HtmlDocumentNode, HtmlElementNode, type HtmlRenderOptions } from "./html.ts";
-import {
+import type { DiagnosticBag } from "./diagnostics.ts";
+import type { HtmlNode, HtmlRootNode } from "./html.ts";
+import type { DocumentNode } from "./model.ts";
+import type {
   DocumentPlugin,
-  DocumentTransformPlugin,
+  DocumentPluginContext,
   HtmlPlugin,
-  HtmlTransformPlugin,
+  HtmlPluginContext,
 } from "./plugin.ts";
+import type { SourceFile } from "./source.ts";
+import type { SyntaxOptions } from "./syntax-options.ts";
+
+import { ConfigurationError, TransformError } from "./errors.ts";
 import { rewriteHtml, rewriteMdx, walkHtml } from "./traversal.ts";
 
-export function normalizeDocumentPlugins(
-  plugins: readonly DocumentPlugin[],
-): readonly DocumentTransformPlugin[] {
-  const normalized: DocumentTransformPlugin[] = [];
-
-  for (const [index, plugin] of plugins.entries()) {
-    const fallbackName = `document plugin at index ${index}`;
-
-    if (!(plugin instanceof DocumentPlugin)) {
-      ConfigurationError.invalidPluginInstance("document", fallbackName);
-    }
-
-    const name = validPluginName(plugin.name, fallbackName);
-
-    if (!(plugin instanceof DocumentTransformPlugin)) {
-      ConfigurationError.invalidPluginInstance("document", name);
-    }
-
-    normalized.push(plugin);
-  }
-
-  return normalized;
-}
-
-export function normalizeHtmlPlugins(
-  plugins: readonly HtmlPlugin[],
-): readonly HtmlTransformPlugin[] {
-  const normalized: HtmlTransformPlugin[] = [];
-
-  for (const [index, plugin] of plugins.entries()) {
-    const fallbackName = `HTML plugin at index ${index}`;
-
-    if (!(plugin instanceof HtmlPlugin)) {
-      ConfigurationError.invalidPluginInstance("html", fallbackName);
-    }
-
-    const name = validPluginName(plugin.name, fallbackName);
-
-    if (!(plugin instanceof HtmlTransformPlugin)) {
-      ConfigurationError.invalidPluginInstance("html", name);
-    }
-
-    normalized.push(plugin);
-  }
-
-  return normalized;
-}
-
-function validPluginName(value: string, fallback: string): string {
-  return value.length > 0 ? value : fallback;
-}
-
-export interface PluginPipelineOptions {
+export interface PluginRun {
   readonly diagnostics: DiagnosticBag;
-  readonly document: DocumentNode;
   readonly file: SourceFile;
-  readonly htmlOptions: HtmlRenderOptions;
   readonly signal?: AbortSignal;
   readonly syntax: Readonly<SyntaxOptions>;
-  readonly documentPlugins: readonly DocumentTransformPlugin[];
-  readonly htmlPlugins: readonly HtmlTransformPlugin[];
+  /** Rejects asynchronous plugin results. */
+  readonly synchronous: boolean;
 }
 
-export interface PluginPipelineResult {
-  readonly document: DocumentNode;
-  readonly html: HtmlDocumentNode;
-}
-
-export function documentTransformContext(
+export function runDocumentPlugins(
   document: DocumentNode,
-  file: SourceFile,
-  syntax: Readonly<SyntaxOptions>,
-  diagnostics: DiagnosticReporter,
-  signal?: AbortSignal,
-): DocumentTransformContext {
-  return {
-    document,
-    file,
-    syntax,
-    diagnostics,
-    signal,
-    rewrite: (handlers: MdxRewriteHandlers) => rewriteMdx(document, handlers),
-  };
+  plugins: readonly DocumentPlugin[],
+  run: PluginRun,
+): DocumentNode | Promise<DocumentNode> {
+  return runPlugins("document", document, plugins, run, (current): DocumentPluginContext => ({
+    diagnostics: run.diagnostics,
+    document: current,
+    file: run.file,
+    signal: run.signal,
+    syntax: run.syntax,
+    rewrite: (handlers) => rewriteMdx(current, handlers),
+  }));
 }
 
-export function htmlTransformContext(
-  document: HtmlDocumentNode,
-  file: SourceFile,
-  syntax: Readonly<SyntaxOptions>,
-  diagnostics: DiagnosticReporter,
-  signal?: AbortSignal,
-): HtmlTransformContext {
-  return {
-    document,
-    file,
-    syntax,
-    diagnostics,
-    signal,
-    rewrite: (handlers: HtmlRewriteHandlers) => rewriteHtml(document, handlers),
-  };
+export function runHtmlPlugins(
+  root: HtmlRootNode,
+  plugins: readonly HtmlPlugin[],
+  run: PluginRun,
+): HtmlRootNode | Promise<HtmlRootNode> {
+  return runPlugins("html", root, plugins, run, (current): HtmlPluginContext => ({
+    diagnostics: run.diagnostics,
+    root: current,
+    file: run.file,
+    signal: run.signal,
+    syntax: run.syntax,
+    rewrite: (handlers) => rewriteHtml(current, handlers),
+  }));
 }
 
-export function rewriteHtmlElements(
-  document: HtmlDocumentNode,
-  transform: (
-    element: HtmlElementNode,
-  ) => HtmlElementNode | Promise<HtmlElementNode | undefined> | undefined,
-): HtmlDocumentNode | Promise<HtmlDocumentNode> {
-  const changes: Array<{
-    node: HtmlElementNode;
-    result: HtmlElementNode | Promise<HtmlElementNode | undefined> | undefined;
-  }> = [];
+interface Plugin<TTree, TContext> {
+  readonly name: string;
 
-  let asynchronous = false;
+  transform(context: TContext): TTree | Promise<TTree>;
+}
 
-  for (const { node } of walkHtml(document)) {
-    if (!(node instanceof HtmlElementNode)) {
-      continue;
+/**
+ * Runs plugins in order. Synchronous results continue in the same call; the
+ * first asynchronous result continues the remaining plugins after it settles.
+ */
+function runPlugins<TTree, TContext>(
+  stage: "document" | "html",
+  tree: TTree,
+  plugins: readonly Plugin<TTree, TContext>[],
+  run: PluginRun,
+  context: (tree: TTree) => TContext,
+): TTree | Promise<TTree> {
+  let current = tree;
+
+  for (let index = 0; index < plugins.length; index++) {
+    run.signal?.throwIfAborted();
+    const plugin = plugins[index];
+    const diagnosticStart = run.diagnostics.size;
+    const previous = current;
+
+    const accept = (result: TTree): TTree =>
+      run.diagnostics.hasErrorsSince(diagnosticStart) ? previous : result;
+
+    const fail = (cause: unknown): never => {
+      run.signal?.throwIfAborted();
+
+      if (cause instanceof ConfigurationError) {
+        throw cause;
+      }
+
+      TransformError.pluginTransformFailed(stage, plugin.name, cause);
+    };
+
+    const result = transformWith(plugin, context(current), fail);
+
+    if (isPromise(result)) {
+      if (run.synchronous) {
+        ConfigurationError.asynchronousPluginInSynchronousProcessor();
+      }
+
+      const remaining = plugins.slice(index + 1);
+
+      return result
+        .then(accept, fail)
+        .then((next) => runPlugins(stage, next, remaining, run, context));
     }
 
-    const result = transform(node);
-    asynchronous ||= isPromise(result);
-    changes.push({ node, result });
+    current = accept(result);
   }
 
-  if (asynchronous) {
-    return Promise.all(changes.map(async ({ node, result }) => [node, await result] as const)).then(
-      (replacements) => applyElementReplacements(document, replacements),
-    );
+  return current;
+}
+
+function transformWith<TTree, TContext>(
+  plugin: Plugin<TTree, TContext>,
+  context: TContext,
+  fail: (cause: unknown) => never,
+): TTree | Promise<TTree> {
+  try {
+    return plugin.transform(context);
+  } catch (cause) {
+    return fail(cause);
   }
+}
 
-  const replacements: Array<readonly [HtmlElementNode, HtmlElementNode | undefined]> = [];
+export type HtmlNodeReplacement = HtmlNode | null | undefined;
 
-  for (const { node, result } of changes) {
-    if (!isPromise(result)) {
-      replacements.push([node, result]);
+/**
+ * Replaces HTML nodes with possibly asynchronous results. `undefined` keeps a
+ * node and `null` removes it. Replaced nodes are not visited again.
+ */
+export function replaceHtmlNodes(
+  root: HtmlRootNode,
+  replace: (node: HtmlNode) => HtmlNodeReplacement | Promise<HtmlNodeReplacement>,
+): HtmlRootNode | Promise<HtmlRootNode> {
+  const pending: Array<Promise<readonly [HtmlNode, HtmlNodeReplacement]>> = [];
+  const replacements = new Map<HtmlNode, HtmlNodeReplacement>();
+
+  for (const { node } of walkHtml(root)) {
+    const result = replace(node);
+
+    if (isPromise(result)) {
+      pending.push(result.then((value) => [node, value] as const));
+    } else if (result !== undefined) {
+      replacements.set(node, result);
     }
   }
 
-  return applyElementReplacements(document, replacements);
-}
+  const lookup = ({ node }: { readonly node: HtmlNode }): HtmlNodeReplacement =>
+    replacements.get(node);
 
-function applyElementReplacements(
-  document: HtmlDocumentNode,
-  entries: readonly (readonly [HtmlElementNode, HtmlElementNode | undefined])[],
-): HtmlDocumentNode {
-  const replacements = new Map(entries);
+  const apply = (): HtmlRootNode =>
+    rewriteHtml(root, {
+      codeBlock: lookup,
+      comment: lookup,
+      doctype: lookup,
+      element: lookup,
+      expression: lookup,
+      footnoteReference: lookup,
+      footnoteSection: lookup,
+      jsx: lookup,
+      math: lookup,
+      raw: lookup,
+      root: lookup,
+      text: lookup,
+    });
 
-  return rewriteHtml(document, {
-    element: ({ node }) => replacements.get(node),
+  if (pending.length === 0) {
+    return apply();
+  }
+
+  return Promise.all(pending).then((entries) => {
+    for (const [node, value] of entries) {
+      if (value !== undefined) {
+        replacements.set(node, value);
+      }
+    }
+
+    return apply();
   });
 }

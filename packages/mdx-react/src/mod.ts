@@ -1,23 +1,51 @@
-export * from "./compiled-content.ts";
+export {
+  CompiledContent,
+  HtmlContent,
+  SourceContent,
+  type CompiledContentProps,
+  type HtmlContentProps,
+  type SourceContentProps,
+} from "./content.tsx";
 
-export * from "./registry.ts";
+export type { DiagnosticFallback } from "./fallback.ts";
 
-export * from "./highlighted-code.tsx";
+export { HighlightedCode, type HighlightedCodeProps } from "./highlighted-code.tsx";
 
-export * from "./trusted.ts";
+export {
+  defineMdxRegistry,
+  type MdxRegistry,
+  type MdxRegistryDefinition,
+  type MdxRegistryEntry,
+} from "./registry.ts";
 
-export { HtmlNodeContent, ProcessedContent, SourceContent } from "./source-content.tsx";
+export {
+  StreamContent,
+  useMdxBlockStatus,
+  type MdxBlockStatus,
+  type StreamContentProps,
+} from "./stream-content.tsx";
 
-export type {
-  DiagnosticFallback,
-  HtmlNodeContentProps,
-  ProcessedContentProps,
-  SourceContentProps,
-} from "./source-content.tsx";
+export { StreamSourceContent, type StreamSourceContentProps } from "./stream-source-content.tsx";
 
-export { StreamingSourceContent } from "./streaming-source-content.tsx";
+export {
+  MdxStreamStore,
+  type MdxConsumeOptions,
+  type MdxStreamStoreOptions,
+  type MdxStreamView,
+  type MdxTextSource,
+} from "./stream-store.ts";
 
-export type { StreamingSourceContentProps } from "./streaming-source-content.tsx";
+export {
+  compileTrustedMdx,
+  evaluateTrustedMdx,
+  type CompileTrustedMdxOptions,
+  type CompileTrustedMdxSchemaOptions,
+  type TrustedMdxCompileOutcome,
+  type TrustedMdxEvaluationOptions,
+  type TrustedMdxEvaluationOutcome,
+  type TrustedMdxImportContext,
+  type TrustedMdxImportResolver,
+} from "./trusted.ts";
 
 export type {
   CompiledContentComponent,
@@ -28,11 +56,15 @@ export type {
   MdxCodeBlockComponentProps,
   MdxComponentNode,
   MdxComponentProps,
+  MdxElementComponentNode,
+  MdxJsxComponentNode,
   MdxJsxComponentOptions,
   MdxLiteralPropValue,
   MdxMarkdownComponents,
   MdxPendingComponents,
-  PendingMdxMarkdownProps,
   PendingMdxJsxFallbackProps,
   PendingMdxJsxProps,
+  PendingMdxMarkdownProps,
 } from "./types.ts";
+
+export { useMdxStream, type UseMdxStreamResult } from "./use-mdx-stream.ts";

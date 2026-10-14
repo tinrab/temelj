@@ -1,12 +1,38 @@
 import { isNumber } from "@temelj/value";
 
-import type { HtmlAttributeValue, HtmlElementNode, HtmlFormatOptions, HtmlNode } from "./html.ts";
+import type { HtmlAttributes, HtmlAttributeValue, HtmlNode } from "./html.ts";
 
+import { InputError } from "./errors.ts";
+import { htmlFallback } from "./html.ts";
 import { encodeNumericCharacterReference } from "./utility.ts";
 
+export interface HtmlFormatOptions {
+  readonly closeSelfClosing?: boolean;
+  readonly collapseEmptyAttributes?: boolean;
+  readonly preferUnquotedAttributes?: boolean;
+  readonly quote?: '"' | "'";
+  readonly quoteSmart?: boolean;
+  /** Raw HTML is escaped unless it is explicitly trusted. */
+  readonly rawHtml?: "escape" | "trusted";
+  readonly tightSelfClosing?: boolean;
+  readonly voidElements?: readonly string[];
+}
+
+/** Serializes an HTML tree. JSX renders as its escaped authored fallback. */
 export function formatHtml(node: HtmlNode, options: HtmlFormatOptions = {}): string {
   return new HtmlFormatter(options).format(node);
 }
+
+/** Serializes already-rendered children using the same element rules as strict HTML. */
+export function formatHtmlElement(
+  tagName: string,
+  attributes: HtmlAttributes,
+  content: string,
+): string {
+  return new HtmlFormatter({}).element(tagName, attributes, content);
+}
+
+const tagNamePattern = /^[A-Za-z][A-Za-z0-9:-]*$/u;
 
 const HTML_VOID_ELEMENTS: readonly string[] = [
   "area",
@@ -43,6 +69,8 @@ class HtmlFormatter {
   public format(node: HtmlNode): string {
     switch (node.kind) {
       case "jsx":
+      case "expression":
+        return escapeHtmlText(node.fallback);
       case "text":
         return escapeHtmlText(node.value);
       case "raw":
@@ -52,10 +80,18 @@ class HtmlFormatter {
       case "doctype":
         return "<!doctype html>";
       case "element":
-        return this.element(node);
-      case "fragment":
-      case "document":
+        return this.element(
+          node.tagName,
+          node.attributes,
+          node.children.map((child) => this.format(child)).join(""),
+        );
+      case "root":
         return node.children.map((child) => this.format(child)).join("");
+      case "codeBlock":
+      case "math":
+      case "footnoteReference":
+      case "footnoteSection":
+        return this.format(htmlFallback(node));
       default: {
         const exhaustive: never = node;
 
@@ -64,14 +100,18 @@ class HtmlFormatter {
     }
   }
 
-  private element(node: HtmlElementNode): string {
-    const attributes = Object.entries(node.attributes)
+  public element(tagName: string, values: HtmlAttributes, content: string): string {
+    if (!tagNamePattern.test(tagName)) {
+      InputError.invalidHtmlTagName(tagName);
+    }
+
+    const attributes = Object.entries(values)
       .map(([name, value]) => this.attribute(name, value))
       .filter((value) => value.length > 0)
       .join(" ");
 
-    const opening = `<${node.tagName}${attributes.length === 0 ? "" : ` ${attributes}`}`;
-    const isVoid = this.voids.has(node.tagName.toLowerCase()) && node.children.length === 0;
+    const opening = `<${tagName}${attributes.length === 0 ? "" : ` ${attributes}`}`;
+    const isVoid = this.voids.has(tagName.toLowerCase()) && content.length === 0;
 
     if (isVoid) {
       if (this.options.closeSelfClosing !== true) {
@@ -81,9 +121,7 @@ class HtmlFormatter {
       return `${opening}${this.options.tightSelfClosing === true ? "/" : " /"}>`;
     }
 
-    const content = node.children.map((child) => this.format(child)).join("");
-
-    return `${opening}>${content}</${node.tagName}>`;
+    return `${opening}>${content}</${tagName}>`;
   }
 
   private attribute(name: string, value: HtmlAttributeValue): string {

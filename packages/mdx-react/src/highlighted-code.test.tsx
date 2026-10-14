@@ -1,16 +1,16 @@
+import type { HtmlElementNode } from "@temelj/mdx";
 import type {
   AsynchronousSyntaxHighlighter,
   SynchronousSyntaxHighlighter,
   SyntaxHighlighter,
-} from "@temelj/mdx/plugin";
+} from "@temelj/mdx/plugins";
 import type React from "react";
 
-import { HtmlElementNode, HtmlTextNode } from "@temelj/mdx";
 import { render, waitFor } from "@testing-library/react";
 import { expect, test, vi } from "vitest";
 
 import type { MdxRegistry } from "./registry.ts";
-import type { MdxComponentProps } from "./types.ts";
+import type { MdxCodeBlockComponentProps } from "./types.ts";
 
 import { HighlightedCode } from "./highlighted-code.tsx";
 import { defineMdxRegistry } from "./registry.ts";
@@ -40,22 +40,11 @@ test("does not highlight code without a language", () => {
 test("does not send its fallback back through the semantic code block component", () => {
   let registry: MdxRegistry | undefined;
 
-  function CodeBlock({
-    node,
-    ...props
-  }: React.HTMLAttributes<HTMLPreElement> & MdxComponentProps): React.ReactNode {
-    return node.kind === "element" && node.codeBlock !== undefined ? (
-      <HighlightedCode
-        code={node.codeBlock.code}
-        registry={registry}
-        language={node.codeBlock.language}
-      />
-    ) : (
-      <pre {...props} />
-    );
+  function CodeBlock({ code, language }: MdxCodeBlockComponentProps): React.ReactNode {
+    return <HighlightedCode code={code} language={language} registry={registry} />;
   }
 
-  registry = defineMdxRegistry({ html: { pre: CodeBlock } });
+  registry = defineMdxRegistry({ markdown: { codeBlock: CodeBlock } });
 
   const code = render(<HighlightedCode code="const value = 1" registry={registry} language="ts" />);
 
@@ -67,11 +56,7 @@ test("keeps the highlighted block mounted while its next update is pending", asy
 
   const highlighter = {
     highlight: vi.fn<AsynchronousSyntaxHighlighter["highlight"]>(({ code }) =>
-      code === "first"
-        ? Promise.resolve(
-            new HtmlElementNode("pre", { "data-code": code }, [new HtmlTextNode(code)]),
-          )
-        : next.promise,
+      code === "first" ? Promise.resolve(pre(code, code)) : next.promise,
     ),
     kind: "asynchronous",
   } satisfies SyntaxHighlighter;
@@ -84,7 +69,7 @@ test("keeps the highlighted block mounted while its next update is pending", asy
   code.rerender(<HighlightedCode code="second" highlighter={highlighter} language="ts" />);
 
   expect(code.container.querySelector("[data-code]")?.textContent).toBe("first");
-  next.resolve(new HtmlElementNode("pre", { "data-code": "second" }, [new HtmlTextNode("second")]));
+  next.resolve(pre("second", "second"));
   await waitFor(() => {
     expect(code.container.querySelector("[data-code]")?.textContent).toBe("second");
   });
@@ -95,13 +80,7 @@ test("passes typed metadata and ignores stale asynchronous results", async () =>
 
   const highlighter = {
     highlight: vi.fn<AsynchronousSyntaxHighlighter["highlight"]>(({ code, metadata }) =>
-      code === "first"
-        ? first.promise
-        : Promise.resolve(
-            new HtmlElementNode("pre", { "data-code": code }, [
-              new HtmlTextNode(metadata.fileName ?? ""),
-            ]),
-          ),
+      code === "first" ? first.promise : Promise.resolve(pre(code, metadata.fileName ?? "")),
     ),
     kind: "asynchronous",
   } satisfies SyntaxHighlighter;
@@ -126,11 +105,35 @@ test("passes typed metadata and ignores stale asynchronous results", async () =>
   await waitFor(() => {
     expect(code.container.querySelector("[data-code]")?.getAttribute("data-code")).toBe("second");
   });
-  first.resolve(
-    new HtmlElementNode("pre", { "data-code": "first" }, [new HtmlTextNode("first.ts")]),
-  );
+  first.resolve(pre("first", "first.ts"));
   await Promise.resolve();
 
   expect(code.container.querySelector("[data-code]")?.getAttribute("data-code")).toBe("second");
   expect(code.container.textContent).toBe("second.ts");
 });
+
+test("highlights only completed lines while pending", () => {
+  const highlight = vi.fn<SynchronousSyntaxHighlighter["highlight"]>(({ code }) => pre(code, code));
+  const highlighter = { highlight, kind: "synchronous" } satisfies SyntaxHighlighter;
+
+  const code = render(
+    <HighlightedCode code={"one\ntw"} highlighter={highlighter} language="ts" status="pending" />,
+  );
+
+  code.rerender(
+    <HighlightedCode code={"one\ntwo"} highlighter={highlighter} language="ts" status="pending" />,
+  );
+
+  expect(highlight).toHaveBeenCalledTimes(1);
+  expect(highlight.mock.calls[0]?.[0].code).toBe("one");
+  expect(code.container.textContent).toBe("one\ntwo");
+});
+
+function pre(attribute: string, text: string): HtmlElementNode {
+  return {
+    kind: "element",
+    tagName: "pre",
+    attributes: { "data-code": attribute },
+    children: [{ kind: "text", value: text }],
+  };
+}

@@ -3,6 +3,8 @@ import type React from "react";
 
 import { defineMdxRegistry } from "@temelj/mdx-react";
 
+import { KaTeXMath } from "@/components/katex-math";
+
 function Alert({ description, title }: { description?: string; title?: string }): React.ReactNode {
   return (
     <aside className="mb-4 rounded-md border p-4">
@@ -31,4 +33,5 @@ export const compiledMdxRegistry = defineMdxRegistry({
     Alert: { component: Alert },
   },
   markdown: { codeBlock: CodeBlock },
+  math: KaTeXMath,
 });

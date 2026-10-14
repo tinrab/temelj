@@ -1,29 +1,30 @@
 import { isObject } from "@temelj/value";
 
-import type { HtmlNode } from "./html.ts";
-import type { DocumentNode, FlowContent, JsxAttributeLike, MdxNode, SourceSpan } from "./model.ts";
+import type { HtmlAttributes, HtmlElementNode, HtmlNode } from "./html.ts";
+import type {
+  DocumentNode,
+  FlowContent,
+  FootnoteReferenceNode,
+  JsxAttributeLike,
+  MdxNode,
+  SourceRange,
+} from "./model.ts";
 import type { BlockSyntax, PendingBlockSyntax } from "./parser/block-syntax.ts";
 import type { ResolvedParserLimits } from "./parser/config.ts";
 import type { InlinePendingSyntax, InlineSyntax } from "./parser/inline-syntax.ts";
-import type { MaterializedBlock, ReferenceCandidate } from "./parser/materialize.ts";
+import type { ReferenceCandidate } from "./parser/materialize.ts";
 import type { OwnedBlock, StreamDependencies } from "./stream-types.ts";
-import type { StreamingNode } from "./streaming-document.ts";
+import type { StreamingDocument, StreamingElement, StreamingNode } from "./streaming-document.ts";
 import type { ResolvedSyntaxOptions } from "./syntax-options.ts";
 
-import {
-  HtmlCodeBlockNode,
-  HtmlFootnoteReferenceNode,
-  HtmlFootnoteSectionNode,
-  HtmlMathNode,
-  renderHtml,
-} from "./html.ts";
-import { DocumentNode as StrictDocumentNode } from "./model.ts";
+import { lowerHtml, sanitizeUrl } from "./html-lower.ts";
+import { htmlFallback } from "./html.ts";
+import { mdxChildren } from "./model.ts";
+import { parseFlowRange } from "./parser/block-parser.ts";
 import { InlineInput } from "./parser/inline-input.ts";
 import { parseInline } from "./parser/inline-parser.ts";
-import { materializeStrictDocument } from "./parser/materialize.ts";
+import { isFlowJsxChildren, materializeStrictDocument } from "./parser/materialize.ts";
 import { SourceFile } from "./source.ts";
-import { StreamingDocument } from "./streaming-document.ts";
-import { walkTree } from "./tree.ts";
 
 export function pendingStreamingDocument(
   block: Extract<BlockSyntax, { kind: "invalidMdx" }>,
@@ -34,69 +35,63 @@ export function pendingStreamingDocument(
   const authored = file.slice(block.range);
 
   if (block.syntax === "esm") {
-    return new StreamingDocument([Object.freeze({ kind: "pendingEsm", range: block.range })]);
+    return { kind: "root", children: [Object.freeze({ kind: "pendingEsm", range: block.range })] };
   }
 
   if (block.syntax === "expression") {
-    return new StreamingDocument([
-      Object.freeze({
-        kind: "pendingExpression",
-        authored,
-        range: block.range,
-      }),
-    ]);
-  }
-
-  const name = /^<([A-Za-z_$][\w$:.-]*)/u.exec(authored)?.[1];
-  const attributes: Record<string, boolean | string> = {};
-  const attributePattern = /\s+([A-Za-z_$][\w$:.-]*)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'))?/gu;
-
-  for (const match of authored.matchAll(attributePattern)) {
-    attributes[match[1]] = match[2] ?? match[3] ?? true;
-  }
-
-  const safe = !/\{|\.\.\./u.test(authored);
-  let children: readonly StreamingNode[] = [];
-  const openingEnd = authored.indexOf(">");
-
-  if (safe && openingEnd !== -1 && openingEnd + 1 < authored.length) {
-    const childStart = block.range.start + openingEnd + 1;
-
-    const childDraft: BlockSyntax = {
-      kind: "paragraph",
-      range: { start: childStart, end: block.range.end },
-      input: [
-        {
-          kind: "source",
-          range: { start: childStart, end: block.range.end },
-        },
+    return {
+      kind: "root",
+      children: [
+        Object.freeze({
+          kind: "pendingExpression",
+          authored,
+          range: block.range,
+        }),
       ],
     };
+  }
 
-    const materialized = materializeStrictDocument(file, [childDraft], syntax, limits);
+  const name = block.opening?.name;
+  const attributes = block.opening?.attributes ?? {};
+  const safe = block.opening?.safe ?? false;
+  let children: readonly StreamingNode[] = [];
+  const openingEnd = block.opening?.end;
 
-    if (materialized.kind === "parsed") {
+  if (safe && openingEnd !== undefined && openingEnd < authored.length) {
+    const range = { start: block.range.start + openingEnd, end: block.range.end };
+    const flow = isFlowJsxChildren(file.text, range);
+
+    const drafts: readonly BlockSyntax[] = flow
+      ? parseFlowRange(file.text.replaceAll("\0", "\uFFFD"), range, syntax)
+      : [{ kind: "paragraph", range, input: [{ kind: "source", range }] }];
+
+    const materialized = materializeStrictDocument(file, drafts, syntax, limits, true);
+
+    if (materialized.kind === "ok") {
       const rendered = streamingDocument(materialized.document);
       const paragraph = rendered.children[0];
       children =
-        paragraph?.kind === "element" && paragraph.tagName === "p"
+        !flow && paragraph?.kind === "element" && paragraph.tagName === "p"
           ? paragraph.children
           : rendered.children;
     }
   }
 
-  return new StreamingDocument([
-    Object.freeze({
-      kind: "jsx",
-      state: "pending",
-      safe,
-      name,
-      attributes: Object.freeze(attributes),
-      children,
-      authored,
-      range: block.range,
-    }),
-  ]);
+  return {
+    kind: "root",
+    children: [
+      Object.freeze({
+        kind: "jsx",
+        state: "pending",
+        safe,
+        name,
+        attributes: Object.freeze(attributes),
+        children,
+        authored,
+        range: block.range,
+      }),
+    ],
+  };
 }
 
 export function applyPendingBlock(
@@ -104,33 +99,143 @@ export function applyPendingBlock(
   pending: PendingBlockSyntax,
   file: SourceFile,
   syntax: ResolvedSyntaxOptions,
+  limits: ResolvedParserLimits,
 ): readonly OwnedBlock[] {
-  let ownerIndex = -1;
-
-  for (let index = blocks.length - 1; index >= 0; index--) {
-    const block = blocks[index];
-
-    if (block.range.start <= pending.range.start && pending.range.end <= block.range.end) {
-      ownerIndex = index;
-      break;
+  return blocks.map((block) => {
+    if (block.range.start > pending.range.start || block.range.end < pending.range.end) {
+      return block;
     }
-  }
 
-  if (ownerIndex === -1) {
-    return blocks;
-  }
+    const streaming = projectPendingDocument(block.streaming, pending, file, syntax, limits);
 
-  const owner = blocks[ownerIndex];
-  const document = pendingBlockStreamingDocument(pending, file, syntax, owner.streaming);
+    return streaming === block.streaming ? block : { ...block, streaming };
+  });
+}
 
-  if (document === undefined) {
-    return blocks;
-  }
+/** Projects one pending leaf into the existing container structure. */
+export function projectPendingDocument(
+  document: StreamingDocument,
+  pending: PendingBlockSyntax,
+  file: SourceFile,
+  syntax: ResolvedSyntaxOptions,
+  limits: ResolvedParserLimits,
+): StreamingDocument {
+  const replace = (node: StreamingNode): StreamingNode => {
+    const range = node.range;
 
-  const next = [...blocks];
-  next[ownerIndex] = { ...next[ownerIndex], streaming: document };
+    // Only nodes that contain the pending leaf can change.
+    if (
+      range !== undefined &&
+      (range.start > pending.range.start || range.end < pending.range.end)
+    ) {
+      return node;
+    }
 
-  return next;
+    const exact = range?.start === pending.range.start && range.end === pending.range.end;
+
+    const leaf =
+      pending.kind === "paragraph"
+        ? node.kind === "element" && node.tagName === "p"
+        : node.kind !== "element" || node.tagName === "pre";
+
+    if (exact && leaf) {
+      const replacement =
+        pending.kind === "jsx" || pending.kind === "expression" || pending.kind === "esm"
+          ? pendingStreamingDocument(
+              {
+                kind: "invalidMdx",
+                syntax: pending.kind,
+                state: "incomplete",
+                range: pending.range,
+                opening: pending.kind === "jsx" ? pending.opening : undefined,
+              },
+              file,
+              syntax,
+              limits,
+            )
+          : pendingBlockStreamingDocument(pending, file, syntax, {
+              kind: "root",
+              children: [node],
+            });
+
+      return replacement?.children[0] ?? node;
+    }
+
+    if (node.kind === "footnoteSection" || node.kind === "footnoteReference") {
+      const content = replace(node.content);
+
+      return content === node.content || content.kind !== "element"
+        ? node
+        : Object.freeze({ ...node, content });
+    }
+
+    if (!("children" in node)) {
+      return node;
+    }
+
+    let children = node.children.map(replace);
+
+    if (pending.kind === "paragraph" && node.kind === "element" && node.tagName === "li") {
+      const first = children.findIndex(
+        (child) =>
+          child.range !== undefined &&
+          child.range.start >= pending.range.start &&
+          child.range.end <= pending.range.end,
+      );
+
+      let last = first;
+
+      while (
+        last + 1 < children.length &&
+        children[last + 1].range !== undefined &&
+        (children[last + 1].range?.end ?? Infinity) <= pending.range.end
+      ) {
+        last++;
+      }
+
+      if (
+        first !== -1 &&
+        !children
+          .slice(first, last + 1)
+          .some((child) => child.kind === "element" && child.tagName === "p")
+      ) {
+        const settled: StreamingDocument = {
+          kind: "root",
+          children: [
+            Object.freeze({
+              kind: "element",
+              tagName: "p",
+              attributes: Object.freeze({}),
+              children: Object.freeze(children.slice(first, last + 1)),
+              range: pending.range,
+            }),
+          ],
+        };
+
+        const replacement = pendingBlockStreamingDocument(pending, file, syntax, settled)
+          ?.children[0];
+
+        if (replacement?.kind === "element") {
+          children = [
+            ...children.slice(0, first),
+            ...replacement.children,
+            ...children.slice(last + 1),
+          ];
+        }
+      }
+    }
+
+    return children.every((child, index) => child === node.children[index]) &&
+      children.length === node.children.length
+      ? node
+      : Object.freeze({ ...node, children: Object.freeze(children) });
+  };
+
+  const children = document.children.map(replace);
+
+  return children.every((child, index) => child === document.children[index])
+    ? document
+    : { kind: "root", children: children };
 }
 
 function pendingBlockStreamingDocument(
@@ -140,61 +245,75 @@ function pendingBlockStreamingDocument(
   settled?: StreamingDocument,
 ): StreamingDocument | undefined {
   if (pending.kind === "fencedCode") {
-    return new StreamingDocument([
-      Object.freeze({
-        kind: "pendingFencedCode",
-        authored: file.slice(pending.range),
-        value: new InlineInput(file, pending.value)
-          .toString()
-          .replace(/\r\n?|\n/gu, "\n")
-          .replace(/\n$/u, ""),
-        language: pending.language === undefined ? undefined : file.semanticSlice(pending.language),
-        meta: pending.meta === undefined ? undefined : file.semanticSlice(pending.meta),
-        range: pending.range,
-      }),
-    ]);
+    return {
+      kind: "root",
+      children: [
+        Object.freeze({
+          kind: "pendingFencedCode",
+          authored: file.slice(pending.range),
+          // A trailing line ending tells consumers the last line is complete.
+          value: new InlineInput(file, pending.value).toString().replace(/\r\n?|\n/gu, "\n"),
+          language:
+            pending.language === undefined ? undefined : file.semanticSlice(pending.language),
+          meta: pending.meta === undefined ? undefined : file.semanticSlice(pending.meta),
+          range: pending.range,
+        }),
+      ],
+    };
   }
 
   if (pending.kind === "math") {
-    return new StreamingDocument([
-      Object.freeze({
-        kind: "pendingMath",
-        authored: file.semanticSlice(pending.range),
-        value: new InlineInput(file, pending.value)
-          .toString()
-          .replace(/\r\n?|\n/gu, "\n")
-          .replace(/\n$/u, ""),
-        range: pending.range,
-      }),
-    ]);
+    return {
+      kind: "root",
+      children: [
+        Object.freeze({
+          kind: "pendingMath",
+          authored: file.semanticSlice(pending.range),
+          value: new InlineInput(file, pending.value)
+            .toString()
+            .replace(/\r\n?|\n/gu, "\n")
+            .replace(/\n$/u, ""),
+          range: pending.range,
+        }),
+      ],
+    };
   }
 
   if (pending.kind === "expression") {
-    return new StreamingDocument([
-      Object.freeze({
-        kind: "pendingExpression",
-        authored: file.semanticSlice(pending.range),
-        range: pending.range,
-      }),
-    ]);
+    return {
+      kind: "root",
+      children: [
+        Object.freeze({
+          kind: "pendingExpression",
+          authored: file.semanticSlice(pending.range),
+          range: pending.range,
+        }),
+      ],
+    };
   }
 
   if (pending.kind === "esm") {
-    return new StreamingDocument([Object.freeze({ kind: "pendingEsm", range: pending.range })]);
+    return {
+      kind: "root",
+      children: [Object.freeze({ kind: "pendingEsm", range: pending.range })],
+    };
   }
 
   if (pending.kind === "jsx") {
-    return new StreamingDocument([
-      Object.freeze({
-        kind: "jsx",
-        state: "pending",
-        safe: false,
-        attributes: Object.freeze({}),
-        children: Object.freeze([]),
-        authored: file.semanticSlice(pending.range),
-        range: pending.range,
-      }),
-    ]);
+    return {
+      kind: "root",
+      children: [
+        Object.freeze({
+          kind: "jsx",
+          state: "pending",
+          safe: false,
+          attributes: Object.freeze({}),
+          children: Object.freeze([]),
+          authored: file.semanticSlice(pending.range),
+          range: pending.range,
+        }),
+      ],
+    };
   }
 
   if (pending.kind !== "paragraph") {
@@ -237,48 +356,95 @@ function pendingBlockStreamingDocument(
     return [];
   });
 
-  return new StreamingDocument([
-    Object.freeze({
-      kind: "element",
-      tagName: "p",
-      attributes: Object.freeze({}),
-      children: Object.freeze([...prefix, node]),
-      range: pending.range,
-    }),
-  ]);
+  return {
+    kind: "root",
+    children: [
+      Object.freeze({
+        kind: "element",
+        tagName: "p",
+        attributes: Object.freeze({}),
+        children: Object.freeze([...prefix, node]),
+        range: pending.range,
+      }),
+    ],
+  };
 }
 
-export function applyAmbiguousMarkerBlock(
-  blocks: readonly OwnedBlock[],
+/** Renders invalid authored source as inert text. */
+export function authoredStreamingDocument(
   file: SourceFile,
-): readonly OwnedBlock[] {
-  const match = /(?:^|(?:\r\n|\r|\n){2})([ \t]{0,3}(?:[*+-]|\d{1,9}[.)])[ \t]*)$/u.exec(file.text);
-  const authored = match?.[1];
-  const block = blocks.at(-1);
-
-  if (match === null || authored === undefined || block === undefined) {
-    return blocks;
-  }
-
-  const start = file.text.length - authored.length;
-
-  if (start < block.range.start || start > block.range.end) {
-    return blocks;
-  }
-
-  const next = [...blocks];
-  next[next.length - 1] = {
-    ...block,
-    streaming: new StreamingDocument([
+  range: Readonly<{ start: number; end: number }>,
+): StreamingDocument {
+  return {
+    kind: "root",
+    children: [
       Object.freeze({
-        kind: "text",
-        value: file.semanticSlice({ start, end: file.text.length }),
-        range: Object.freeze({ start, end: file.text.length }),
+        kind: "element",
+        tagName: "p",
+        attributes: Object.freeze({}),
+        children: Object.freeze([
+          Object.freeze({ kind: "text", value: file.semanticSlice(range).trimEnd(), range }),
+        ]),
+        range,
       }),
-    ]),
+    ],
   };
+}
 
-  return next;
+const trimmableTailTags: ReadonlySet<string> = new Set([
+  "blockquote",
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "h5",
+  "h6",
+  "li",
+  "ol",
+  "ul",
+]);
+
+/**
+ * Removes empty trailing containers from the open end of a stream. A bare list
+ * marker, heading marker, or quote marker can still become other syntax, so it
+ * renders nothing until content arrives.
+ */
+export function trimStreamingTail(document: StreamingDocument): StreamingDocument {
+  const children = trimTail(document.children);
+
+  return children === document.children ? document : { kind: "root", children: children };
+}
+
+function trimTail(children: readonly StreamingNode[]): readonly StreamingNode[] {
+  let index = children.length - 1;
+
+  while (index >= 0 && isWhitespaceText(children[index])) {
+    index--;
+  }
+
+  const last = children[index];
+
+  if (last?.kind !== "element" || !trimmableTailTags.has(last.tagName)) {
+    return children;
+  }
+
+  const nested = trimTail(last.children);
+
+  if (nested.every(isWhitespaceText)) {
+    return Object.freeze(children.slice(0, index));
+  }
+
+  return nested === last.children
+    ? children
+    : Object.freeze([
+        ...children.slice(0, index),
+        Object.freeze({ ...last, children: nested }),
+        ...children.slice(index + 1),
+      ]);
+}
+
+function isWhitespaceText(node: StreamingNode | undefined): boolean {
+  return node?.kind === "text" && node.value.trim() === "";
 }
 
 function streamingPendingInline(pending: InlinePendingSyntax, file: SourceFile): StreamingNode {
@@ -331,6 +497,22 @@ function streamingPendingInline(pending: InlinePendingSyntax, file: SourceFile):
         value: pending.value,
         range: pending.range,
       });
+    case "expression":
+      return Object.freeze({
+        kind: "pendingExpression",
+        authored: file.semanticSlice(pending.range),
+        range: pending.range,
+      });
+    case "jsx":
+      return Object.freeze({
+        kind: "jsx",
+        state: "pending",
+        safe: false,
+        attributes: Object.freeze({}),
+        children: Object.freeze([]),
+        authored,
+        range: pending.range,
+      });
   }
 }
 
@@ -371,22 +553,34 @@ function streamingInlineSyntax(node: InlineSyntax, file: SourceFile): StreamingN
         children: Object.freeze([]),
         range: node.range,
       });
-    case "link":
+    case "link": {
+      const href = sanitizeUrl(node.destination, {}, "link");
+      const attributes: Record<string, HtmlAttributes[string]> = href === undefined ? {} : { href };
+
       return Object.freeze({
         kind: "element",
         tagName: "a",
-        attributes: Object.freeze({ href: node.destination }),
+        attributes: Object.freeze(attributes),
         children,
         range: node.range,
       });
-    case "image":
+    }
+
+    case "image": {
+      const src = sanitizeUrl(node.destination, {}, "image");
+
+      const attributes: Record<string, HtmlAttributes[string]> =
+        src === undefined ? { alt: node.alt } : { alt: node.alt, src };
+
       return Object.freeze({
         kind: "element",
         tagName: "img",
-        attributes: Object.freeze({ alt: node.alt, src: node.destination }),
+        attributes: Object.freeze(attributes),
         children: Object.freeze([]),
         range: node.range,
       });
+    }
+
     case "reference":
     case "footnoteReference":
       return unresolvedReference(node, file.text);
@@ -411,7 +605,8 @@ function streamingInlineSyntax(node: InlineSyntax, file: SourceFile): StreamingN
     case "math":
       return Object.freeze({
         kind: "math",
-        math: Object.freeze({ source: node.value, style: "inline" }),
+        source: node.value,
+        style: "inline",
         range: node.range,
       });
     case "directive":
@@ -428,98 +623,28 @@ export function strictBlockDocument(node: FlowContent, complete: DocumentNode): 
     (child) => child.kind === "definition" || child.kind === "footnoteDefinition",
   );
 
-  return new StrictDocumentNode(
-    [node, ...definitions.filter((definition) => definition !== node)],
-    node.origin,
-  );
+  return {
+    kind: "document",
+    children: [node, ...definitions.filter((definition) => definition !== node)],
+    origin: node.origin,
+  };
 }
 
-export function streamingDocument(
-  document: DocumentNode,
-  source?: string,
-  candidates: readonly ReferenceCandidate[] = [],
-): StreamingDocument {
-  if (source !== undefined && hasOpenTexMath(source)) {
-    return new StreamingDocument([
-      Object.freeze({
-        kind: "element",
-        tagName: "p",
-        attributes: Object.freeze({}),
-        children: Object.freeze([Object.freeze({ kind: "text", value: source })]),
-      }),
-    ]);
-  }
-
-  const candidatesByRange = new Map(
-    candidates.map((candidate) => [
-      rangeKey(candidate.range.start, candidate.range.end),
-      candidate,
-    ]),
-  );
-
-  return new StreamingDocument(
-    renderHtml(document).children.map((node) => streamingNode(node, candidatesByRange, source)),
-  );
+function streamingDocument(document: DocumentNode): StreamingDocument {
+  return {
+    kind: "root",
+    children: lowerHtml(document).children.map((node) => streamingNode(node, new Map())),
+  };
 }
 
-export function streamingDocuments(
-  document: DocumentNode,
-  blocks: readonly MaterializedBlock[],
-  source: string,
-): Readonly<{
-  blocks: ReadonlyMap<FlowContent, StreamingDocument>;
-  supplement: StreamingDocument;
-}> {
-  const rendered = renderHtml(document);
-  const htmlByBlock = new Map<FlowContent, HtmlNode[]>();
-  const blocksByOrigin = new Map<string, MaterializedBlock>();
+/** Streaming nodes converted from HTML node identities. Valid while references are unchanged. */
+export type StreamingConversionCache = WeakMap<HtmlNode, StreamingNode>;
 
-  for (const block of blocks) {
-    htmlByBlock.set(block.node, []);
-    const origin = block.node.origin;
-
-    if (origin !== undefined) {
-      blocksByOrigin.set(rangeKey(origin.start, origin.end), block);
-    }
-  }
-
-  const supplement: HtmlNode[] = [];
-  let active: HtmlNode[] | undefined;
-
-  for (const node of rendered.children) {
-    if (isFootnoteSection(node)) {
-      supplement.push(node);
-      active = undefined;
-      continue;
-    }
-
-    if (node.origin !== undefined) {
-      const owner = blocksByOrigin.get(rangeKey(node.origin.start, node.origin.end));
-      active = owner === undefined ? undefined : htmlByBlock.get(owner.node);
-    }
-
-    active?.push(node);
-  }
-
-  const streamingByBlock = new Map<FlowContent, StreamingDocument>();
-
-  for (const block of blocks) {
-    streamingByBlock.set(
-      block.node,
-      streamingDocumentFromHtml(htmlByBlock.get(block.node) ?? [], source, block.candidates),
-    );
-  }
-
-  return Object.freeze({
-    blocks: streamingByBlock,
-    supplement: streamingDocumentFromHtml(supplement, source),
-  });
-}
-
-function streamingDocumentFromHtml(
+export function streamingDocumentFromHtml(
   nodes: readonly HtmlNode[],
   source: string,
   candidates: readonly ReferenceCandidate[] = [],
+  cache?: StreamingConversionCache,
 ): StreamingDocument {
   const candidatesByRange = new Map(
     candidates.map((candidate) => [
@@ -528,76 +653,93 @@ function streamingDocumentFromHtml(
     ]),
   );
 
-  return new StreamingDocument(nodes.map((node) => streamingNode(node, candidatesByRange, source)));
-}
-
-function isFootnoteSection(node: HtmlNode): boolean {
-  return node.kind === "element" && Object.hasOwn(node.attributes, "data-footnotes");
-}
-
-function hasOpenTexMath(source: string): boolean {
-  const inline = source.lastIndexOf("\\(") > source.lastIndexOf("\\)");
-  const display = source.lastIndexOf("\\[") > source.lastIndexOf("\\]");
-
-  return inline || display;
+  return {
+    kind: "root",
+    children: nodes.map((node) => streamingNode(node, candidatesByRange, source, cache)),
+  };
 }
 
 function streamingNode(
   node: HtmlNode,
-  candidates: ReadonlyMap<string, ReferenceCandidate> = new Map(),
+  candidates: ReadonlyMap<string, ReferenceCandidate>,
   source?: string,
+  cache?: StreamingConversionCache,
+): StreamingNode {
+  const hit = cache?.get(node);
+
+  if (hit !== undefined) {
+    return hit;
+  }
+
+  const converted = convertStreamingNode(node, candidates, source, cache);
+  cache?.set(node, converted);
+
+  return converted;
+}
+
+function convertStreamingNode(
+  node: HtmlNode,
+  candidates: ReadonlyMap<string, ReferenceCandidate>,
+  source: string | undefined,
+  cache: StreamingConversionCache | undefined,
 ): StreamingNode {
   const range = sourceRange(node.origin);
 
-  if (node instanceof HtmlFootnoteReferenceNode) {
-    if (range === undefined || source === undefined) {
-      throw new Error("A streaming footnote reference must retain its source range");
-    }
-
-    return Object.freeze({
-      kind: "footnoteReference",
-      authored: source.slice(range.start, range.end),
-      identifier: node.footnoteReference.identifier,
-      occurrence: node.footnoteReference.occurrence,
-      ordinal: node.footnoteReference.ordinal,
-      content: streamingElement(node, candidates, source),
-      range,
-    });
-  }
-
-  if (node instanceof HtmlFootnoteSectionNode) {
-    return Object.freeze({
-      kind: "footnoteSection",
-      identifiers: node.footnoteSection.identifiers,
-      content: streamingElement(node, candidates, source),
-      range,
-    });
-  }
-
-  if (node instanceof HtmlCodeBlockNode) {
-    return Object.freeze({ kind: "codeBlock", codeBlock: node.codeBlock, range });
-  }
-
-  if (node instanceof HtmlMathNode) {
-    return Object.freeze({ kind: "math", math: node.math, range });
-  }
-
   switch (node.kind) {
+    case "footnoteReference":
+      if (range === undefined || source === undefined) {
+        throw new Error("A streaming footnote reference must retain its source range");
+      }
+
+      return Object.freeze({
+        kind: "footnoteReference",
+        authored: source.slice(range.start, range.end),
+        identifier: node.identifier,
+        occurrence: node.occurrence,
+        ordinal: node.ordinal,
+        content: streamingElement(htmlFallback(node), candidates, source, cache),
+        range,
+      });
+    case "footnoteSection":
+      return Object.freeze({
+        kind: "footnoteSection",
+        identifiers: node.identifiers,
+        content: streamingElement(htmlFallback(node), candidates, source, cache),
+        range,
+      });
+    case "codeBlock":
+      return Object.freeze({
+        kind: "codeBlock",
+        code: node.code,
+        language: node.language,
+        meta: node.meta,
+        range,
+      });
+    case "math":
+      return Object.freeze({
+        kind: "math",
+        source: node.source,
+        style: node.style,
+        meta: node.meta,
+        range,
+      });
     case "jsx":
       return Object.freeze({
         kind: "jsx",
         state: "complete",
-        safe: hasOnlyStaticAttributes(node.request.node.attributes),
-        name: node.request.node.name,
-        attributes: staticAttributes(node.request.node.attributes),
+        safe: hasOnlyStaticAttributes(node.node.attributes),
+        name: node.node.name,
+        attributes: staticAttributes(node.node.attributes),
         children: Object.freeze(
-          node.request.children.map((child) => streamingNode(child, candidates, source)),
+          node.children.map((child) => streamingNode(child, candidates, source, cache)),
         ),
-        authored: node.value,
+        authored: node.fallback,
         range,
       });
+    case "expression":
+      return Object.freeze({ kind: "text", value: node.fallback, range });
     case "element":
-      return streamingElement(node, candidates, source);
+      return streamingElement(node, candidates, source, cache, range);
     case "text": {
       const candidate =
         range === undefined ? undefined : candidates.get(rangeKey(range.start, range.end));
@@ -615,18 +757,16 @@ function streamingNode(
       return Object.freeze({ kind: "omitted", syntax: "comment", range });
     case "doctype":
       return Object.freeze({ kind: "omitted", syntax: "doctype", range });
-    case "fragment":
+    case "root":
       return Object.freeze({
         kind: "element",
         tagName: "span",
         attributes: Object.freeze({}),
         children: Object.freeze(
-          node.children.map((child) => streamingNode(child, candidates, source)),
+          node.children.map((child) => streamingNode(child, candidates, source, cache)),
         ),
         range,
       });
-    case "document":
-      return Object.freeze({ kind: "omitted", syntax: "esm", range });
     default: {
       const exhaustive: never = node;
 
@@ -636,16 +776,20 @@ function streamingNode(
 }
 
 function streamingElement(
-  node: Extract<HtmlNode, { kind: "element" }>,
+  node: HtmlElementNode,
   candidates: ReadonlyMap<string, ReferenceCandidate>,
   source: string | undefined,
-): Extract<StreamingNode, { kind: "element" }> {
+  cache: StreamingConversionCache | undefined,
+  range = sourceRange(node.origin),
+): StreamingElement {
   return Object.freeze({
     kind: "element",
     tagName: node.tagName,
     attributes: node.attributes,
-    children: Object.freeze(node.children.map((child) => streamingNode(child, candidates, source))),
-    range: sourceRange(node.origin),
+    children: Object.freeze(
+      node.children.map((child) => streamingNode(child, candidates, source, cache)),
+    ),
+    range,
   });
 }
 
@@ -655,17 +799,9 @@ function staticAttributes(
   const entries: Array<readonly [string, boolean | string]> = [];
 
   for (const attribute of attributes) {
-    if (attribute.kind === "jsxSpreadAttribute") {
-      continue;
+    if (attribute.kind === "jsxAttribute" && !isObject(attribute.value)) {
+      entries.push([attribute.name, attribute.value ?? true]);
     }
-
-    const value = attribute.value;
-
-    if (isObject(value)) {
-      continue;
-    }
-
-    entries.push([attribute.name, value ?? true]);
   }
 
   return Object.freeze(Object.fromEntries(entries));
@@ -677,20 +813,60 @@ function hasOnlyStaticAttributes(attributes: readonly JsxAttributeLike[]): boole
   );
 }
 
+/** References a node makes, in document order. Lists may repeat identifiers. */
+export interface NodeReferences {
+  readonly definitions: readonly string[];
+  readonly footnotes: readonly string[];
+  readonly footnoteReferences: readonly FootnoteReferenceNode[];
+}
+
+const noReferences: NodeReferences = { definitions: [], footnotes: [], footnoteReferences: [] };
+
+/** Collects references, reusing results for node identities seen before. */
+export function nodeReferences(
+  node: MdxNode,
+  cache: WeakMap<MdxNode, NodeReferences>,
+): NodeReferences {
+  const hit = cache.get(node);
+
+  if (hit !== undefined) {
+    return hit;
+  }
+
+  const definitions: string[] = [];
+  const footnotes: string[] = [];
+  const footnoteReferences: FootnoteReferenceNode[] = [];
+
+  if (node.kind === "linkReference" || node.kind === "imageReference") {
+    definitions.push(node.identifier);
+  } else if (node.kind === "footnoteReference") {
+    footnotes.push(node.identifier);
+    footnoteReferences.push(node);
+  }
+
+  for (const child of mdxChildren(node)) {
+    const references = nodeReferences(child, cache);
+    definitions.push(...references.definitions);
+    footnotes.push(...references.footnotes);
+    footnoteReferences.push(...references.footnoteReferences);
+  }
+
+  const result =
+    definitions.length === 0 && footnotes.length === 0
+      ? noReferences
+      : { definitions, footnotes, footnoteReferences };
+
+  cache.set(node, result);
+
+  return result;
+}
+
 export function dependenciesFor(
-  node: FlowContent,
+  references: NodeReferences,
   candidates: readonly ReferenceCandidate[] = [],
 ): StreamDependencies {
-  const definitions = new Set<string>();
-  const footnotes = new Set<string>();
-
-  for (const cursor of walkTree<MdxNode>(node, (value) => value.children)) {
-    if (cursor.node.kind === "linkReference" || cursor.node.kind === "imageReference") {
-      definitions.add(cursor.node.identifier);
-    } else if (cursor.node.kind === "footnoteReference") {
-      footnotes.add(cursor.node.identifier);
-    }
-  }
+  const definitions = new Set<string>(references.definitions);
+  const footnotes = new Set<string>(references.footnotes);
 
   for (const candidate of candidates) {
     if (candidate.kind === "reference") {
@@ -766,7 +942,7 @@ function rangeKey(start: number, end: number): string {
 }
 
 function sourceRange(
-  origin: Readonly<SourceSpan> | undefined,
+  origin: SourceRange | undefined,
 ): Readonly<{ start: number; end: number }> | undefined {
   return origin === undefined ? undefined : Object.freeze({ start: origin.start, end: origin.end });
 }

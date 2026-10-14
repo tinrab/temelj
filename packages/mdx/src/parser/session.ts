@@ -55,7 +55,7 @@ export class ParserSession {
     this.syntax = resolveSyntaxOptions(options.syntax);
     this.#blockParser = new BlockParser(this.syntax);
     this.#lineScanner = new PhysicalLineScanner();
-    this.#checkpoints = [{ line: 1, offset: 0, parser: { blocks: [] } }];
+    this.#checkpoints = [{ line: 1, offset: 0, parser: { length: 0, tail: undefined } }];
 
     if (options.source instanceof SourceFile) {
       this.#name = options.source.name;
@@ -102,7 +102,7 @@ export class ParserSession {
     const checkpoint = this.#checkpoints[checkpointIndex];
     this.#source = nextSource;
     this.#grammarSource = nextSource.replaceAll("\0", "\uFFFD");
-    this.#blockParser = new BlockParser(this.syntax, checkpoint.parser);
+    this.#blockParser = this.#blockParser.fork(checkpoint.parser);
     this.#lineScanner = new PhysicalLineScanner({
       line: checkpoint.line,
       offset: checkpoint.offset,

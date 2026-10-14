@@ -132,3 +132,16 @@
     @apply font-sans;
   }
 }
+
+/* A CSS-only caret after the last streamed element, without extra DOM nodes. */
+.streaming-caret[data-streaming="true"] > :last-child::after {
+  content: "\25CF";
+  margin-inline-start: 0.25em;
+  animation: streaming-caret 1s steps(2, start) infinite;
+}
+
+@keyframes streaming-caret {
+  to {
+    visibility: hidden;
+  }
+}

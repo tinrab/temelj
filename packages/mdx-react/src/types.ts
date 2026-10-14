@@ -1,10 +1,11 @@
 import type {
-  CodeBlockRenderInput,
-  HtmlAttributeValue,
-  MathRenderInput,
+  HtmlAttributes,
+  HtmlCodeBlockNode,
+  HtmlMathNode,
+  SourceRange,
+  StreamingJsx,
   StreamingPendingFencedCode,
   StreamingPendingMarkdownNode,
-  StreamingJsx,
 } from "@temelj/mdx";
 import type React from "react";
 
@@ -12,34 +13,29 @@ import type { MdxRegistry } from "./registry.ts";
 
 export type MdxLiteralPropValue = boolean | string;
 
-export interface MdxComponentSource {
-  readonly name: string;
-  readonly start: number;
-  readonly end: number;
-}
-
+/** Plain element metadata passed to `html` overrides. It can cross an RSC boundary. */
 export interface MdxElementComponentNode {
-  readonly attributes: Readonly<Record<string, HtmlAttributeValue>>;
-  readonly codeBlock?: CodeBlockRenderInput;
   readonly kind: "element";
-  readonly name: string;
-  readonly source?: MdxComponentSource;
+  readonly tagName: string;
+  readonly attributes: HtmlAttributes;
+  readonly origin?: SourceRange;
 }
 
+/** Plain JSX metadata passed to registered JSX components. */
 export interface MdxJsxComponentNode {
-  readonly attributes: Readonly<Record<string, boolean | string>>;
   readonly kind: "jsxFlowElement" | "jsxTextElement";
   readonly name: string;
-  readonly source?: MdxComponentSource;
+  readonly attributes: Readonly<Record<string, MdxLiteralPropValue>>;
+  readonly origin?: SourceRange;
 }
 
-/** Plain component metadata that can cross a React Server Component boundary. */
 export type MdxComponentNode = MdxElementComponentNode | MdxJsxComponentNode;
 
 export type MdxComponentProps<Node extends MdxComponentNode = MdxComponentNode> = Readonly<{
   node: Node;
 }>;
 
+/** Props a renderer owns. Authored JSX that sets one stays inert. */
 export const reservedMdxProps = ["children", "key", "node", "ref"] as const;
 
 type ReservedMdxProp = (typeof reservedMdxProps)[number];
@@ -80,6 +76,7 @@ export interface MdxPendingComponents {
   readonly markdown?: React.ComponentType<PendingMdxMarkdownProps>;
 }
 
+/** One component renders a fence while it streams and after it settles, so it stays mounted. */
 export type MdxCodeBlockComponentProps =
   | Readonly<{
       code: string;
@@ -92,7 +89,7 @@ export type MdxCodeBlockComponentProps =
       code: string;
       language: string;
       meta?: string;
-      node: MdxElementComponentNode;
+      node: HtmlCodeBlockNode;
       status: "complete";
     }>;
 
@@ -100,13 +97,13 @@ export interface MdxMarkdownComponents {
   readonly codeBlock?: React.ComponentType<MdxCodeBlockComponentProps>;
 }
 
-export type MathComponentProps = MathRenderInput;
+export type MathComponentProps = Readonly<Pick<HtmlMathNode, "meta" | "source" | "style">>;
 
 export type MathComponent = React.ComponentType<MathComponentProps>;
 
+/** Props that compiled content reads at render time. */
 export interface CompiledContentRuntimeProps {
   readonly registry?: MdxRegistry;
-  readonly math?: MathComponent;
 }
 
 export type CompiledContentComponent<Props extends object = Record<never, never>> =

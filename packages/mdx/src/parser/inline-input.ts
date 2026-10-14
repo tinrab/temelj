@@ -16,30 +16,49 @@ export interface VirtualSpaceInlineSegment {
 
 export type InlineSegment = SourceInlineSegment | VirtualSpaceInlineSegment;
 
-export interface InlineCharacter {
-  readonly character: string;
-  readonly sourceOffset: number;
-  readonly virtual: boolean;
-}
-
-/** Source-backed block content with explicit virtual indentation. */
+/**
+ * Source-backed block content with explicit virtual indentation. Text is built
+ * once; each character keeps the source offset it came from.
+ */
 export class InlineInput {
-  readonly #characters: readonly InlineCharacter[];
+  readonly #offsets: Uint32Array;
+  readonly #text: string;
   public readonly file: SourceFile;
   public readonly segments: readonly InlineSegment[];
 
   public constructor(file: SourceFile, segments: readonly InlineSegment[]) {
     this.file = file;
     this.segments = segments.map(validateSegment);
-    this.#characters = materializeCharacters(file, this.segments);
+    const parts: string[] = [];
+    let length = 0;
+
+    for (const segment of this.segments) {
+      const part =
+        segment.kind === "source" ? file.semanticSlice(segment.range) : " ".repeat(segment.columns);
+
+      parts.push(part);
+      length += part.length;
+    }
+
+    this.#text = parts.join("");
+    this.#offsets = new Uint32Array(length);
+    let index = 0;
+
+    for (const segment of this.segments) {
+      if (segment.kind === "virtualSpace") {
+        this.#offsets.fill(segment.offset, index, index + segment.columns);
+        index += segment.columns;
+        continue;
+      }
+
+      for (let offset = segment.range.start; offset < segment.range.end; offset++) {
+        this.#offsets[index++] = offset;
+      }
+    }
   }
 
   public get length(): number {
-    return this.#characters.length;
-  }
-
-  public at(index: number): InlineCharacter | undefined {
-    return this.#characters[index];
+    return this.#text.length;
   }
 
   public sourceRange(start = 0, end = this.length): SourceRange {
@@ -51,20 +70,19 @@ export class InlineInput {
       throw new RangeError(`Inline range ${start}..${end} exceeds input length ${this.length}`);
     }
 
-    const first = this.#characters[start];
-    const last = this.#characters[end - 1];
-
-    if (first === undefined) {
-      const offset = this.#characters.at(-1)?.sourceOffset ?? 0;
+    if (start === this.length) {
+      const offset = this.length === 0 ? 0 : this.#offsets[this.length - 1];
 
       return sourceRange(offset, offset);
     }
 
-    return sourceRange(first.sourceOffset, (last?.sourceOffset ?? first.sourceOffset) + 1);
+    const first = this.#offsets[start];
+
+    return sourceRange(first, (end === 0 ? first : this.#offsets[end - 1]) + 1);
   }
 
   public toString(): string {
-    return this.#characters.map((entry) => entry.character).join("");
+    return this.#text;
   }
 }
 
@@ -86,33 +104,4 @@ function validateSegment(segment: InlineSegment): InlineSegment {
   }
 
   return { ...segment };
-}
-
-function materializeCharacters(
-  file: SourceFile,
-  segments: readonly InlineSegment[],
-): InlineCharacter[] {
-  const characters: InlineCharacter[] = [];
-
-  for (const segment of segments) {
-    if (segment.kind === "virtualSpace") {
-      for (let column = 0; column < segment.columns; column++) {
-        characters.push({ character: " ", sourceOffset: segment.offset, virtual: true });
-      }
-
-      continue;
-    }
-
-    file.slice(segment.range);
-
-    for (let offset = segment.range.start; offset < segment.range.end; offset++) {
-      characters.push({
-        character: file.character(offset) ?? "",
-        sourceOffset: offset,
-        virtual: false,
-      });
-    }
-  }
-
-  return characters;
 }

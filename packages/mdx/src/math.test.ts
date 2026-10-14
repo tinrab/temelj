@@ -1,16 +1,15 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 
 import {
-  DisplayMathNode,
-  InlineMathNode,
+  formatMdx,
   InputError,
   MdxStream,
-  ParagraphNode,
-  TextNode,
   parse,
   renderStreamingHtml,
   selectMdx,
   type MathFormat,
+  type DisplayMathNode,
+  type InlineMathNode,
   type MathMode,
   type StreamingDocument,
   type SyntaxOptions,
@@ -108,7 +107,7 @@ describe("math nodes and formatting", () => {
   it("preserves the resolved delimiter format through formatting", () => {
     const source = "$a$ and \\(b\\)\n\n\\[\nc\n\\]\n";
     const first = expectParsed(parse(source, { syntax: { math: "auto" } })).document;
-    const formatted = first.toSource();
+    const formatted = formatMdx(first);
     const second = expectParsed(parse(formatted, { syntax: { math: "auto" } })).document;
 
     expect([...selectMdx(second, "inlineMath")].map(({ node }) => node.format)).toEqual([
@@ -121,25 +120,26 @@ describe("math nodes and formatting", () => {
   });
 
   it("escapes prose that would become enabled TeX math", () => {
-    const document = new ParagraphNode([new TextNode(String.raw`literal \(x\)`)]);
-    const source = document.toSource({ syntax: { math: "tex" } });
+    const source = formatMdx(
+      { kind: "paragraph", children: [{ kind: "text", value: String.raw`literal \(x\)` }] },
+      { syntax: { math: "tex" } },
+    );
 
     expect(inlineMath(source, "tex")).toHaveLength(0);
   });
 
-  it("requires formats in constructors and rejects ambiguous TeX node values", () => {
-    expect(new InlineMathNode("x", { format: "tex" }).toSource()).toBe("\\(x\\)");
-    expect(new DisplayMathNode("x", { format: "tex" }).toSource()).toBe("\\[\nx\n\\]");
-    expect(() => new InlineMathNode(String.raw`x\)y`, { format: "tex" })).toThrow(InputError);
-    expect(() => new DisplayMathNode(String.raw`x\]y`, { format: "tex" })).toThrow(InputError);
-  });
-
-  it("clears dollar metadata when changing a display node to TeX", () => {
-    const dollar = new DisplayMathNode("x", { format: "dollar", meta: "equation" });
-    const tex = dollar.with({ format: "tex" });
-
-    expect(tex).toMatchObject({ format: "tex", meta: undefined, value: "x" });
-    expect(() => dollar.with({ format: "tex", meta: "equation" })).toThrow(InputError);
+  it("formats TeX math and rejects values that TeX delimiters cannot represent", () => {
+    expect(formatMdx({ kind: "inlineMath", value: "x", format: "tex" })).toBe("\\(x\\)");
+    expect(formatMdx({ kind: "displayMath", value: "x", format: "tex" })).toBe("\\[\nx\n\\]");
+    expect(() => formatMdx({ kind: "inlineMath", value: String.raw`x\)y`, format: "tex" })).toThrow(
+      InputError,
+    );
+    expect(() =>
+      formatMdx({ kind: "displayMath", value: String.raw`x\]y`, format: "tex" }),
+    ).toThrow(InputError);
+    expect(() =>
+      formatMdx({ kind: "displayMath", value: "x", format: "tex", meta: "equation" }),
+    ).toThrow(InputError);
   });
 
   it("exports closed format and mode types", () => {
@@ -194,8 +194,8 @@ function streamingKinds(document: StreamingDocument): readonly string[] {
 
 function expectParsed(
   outcome: ReturnType<typeof parse>,
-): Extract<ReturnType<typeof parse>, { kind: "parsed" }> {
-  if (outcome.kind !== "parsed") {
+): Extract<ReturnType<typeof parse>, { kind: "ok" }> {
+  if (outcome.kind !== "ok") {
     throw new Error(`Expected parsed outcome, received ${outcome.kind}`);
   }
 

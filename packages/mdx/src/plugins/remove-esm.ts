@@ -1,15 +1,11 @@
-import type { DocumentTransformContext } from "../plugin.ts";
-
-import { DocumentNode, EsmNode } from "../model.ts";
-import { DocumentTransformPlugin } from "../plugin.ts";
+import type { DocumentNode } from "../model.ts";
+import type { DocumentPlugin, DocumentPluginContext } from "../plugin.ts";
 
 /** Removes authored imports and exports while retaining all renderable content. */
-export class RemoveEsmPlugin extends DocumentTransformPlugin {
+export class RemoveEsmPlugin implements DocumentPlugin {
   public readonly name = "remove-esm";
 
-  public transform(context: DocumentTransformContext): DocumentNode {
-    return context.document.with({
-      children: context.document.children.filter((child) => !(child instanceof EsmNode)),
-    });
+  public transform(context: DocumentPluginContext): DocumentNode {
+    return context.rewrite({ esm: () => null });
   }
 }

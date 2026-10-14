@@ -9,26 +9,15 @@ import { materializeStrictDocument } from "./parser/materialize.ts";
 import { ParserSession } from "./parser/session.ts";
 import { SourceFile } from "./source.ts";
 
-export {
-  defaultParserLimits,
-  resolveParserLimits,
-  type ParserLimit,
-  type ParserLimits,
-  type ResolvedParserLimits,
-} from "./parser/config.ts";
+export { defaultParserLimits, type ParserLimit, type ParserLimits } from "./parser/config.ts";
 
 export interface ParseOptions {
   readonly limits?: ParserLimits;
   readonly syntax?: SyntaxOptions;
 }
 
-export type ParseOutcome =
-  | Readonly<{
-      kind: "parsed";
-      file: SourceFile;
-      document: DocumentNode;
-      diagnostics: readonly Diagnostic[];
-    }>
+/** Authored errors and exceeded limits are values. Every failure has an error diagnostic. */
+export type MdxFailure<TLimit extends string = ParserLimit> =
   | Readonly<{
       kind: "invalid";
       file: SourceFile;
@@ -37,9 +26,18 @@ export type ParseOutcome =
   | Readonly<{
       kind: "limitExceeded";
       file: SourceFile;
-      limit: ParserLimit;
+      limit: TLimit;
       diagnostics: readonly [Diagnostic, ...Diagnostic[]];
     }>;
+
+export type ParseOutcome =
+  | Readonly<{
+      kind: "ok";
+      file: SourceFile;
+      document: DocumentNode;
+      diagnostics: readonly Diagnostic[];
+    }>
+  | MdxFailure;
 
 /** Strict parsing is terminal completion of the incremental parser session. */
 export function parse(input: string | SourceFile, options: ParseOptions = {}): ParseOutcome {
@@ -74,9 +72,9 @@ export function parse(input: string | SourceFile, options: ParseOptions = {}): P
     session.limits,
   );
 
-  if (materialized.kind === "parsed") {
+  if (materialized.kind === "ok") {
     return Object.freeze({
-      kind: "parsed",
+      kind: "ok",
       file: draft.file,
       document: materialized.document,
       diagnostics: materialized.diagnostics,

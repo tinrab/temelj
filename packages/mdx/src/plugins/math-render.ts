@@ -1,73 +1,60 @@
 import { isPromise } from "@temelj/value";
 
-import type { HtmlTransformContext } from "../plugin.ts";
+import type { HtmlMathNode, HtmlNode, HtmlRootNode } from "../html.ts";
+import type { HtmlPlugin, HtmlPluginContext, PluginFailureMode } from "../plugin.ts";
 
-import {
-  HtmlElementNode,
-  HtmlMathNode,
-  type HtmlDocumentNode,
-  type MathRenderInput,
-} from "../html.ts";
-import { rewriteHtmlElements } from "../plugin-internal.ts";
-import { HtmlTransformPlugin } from "../plugin.ts";
+import { replaceHtmlNodes } from "../plugin-internal.ts";
 
-export type MathRenderMode = "strict" | "tolerant";
-
-export type { MathRenderInput, MathRenderStyle } from "../html.ts";
-
-export interface MathRenderRequest extends MathRenderInput {
-  readonly element: HtmlMathNode;
+export interface MathRenderRequest {
+  readonly node: HtmlMathNode;
   readonly signal?: AbortSignal;
 }
 
 export interface MathRenderer {
-  render(request: MathRenderRequest): HtmlElementNode | Promise<HtmlElementNode>;
+  /** Returns the node that replaces the math fallback. */
+  render(request: MathRenderRequest): HtmlNode | Promise<HtmlNode>;
 }
 
 export interface MathRenderPluginOptions {
-  readonly mode?: MathRenderMode;
+  readonly mode?: PluginFailureMode;
   readonly renderer: MathRenderer;
 }
 
-/** Renders owned math HTML through a caller-supplied renderer. */
-export class MathRenderPlugin extends HtmlTransformPlugin {
+/** Renders math nodes through a caller-supplied renderer. */
+export class MathRenderPlugin implements HtmlPlugin {
   public readonly name = "math-render";
-  private readonly mode: MathRenderMode;
+  private readonly mode: PluginFailureMode;
   private readonly renderer: MathRenderer;
 
   public constructor(options: MathRenderPluginOptions) {
-    super();
     this.renderer = options.renderer;
     this.mode = options.mode ?? "tolerant";
   }
 
-  public transform(context: HtmlTransformContext): HtmlDocumentNode | Promise<HtmlDocumentNode> {
-    return rewriteHtmlElements(context.document, (node) => {
-      if (!(node instanceof HtmlMathNode)) {
+  public transform(context: HtmlPluginContext): HtmlRootNode | Promise<HtmlRootNode> {
+    return replaceHtmlNodes(context.root, (node) => {
+      if (node.kind !== "math") {
         return;
       }
 
-      const request: MathRenderRequest = { element: node, signal: context.signal, ...node.math };
+      const request: MathRenderRequest = { node, signal: context.signal };
 
       try {
         const result = this.renderer.render(request);
 
         return isPromise(result)
-          ? Promise.resolve(result).catch((cause: unknown) =>
-              this.renderFailure(cause, request, context),
+          ? result.then(
+              (rendered) => ({ ...rendered, origin: node.origin }),
+              (cause: unknown) => this.renderFailure(cause, node, context),
             )
-          : result;
+          : { ...result, origin: node.origin };
       } catch (cause) {
-        return this.renderFailure(cause, request, context);
+        return this.renderFailure(cause, node, context);
       }
     });
   }
 
-  private renderFailure(
-    cause: unknown,
-    request: MathRenderRequest,
-    context: HtmlTransformContext,
-  ): undefined {
+  private renderFailure(cause: unknown, node: HtmlMathNode, context: HtmlPluginContext): undefined {
     if (this.mode === "strict") {
       throw cause;
     }
@@ -75,8 +62,11 @@ export class MathRenderPlugin extends HtmlTransformPlugin {
     context.diagnostics.add({
       severity: "warning",
       code: "mdx.plugin.math-render",
-      message: `Could not render ${request.style} math: ${cause instanceof Error ? cause.message : String(cause)}`,
-      span: request.element.origin,
+      message: `Could not render ${node.style} math: ${cause instanceof Error ? cause.message : String(cause)}`,
+      span:
+        node.origin === undefined
+          ? undefined
+          : { file: context.file, start: node.origin.start, end: node.origin.end },
     });
   }
 }

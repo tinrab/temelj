@@ -9,6 +9,7 @@ import { HighlightedCode, defineMdxRegistry } from "@temelj/mdx-react";
 import { isString } from "@temelj/value";
 
 import { InlineCode } from "@/components/inline-code";
+import { KaTeXMath } from "@/components/katex-math";
 import { MdxCodeBlock } from "@/components/mdx-code-block";
 import { Alert as UiAlert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { shikiHighlighter } from "@/lib/shiki";
@@ -92,6 +93,7 @@ export const mdxRegistry = defineMdxRegistry({
     ),
   },
   markdown: { codeBlock: CodeBlock },
+  math: KaTeXMath,
   jsx: {
     Alert: { component: MdxAlert },
     Note: {

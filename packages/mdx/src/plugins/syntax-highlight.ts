@@ -1,15 +1,12 @@
 import { isPromise } from "@temelj/value";
 
-import type { HtmlTransformContext } from "../plugin.ts";
-import type { CodeBlockMetadata, CodeBlockMetadataIssue } from "./code-block-metadata.ts";
+import type { HtmlCodeBlockNode, HtmlElementNode, HtmlRootNode } from "../html.ts";
+import type { HtmlPlugin, HtmlPluginContext, PluginFailureMode } from "../plugin.ts";
+import type { CodeBlockMetadata } from "./code-block-metadata.ts";
 
-import { ConfigurationError } from "../errors.ts";
-import { HtmlCodeBlockNode, HtmlElementNode, type HtmlDocumentNode } from "../html.ts";
-import { rewriteHtmlElements } from "../plugin-internal.ts";
-import { HtmlTransformPlugin } from "../plugin.ts";
+import { ConfigurationError, InputError } from "../errors.ts";
+import { replaceHtmlNodes } from "../plugin-internal.ts";
 import { parseCodeBlockMetadata } from "./code-block-metadata.ts";
-
-export type SyntaxHighlightMode = "strict" | "tolerant";
 
 export interface SyntaxHighlightRequest {
   readonly code: string;
@@ -33,21 +30,20 @@ export type SyntaxHighlighter = SynchronousSyntaxHighlighter | AsynchronousSynta
 export interface SyntaxHighlightPluginOptions {
   readonly highlighter: SyntaxHighlighter;
   readonly maximumCacheEntries?: number;
-  readonly mode?: SyntaxHighlightMode;
+  readonly mode?: PluginFailureMode;
 }
 
 type CachedHighlight = HtmlElementNode | Promise<HtmlElementNode | undefined>;
 
 /** Highlights fenced code through a caller-supplied service and bounded cache. */
-export class SyntaxHighlightPlugin extends HtmlTransformPlugin {
+export class SyntaxHighlightPlugin implements HtmlPlugin {
   public readonly name = "syntax-highlight";
   private readonly cache = new Map<string, CachedHighlight>();
   private readonly highlighter: SyntaxHighlighter;
   private readonly maximumCacheEntries: number;
-  private readonly mode: SyntaxHighlightMode;
+  private readonly mode: PluginFailureMode;
 
   public constructor(options: SyntaxHighlightPluginOptions) {
-    super();
     const maximum = options.maximumCacheEntries ?? 128;
 
     if (!Number.isSafeInteger(maximum) || maximum < 0) {
@@ -59,17 +55,17 @@ export class SyntaxHighlightPlugin extends HtmlTransformPlugin {
     this.mode = options.mode ?? "tolerant";
   }
 
-  public transform(context: HtmlTransformContext): HtmlDocumentNode | Promise<HtmlDocumentNode> {
-    return rewriteHtmlElements(context.document, (node) => {
-      if (!(node instanceof HtmlCodeBlockNode)) {
+  public transform(context: HtmlPluginContext): HtmlRootNode | Promise<HtmlRootNode> {
+    return replaceHtmlNodes(context.root, (node) => {
+      if (node.kind !== "codeBlock") {
         return;
       }
 
-      const metadata = parseCodeBlockMetadata(node.codeBlock.meta);
+      const metadata = parseCodeBlockMetadata(node.meta);
 
       if (metadata.kind === "invalid") {
         if (this.mode === "strict") {
-          throw new SyntaxHighlightMetadataError(metadata.issues);
+          InputError.invalidCodeBlockMetadata(metadata.issues.map((issue) => issue.message));
         }
 
         for (const issue of metadata.issues) {
@@ -77,14 +73,14 @@ export class SyntaxHighlightPlugin extends HtmlTransformPlugin {
             severity: "warning",
             code: "mdx.plugin.syntax-highlight.meta",
             message: issue.message,
-            span: node.origin,
+            span: span(node, context),
           });
         }
       }
 
       const request: SyntaxHighlightRequest = {
-        code: node.codeBlock.code,
-        language: node.codeBlock.language,
+        code: node.code,
+        language: node.language,
         metadata: metadata.metadata,
         signal: context.signal,
       };
@@ -93,12 +89,13 @@ export class SyntaxHighlightPlugin extends HtmlTransformPlugin {
         const result = this.highlight(request);
 
         return isPromise(result)
-          ? result
-              .then((element) => anchorHighlight(element, node))
-              .catch((cause: unknown) => this.highlightFailure(cause, request, node, context))
-          : anchorHighlight(result, node);
+          ? result.then(
+              (element) => anchor(element, node),
+              (cause: unknown) => this.highlightFailure(cause, node, context),
+            )
+          : anchor(result, node);
       } catch (cause) {
-        return this.highlightFailure(cause, request, node, context);
+        return this.highlightFailure(cause, node, context);
       }
     });
   }
@@ -127,18 +124,19 @@ export class SyntaxHighlightPlugin extends HtmlTransformPlugin {
     }
 
     const cachedResult = isPromise(result)
-      ? result
-          .then((element) => {
+      ? result.then(
+          (element) => {
             if (element === undefined) {
               this.cache.delete(key);
             }
 
             return element;
-          })
-          .catch((cause: unknown) => {
+          },
+          (cause: unknown) => {
             this.cache.delete(key);
             throw cause;
-          })
+          },
+        )
       : result;
 
     this.cache.set(key, cachedResult);
@@ -156,9 +154,8 @@ export class SyntaxHighlightPlugin extends HtmlTransformPlugin {
 
   private highlightFailure(
     cause: unknown,
-    request: SyntaxHighlightRequest,
     node: HtmlCodeBlockNode,
-    context: HtmlTransformContext,
+    context: HtmlPluginContext,
   ): undefined {
     context.signal?.throwIfAborted();
 
@@ -169,32 +166,24 @@ export class SyntaxHighlightPlugin extends HtmlTransformPlugin {
     context.diagnostics.add({
       severity: "warning",
       code: "mdx.plugin.syntax-highlight",
-      message: `Could not highlight ${request.language} code: ${cause instanceof Error ? cause.message : String(cause)}`,
-      span: node.origin,
+      message: `Could not highlight ${node.language} code: ${cause instanceof Error ? cause.message : String(cause)}`,
+      span: span(node, context),
     });
   }
 }
 
-export class SyntaxHighlightMetadataError extends Error {
-  public readonly issues: readonly CodeBlockMetadataIssue[];
-
-  public constructor(issues: readonly CodeBlockMetadataIssue[]) {
-    super(issues.map((issue) => issue.message).join("; "));
-    this.name = "SyntaxHighlightMetadataError";
-    this.issues = [...issues];
-  }
-}
-
-function anchorHighlight(
+function anchor(
   highlighted: HtmlElementNode | undefined,
   source: HtmlCodeBlockNode,
 ): HtmlElementNode | undefined {
-  return highlighted === undefined
+  return highlighted === undefined ? undefined : { ...highlighted, origin: source.origin };
+}
+
+function span(
+  node: HtmlCodeBlockNode,
+  context: HtmlPluginContext,
+): Readonly<{ file: HtmlPluginContext["file"]; start: number; end: number }> | undefined {
+  return node.origin === undefined
     ? undefined
-    : new HtmlElementNode(
-        highlighted.tagName,
-        highlighted.attributes,
-        highlighted.children,
-        source.origin,
-      );
+    : { file: context.file, start: node.origin.start, end: node.origin.end };
 }

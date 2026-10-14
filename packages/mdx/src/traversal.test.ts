@@ -1,71 +1,53 @@
 import { isString } from "@temelj/value";
 import { describe, expect, it } from "vitest";
 
+import type { DocumentPlugin, HtmlPlugin } from "./plugins/mod.ts";
+
 import {
-  DefinitionNode,
-  DocumentNode,
-  HtmlDocumentNode,
-  ImageReferenceNode,
-  Processor,
+  formatHtml,
+  indexDocument,
+  lowerHtml,
   parse,
-  renderHtml,
+  Processor,
   rewriteHtml,
   rewriteMdx,
   selectHtml,
   selectMdx,
 } from "./mod.ts";
-import {
-  DocumentTransformPlugin,
-  HtmlTransformPlugin,
-  type DocumentTransformContext,
-  type HtmlTransformContext,
-} from "./plugins/mod.ts";
 
-class TestDocumentPlugin extends DocumentTransformPlugin {
-  public readonly name: string;
-  private readonly apply: (context: DocumentTransformContext) => DocumentNode;
-
-  public constructor(name: string, apply: (context: DocumentTransformContext) => DocumentNode) {
-    super();
-    this.name = name;
-    this.apply = apply;
-  }
-
-  public transform(context: DocumentTransformContext): DocumentNode {
-    return this.apply(context);
-  }
-}
-
-class TestHtmlPlugin extends HtmlTransformPlugin {
-  public readonly name: string;
-  private readonly apply: (
-    context: HtmlTransformContext,
-  ) => HtmlDocumentNode | Promise<HtmlDocumentNode>;
-
-  public constructor(
-    name: string,
-    apply: (context: HtmlTransformContext) => HtmlDocumentNode | Promise<HtmlDocumentNode>,
-  ) {
-    super();
-    this.name = name;
-    this.apply = apply;
-  }
-
-  public transform(context: HtmlTransformContext): HtmlDocumentNode | Promise<HtmlDocumentNode> {
-    return this.apply(context);
-  }
-}
-
-describe("owned tree traversal", () => {
+describe("tree traversal", () => {
   it("keeps property-only replacements in nested MDX nodes", () => {
     const document = expectParsed(parse("![alt](before.png)\n")).document;
 
     const rewritten = rewriteMdx(document, {
-      image: ({ node }) => node.with({ url: "after.webp" }),
+      image: ({ node }) => ({ ...node, url: "after.webp" }),
     });
 
     expect(rewritten).not.toBe(document);
-    expect(renderHtml(rewritten).toHtml()).toContain('src="after.webp"');
+    expect(formatHtml(lowerHtml(rewritten))).toContain('src="after.webp"');
+  });
+
+  it("returns the original tree when nothing changes", () => {
+    const document = expectParsed(parse("# Title\n\n- a\n- b\n")).document;
+
+    expect(rewriteMdx(document, { text: () => {} })).toBe(document);
+  });
+
+  it("removes nodes when a handler returns null", () => {
+    const document = expectParsed(parse("one\n\n---\n\ntwo\n")).document;
+    const rewritten = rewriteMdx(document, { thematicBreak: () => null });
+
+    expect(rewritten.children.map((node) => node.kind)).toEqual(["paragraph", "paragraph"]);
+  });
+
+  it("replaces HTML nodes with a different kind", () => {
+    const html = lowerHtml(expectParsed(parse("```ts\nconst a = 1;\n```\n")).document);
+
+    const rewritten = rewriteHtml(html, {
+      codeBlock: ({ node }) => ({ kind: "raw", value: `<pre>${node.code}</pre>` }),
+    });
+
+    expect(formatHtml(rewritten, { rawHtml: "trusted" })).toBe("<pre>const a = 1;</pre>");
   });
 
   it("supports a collect, process, and rewrite image workflow", async () => {
@@ -77,9 +59,11 @@ describe("owned tree traversal", () => {
 
     const reference = [...selectMdx(document, "imageReference")][0]?.node;
     expect(reference).toBeDefined();
-    expect(document.definition(reference?.identifier ?? "")?.url).toBe("photo.png");
+    expect(indexDocument(document).definitions.get(reference?.identifier ?? "")?.url).toBe(
+      "photo.png",
+    );
 
-    const html = renderHtml(document);
+    const html = lowerHtml(document);
 
     const images = [...selectHtml(html, "element")].flatMap(({ node }) =>
       node.tagName === "img" && isString(node.attributes.src) ? [node] : [],
@@ -111,60 +95,51 @@ describe("owned tree traversal", () => {
 
         return result === undefined
           ? undefined
-          : node.with({ attributes: { ...node.attributes, ...result } });
+          : { ...node, attributes: { ...node.attributes, ...result } };
       },
     });
 
+    const output = formatHtml(optimized);
     expect(calls).toBe(1);
-    expect(optimized.toHtml()).toContain(
-      'src="photo.webp" alt="direct" title="direct title" height="600"',
-    );
-    expect(optimized.toHtml()).toContain('srcset="photo.webp 1x, photo@2x.webp 2x"');
-    expect(optimized.toHtml()).toContain('alt="reference" title="reference title"');
-  });
-
-  it("edits definitions and image references without losing normalization", () => {
-    const definition = new DefinitionNode("Photo", "before.png");
-    const reference = new ImageReferenceNode("Photo", "before");
-
-    expect(definition.with({ identifier: " PHOTO ", url: "after.webp" })).toMatchObject({
-      identifier: "PHOTO",
-      url: "after.webp",
-    });
-    expect(reference.with({ identifier: " PHOTO ", alt: "after" })).toMatchObject({
-      identifier: "PHOTO",
-      alt: "after",
-    });
+    expect(output).toContain('src="photo.webp" alt="direct" title="direct title" height="600"');
+    expect(output).toContain('srcset="photo.webp 1x, photo@2x.webp 2x"');
+    expect(output).toContain('alt="reference" title="reference title"');
   });
 
   it("threads document diagnostics into HTML reports", () => {
+    const documentPlugin: DocumentPlugin = {
+      name: "document-diagnostics",
+      transform: ({ diagnostics, document }) => {
+        diagnostics.add({ code: "document", message: "document", severity: "warning" });
+
+        return document;
+      },
+    };
+
+    const htmlPlugin: HtmlPlugin = {
+      name: "html-diagnostics",
+      transform: ({ diagnostics, root }) => {
+        diagnostics.add({ code: "html", message: "html", severity: "warning" });
+
+        return root;
+      },
+    };
+
     const processor = new Processor({
-      documentPlugins: [
-        new TestDocumentPlugin("document-diagnostics", ({ diagnostics, document }) => {
-          diagnostics.add({ code: "document", message: "document", severity: "warning" });
-
-          return document;
-        }),
-      ],
-      htmlPlugins: [
-        new TestHtmlPlugin("html-diagnostics", ({ diagnostics, document }) => {
-          diagnostics.add({ code: "html", message: "html", severity: "warning" });
-
-          return document;
-        }),
-      ],
+      documentPlugins: [documentPlugin],
+      htmlPlugins: [htmlPlugin],
     });
 
-    const htmlReport = processor.processSync("text");
+    const report = processor.processSync("text");
 
-    expect(htmlReport.diagnostics.map(({ code }) => code)).toEqual(["document", "html"]);
+    expect(report.diagnostics.map(({ code }) => code)).toEqual(["document", "html"]);
   });
 });
 
 function expectParsed(
   outcome: ReturnType<typeof parse>,
-): Extract<ReturnType<typeof parse>, { kind: "parsed" }> {
-  if (outcome.kind !== "parsed") {
+): Extract<ReturnType<typeof parse>, { kind: "ok" }> {
+  if (outcome.kind !== "ok") {
     throw new Error(`Expected parsed outcome, received ${outcome.kind}`);
   }
 

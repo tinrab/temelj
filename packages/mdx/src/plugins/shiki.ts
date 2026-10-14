@@ -2,11 +2,9 @@ import type { CodeToHastOptions, HighlighterGeneric } from "shiki/types";
 
 import { isString, isBoolean, isNumber } from "@temelj/value";
 
-import type { HtmlAttributes } from "../html.ts";
-import type { HtmlNode } from "../html.ts";
+import type { HtmlAttributeValue, HtmlAttributes, HtmlElementNode, HtmlNode } from "../html.ts";
 import type { SyntaxHighlighter, SyntaxHighlightRequest } from "./syntax-highlight.ts";
 
-import { HtmlElementNode, HtmlTextNode } from "../html.ts";
 import { codeLineSelected } from "./code-block-metadata.ts";
 
 type ShikiHighlighter = Pick<
@@ -262,22 +260,23 @@ function convertNode(node: ShikiNode): HtmlNode {
     case "element":
       return convertElement(node);
     case "text":
-      return new HtmlTextNode(node.value);
+      return { kind: "text", value: node.value };
     default:
       throw new TypeError(`Shiki returned unsupported ${node.type} content`);
   }
 }
 
 function convertElement(node: ShikiElement): HtmlElementNode {
-  return new HtmlElementNode(
-    node.tagName,
-    convertProperties(node.properties),
-    node.children.map(convertNode),
-  );
+  return {
+    kind: "element",
+    tagName: node.tagName,
+    attributes: convertProperties(node.properties),
+    children: node.children.map(convertNode),
+  };
 }
 
-function convertProperties(properties: ShikiElement["properties"]): Readonly<HtmlAttributes> {
-  const attributes: HtmlAttributes = {};
+function convertProperties(properties: ShikiElement["properties"]): HtmlAttributes {
+  const attributes: Record<string, HtmlAttributeValue> = {};
 
   for (const [name, value] of Object.entries(properties)) {
     if (value === null || value === undefined) {

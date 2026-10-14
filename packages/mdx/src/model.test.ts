@@ -1,7 +1,7 @@
-import { expect, expectTypeOf, test } from "vitest";
+import { expect, test } from "vitest";
 
 import { InputError } from "./errors.ts";
-import { ParagraphNode, SourceFile, TextNode, type SourceSpan } from "./model.ts";
+import { indexDocument, nodeText, parse, SourceFile, type DocumentNode } from "./mod.ts";
 
 test("locates UTF-16 offsets across every CommonMark line ending", () => {
   const file = new SourceFile("a\r\nb\rc\nd\u{1F600}");
@@ -14,23 +14,38 @@ test("locates UTF-16 offsets across every CommonMark line ending", () => {
   expect(() => file.location(11)).toThrow(InputError);
 });
 
-test("retains atomic source provenance", () => {
-  const file = new SourceFile("text");
-  const node = new TextNode("text", { file, start: 0, end: 4 });
+test("parses into plain JSON-serializable data", () => {
+  const parsed = parse("# Title\n\nSome *text* with [a link](/x).\n\n- [x] done");
 
-  expect(node.sourceText()).toBe("text");
-  expectTypeOf<SourceSpan>().toEqualTypeOf<{
-    readonly file: SourceFile;
-    readonly start: number;
-    readonly end: number;
-  }>();
-  expectTypeOf(node.origin).toEqualTypeOf<Readonly<SourceSpan> | undefined>();
+  if (parsed.kind !== "ok") {
+    throw new Error("Expected a parsed document");
+  }
+
+  expect(JSON.parse(JSON.stringify(parsed.document))).toEqual(parsed.document);
+  expect(parsed.document.children[0]).toEqual({
+    kind: "heading",
+    depth: 1,
+    children: [{ kind: "text", value: "Title", origin: { start: 2, end: 7 } }],
+    origin: { start: 0, end: 7 },
+  });
 });
 
-test("reuses nodes only when replacement children retain identity", () => {
-  const paragraph = new ParagraphNode([new TextNode("text")]);
+test("reads semantic text and indexes the first definition per identifier", () => {
+  const document: DocumentNode = {
+    kind: "document",
+    children: [
+      {
+        kind: "paragraph",
+        children: [
+          { kind: "text", value: "a " },
+          { kind: "emphasis", children: [{ kind: "text", value: "b" }] },
+        ],
+      },
+      { kind: "definition", identifier: "X", url: "/first" },
+      { kind: "definition", identifier: "X", url: "/second" },
+    ],
+  };
 
-  expect(paragraph.with({ children: paragraph.children })).toBe(paragraph);
-  expect(paragraph.with({ children: [new TextNode("text")] })).not.toBe(paragraph);
-  expect(paragraph.with({ children: [new TextNode("changed")] })).not.toBe(paragraph);
+  expect(nodeText(document)).toBe("a b\n\n\n\n");
+  expect(indexDocument(document).definitions.get("X")?.url).toBe("/first");
 });

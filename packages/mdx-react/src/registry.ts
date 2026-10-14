@@ -1,6 +1,7 @@
 import type React from "react";
 
 import type {
+  MathComponent,
   MdxJsxComponentOptions,
   MdxMarkdownComponents,
   MdxPendingComponents,
@@ -18,9 +19,13 @@ type JsxDefinitions<Components extends JsxComponents> = {
 };
 
 export interface MdxRegistryDefinition<Html extends HtmlComponents, Jsx extends JsxComponents> {
+  /** Overrides for lowered HTML elements, keyed by tag name. */
   readonly html?: Html;
+  /** Components that authored JSX may render, keyed by element name. */
   readonly jsx?: JsxDefinitions<Jsx>;
   readonly markdown?: MdxMarkdownComponents;
+  /** Renders math. Without it, math keeps its readable code fallback. */
+  readonly math?: MathComponent;
   readonly pending?: MdxPendingComponents;
 }
 
@@ -29,10 +34,12 @@ export interface MdxRegistryEntry {
   readonly pending?: React.ElementType | null;
 }
 
+/** The components every MDX renderer and compiled document resolve against. */
 export interface MdxRegistry {
   readonly html: Readonly<Record<string, React.ElementType>>;
   readonly jsx: Readonly<Record<string, MdxRegistryEntry>>;
   readonly markdown: MdxMarkdownComponents;
+  readonly math?: MathComponent;
   readonly pending: MdxPendingComponents;
 }
 
@@ -43,16 +50,14 @@ export function defineMdxRegistry<
   const jsx: Record<string, MdxRegistryEntry> = {};
 
   for (const [name, entry] of Object.entries(definition.jsx ?? {})) {
-    jsx[name] = Object.freeze({
-      component: entry.component,
-      pending: entry.pending,
-    });
+    jsx[name] = Object.freeze({ component: entry.component, pending: entry.pending });
   }
 
   return Object.freeze({
     html: Object.freeze({ ...definition.html }),
     jsx: Object.freeze(jsx),
     markdown: Object.freeze({ ...definition.markdown }),
+    math: definition.math,
     pending: Object.freeze({ ...definition.pending }),
   });
 }

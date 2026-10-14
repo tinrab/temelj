@@ -30,7 +30,7 @@ export interface CodeBlockMetadataIssue {
 }
 
 export type CodeBlockMetadataParseResult =
-  | { readonly kind: "parsed"; readonly metadata: CodeBlockMetadata }
+  | { readonly kind: "ok"; readonly metadata: CodeBlockMetadata }
   | {
       readonly kind: "invalid";
       readonly issues: readonly CodeBlockMetadataIssue[];
@@ -44,7 +44,7 @@ const selectorPattern = /^\s*\d+(?:\s*-\s*\d+)?(?:\s*,\s*\d+(?:\s*-\s*\d+)?)*\s*
 /** Parses JSON metadata for fenced code blocks without changing the authored value. */
 export function parseCodeBlockMetadata(raw?: string): CodeBlockMetadataParseResult {
   if (raw === undefined || raw.trim().length === 0) {
-    return { kind: "parsed", metadata: { raw } };
+    return { kind: "ok", metadata: { raw } };
   }
 
   let input: unknown;
@@ -111,7 +111,7 @@ export function parseCodeBlockMetadata(raw?: string): CodeBlockMetadataParseResu
   }
 
   if (issues.length === 0) {
-    return { kind: "parsed", metadata };
+    return { kind: "ok", metadata };
   }
 
   return {

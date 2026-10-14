@@ -136,8 +136,11 @@ export class JsxBoundaryScanner {
   #readingName = false;
   #rootOpened = false;
   #state: JsxState = "children";
+  #opening = new JsxOpeningScanner();
 
   public append(text: string): EmbeddedScannerResult {
+    this.#opening.append(text);
+
     for (let index = 0; index < text.length; index++) {
       const character = text[index];
 
@@ -229,8 +232,13 @@ export class JsxBoundaryScanner {
     copy.#readingName = this.#readingName;
     copy.#rootOpened = this.#rootOpened;
     copy.#state = this.#state;
+    copy.#opening = this.#opening.clone();
 
     return copy;
+  }
+
+  public opening(): CommittedJsxOpening {
+    return this.#opening.snapshot();
   }
 
   public get validPrefix(): boolean {
@@ -240,4 +248,170 @@ export class JsxBoundaryScanner {
 
 function isJsxNameCharacter(character: string): boolean {
   return /[\w:.-]/u.test(character);
+}
+
+export interface CommittedJsxOpening {
+  readonly name: string | undefined;
+  readonly attributes: Readonly<Record<string, boolean | string>>;
+  readonly safe: boolean;
+  readonly end: number | undefined;
+}
+
+type OpeningState =
+  | "start"
+  | "name"
+  | "between"
+  | "attribute"
+  | "afterAttribute"
+  | "value"
+  | "single"
+  | "double"
+  | "slash"
+  | "closed"
+  | "unsafe";
+
+/** Only publishes attributes after their lexical boundary is unambiguous. */
+// Props that renderers own; authored values would replace them.
+const reservedJsxProps: ReadonlySet<string> = new Set(["children", "key", "node", "ref"]);
+
+class JsxOpeningScanner {
+  #state: OpeningState = "start";
+  #name = "";
+  #committedName: string | undefined;
+  #attribute = "";
+  #value = "";
+  #attributes = new Map<string, boolean | string>();
+  #offset = 0;
+  #end: number | undefined;
+
+  public append(text: string): void {
+    for (const character of text) {
+      this.#offset += character.length;
+      this.character(character);
+    }
+  }
+
+  private character(character: string): void {
+    if (this.#state === "unsafe") {
+      return;
+    }
+
+    // Children never execute while pending, so they cannot affect opening safety.
+    if (this.#state === "closed") {
+      return;
+    }
+
+    if (this.#state === "single" || this.#state === "double") {
+      if (character === (this.#state === "single" ? "'" : '"')) {
+        this.#attributes.set(this.#attribute, this.#value);
+        this.#state = "between";
+      } else {
+        this.#value += character;
+      }
+
+      return;
+    }
+
+    if (this.#state === "start") {
+      this.#state = character === "<" ? "name" : "unsafe";
+
+      return;
+    }
+
+    if (this.#state === "name") {
+      if (/[$\w:.-]/u.test(character)) {
+        this.#name += character;
+
+        return;
+      }
+
+      if (this.#name.length === 0 || !/[\s/>]/u.test(character)) {
+        this.#state = "unsafe";
+
+        return;
+      }
+
+      this.#committedName = this.#name;
+      this.#state = "between";
+    }
+
+    if (this.#state === "attribute") {
+      if (/[$\w:.-]/u.test(character)) {
+        this.#attribute += character;
+
+        return;
+      }
+
+      if (reservedJsxProps.has(this.#attribute)) {
+        this.#state = "unsafe";
+
+        return;
+      }
+
+      this.#state = "afterAttribute";
+    }
+
+    if (this.#state === "afterAttribute") {
+      if (/\s/u.test(character)) {
+        return;
+      }
+
+      if (character === "=") {
+        this.#state = "value";
+
+        return;
+      }
+
+      this.#attributes.set(this.#attribute, true);
+      this.#state = "between";
+    }
+
+    if (this.#state === "value") {
+      if (/\s/u.test(character)) {
+        return;
+      }
+
+      this.#value = "";
+      this.#state = character === "'" ? "single" : character === '"' ? "double" : "unsafe";
+
+      return;
+    }
+
+    if (character === ">") {
+      this.#end = this.#offset;
+      this.#state = "closed";
+    } else if (this.#state === "slash") {
+      this.#state = "unsafe";
+    } else if (character === "/") {
+      this.#state = "slash";
+    } else if (!/\s/u.test(character)) {
+      this.#attribute = character;
+      this.#state = /[$A-Za-z_]/u.test(character) ? "attribute" : "unsafe";
+    }
+  }
+
+  public snapshot(): CommittedJsxOpening {
+    return Object.freeze({
+      name: this.#committedName,
+      attributes: Object.freeze(Object.fromEntries(this.#attributes)),
+      safe:
+        this.#state !== "unsafe" &&
+        !(this.#state === "attribute" && reservedJsxProps.has(this.#attribute)),
+      end: this.#end,
+    });
+  }
+
+  public clone(): JsxOpeningScanner {
+    const copy = new JsxOpeningScanner();
+    copy.#state = this.#state;
+    copy.#name = this.#name;
+    copy.#committedName = this.#committedName;
+    copy.#attribute = this.#attribute;
+    copy.#value = this.#value;
+    copy.#attributes = new Map(this.#attributes);
+    copy.#offset = this.#offset;
+    copy.#end = this.#end;
+
+    return copy;
+  }
 }

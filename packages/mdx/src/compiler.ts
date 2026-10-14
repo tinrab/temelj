@@ -3,30 +3,29 @@ import type { Schema, SchemaIssue, SchemaOutput } from "@temelj/standard-schema"
 import { isObject, isBoolean, isNumber, isBigInt, isString } from "@temelj/value";
 
 import type { Diagnostic } from "./diagnostics.ts";
-import type { FrontmatterObject } from "./model.ts";
-import type { ParserLimit, ParserLimits } from "./parser.ts";
-import type { DocumentPlugin } from "./plugin.ts";
-import type { SyntaxOptions } from "./syntax-options.ts";
+import type { HtmlRenderOptions } from "./html-lower.ts";
+import type { HtmlRootNode } from "./html.ts";
+import type { DocumentNode, FrontmatterObject, SourceRange } from "./model.ts";
+import type { MdxFailure, ParseOutcome, ParserLimit } from "./parser.ts";
+import type { SourceFile } from "./source.ts";
 
-import { analyzeDocument, type CompilerState } from "./compile-analysis.ts";
-import { emitContent, documentUsesAwait } from "./compile.ts";
-import { createDiagnostic, DiagnosticBag, hasErrorDiagnostics } from "./diagnostics.ts";
+import { analyzeDocument, type CompileAnalysis } from "./compile-analysis.ts";
+import { contentUsesAwait, emitContent } from "./compile-emit.ts";
+import { createDiagnostic, hasErrorDiagnostics } from "./diagnostics.ts";
 import { CompileError, ConfigurationError, MdxError } from "./errors.ts";
 import { toFunctionBody } from "./function-body.ts";
+import { lowerHtml } from "./html-lower.ts";
 import { javascriptPropertyName } from "./javascript-ast.ts";
 import { parseJavaScriptProgram } from "./javascript.ts";
-import { DocumentNode, FrontmatterTemporal } from "./model.ts";
-import { runDocumentTransforms } from "./native-runtime.ts";
-import { parse } from "./parser.ts";
-import { normalizeDocumentPlugins } from "./plugin-internal.ts";
+import { documentFrontmatter, FrontmatterTemporal } from "./model.ts";
 import { CodeWriter, type SourceMap } from "./source-map.ts";
-import { SourceFile } from "./source.ts";
 
 const defaultMaximumGeneratedCodeBytes = 10 * 1024 * 1024;
 
 const defaultMaximumSourceMapBytes = 5 * 1024 * 1024;
 
-export interface CompileOptions {
+/** Compiled content renders the same elements as `lowerHtml` with these options. */
+export interface CompileOptions extends HtmlRenderOptions {
   /** Emit `jsxDEV` calls with authored source locations. */
   readonly development?: boolean;
   /** Package providing `jsx-runtime`. */
@@ -73,60 +72,31 @@ export interface FunctionBodyCompileArtifact extends CompileArtifactBase {
 
 export type CompileArtifact = ProgramCompileArtifact | FunctionBodyCompileArtifact;
 
-export type CompilerLimit = "maximumGeneratedCodeBytes" | "maximumSourceMapBytes";
+export type CompileLimit = ParserLimit | "maximumGeneratedCodeBytes" | "maximumSourceMapBytes";
 
-export type MdxCompileLimit = ParserLimit | CompilerLimit;
-
-export interface CompileDocumentOptions extends CompileOptions {
-  readonly frontmatter?: MdxTransportValue;
-}
-
-export interface CompileMdxOptions extends CompileOptions {
-  readonly documentPlugins?: readonly DocumentPlugin[];
-  readonly parserLimits?: ParserLimits;
-  readonly signal?: AbortSignal;
-  readonly syntax?: SyntaxOptions;
-}
-
-export interface CompileMdxSchemaOptions<TSchema extends Schema> extends CompileMdxOptions {
+export interface CompileSchemaOptions<TSchema extends Schema> extends CompileOptions {
+  /** Standard Schema validation for decoded frontmatter. */
   readonly frontmatterSchema: TSchema;
 }
 
-export type MdxCompileOutcome<TFrontmatter = FrontmatterObject> =
+export type CompileOutcome<TFrontmatter = FrontmatterObject> =
   | Readonly<{
-      kind: "compiled";
+      kind: "ok";
       file: SourceFile;
       document: DocumentNode;
       artifact: CompileArtifact;
       frontmatter: TFrontmatter;
       diagnostics: readonly Diagnostic[];
     }>
-  | Readonly<{
-      kind: "invalid";
-      file: SourceFile;
-      diagnostics: readonly [Diagnostic, ...Diagnostic[]];
-    }>
-  | Readonly<{
-      kind: "limitExceeded";
-      file: SourceFile;
-      limit: MdxCompileLimit;
-      diagnostics: readonly [Diagnostic, ...Diagnostic[]];
-    }>;
+  | MdxFailure<CompileLimit>;
 
-/** Compiles a strict semantic document without parsing or running plugins. */
-export function compileDocument(
+/** Emits JavaScript for a strict document. Throws for configuration errors and compiler limits. */
+function emitArtifact(
   document: DocumentNode,
-  options: Readonly<CompileDocumentOptions> = {},
+  options: Readonly<CompileOptions>,
+  frontmatter: MdxTransportValue,
 ): CompileArtifact {
   try {
-    if (
-      options.outputFormat !== undefined &&
-      options.outputFormat !== "functionBody" &&
-      options.outputFormat !== "program"
-    ) {
-      ConfigurationError.invalidCompilerOutputFormat(options.outputFormat);
-    }
-
     if (
       options.maximumGeneratedCodeBytes !== undefined &&
       (!Number.isSafeInteger(options.maximumGeneratedCodeBytes) ||
@@ -148,15 +118,16 @@ export function compileDocument(
       );
     }
 
-    const state = analyzeDocument(document, options);
-    const usesAwait = documentUsesAwait(document);
+    const content = lowerHtml(document, options);
+    const analysis = analyzeDocument(document, content, options);
+    const usesAwait = contentUsesAwait(content);
 
-    const writer = new CodeWriter(document.origin?.file);
-    emitModulePreamble(writer, state, options);
-    emitContentFunction(writer, document, state, options, usesAwait);
-    emitPublicComponent(writer, state, options, usesAwait);
+    const writer = new CodeWriter(options.source);
+    emitModulePreamble(writer, analysis, options);
+    emitContentFunction(writer, content, analysis, options, usesAwait);
+    emitPublicComponent(writer, analysis, options, usesAwait);
 
-    if (state.missingReferences.size > 0) {
+    if (analysis.scope.missingReferences.size > 0) {
       emitMissingReferenceHelper(writer);
     }
 
@@ -180,9 +151,8 @@ export function compileDocument(
       CompileError.generatedProgramInvalid(cause);
     }
 
-    const map = writer.sourceMap(options.sourceName ?? "source.mdx", options.outputName);
+    const map = writer.sourceMap(analysis.scope.sourceName, options.outputName);
     enforceSourceMapLimit(map, options.maximumSourceMapBytes);
-    const frontmatter = options.frontmatter ?? Object.freeze({});
 
     return functionBody === undefined
       ? Object.freeze({ format: "program", code, map, frontmatter })
@@ -202,48 +172,41 @@ export function compileDocument(
   }
 }
 
-/** Parses, transforms, validates frontmatter, and compiles MDX without executing it. */
-export function compileMdx<TSchema extends Schema>(
-  input: string | SourceFile,
-  options: Readonly<CompileMdxSchemaOptions<TSchema>>,
-): Promise<MdxCompileOutcome<SchemaOutput<TSchema>>>;
-export function compileMdx(
-  input: string | SourceFile,
-  options?: Readonly<CompileMdxOptions>,
-): Promise<MdxCompileOutcome<FrontmatterObject>>;
-export async function compileMdx(
-  input: string | SourceFile,
-  options: Readonly<CompileMdxOptions & { readonly frontmatterSchema?: Schema }> = {},
-): Promise<MdxCompileOutcome<unknown>> {
-  options.signal?.throwIfAborted();
-  const parsed = parse(input, { syntax: options.syntax, limits: options.parserLimits });
-
-  if (parsed.kind !== "parsed") {
-    return parsed;
+/**
+ * Validates frontmatter and compiles a parsed or transformed document to
+ * JavaScript without executing it. Compiled content renders the same elements as
+ * `lowerHtml`. A failed input outcome is returned unchanged.
+ */
+export function compile<TSchema extends Schema>(
+  input: ParseOutcome,
+  options: Readonly<CompileSchemaOptions<TSchema>>,
+): Promise<CompileOutcome<SchemaOutput<TSchema>>>;
+export function compile(
+  input: ParseOutcome,
+  options?: Readonly<CompileOptions>,
+): Promise<CompileOutcome<FrontmatterObject>>;
+export async function compile(
+  input: ParseOutcome,
+  options: Readonly<CompileOptions & { readonly frontmatterSchema?: Schema }> = {},
+): Promise<CompileOutcome<unknown>> {
+  if (input.kind !== "ok") {
+    return input;
   }
 
-  const diagnostics = new DiagnosticBag(parsed.diagnostics);
-
-  const document = await runDocumentTransforms({
-    diagnostics,
-    document: parsed.document,
-    documentPlugins: normalizeDocumentPlugins(options.documentPlugins ?? []),
-    file: parsed.file,
-    signal: options.signal,
-    syntax: Object.freeze({ ...options.syntax }),
-  });
-
-  const transformedDiagnostics = diagnostics.snapshot();
+  const parsed = input;
+  const document = input.document;
+  const transformedDiagnostics = input.diagnostics;
 
   if (hasErrorDiagnostics(transformedDiagnostics)) {
     return invalidOutcome(parsed.file, transformedDiagnostics);
   }
 
-  const frontmatterInput = document.frontmatter?.data ?? Object.freeze({});
+  const frontmatterNode = documentFrontmatter(document);
+  const frontmatterInput = frontmatterNode?.data ?? Object.freeze({});
 
   const frontmatter = await validateFrontmatter(
     parsed.file,
-    document,
+    frontmatterNode?.origin,
     frontmatterInput,
     options.frontmatterSchema,
   );
@@ -253,7 +216,11 @@ export async function compileMdx(
   }
 
   try {
-    const transportedFrontmatter = transportFrontmatter(frontmatter.value);
+    const transportedFrontmatter = copyTransportValue(
+      frontmatter.value,
+      "frontmatter",
+      new WeakSet<object>(),
+    );
 
     if (transportedFrontmatter.kind === "unsupported") {
       const diagnostic = createDiagnostic({
@@ -261,26 +228,20 @@ export async function compileMdx(
         code: "mdx.frontmatter.transport",
         message: "Validated frontmatter must contain transportable values",
         notes: [transportedFrontmatter.reason],
-        span: document.frontmatter?.origin,
+        span: fileSpan(parsed.file, frontmatterNode?.origin),
       });
 
       return invalidOutcome(parsed.file, [diagnostic]);
     }
 
-    const artifact = compileDocument(document, {
-      development: options.development,
-      frontmatter: transportedFrontmatter.value,
-      jsxImportSource: options.jsxImportSource,
-      maximumGeneratedCodeBytes: options.maximumGeneratedCodeBytes,
-      maximumSourceMapBytes: options.maximumSourceMapBytes,
-      outputFormat: options.outputFormat,
-      outputName: options.outputName,
-      providerImportSource: options.providerImportSource,
-      sourceName: options.sourceName,
-    });
+    const artifact = emitArtifact(
+      document,
+      { ...options, source: parsed.file },
+      transportedFrontmatter.value,
+    );
 
     return Object.freeze({
-      kind: "compiled",
+      kind: "ok",
       file: parsed.file,
       document,
       artifact,
@@ -302,7 +263,7 @@ export async function compileMdx(
       severity: "error",
       code: `mdx.limit.${limit}`,
       message: cause.message,
-      span: document.origin,
+      span: fileSpan(parsed.file, document.origin),
     });
 
     const diagnostics: readonly [Diagnostic] = Object.freeze([diagnostic]);
@@ -318,12 +279,11 @@ export async function compileMdx(
 
 async function validateFrontmatter(
   file: SourceFile,
-  document: DocumentNode,
+  origin: SourceRange | undefined,
   value: FrontmatterObject,
   schema: Schema | undefined,
 ): Promise<
-  | Readonly<{ kind: "valid"; value: unknown }>
-  | Extract<MdxCompileOutcome<never>, { kind: "invalid" }>
+  Readonly<{ kind: "valid"; value: unknown }> | Extract<CompileOutcome<never>, { kind: "invalid" }>
 > {
   if (schema === undefined) {
     return Object.freeze({ kind: "valid", value });
@@ -340,7 +300,7 @@ async function validateFrontmatter(
       severity: "error",
       code: "mdx.frontmatter.schema",
       message: formatSchemaIssue(issue),
-      span: document.frontmatter?.origin,
+      span: fileSpan(file, origin),
     }),
   );
 
@@ -356,11 +316,6 @@ function formatSchemaIssue(issue: SchemaIssue): string {
 type TransportFrontmatterResult =
   | Readonly<{ kind: "transportable"; value: MdxTransportValue }>
   | Readonly<{ kind: "unsupported"; reason: string }>;
-
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- A user-provided schema may produce values that still need transport validation.
-function transportFrontmatter(value: unknown): TransportFrontmatterResult {
-  return copyTransportValue(value, "frontmatter", new WeakSet<object>());
-}
 
 function copyTransportValue(
   // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Recursively validates external schema output against the MDX transport contract.
@@ -458,10 +413,17 @@ function unsupportedTransport(reason: string): TransportFrontmatterResult {
   return Object.freeze({ kind: "unsupported", reason });
 }
 
+function fileSpan(
+  file: SourceFile,
+  range: SourceRange | undefined,
+): Readonly<{ file: SourceFile; start: number; end: number }> | undefined {
+  return range === undefined ? undefined : { file, start: range.start, end: range.end };
+}
+
 function invalidOutcome(
   file: SourceFile,
   diagnostics: readonly Diagnostic[],
-): Extract<MdxCompileOutcome<never>, { kind: "invalid" }> {
+): Extract<CompileOutcome<never>, { kind: "invalid" }> {
   const first = diagnostics[0];
 
   if (first === undefined) {
@@ -480,7 +442,7 @@ function invalidOutcome(
   });
 }
 
-function compilerLimit(error: CompileError): CompilerLimit | undefined {
+function compilerLimit(error: CompileError): CompileLimit | undefined {
   return error.issue.kind === "generatedCodeLimit"
     ? "maximumGeneratedCodeBytes"
     : error.issue.kind === "sourceMapLimit"
@@ -490,16 +452,16 @@ function compilerLimit(error: CompileError): CompilerLimit | undefined {
 
 function emitModulePreamble(
   writer: CodeWriter,
-  state: CompilerState,
+  analysis: CompileAnalysis,
   options: Readonly<CompileOptions>,
 ): void {
-  for (const entry of state.esm) {
-    writer.write(`${entry.code.trimEnd()}\n`, entry.span);
+  for (const entry of analysis.esm) {
+    writer.write(`${entry.code.trimEnd()}\n`, entry.origin);
   }
 
   const importSource = options.jsxImportSource ?? "react";
   writer.write(
-    state.development
+    analysis.scope.development
       ? `import {Fragment as _Fragment, jsxDEV as _jsxDEV} from ${JSON.stringify(`${importSource}/jsx-dev-runtime`)};\n`
       : `import {Fragment as _Fragment, jsx as _jsx, jsxs as _jsxs} from ${JSON.stringify(`${importSource}/jsx-runtime`)};\n`,
   );
@@ -513,14 +475,14 @@ function emitModulePreamble(
 
 function emitContentFunction(
   writer: CodeWriter,
-  document: DocumentNode,
-  state: CompilerState,
+  content: HtmlRootNode,
+  analysis: CompileAnalysis,
   options: Readonly<CompileOptions>,
   usesAwait: boolean,
 ): void {
   writer.write(`${usesAwait ? "async " : ""}function _createContent(props) {\n`);
   writer.write("  const _components = {");
-  const tags = [...state.intrinsicTags].sort();
+  const tags = [...analysis.intrinsicTags].sort();
   tags.forEach((tag, index) => {
     if (index > 0) {
       writer.write(", ");
@@ -537,7 +499,7 @@ function emitContentFunction(
     `${tags.length === 0 && options.providerImportSource === undefined ? "" : ", "}...props.registry?.html};\n`,
   );
 
-  const components = [...state.referencedComponents].sort();
+  const components = [...analysis.scope.referencedComponents].sort();
 
   for (const component of components) {
     writer.write(
@@ -545,28 +507,30 @@ function emitContentFunction(
     );
   }
 
-  for (const [reference, component] of state.missingReferences) {
+  for (const [reference, component] of analysis.scope.missingReferences) {
     writer.write(
       `  if (!${reference}) _missingReference(${JSON.stringify(reference)}, ${component});\n`,
     );
   }
 
   writer.write("  return ");
-  emitContent(writer, document, state);
+  emitContent(writer, content, analysis);
   writer.write(";\n}\n");
 }
 
 function emitPublicComponent(
   writer: CodeWriter,
-  state: CompilerState,
+  analysis: CompileAnalysis,
   options: Readonly<CompileOptions>,
   usesAwait: boolean,
 ): void {
   writer.write(`export default ${usesAwait ? "async " : ""}function Content(props = {}) {\n`);
   const content = `${usesAwait ? "await " : ""}_createContent(props)`;
 
-  if (state.hasInternalLayout) {
-    writer.write(`  return ${runtimeCall(state, "Layout", `{...props, children: ${content}}`)};\n`);
+  if (analysis.hasInternalLayout) {
+    writer.write(
+      `  return ${runtimeCall(analysis, "Layout", `{...props, children: ${content}}`)};\n`,
+    );
   } else {
     writer.write("  const {wrapper: Layout} = {");
 
@@ -576,7 +540,7 @@ function emitPublicComponent(
 
     writer.write("...props.registry?.html};\n");
     writer.write(
-      `  return Layout ? ${runtimeCall(state, "Layout", `{...props, children: ${content}}`)} : ${content};\n`,
+      `  return Layout ? ${runtimeCall(analysis, "Layout", `{...props, children: ${content}}`)} : ${content};\n`,
     );
   }
 
@@ -615,8 +579,8 @@ function enforceSourceMapLimit(map: SourceMap, configuredMaximum: number | undef
   }
 }
 
-function runtimeCall(state: CompilerState, tag: string, properties: string): string {
-  return state.development
+function runtimeCall(analysis: CompileAnalysis, tag: string, properties: string): string {
+  return analysis.scope.development
     ? `_jsxDEV(${tag}, ${properties}, undefined, false, undefined, undefined)`
     : `_jsx(${tag}, ${properties})`;
 }

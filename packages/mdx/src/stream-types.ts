@@ -1,5 +1,6 @@
 import type { Diagnostic } from "./diagnostics.ts";
-import type { DocumentNode, FlowContent } from "./model.ts";
+import type { DocumentNode } from "./model.ts";
+import type { BlockSyntax } from "./parser/block-syntax.ts";
 import type { ParserLimit, ParserLimits } from "./parser/config.ts";
 import type { ReferenceCandidate } from "./parser/materialize.ts";
 import type { SourceFile } from "./source.ts";
@@ -35,7 +36,10 @@ export interface CompletedBlockSnapshot {
   readonly dependencies: StreamDependencies;
 }
 
+/** A provisional view of incomplete input. Errors stay local to the blocks that contain them. */
 export interface MdxStreamSnapshot {
+  readonly kind: "preview";
+  readonly supplement: StreamingDocument;
   readonly file: SourceFile;
   readonly document: StreamingDocument;
   readonly blocks: readonly StreamingBlockSnapshot[];
@@ -45,7 +49,7 @@ export interface MdxStreamSnapshot {
 
 export type MdxStreamCompletion =
   | Readonly<{
-      kind: "parsed";
+      kind: "ok";
       file: SourceFile;
       document: DocumentNode;
       blocks: readonly CompletedBlockSnapshot[];
@@ -73,7 +77,18 @@ export interface MdxStreamOptions {
 export interface OwnedBlock {
   readonly id: BlockId;
   readonly range: Readonly<{ start: number; end: number }>;
-  readonly node: FlowContent;
+  readonly syntax: BlockSyntax;
+  /** An edit shifted the block, so its rendering must be rebuilt. */
+  readonly moved: boolean;
+  readonly pendingKey: string;
+  readonly references: readonly {
+    readonly identifier: string;
+    readonly start: number;
+    readonly end: number;
+  }[];
+  readonly referenceContext: string;
+  readonly nodeCount: number;
+  readonly diagnostics: readonly Diagnostic[];
   readonly dependencies: StreamDependencies;
   readonly candidates: readonly ReferenceCandidate[];
   readonly streaming: StreamingDocument;

@@ -7,9 +7,10 @@ import { VFile } from "vfile";
 type VFileMessage = VFile["messages"][number];
 
 import type { Diagnostic, DiagnosticReporter } from "../diagnostics.ts";
-import type { HtmlDocumentNode } from "../html.ts";
-import type { DocumentNode, SourceFile } from "../model.ts";
-import type { DocumentTransformContext, HtmlTransformContext } from "../plugin.ts";
+import type { HtmlRootNode } from "../html.ts";
+import type { DocumentNode } from "../model.ts";
+import type { DocumentPluginContext, HtmlPluginContext } from "../plugin.ts";
+import type { SourceFile } from "../source.ts";
 
 import { ConfigurationError } from "../errors.ts";
 import { UnifiedTreeBridge } from "./tree-bridge.ts";
@@ -28,7 +29,7 @@ interface TreeCodec<TDocument> {
 }
 
 export function runRemarkPlugin(
-  context: DocumentTransformContext,
+  context: DocumentPluginContext,
   attach: UnifiedAttach,
 ): DocumentNode | Promise<DocumentNode> {
   const bridge = new UnifiedTreeBridge(context.file);
@@ -41,12 +42,12 @@ export function runRemarkPlugin(
 }
 
 export function runRehypePlugin(
-  context: HtmlTransformContext,
+  context: HtmlPluginContext,
   attach: UnifiedAttach,
-): HtmlDocumentNode | Promise<HtmlDocumentNode> {
+): HtmlRootNode | Promise<HtmlRootNode> {
   const bridge = new UnifiedTreeBridge(context.file);
 
-  return runUnifiedTransform(context.document, context, attach, {
+  return runUnifiedTransform(context.root, context, attach, {
     ecosystem: "Rehype",
     decode: (tree) => bridge.fromHast(tree),
     encode: (document) => bridge.toHast(document),

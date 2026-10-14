@@ -1,16 +1,17 @@
 import type {
-  CompileMdxOptions,
-  CompileMdxSchemaOptions,
+  CompileOptions,
+  CompileOutcome,
   Diagnostic,
   DocumentNode,
   FrontmatterObject,
   FunctionBodyCompileArtifact,
-  MdxCompileOutcome,
+  ProcessInput,
+  ProcessorOptions,
   SourceFile,
 } from "@temelj/mdx";
 import type { Schema, SchemaOutput } from "@temelj/standard-schema";
 
-import { compileMdx } from "@temelj/mdx";
+import { compile, Processor } from "@temelj/mdx";
 import { isObject, isFunction } from "@temelj/value";
 import * as jsxDevRuntime from "react/jsx-dev-runtime";
 import * as jsxRuntime from "react/jsx-runtime";
@@ -39,7 +40,7 @@ export interface TrustedMdxEvaluationOptions<TScope extends object = object> {
 
 export type TrustedMdxEvaluationOutcome =
   | Readonly<{
-      kind: "evaluated";
+      kind: "ok";
       module: CompiledContentModule;
     }>
   | Readonly<{
@@ -47,20 +48,18 @@ export type TrustedMdxEvaluationOutcome =
       diagnostics: readonly [Diagnostic, ...Diagnostic[]];
     }>;
 
-export type CompileTrustedMdxOptions<TScope extends object = object> = Omit<
-  CompileMdxOptions,
-  "outputFormat"
-> &
-  TrustedMdxEvaluationOptions<TScope>;
+export type CompileTrustedMdxOptions<TScope extends object = object> = ProcessorOptions &
+  Omit<CompileOptions, "outputFormat" | "source"> &
+  TrustedMdxEvaluationOptions<TScope> & { readonly signal?: AbortSignal };
 
 export type CompileTrustedMdxSchemaOptions<
   TSchema extends Schema,
   TScope extends object = object,
-> = Omit<CompileMdxSchemaOptions<TSchema>, "outputFormat"> & TrustedMdxEvaluationOptions<TScope>;
+> = CompileTrustedMdxOptions<TScope> & { readonly frontmatterSchema: TSchema };
 
 export type TrustedMdxCompileOutcome<TFrontmatter = FrontmatterObject> =
   | Readonly<{
-      kind: "compiled";
+      kind: "ok";
       file: SourceFile;
       document: DocumentNode;
       artifact: FunctionBodyCompileArtifact;
@@ -68,7 +67,7 @@ export type TrustedMdxCompileOutcome<TFrontmatter = FrontmatterObject> =
       module: CompiledContentModule;
       diagnostics: readonly Diagnostic[];
     }>
-  | Exclude<MdxCompileOutcome<TFrontmatter>, { kind: "compiled" }>
+  | Exclude<CompileOutcome<TFrontmatter>, { kind: "ok" }>
   | Readonly<{
       kind: "evaluationFailed";
       file: SourceFile;
@@ -140,7 +139,7 @@ export async function evaluateTrustedMdx<TScope extends object>(
     }
 
     return Object.freeze({
-      kind: "evaluated",
+      kind: "ok",
       module: result,
     });
   } catch (cause) {
@@ -152,27 +151,33 @@ export async function evaluateTrustedMdx<TScope extends object>(
 }
 
 export function compileTrustedMdx<TSchema extends Schema, TScope extends object>(
-  source: string | SourceFile,
+  source: ProcessInput,
   options: Readonly<CompileTrustedMdxSchemaOptions<TSchema, TScope>>,
 ): Promise<TrustedMdxCompileOutcome<SchemaOutput<TSchema>>>;
 export function compileTrustedMdx<TScope extends object>(
-  source: string | SourceFile,
+  source: ProcessInput,
   options?: Readonly<CompileTrustedMdxOptions<TScope>>,
 ): Promise<TrustedMdxCompileOutcome<FrontmatterObject>>;
 export async function compileTrustedMdx<TScope extends object>(
-  source: string | SourceFile,
+  source: ProcessInput,
   options: Readonly<
     CompileTrustedMdxOptions<TScope> & { readonly frontmatterSchema?: Schema }
   > = {},
 ): Promise<TrustedMdxCompileOutcome<unknown>> {
-  const compiled = await compileMdx(source, { ...options, outputFormat: "functionBody" });
+  const transformed = await new Processor(options).transform(source, options);
 
-  if (compiled.kind !== "compiled") {
+  const compiled = await compile(transformed, {
+    ...options.html,
+    ...options,
+    outputFormat: "functionBody",
+  });
+
+  if (compiled.kind !== "ok") {
     return compiled;
   }
 
   if (compiled.artifact.format !== "functionBody") {
-    throw new Error("compileMdx returned the wrong artifact format");
+    throw new Error("Function-body compilation returned another artifact format");
   }
 
   const evaluated = await evaluateTrustedMdx(compiled.artifact, options);
@@ -189,7 +194,7 @@ export async function compileTrustedMdx<TScope extends object>(
   }
 
   return Object.freeze({
-    kind: "compiled",
+    kind: "ok",
     file: compiled.file,
     document: compiled.document,
     artifact: compiled.artifact,

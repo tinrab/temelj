@@ -1,4 +1,4 @@
-import { createShikiHighlighter } from "@temelj/mdx/plugin";
+import { createShikiHighlighter } from "@temelj/mdx/plugins";
 import { createHighlighterCore } from "shiki/core";
 import { createJavaScriptRegexEngine } from "shiki/engine/javascript";
 import bash from "shiki/langs/bash.mjs";

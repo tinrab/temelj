@@ -1,3 +1,38 @@
+import { isString } from "@temelj/value";
+
+import type {
+  BlockQuoteNode,
+  CodeBlockNode,
+  ContainerDirectiveNode,
+  DefinitionNode,
+  DirectiveAttribute,
+  DirectiveLabelNode,
+  DisplayMathNode,
+  FootnoteDefinitionNode,
+  FootnoteReferenceNode,
+  HeadingNode,
+  ImageNode,
+  ImageReferenceNode,
+  InlineMathNode,
+  JsxAttribute,
+  JsxAttributeLike,
+  JsxFlowElementNode,
+  JsxTextElementNode,
+  LeafDirectiveNode,
+  LinkNode,
+  LinkReferenceNode,
+  ListItemNode,
+  ListNode,
+  MdxNode,
+  ParagraphNode,
+  TableCellNode,
+  TableNode,
+  TableRowNode,
+  TextDirectiveNode,
+} from "./model.ts";
+import type { SyntaxOptions } from "./syntax-options.ts";
+
+import { InputError } from "./errors.ts";
 import {
   unsafePatterns,
   compileUnsafePattern,
@@ -9,53 +44,13 @@ import {
 } from "./format-safe.ts";
 import { createFormatTracker, type FormatTrackInfo } from "./format-track.ts";
 import { normalizeIdentifier } from "./identifier.ts";
-import {
-  BlockQuoteNode,
-  CodeBlockNode,
-  ContainerDirectiveNode,
-  DefinitionNode,
-  DeleteNode,
-  DisplayMathNode,
-  DirectiveLabelNode,
-  EmphasisNode,
-  FootnoteDefinitionNode,
-  FootnoteReferenceNode,
-  HardBreakNode,
-  HeadingNode,
-  ImageNode,
-  ImageReferenceNode,
-  InlineCodeNode,
-  InlineMathNode,
-  LinkNode,
-  LinkReferenceNode,
-  LeafDirectiveNode,
-  ListNode,
-  ListItemNode,
-  InlineExpressionNode,
-  JsxAttributeNode,
-  JsxAttributeValueExpressionNode,
-  JsxFlowElementNode,
-  JsxSpreadAttributeNode,
-  JsxTextElementNode,
-  ParagraphNode,
-  RawHtmlInlineNode,
-  StrongNode,
-  TableNode,
-  TableCellNode,
-  TableRowNode,
-  TextNode,
-  TextDirectiveNode,
-  ThematicBreakNode,
-  type FormatOptions,
-  type MdxNode,
-} from "./model.ts";
+import { mdxChildren } from "./model.ts";
 import {
   frontmatterFence,
   resolveSyntaxOptions,
   type MathFormat,
   type ResolvedSyntaxOptions,
 } from "./syntax-options.ts";
-import { selectTree } from "./tree.ts";
 import { encodeNumericCharacterReference } from "./utility.ts";
 
 interface FormatInfo extends FormatTrackInfo {
@@ -70,8 +65,29 @@ const rootInfo: FormatInfo = {
   now: { line: 1, column: 1 },
 };
 
-/** Serialize an owned syntax node through the shared Formatter. */
-export function format(node: MdxNode, options: FormatOptions = {}): string {
+export interface FormatOptions {
+  readonly bullet?: "*" | "+" | "-";
+  readonly bulletOrdered?: "." | ")";
+  readonly closeAtx?: boolean;
+  readonly emphasis?: "*" | "_";
+  readonly fence?: "`" | "~";
+  readonly footnoteFirstLineBlank?: boolean;
+  readonly incrementListMarker?: boolean;
+  readonly listItemIndent?: "mixed" | "one" | "tab";
+  readonly quote?: '"' | "'";
+  readonly rule?: "*" | "-" | "_";
+  readonly ruleRepetition?: number;
+  readonly ruleSpaces?: boolean;
+  readonly strong?: "*" | "_";
+  readonly syntax?: SyntaxOptions;
+  readonly tightDefinitions?: boolean;
+  readonly tableCellPadding?: boolean;
+  readonly tablePipeAlign?: boolean;
+  readonly tableStringLength?: (value: string) => number;
+}
+
+/** Formats a node as canonical MDX for the enabled syntax. */
+export function formatMdx(node: MdxNode, options: FormatOptions = {}): string {
   return new Formatter(options, containsDirective(node), mathFormats(node)).format(node, rootInfo);
 }
 
@@ -225,12 +241,6 @@ class Formatter implements FormatSafetyState {
         return `{${indentExpression(node.code)}}`;
       case "esm":
         return node.code;
-      case "jsxAttributeValueExpression":
-        return `{${indentExpression(node.code)}}`;
-      case "jsxAttribute":
-        return this.jsxAttribute(node);
-      case "jsxSpreadAttribute":
-        return `{${indentExpression(node.code)}}`;
       case "jsxTextElement":
         return this.jsxTextElement(node, info);
       case "jsxFlowElement":
@@ -258,7 +268,7 @@ class Formatter implements FormatSafetyState {
         output.push(tracker.move(this.join(node, next, spread)));
       }
 
-      if (!(node instanceof ListNode)) {
+      if (node.kind !== "list") {
         this.bulletLastUsed = undefined;
       }
     }
@@ -269,8 +279,8 @@ class Formatter implements FormatSafetyState {
   private join(left: MdxNode, right: MdxNode, spread?: boolean): string {
     if (
       this.options.tightDefinitions === true &&
-      left instanceof DefinitionNode &&
-      right instanceof DefinitionNode
+      left.kind === "definition" &&
+      right.kind === "definition"
     ) {
       return "\n";
     }
@@ -292,12 +302,12 @@ class Formatter implements FormatSafetyState {
     return value;
   }
 
-  private jsxAttribute(node: JsxAttributeNode): string {
+  private jsxAttribute(node: JsxAttribute): string {
     if (node.value === undefined) {
       return node.name;
     }
 
-    if (node.value instanceof JsxAttributeValueExpressionNode) {
+    if (!isString(node.value)) {
       return `${node.name}={${indentExpression(node.value.code)}}`;
     }
 
@@ -341,7 +351,7 @@ class Formatter implements FormatSafetyState {
 
   private jsxOpening(
     name: string | undefined,
-    attributes: readonly (JsxAttributeNode | JsxSpreadAttributeNode)[],
+    attributes: readonly JsxAttributeLike[],
     empty: boolean,
   ): string {
     if (name === undefined && attributes.length > 0) {
@@ -349,9 +359,9 @@ class Formatter implements FormatSafetyState {
     }
 
     const values = attributes.map((attribute) =>
-      attribute instanceof JsxAttributeNode
+      attribute.kind === "jsxAttribute"
         ? this.jsxAttribute(attribute)
-        : `{${indentExpression(attribute.code)}}`,
+        : `{...${indentExpression(attribute.code)}}`,
     );
 
     const suffix = name !== undefined && empty ? " />" : ">";
@@ -367,13 +377,13 @@ class Formatter implements FormatSafetyState {
     for (let index = 0; index < nodes.length; index++) {
       const node = nodes[index];
       let nextIndex = index + 1;
-      let text = node instanceof TextNode ? node.value : undefined;
-      let nextText = nodes[nextIndex];
+      let text = node.kind === "text" ? node.value : undefined;
+      let nextText = nodes.at(nextIndex);
 
-      while (text !== undefined && nextText instanceof TextNode) {
+      while (text !== undefined && nextText?.kind === "text") {
         text += nextText.value;
         nextIndex++;
-        nextText = nodes[nextIndex];
+        nextText = nodes.at(nextIndex);
       }
 
       const next = nodes[nextIndex];
@@ -382,7 +392,7 @@ class Formatter implements FormatSafetyState {
       if (
         output.length > 0 &&
         (before === "\r" || before === "\n") &&
-        node instanceof RawHtmlInlineNode
+        node.kind === "rawHtmlInline"
       ) {
         output[output.length - 1] = output[output.length - 1].replace(/(?:\r\n?|\n)$/u, (ending) =>
           encodeLineEnding(ending),
@@ -539,12 +549,15 @@ class Formatter implements FormatSafetyState {
       this.bulletLastUsed === marker ||
       (!node.ordered &&
         marker === (this.options.rule ?? "-") &&
-        node.items.some((item) => item.children[0] instanceof ThematicBreakNode))
+        node.children.some((item) => item.children[0]?.kind === "thematicBreak"))
     ) {
       marker = alternateListMarker(marker);
     }
 
-    const values = node.items.map((item, index) => this.listItem(item, node, index, marker, info));
+    const values = node.children.map((item, index) =>
+      this.listItem(item, node, index, marker, info),
+    );
+
     this.bulletLastUsed = marker;
     exit();
 
@@ -581,7 +594,7 @@ class Formatter implements FormatSafetyState {
       parent.spread || item.spread,
     );
 
-    if (item.checked !== undefined && item.children[0] instanceof ParagraphNode) {
+    if (item.checked !== undefined && item.children[0]?.kind === "paragraph") {
       body = `[${item.checked ? "x" : " "}] ${body}`;
     }
 
@@ -737,7 +750,7 @@ class Formatter implements FormatSafetyState {
       );
     }
 
-    value += tracker.move(formatDirectiveAttributes(node.attributes.entries, this.options));
+    value += tracker.move(formatDirectiveAttributes(node.attributes, this.options));
     exit();
 
     return value;
@@ -759,12 +772,12 @@ class Formatter implements FormatSafetyState {
       );
     }
 
-    value += tracker.move(formatDirectiveAttributes(node.attributes.entries, this.options));
+    value += tracker.move(formatDirectiveAttributes(node.attributes, this.options));
 
-    if (node.body.length > 0) {
+    if (node.children.length > 0) {
       value += tracker.move("\n");
       value += tracker.move(
-        this.flow(node.body, {
+        this.flow(node.children, {
           after: "\n",
           before: "\n",
           ...tracker.current(),
@@ -800,6 +813,14 @@ class Formatter implements FormatSafetyState {
 
   private displayMath(node: DisplayMathNode, info: FormatInfo): string {
     if (node.format === "tex") {
+      if (node.meta !== undefined) {
+        InputError.mathMetadataUnsupported();
+      }
+
+      if (node.value.includes("\\]")) {
+        InputError.mathDelimiterCollision("displayMath", "\\]");
+      }
+
       const exit = this.enter("mathFlow");
       const tracker = createFormatTracker(info);
       let value = tracker.move("\\[");
@@ -847,6 +868,10 @@ class Formatter implements FormatSafetyState {
 
   private inlineMath(node: InlineMathNode): string {
     if (node.format === "tex") {
+      if (node.value.includes("\\)")) {
+        InputError.mathDelimiterCollision("inlineMath", "\\)");
+      }
+
       return `\\(${node.value}\\)`;
     }
 
@@ -1094,63 +1119,38 @@ function serializeTableRow(
 }
 
 function peek(node: MdxNode, options: FormatOptions): string {
-  if (node instanceof TextDirectiveNode) {
-    return ":";
+  switch (node.kind) {
+    case "textDirective":
+      return ":";
+    case "inlineMath":
+      return node.format === "dollar" ? "$" : "\\";
+    case "image":
+    case "imageReference":
+      return "!";
+    case "footnoteReference":
+    case "link":
+    case "linkReference":
+      return "[";
+    case "emphasis":
+      return options.emphasis ?? "*";
+    case "strong":
+      return options.strong ?? "*";
+    case "delete":
+      return "~";
+    case "inlineCode":
+      return "`";
+    case "rawHtmlInline":
+    case "jsxTextElement":
+      return "<";
+    case "hardBreak":
+      return "\\";
+    case "inlineExpression":
+      return "{";
+    case "text":
+      return node.value.charAt(0);
+    default:
+      return "";
   }
-
-  if (node instanceof InlineMathNode) {
-    return node.format === "dollar" ? "$" : "\\";
-  }
-
-  if (node instanceof ImageNode || node instanceof ImageReferenceNode) {
-    return "!";
-  }
-
-  if (node instanceof FootnoteReferenceNode) {
-    return "[";
-  }
-
-  if (node instanceof LinkNode || node instanceof LinkReferenceNode) {
-    return "[";
-  }
-
-  if (node instanceof EmphasisNode) {
-    return options.emphasis ?? "*";
-  }
-
-  if (node instanceof StrongNode) {
-    return options.strong ?? "*";
-  }
-
-  if (node instanceof DeleteNode) {
-    return "~";
-  }
-
-  if (node instanceof InlineCodeNode) {
-    return "`";
-  }
-
-  if (node instanceof RawHtmlInlineNode) {
-    return "<";
-  }
-
-  if (node instanceof HardBreakNode) {
-    return "\\";
-  }
-
-  if (node instanceof InlineExpressionNode) {
-    return "{";
-  }
-
-  if (node instanceof JsxTextElementNode) {
-    return "<";
-  }
-
-  if (node instanceof TextNode) {
-    return node.value.charAt(0);
-  }
-
-  return "";
 }
 
 function indentExpression(value: string): string {
@@ -1165,15 +1165,12 @@ function escapeJsxAttribute(value: string, quote: '"' | "'"): string {
 }
 
 function containsDirective(node: MdxNode): boolean {
-  if (
-    node instanceof TextDirectiveNode ||
-    node instanceof LeafDirectiveNode ||
-    node instanceof ContainerDirectiveNode
-  ) {
-    return true;
-  }
-
-  return node.children.some(containsDirective);
+  return (
+    node.kind === "textDirective" ||
+    node.kind === "leafDirective" ||
+    node.kind === "containerDirective" ||
+    mdxChildren(node).some(containsDirective)
+  );
 }
 
 function mathFormats(node: MdxNode): ReadonlySet<MathFormat> {
@@ -1184,11 +1181,11 @@ function mathFormats(node: MdxNode): ReadonlySet<MathFormat> {
 }
 
 function collectMathFormats(node: MdxNode, formats: Set<MathFormat>): void {
-  if (node instanceof InlineMathNode || node instanceof DisplayMathNode) {
+  if (node.kind === "inlineMath" || node.kind === "displayMath") {
     formats.add(node.format);
   }
 
-  for (const child of node.children) {
+  for (const child of mdxChildren(node)) {
     collectMathFormats(child, formats);
   }
 }
@@ -1196,21 +1193,21 @@ function collectMathFormats(node: MdxNode, formats: Set<MathFormat>): void {
 function containerDirectiveFenceSize(node: ContainerDirectiveNode): number {
   let nested = 0;
 
-  for (const child of node.body) {
-    for (const { node: directive } of selectTree<MdxNode, "containerDirective">(
-      child,
-      "containerDirective",
-      (value) => value.children,
-    )) {
-      nested = Math.max(nested, containerDirectiveFenceSize(directive) - 2);
+  const visit = (child: MdxNode): void => {
+    if (child.kind === "containerDirective") {
+      nested = Math.max(nested, containerDirectiveFenceSize(child) - 2);
+    } else {
+      mdxChildren(child).forEach(visit);
     }
-  }
+  };
+
+  node.children.forEach(visit);
 
   return 3 + nested;
 }
 
 function formatDirectiveAttributes(
-  entries: readonly { readonly name: string; readonly value: string }[],
+  entries: readonly DirectiveAttribute[],
   options: FormatOptions,
 ): string {
   if (entries.length === 0) {
@@ -1330,18 +1327,15 @@ function alternateListMarker(marker: "*" | "+" | "-" | "." | ")"): "*" | "-" | "
 }
 
 function containsLineEnding(node: MdxNode): boolean {
-  if (node instanceof HardBreakNode) {
+  if (node.kind === "hardBreak") {
     return true;
   }
 
-  if (
-    (node instanceof TextNode || node instanceof RawHtmlInlineNode) &&
-    /\r\n?|\n/u.test(node.value)
-  ) {
+  if ((node.kind === "text" || node.kind === "rawHtmlInline") && /\r\n?|\n/u.test(node.value)) {
     return true;
   }
 
-  return node.children.some(containsLineEnding);
+  return mdxChildren(node).some(containsLineEnding);
 }
 
 function encodeBlankLineEndings(value: string): string {

@@ -4,7 +4,6 @@ import { IconChevronDown } from "@tabler/icons-react";
 import { SourceContent } from "@temelj/mdx-react";
 import { useState } from "react";
 
-import { KaTeXMath } from "@/components/katex-math";
 import { mdxRegistry } from "@/components/mdx-registry";
 import { buttonVariants } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -45,14 +44,13 @@ export function StaticExample({ initialSource }: StaticExampleProps): React.Reac
       <article className="typeset">
         <SourceContent
           registry={mdxRegistry}
-          diagnosticFallback={(diagnostics) => (
+          fallback={(diagnostics) => (
             <pre className="border-destructive text-destructive rounded border p-4 whitespace-pre-wrap">
               {diagnostics
                 .map((diagnostic) => `${diagnostic.code}: ${diagnostic.message}`)
                 .join("\n")}
             </pre>
           )}
-          math={KaTeXMath}
           source={content}
           syntax={mdxSyntax}
         />

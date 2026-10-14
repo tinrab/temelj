@@ -1,4 +1,4 @@
-import type { SourceSpan } from "./model.ts";
+import type { SourceSpan } from "./source.ts";
 
 export type DiagnosticSeverity = "info" | "warning" | "error";
 

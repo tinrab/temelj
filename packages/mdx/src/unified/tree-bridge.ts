@@ -1,73 +1,33 @@
 import { isNumber, isBoolean, isString, isPlainObject } from "@temelj/value";
 import { find, html, svg, type Schema } from "property-information";
 
-import { isHeadingDepth, type HeadingDepth } from "../heading.ts";
-import {
-  HtmlCommentNode,
-  HtmlCodeBlockNode,
-  HtmlDoctypeNode,
-  HtmlDocumentNode,
-  HtmlElementNode,
-  HtmlJsxNode,
-  HtmlMathNode,
-  HtmlRawNode,
-  HtmlTextNode,
-  type HtmlAttributeValue,
-  type HtmlNode,
-} from "../html.ts";
-import {
-  BlockExpressionNode,
-  BlockQuoteNode,
-  CodeBlockNode,
+import type { HtmlAttributeValue, HtmlAttributes, HtmlNode, HtmlRootNode } from "../html.ts";
+import type {
   ContainerDirectiveNode,
-  DefinitionNode,
-  DeleteNode,
   DirectiveAttribute,
-  DirectiveAttributes,
   DirectiveLabelNode,
-  DisplayMathNode,
   DocumentNode,
-  EmphasisNode,
-  EsmNode,
-  FootnoteDefinitionNode,
-  FootnoteReferenceNode,
-  FrontmatterNode,
-  HardBreakNode,
-  HeadingNode,
-  ImageNode,
-  ImageReferenceNode,
-  InlineCodeNode,
-  InlineExpressionNode,
-  InlineMathNode,
-  JsxAttributeNode,
-  JsxAttributeValueExpressionNode,
+  FlowContent,
+  JsxAttribute,
+  JsxAttributeLike,
   JsxFlowElementNode,
-  JsxSpreadAttributeNode,
   JsxTextElementNode,
   LeafDirectiveNode,
-  LinkNode,
-  LinkReferenceNode,
   ListItemNode,
-  ListNode,
-  ParagraphNode,
-  RawHtmlBlockNode,
-  RawHtmlInlineNode,
-  SourceFile,
-  StrongNode,
+  MdxNode,
+  PhrasingContent,
+  ReferenceKind,
+  SourceRange,
+  TableAlignment,
   TableCellNode,
-  TableNode,
   TableRowNode,
   TextDirectiveNode,
-  TextNode,
-  ThematicBreakNode,
-  type FlowContent,
-  type JsxAttributeLike,
-  type MdxNode,
-  type PhrasingContent,
-  type ReferenceKind,
-  type SourceSpan,
-  type TableAlignment,
 } from "../model.ts";
+import type { SourceFile } from "../source.ts";
+
+import { isHeadingDepth, type HeadingDepth } from "../heading.ts";
+import { htmlChildren, htmlFallback, htmlText } from "../html.ts";
+import { normalizeIdentifier } from "../identifier.ts";
 
 interface UnistRecord {
   readonly type: string;
@@ -106,6 +66,7 @@ interface UnistOrigin {
 
 const unifiedDataKeys = {
   directiveLabel: "temeljDirectiveLabel",
+  htmlNode: "temeljHtmlNode",
   mathFormat: "temeljMathFormat",
 } as const;
 
@@ -118,8 +79,9 @@ export class UnifiedBoundaryError extends Error {
 
 export class UnifiedTreeBridge {
   private readonly file: SourceFile;
-  private readonly ownedHtmlNodes = new WeakMap<object, HtmlNode>();
   public readonly visiting = new WeakSet<object>();
+  /** Semantic HTML nodes sent to rehype. HAST data refers to them by index. */
+  readonly #owned: HtmlNode[] = [];
 
   public constructor(file: SourceFile) {
     this.file = file;
@@ -138,7 +100,7 @@ export class UnifiedTreeBridge {
   public fromMdast(root: unknown): DocumentNode {
     const node = this.unistToMdx(root);
 
-    if (!(node instanceof DocumentNode)) {
+    if (node.kind !== "document") {
       throw new UnifiedBoundaryError(
         `Remark returned a ${node.kind} node instead of an mdast root`,
       );
@@ -147,7 +109,7 @@ export class UnifiedTreeBridge {
     return node;
   }
 
-  public toHast(document: HtmlDocumentNode): UnistRecord {
+  public toHast(document: HtmlRootNode): UnistRecord {
     const node = this.htmlToUnist(document);
 
     if (node.type !== "root") {
@@ -157,10 +119,10 @@ export class UnifiedTreeBridge {
     return node;
   }
 
-  public fromHast(root: unknown): HtmlDocumentNode {
+  public fromHast(root: unknown): HtmlRootNode {
     const node = this.unistToHtml(root, false);
 
-    if (!(node instanceof HtmlDocumentNode)) {
+    if (node.kind !== "root") {
       throw new UnifiedBoundaryError(`Rehype returned a ${node.kind} node instead of a HAST root`);
     }
 
@@ -168,9 +130,10 @@ export class UnifiedTreeBridge {
   }
 
   public mdxToUnist(node: MdxNode): UnistRecord {
-    const position = positionFromOrigin(node.origin);
-    const base = position === undefined ? {} : { position };
-    const children = (): UnistRecord[] => node.children.map((child) => this.mdxToUnist(child));
+    const base = this.positionBase(node.origin);
+
+    const children = (): UnistRecord[] =>
+      "children" in node ? node.children.map((child) => this.mdxToUnist(child)) : [];
 
     switch (node.kind) {
       case "document":
@@ -308,7 +271,7 @@ export class UnifiedTreeBridge {
         return directiveToUnist("leafDirective", node, base, this);
       case "containerDirective": {
         const value = directiveToUnist("containerDirective", node, base, this);
-        value.children = node.body.map((child) => this.mdxToUnist(child));
+        value.children = children();
 
         if (node.label !== undefined) {
           value.data = { [unifiedDataKeys.directiveLabel]: this.mdxToUnist(node.label) };
@@ -327,12 +290,6 @@ export class UnifiedTreeBridge {
         return jsxElementToUnist("mdxJsxTextElement", node, base, this);
       case "jsxFlowElement":
         return jsxElementToUnist("mdxJsxFlowElement", node, base, this);
-      case "jsxAttribute":
-        return jsxAttributeToUnist(node, base);
-      case "jsxSpreadAttribute":
-        return { type: "mdxJsxExpressionAttribute", value: node.code, ...base };
-      case "jsxAttributeValueExpression":
-        return { type: "mdxJsxAttributeValueExpression", value: node.code, ...base };
       default: {
         const exhaustive: never = node;
 
@@ -348,204 +305,241 @@ export class UnifiedTreeBridge {
     const children = (childMode: "flow" | "phrasing" = "flow"): MdxNode[] =>
       this.nodeChildren(node).map((child) => this.unistToMdx(child, childMode));
 
+    const phrasingChildren = (): PhrasingContent[] => phrasing(children("phrasing"), node.type);
+    const flowChildren = (): FlowContent[] => flow(children(), node.type);
+
     let result: MdxNode;
 
     switch (node.type) {
       case "root":
-        result = new DocumentNode(flow(children(), node.type), origin);
+        result = { kind: "document", children: flowChildren(), origin };
         break;
       case "text":
-        result = new TextNode(stringField(node, "value"), origin);
+        result = { kind: "text", value: stringField(node, "value"), origin };
         break;
       case "emphasis":
-        result = new EmphasisNode(phrasing(children("phrasing"), node.type), origin);
-        break;
       case "strong":
-        result = new StrongNode(phrasing(children("phrasing"), node.type), origin);
-        break;
       case "delete":
-        result = new DeleteNode(phrasing(children("phrasing"), node.type), origin);
+        result = { kind: node.type, children: phrasingChildren(), origin };
         break;
       case "inlineCode":
-        result = new InlineCodeNode(stringField(node, "value"), origin);
+        result = { kind: "inlineCode", value: stringField(node, "value"), origin };
         break;
       case "link":
-        result = new LinkNode(stringField(node, "url"), phrasing(children("phrasing"), node.type), {
+        result = {
+          kind: "link",
+          url: stringField(node, "url"),
           title: nullableString(node.title),
+          children: phrasingChildren(),
           origin,
-        });
+        };
         break;
       case "image":
-        result = new ImageNode(stringField(node, "url"), nullableString(node.alt) ?? "", {
+        result = {
+          kind: "image",
+          url: stringField(node, "url"),
+          alt: nullableString(node.alt) ?? "",
           title: nullableString(node.title),
           origin,
-        });
+        };
         break;
       case "linkReference":
-        result = new LinkReferenceNode(
-          stringField(node, "identifier"),
-          phrasing(children("phrasing"), node.type),
-          { referenceKind: referenceKind(node.referenceType), origin },
-        );
+        result = {
+          kind: "linkReference",
+          identifier: normalizeIdentifier(stringField(node, "identifier")),
+          referenceKind: referenceKind(node.referenceType),
+          children: phrasingChildren(),
+          origin,
+        };
         break;
       case "imageReference":
-        result = new ImageReferenceNode(
-          stringField(node, "identifier"),
-          nullableString(node.alt) ?? "",
-          { referenceKind: referenceKind(node.referenceType), origin },
-        );
+        result = {
+          kind: "imageReference",
+          identifier: normalizeIdentifier(stringField(node, "identifier")),
+          alt: nullableString(node.alt) ?? "",
+          referenceKind: referenceKind(node.referenceType),
+          origin,
+        };
         break;
       case "break":
-        result = new HardBreakNode(origin);
+        result = { kind: "hardBreak", origin };
         break;
       case "html":
-        result =
-          mode === "phrasing"
-            ? new RawHtmlInlineNode(stringField(node, "value"), origin)
-            : new RawHtmlBlockNode(stringField(node, "value"), origin);
-        break;
-      case "footnoteReference":
-        result = new FootnoteReferenceNode(stringField(node, "identifier"), {
-          label: nullableString(node.label),
+        result = {
+          kind: mode === "phrasing" ? "rawHtmlInline" : "rawHtmlBlock",
+          value: stringField(node, "value"),
           origin,
-        });
+        };
         break;
+      case "footnoteReference": {
+        const identifier = stringField(node, "identifier");
+        result = {
+          kind: "footnoteReference",
+          identifier: normalizeIdentifier(identifier),
+          label: nullableString(node.label) ?? identifier,
+          origin,
+        };
+        break;
+      }
+
       case "definition":
-        result = new DefinitionNode(stringField(node, "identifier"), stringField(node, "url"), {
+        result = {
+          kind: "definition",
+          identifier: normalizeIdentifier(stringField(node, "identifier")),
+          url: stringField(node, "url"),
           title: nullableString(node.title),
           origin,
-        });
+        };
         break;
-      case "footnoteDefinition":
-        result = new FootnoteDefinitionNode(
-          stringField(node, "identifier"),
-          flow(children(), node.type),
-          { label: nullableString(node.label), origin },
-        );
+      case "footnoteDefinition": {
+        const identifier = stringField(node, "identifier");
+        result = {
+          kind: "footnoteDefinition",
+          identifier: normalizeIdentifier(identifier),
+          label: nullableString(node.label) ?? identifier,
+          children: flowChildren(),
+          origin,
+        };
         break;
+      }
+
       case "yaml":
       case "toml":
-        result = new FrontmatterNode(node.type, stringField(node, "value"), { origin });
+        result = {
+          kind: "frontmatter",
+          format: node.type,
+          value: stringField(node, "value"),
+          origin,
+        };
         break;
       case "inlineMath":
-        result = new InlineMathNode(stringField(node, "value"), {
+        result = {
+          kind: "inlineMath",
+          value: stringField(node, "value"),
           format: mathFormat(node),
           origin,
-        });
+        };
         break;
       case "math": {
         const format = mathFormat(node);
-        const meta = nullableString(node.meta);
-        result =
-          format === "tex"
-            ? new DisplayMathNode(stringField(node, "value"), { format, origin })
-            : new DisplayMathNode(stringField(node, "value"), { format, meta, origin });
+        result = {
+          kind: "displayMath",
+          value: stringField(node, "value"),
+          format,
+          meta: format === "dollar" ? nullableString(node.meta) : undefined,
+          origin,
+        };
         break;
       }
 
       case "paragraph":
-        result = new ParagraphNode(phrasing(children("phrasing"), node.type), origin);
+        result = { kind: "paragraph", children: phrasingChildren(), origin };
         break;
       case "heading":
-        result = new HeadingNode(
-          headingDepth(node.depth),
-          phrasing(children("phrasing"), node.type),
+        result = {
+          kind: "heading",
+          depth: headingDepth(node.depth),
+          children: phrasingChildren(),
           origin,
-        );
+        };
         break;
       case "code":
-        result = new CodeBlockNode(stringField(node, "value"), {
+        result = {
+          kind: "codeBlock",
+          value: stringField(node, "value"),
           language: nullableString(node.lang),
           meta: nullableString(node.meta),
           origin,
-        });
+        };
         break;
       case "thematicBreak":
-        result = new ThematicBreakNode(origin);
+        result = { kind: "thematicBreak", origin };
         break;
       case "blockquote":
-        result = new BlockQuoteNode(flow(children(), node.type), origin);
+        result = { kind: "blockquote", children: flowChildren(), origin };
         break;
       case "listItem":
-        result = new ListItemNode(flow(children(), node.type), {
+        result = {
+          kind: "listItem",
           checked: nullableBoolean(node.checked),
           spread: booleanField(node.spread, false),
+          children: flowChildren(),
           origin,
-        });
+        };
         break;
       case "list":
-        result = new ListNode(listItems(children(), node.type), {
+        result = {
+          kind: "list",
           ordered: booleanField(node.ordered, false),
           start: nullableNumber(node.start) ?? 1,
           spread: booleanField(node.spread, false),
+          children: listItems(children(), node.type),
           origin,
-        });
+        };
         break;
       case "tableCell":
-        result = new TableCellNode(phrasing(children("phrasing"), node.type), origin);
+        result = { kind: "tableCell", children: phrasingChildren(), origin };
         break;
       case "tableRow":
-        result = new TableRowNode(tableCells(children(), node.type), origin);
+        result = { kind: "tableRow", children: tableCells(children(), node.type), origin };
         break;
       case "table":
-        result = new TableNode(
-          tableAlignments(node.align),
-          tableRows(children(), node.type),
+        result = {
+          kind: "table",
+          alignments: tableAlignments(node.align),
+          children: tableRows(children(), node.type),
           origin,
-        );
+        };
         break;
       case "temeljDirectiveLabel":
-        result = new DirectiveLabelNode(phrasing(children("phrasing"), node.type), origin);
+        result = { kind: "directiveLabel", children: phrasingChildren(), origin };
         break;
       case "textDirective":
-        result = new TextDirectiveNode(stringField(node, "name"), {
-          label: directiveLabel(children("phrasing"), node.type),
-          attributes: directiveAttributes(node.attributes),
-          origin,
-        });
-        break;
       case "leafDirective":
-        result = new LeafDirectiveNode(stringField(node, "name"), {
-          label: directiveLabel(children("phrasing"), node.type),
+        result = {
+          kind: node.type,
+          name: stringField(node, "name"),
           attributes: directiveAttributes(node.attributes),
+          label: directiveLabel(children("phrasing"), node.type),
           origin,
-        });
+        };
         break;
       case "containerDirective":
-        result = new ContainerDirectiveNode(
-          stringField(node, "name"),
-          flow(children(), node.type),
-          {
-            label: directiveDataLabel(node.data, this),
-            attributes: directiveAttributes(node.attributes),
-            origin,
-          },
-        );
+        result = {
+          kind: "containerDirective",
+          name: stringField(node, "name"),
+          attributes: directiveAttributes(node.attributes),
+          label: directiveDataLabel(node.data, this),
+          children: flowChildren(),
+          origin,
+        };
         break;
       case "mdxTextExpression":
-        result = new InlineExpressionNode(stringField(node, "value"), origin);
+        result = { kind: "inlineExpression", code: stringField(node, "value"), origin };
         break;
       case "mdxFlowExpression":
-        result = new BlockExpressionNode(stringField(node, "value"), origin);
+        result = { kind: "blockExpression", code: stringField(node, "value"), origin };
         break;
       case "mdxjsEsm":
-        result = new EsmNode(stringField(node, "value"), origin);
+        result = { kind: "esm", code: stringField(node, "value"), origin };
         break;
       case "mdxJsxTextElement":
-        result = new JsxTextElementNode(
-          nullableString(node.name),
-          jsxAttributes(node.attributes, this),
-          phrasing(children("phrasing"), node.type),
+        result = {
+          kind: "jsxTextElement",
+          name: nullableString(node.name),
+          attributes: jsxAttributes(node.attributes, this),
+          children: phrasingChildren(),
           origin,
-        );
+        };
         break;
       case "mdxJsxFlowElement":
-        result = new JsxFlowElementNode(
-          nullableString(node.name),
-          jsxAttributes(node.attributes, this),
-          flow(children(), node.type),
+        result = {
+          kind: "jsxFlowElement",
+          name: nullableString(node.name),
+          attributes: jsxAttributes(node.attributes, this),
+          children: flowChildren(),
           origin,
-        );
+        };
         break;
       default:
         throw new UnifiedBoundaryError(`Unsupported mdast node type: ${node.type}`);
@@ -557,67 +551,53 @@ export class UnifiedTreeBridge {
   }
 
   private htmlToUnist(node: HtmlNode): UnistRecord {
-    const position = positionFromOrigin(node.origin);
-    const base = position === undefined ? {} : { position };
+    const base = this.positionBase(node.origin);
 
-    if (node instanceof HtmlDocumentNode) {
-      return {
-        type: "root",
-        children: node.children.map((child) => this.htmlToUnist(child)),
-        ...base,
-      };
-    }
+    const children = (): UnistRecord[] =>
+      htmlChildren(node).map((child) => this.htmlToUnist(child));
 
-    if (node instanceof HtmlJsxNode) {
-      const result = { type: "text", value: node.value, ...base };
-      this.ownedHtmlNodes.set(result, node);
+    switch (node.kind) {
+      case "root":
+        return { type: "root", children: children(), ...base };
+      case "text":
+        return { type: "text", value: node.value, ...base };
+      case "raw":
+        return { type: "raw", value: node.value, ...base };
+      case "comment":
+        return { type: "comment", value: node.value, ...base };
+      case "doctype":
+        return { type: "doctype", ...base };
+      case "element":
+        return {
+          type: "element",
+          tagName: node.tagName,
+          properties: propertiesToHast(node.attributes, node.tagName === "svg" ? svg : html),
+          children: children(),
+          ...base,
+        };
+      case "jsx":
+      case "expression":
+        // Rehype sees inert source text. The original node returns when the text is unchanged.
+        return {
+          type: "text",
+          value: node.fallback,
+          data: { [unifiedDataKeys.htmlNode]: this.#owned.push(node) - 1 },
+          ...base,
+        };
+      case "codeBlock":
+      case "math":
+      case "footnoteReference":
+      case "footnoteSection":
+        return {
+          ...this.htmlToUnist({ ...htmlFallback(node), origin: node.origin }),
+          data: { [unifiedDataKeys.htmlNode]: this.#owned.push(node) - 1 },
+        };
+      default: {
+        const exhaustive: never = node;
 
-      return result;
-    }
-
-    if (node instanceof HtmlTextNode) {
-      const result = { type: "text", value: node.value, ...base };
-
-      return result;
-    }
-
-    if (node instanceof HtmlRawNode) {
-      return { type: "raw", value: node.value, ...base };
-    }
-
-    if (node instanceof HtmlCommentNode) {
-      return { type: "comment", value: node.value, ...base };
-    }
-
-    if (node instanceof HtmlDoctypeNode) {
-      return { type: "doctype", ...base };
-    }
-
-    if (node instanceof HtmlElementNode) {
-      const result = {
-        type: "element",
-        tagName: node.tagName,
-        properties: propertiesToHast(node.attributes, node.tagName === "svg" ? svg : html),
-        children: node.children.map((child) => this.htmlToUnist(child)),
-        ...base,
-      };
-
-      if (node instanceof HtmlMathNode || node instanceof HtmlCodeBlockNode) {
-        this.ownedHtmlNodes.set(result, node);
+        return exhaustive;
       }
-
-      return result;
     }
-
-    if ("children" in node && Array.isArray(node.children)) {
-      return {
-        type: "root",
-        children: node.children.map((child) => this.htmlToUnist(child)),
-        ...base,
-      };
-    }
-
-    throw new UnifiedBoundaryError(`Unsupported owned HTML node kind: ${node.kind}`);
   }
 
   private unistToHtml(value: unknown, inSvg: boolean): HtmlNode {
@@ -627,33 +607,35 @@ export class UnifiedTreeBridge {
 
     switch (node.type) {
       case "root":
-        result = new HtmlDocumentNode(
-          this.nodeChildren(node).map((child) => this.unistToHtml(child, inSvg)),
+        result = {
+          kind: "root",
+          children: this.nodeChildren(node).map((child) => this.unistToHtml(child, inSvg)),
           origin,
-        );
+        };
         break;
       case "text":
-        result = new HtmlTextNode(stringField(node, "value"), origin);
+        result = { kind: "text", value: stringField(node, "value"), origin };
         break;
       case "raw":
-        result = new HtmlRawNode(stringField(node, "value"), origin);
+        result = { kind: "raw", value: stringField(node, "value"), origin };
         break;
       case "comment":
-        result = new HtmlCommentNode(stringField(node, "value"), origin);
+        result = { kind: "comment", value: stringField(node, "value"), origin };
         break;
       case "doctype":
-        result = new HtmlDoctypeNode(origin);
+        result = { kind: "doctype", origin };
         break;
       case "element": {
         const tagName = stringField(node, "tagName");
         const svgElement = inSvg || tagName === "svg";
         const childSvg = svgElement && tagName !== "foreignObject";
-        result = new HtmlElementNode(
+        result = {
+          kind: "element",
           tagName,
-          propertiesFromHast(node.properties ?? {}, svgElement ? svg : html),
-          this.nodeChildren(node).map((child) => this.unistToHtml(child, childSvg)),
+          attributes: propertiesFromHast(node.properties ?? {}, svgElement ? svg : html),
+          children: this.nodeChildren(node).map((child) => this.unistToHtml(child, childSvg)),
           origin,
-        );
+        };
         break;
       }
 
@@ -662,39 +644,29 @@ export class UnifiedTreeBridge {
     }
 
     this.visiting.delete(node);
-    const owned = this.ownedHtmlNodes.get(node);
 
-    if (
-      owned instanceof HtmlJsxNode &&
-      result instanceof HtmlTextNode &&
-      owned.value === result.value &&
-      owned.origin?.start === result.origin?.start &&
-      owned.origin?.end === result.origin?.end
-    ) {
-      return new HtmlJsxNode(result.value, owned.request, result.origin);
+    return this.restoredHtmlNode(node.data, result);
+  }
+
+  /** Restores a semantic node whose inert fallback came back from rehype unchanged. */
+  private restoredHtmlNode(data: unknown, result: HtmlNode): HtmlNode {
+    const index =
+      isPlainObject(data) && unifiedDataKeys.htmlNode in data
+        ? data[unifiedDataKeys.htmlNode]
+        : undefined;
+
+    const owned = isNumber(index) ? this.#owned.at(index) : undefined;
+
+    if (owned === undefined) {
+      return result;
     }
 
-    if (
-      owned instanceof HtmlMathNode &&
-      result instanceof HtmlElementNode &&
-      owned.toHtml() === result.toHtml() &&
+    const unchanged =
       owned.origin?.start === result.origin?.start &&
-      owned.origin?.end === result.origin?.end
-    ) {
-      return new HtmlMathNode(owned.math, result.origin);
-    }
+      owned.origin?.end === result.origin?.end &&
+      htmlText(stripSemantic(owned)) === htmlText(result);
 
-    if (
-      owned instanceof HtmlCodeBlockNode &&
-      result instanceof HtmlElementNode &&
-      owned.toHtml() === result.toHtml() &&
-      owned.origin?.start === result.origin?.start &&
-      owned.origin?.end === result.origin?.end
-    ) {
-      return new HtmlCodeBlockNode(owned.codeBlock, result.origin);
-    }
-
-    return result;
+    return unchanged ? owned : result;
   }
 
   public nodeRecord(value: unknown): UnistRecord {
@@ -719,7 +691,18 @@ export class UnifiedTreeBridge {
     return node.children;
   }
 
-  public origin(position: unknown): SourceSpan | undefined {
+  public positionBase(origin: SourceRange | undefined): UnistOrigin {
+    return origin === undefined
+      ? {}
+      : {
+          position: {
+            start: this.file.location(origin.start),
+            end: this.file.location(origin.end),
+          },
+        };
+  }
+
+  public origin(position: unknown): SourceRange | undefined {
     if (position === undefined) {
       return undefined;
     }
@@ -749,16 +732,17 @@ export class UnifiedTreeBridge {
       throw new UnifiedBoundaryError("A returned Unist position has invalid UTF-16 offsets");
     }
 
-    return { file: this.file, start, end };
+    return { start, end };
   }
 }
 
-function positionFromOrigin(origin: Readonly<SourceSpan> | undefined): UnistPosition | undefined {
-  if (origin === undefined) {
-    return undefined;
-  }
-
-  return { start: origin.file.location(origin.start), end: origin.file.location(origin.end) };
+function stripSemantic(node: HtmlNode): HtmlNode {
+  return node.kind === "codeBlock" ||
+    node.kind === "math" ||
+    node.kind === "footnoteReference" ||
+    node.kind === "footnoteSection"
+    ? htmlFallback(node)
+    : node;
 }
 
 function directiveToUnist(
@@ -770,9 +754,7 @@ function directiveToUnist(
   return {
     type,
     name: node.name,
-    attributes: Object.fromEntries(
-      node.attributes.entries.map((entry) => [entry.name, entry.value]),
-    ),
+    attributes: Object.fromEntries(node.attributes.map((entry) => [entry.name, entry.value])),
     children:
       node.label === undefined ? [] : node.label.children.map((child) => bridge.mdxToUnist(child)),
     ...base,
@@ -788,23 +770,36 @@ function jsxElementToUnist(
   return {
     type,
     name: node.name ?? null,
-    attributes: node.attributes.map((attribute) => bridge.mdxToUnist(attribute)),
+    attributes: node.attributes.map((attribute) => jsxAttributeToUnist(attribute, bridge)),
     children: node.children.map((child) => bridge.mdxToUnist(child)),
     ...base,
   };
 }
 
-function jsxAttributeToUnist(node: JsxAttributeNode, base: UnistOrigin): UnistRecord {
-  const value =
-    node.value instanceof JsxAttributeValueExpressionNode
-      ? { type: "mdxJsxAttributeValueExpression", value: node.value.code }
-      : (node.value ?? null);
+function jsxAttributeToUnist(node: JsxAttributeLike, bridge: UnifiedTreeBridge): UnistRecord {
+  const base = bridge.positionBase(node.origin);
+
+  if (node.kind === "jsxSpreadAttribute") {
+    return { type: "mdxJsxExpressionAttribute", value: `...${node.code}`, ...base };
+  }
+
+  const value = jsxAttributeValueToUnist(node);
 
   return { type: "mdxJsxAttribute", name: node.name, value, ...base };
 }
 
+function jsxAttributeValueToUnist(node: JsxAttribute): string | UnistRecord | null {
+  if (node.value === undefined) {
+    return null;
+  }
+
+  return isString(node.value)
+    ? node.value
+    : { type: "mdxJsxAttributeValueExpression", value: node.value.code };
+}
+
 function propertiesToHast(
-  attributes: Readonly<Record<string, HtmlAttributeValue>>,
+  attributes: HtmlAttributes,
   schema: Schema,
 ): Record<string, HtmlAttributeValue> {
   const result: Record<string, HtmlAttributeValue> = Object.create(null);
@@ -816,10 +811,7 @@ function propertiesToHast(
   return result;
 }
 
-function propertiesFromHast(
-  value: unknown,
-  schema: Schema,
-): Readonly<Record<string, HtmlAttributeValue>> {
+function propertiesFromHast(value: unknown, schema: Schema): HtmlAttributes {
   if (!isPlainObject(value)) {
     throw new UnifiedBoundaryError("HAST properties must be an object");
   }
@@ -940,24 +932,25 @@ function tableAlignments(value: unknown): TableAlignment[] {
   );
 }
 
-function directiveAttributes(value: unknown): DirectiveAttributes {
+function directiveAttributes(value: unknown): DirectiveAttribute[] {
   if (value === null || value === undefined) {
-    return new DirectiveAttributes();
+    return [];
   }
 
   if (!isPlainObject(value)) {
     throw new UnifiedBoundaryError("Directive attributes must be an object");
   }
 
-  return new DirectiveAttributes(
-    Object.entries(value).map(
-      ([name, item]) => new DirectiveAttribute(name, nullableString(item) ?? ""),
-    ),
-  );
+  return Object.entries(value).map(([name, item]) => ({
+    name,
+    value: nullableString(item) ?? "",
+  }));
 }
 
 function directiveLabel(values: MdxNode[], type: string): DirectiveLabelNode | undefined {
-  return values.length === 0 ? undefined : new DirectiveLabelNode(phrasing(values, type));
+  return values.length === 0
+    ? undefined
+    : { kind: "directiveLabel", children: phrasing(values, type) };
 }
 
 function directiveDataLabel(
@@ -974,7 +967,7 @@ function directiveDataLabel(
 
   const label = bridge.unistToMdx(value[unifiedDataKeys.directiveLabel]);
 
-  if (!(label instanceof DirectiveLabelNode)) {
+  if (label.kind !== "directiveLabel") {
     throw new UnifiedBoundaryError("Container directive label is malformed");
   }
 
@@ -992,7 +985,11 @@ function jsxAttributes(value: unknown, bridge: UnifiedTreeBridge): JsxAttributeL
     bridge.visiting.delete(node);
 
     if (node.type === "mdxJsxExpressionAttribute") {
-      return new JsxSpreadAttributeNode(stringField(node, "value"), origin);
+      return {
+        kind: "jsxSpreadAttribute",
+        code: stringField(node, "value").replace(/^\s*\.\.\./u, ""),
+        origin,
+      };
     }
 
     if (node.type !== "mdxJsxAttribute") {
@@ -1002,7 +999,7 @@ function jsxAttributes(value: unknown, bridge: UnifiedTreeBridge): JsxAttributeL
     const name = stringField(node, "name");
 
     if (node.value === null || node.value === undefined || isString(node.value)) {
-      return new JsxAttributeNode(name, { value: node.value ?? undefined, origin });
+      return { kind: "jsxAttribute", name, value: node.value ?? undefined, origin };
     }
 
     const expression = bridge.nodeRecord(node.value);
@@ -1013,13 +1010,16 @@ function jsxAttributes(value: unknown, bridge: UnifiedTreeBridge): JsxAttributeL
 
     bridge.visiting.delete(expression);
 
-    return new JsxAttributeNode(name, {
-      value: new JsxAttributeValueExpressionNode(
-        stringField(expression, "value"),
-        bridge.origin(expression.position),
-      ),
+    return {
+      kind: "jsxAttribute",
+      name,
+      value: {
+        kind: "jsxAttributeValueExpression",
+        code: stringField(expression, "value"),
+        origin: bridge.origin(expression.position),
+      },
       origin,
-    });
+    };
   });
 }
 

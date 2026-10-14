@@ -1,28 +1,28 @@
 import { isString } from "@temelj/value";
 
-import type { HtmlDocumentNode } from "../html.ts";
-import type { HtmlTransformContext } from "../plugin.ts";
+import type { HtmlRootNode } from "../html.ts";
+import type { HtmlPlugin, HtmlPluginContext } from "../plugin.ts";
 
-import { HtmlTransformPlugin } from "../plugin.ts";
+import { htmlText } from "../html.ts";
 import { selectHtml } from "../traversal.ts";
 
 export interface HeadingIdPluginOptions {
   readonly prefix?: string;
 }
 
-export class HeadingIdPlugin extends HtmlTransformPlugin {
+/** Adds unique slug IDs to rendered headings that have none. */
+export class HeadingIdPlugin implements HtmlPlugin {
   public readonly name = "heading-id";
   private readonly prefix: string;
 
   public constructor(options: HeadingIdPluginOptions = {}) {
-    super();
     this.prefix = options.prefix ?? "user-content-";
   }
 
-  public transform(context: HtmlTransformContext): HtmlDocumentNode {
+  public transform(context: HtmlPluginContext): HtmlRootNode {
     const used = new Set<string>();
 
-    for (const { node } of selectHtml(context.document, "element")) {
+    for (const { node } of selectHtml(context.root, "element")) {
       const id = node.attributes.id;
 
       if (isString(id)) {
@@ -33,18 +33,12 @@ export class HeadingIdPlugin extends HtmlTransformPlugin {
     return context.rewrite({
       element: ({ node }) => {
         if (!/^h[1-6]$/u.test(node.tagName) || node.attributes.id !== undefined) {
-          return node;
+          return;
         }
 
-        const base = this.prefix + slug(node.toString());
-        const id = uniqueSlug(base, used);
+        const id = uniqueSlug(this.prefix + slug(htmlText(node)), used);
 
-        const attributes = {
-          ...node.attributes,
-          id,
-        };
-
-        return node.with({ attributes });
+        return { ...node, attributes: { ...node.attributes, id } };
       },
     });
   }

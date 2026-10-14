@@ -1,5 +1,3 @@
-import type { SourceSpan } from "./model.ts";
-
 export abstract class MdxError extends Error {
   protected constructor(
     name: string,
@@ -31,7 +29,8 @@ export type InputIssue =
   | Readonly<{ kind: "mathMetadata"; format: "tex" }>
   | Readonly<{ kind: "replacementRange"; start: number; end: number; sourceLength: number }>
   | Readonly<{ kind: "sourceOffset"; offset: number; sourceLength: number }>
-  | Readonly<{ kind: "streamActiveBlock"; length: number; maximumLength: number }>;
+  | Readonly<{ kind: "streamCompleted" }>
+  | Readonly<{ kind: "codeBlockMetadata"; messages: readonly string[] }>;
 
 export class InputError extends MdxError {
   public readonly issue: InputIssue;
@@ -122,15 +121,19 @@ export class InputError extends MdxError {
     );
   }
 
-  public static streamActiveBlockLimitExceeded(
-    this: void,
-    length: number,
-    maximumLength: number,
-  ): never {
+  public static invalidCodeBlockMetadata(this: void, messages: readonly string[]): never {
     throw new InputError(
-      `Active stream block is ${length} UTF-16 code units; configured maximum is ${maximumLength}`,
-      { kind: "streamActiveBlock", length, maximumLength },
-      InputError.streamActiveBlockLimitExceeded,
+      `Invalid code block metadata: ${messages.join("; ")}`,
+      { kind: "codeBlockMetadata", messages },
+      InputError.invalidCodeBlockMetadata,
+    );
+  }
+
+  public static streamCompleted(this: void): never {
+    throw new InputError(
+      "A successfully completed MdxStream cannot be changed",
+      { kind: "streamCompleted" },
+      InputError.streamCompleted,
     );
   }
 }
@@ -259,7 +262,6 @@ export type TransformIssue = Readonly<{
   kind: "threw";
   target: TransformTarget;
   pluginName: string;
-  span?: SourceSpan;
 }>;
 
 export class TransformError extends MdxError {
@@ -275,53 +277,17 @@ export class TransformError extends MdxError {
     this.issue = Object.freeze(issue);
   }
 
-  public static pluginDocumentTransformFailed(
+  public static pluginTransformFailed(
     this: void,
-    pluginName: string,
-    cause: unknown,
-    span?: SourceSpan,
-  ): never {
-    TransformError.transformFailed(
-      "document",
-      pluginName,
-      cause,
-      span,
-      TransformError.pluginDocumentTransformFailed,
-    );
-  }
-
-  public static pluginHtmlTransformFailed(
-    this: void,
-    pluginName: string,
-    cause: unknown,
-    span?: SourceSpan,
-  ): never {
-    TransformError.transformFailed(
-      "html",
-      pluginName,
-      cause,
-      span,
-      TransformError.pluginHtmlTransformFailed,
-    );
-  }
-
-  private static transformFailed(
     target: TransformTarget,
     pluginName: string,
     cause: unknown,
-    span: SourceSpan | undefined,
-    context: Function,
   ): never {
     throw new TransformError(
       `Plugin "${pluginName}" failed while transforming ${target}`,
-      {
-        kind: "threw",
-        target,
-        pluginName,
-        span: span === undefined ? undefined : Object.freeze({ ...span }),
-      },
+      { kind: "threw", target, pluginName },
       { cause },
-      context,
+      TransformError.pluginTransformFailed,
     );
   }
 }

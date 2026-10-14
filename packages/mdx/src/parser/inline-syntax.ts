@@ -102,6 +102,8 @@ export type InlineSyntax =
 export interface InvalidInlineSyntax {
   readonly range: SourceRange;
   readonly syntax: "expression" | "jsx";
+  // The construct was still open at the end of the inline input.
+  readonly open: boolean;
 }
 
 export interface InlineParseResult {
@@ -138,9 +140,14 @@ export interface PendingMathSyntax extends InlineSyntaxBase {
   readonly format: MathFormat;
 }
 
+export interface PendingEmbeddedSyntax extends InlineSyntaxBase {
+  readonly kind: "jsx" | "expression";
+}
+
 export type InlinePendingSyntax =
   | PendingInlineParentSyntax
   | PendingCodeSyntax
   | PendingLinkSyntax
   | PendingImageSyntax
-  | PendingMathSyntax;
+  | PendingMathSyntax
+  | PendingEmbeddedSyntax;

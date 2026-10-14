@@ -1,7 +1,12 @@
 import { isString } from "@temelj/value";
 
+import type { HtmlNode, HtmlRootNode } from "./html.ts";
+import type { JavaScriptJsxContext } from "./javascript-jsx.ts";
+import type { DocumentNode, SourceRange } from "./model.ts";
+import type { SourceFile } from "./source.ts";
+
 import { CompileError } from "./errors.ts";
-import { normalizeIdentifier } from "./identifier.ts";
+import { htmlChildren, htmlFallback } from "./html.ts";
 import {
   childNode,
   collectPatternNames,
@@ -12,179 +17,67 @@ import {
 import { analyzeJavaScriptExpression, transformJavaScriptProgram } from "./javascript-jsx.ts";
 import { hasJavaScriptToken, parseJavaScriptProgram } from "./javascript.ts";
 import { recordJsxReference, resolveJsxName } from "./jsx-reference.ts";
-import {
-  BlockExpressionNode,
-  BlockQuoteNode,
-  CodeBlockNode,
-  ContainerDirectiveNode,
-  DefinitionNode,
-  DeleteNode,
-  DisplayMathNode,
-  DocumentNode,
-  EmphasisNode,
-  EsmNode,
-  FootnoteDefinitionNode,
-  FootnoteReferenceNode,
-  FrontmatterNode,
-  HardBreakNode,
-  HeadingNode,
-  ImageNode,
-  ImageReferenceNode,
-  InlineCodeNode,
-  InlineExpressionNode,
-  InlineMathNode,
-  JsxAttributeValueExpressionNode,
-  JsxFlowElementNode,
-  JsxSpreadAttributeNode,
-  JsxTextElementNode,
-  LeafDirectiveNode,
-  LinkNode,
-  LinkReferenceNode,
-  ListItemNode,
-  ListNode,
-  ParagraphNode,
-  RawHtmlBlockNode,
-  RawHtmlInlineNode,
-  StrongNode,
-  TableCellNode,
-  TableNode,
-  TableRowNode,
-  TextDirectiveNode,
-  TextNode,
-  ThematicBreakNode,
-  type FlowContent,
-  type MdxNode,
-  type PhrasingContent,
-  type SourceSpan,
-  type SyntaxNode,
-} from "./model.ts";
-import { walkTree } from "./tree.ts";
 
-export interface CompilerState {
-  readonly definitions: ReadonlyMap<string, DefinitionNode>;
-  readonly development: boolean;
-  readonly esm: readonly CompiledEsm[];
-  readonly footnoteReferences: ReadonlyMap<FootnoteReferenceNode, CompiledFootnoteReference>;
-  readonly footnotes: readonly CompiledFootnote[];
-  readonly hasInternalLayout: boolean;
+/** JavaScript scope shared by analysis and emission. Analysis records references into it. */
+export interface CompileScope extends JavaScriptJsxContext {
+  readonly file: SourceFile | undefined;
   readonly inScope: ReadonlySet<string>;
-  readonly intrinsicTags: Set<string>;
   readonly missingReferences: Map<string, boolean>;
   readonly referencedComponents: Set<string>;
-  readonly sourceName: string;
 }
-
-export interface CompiledFootnoteReference {
-  readonly occurrence: number;
-  readonly ordinal: number;
-}
-
-export interface CompiledFootnote {
-  readonly count: number;
-  readonly definition: FootnoteDefinitionNode;
-  readonly identifier: string;
-  readonly ordinal: number;
-}
-
-type CompiledFootnoteDraft = Omit<CompiledFootnote, "count">;
 
 export interface CompiledEsm {
   readonly code: string;
-  readonly span?: SourceSpan;
+  readonly origin?: SourceRange;
+}
+
+export interface CompileAnalysis {
+  readonly esm: readonly CompiledEsm[];
+  readonly hasInternalLayout: boolean;
+  readonly intrinsicTags: ReadonlySet<string>;
+  readonly scope: CompileScope;
 }
 
 export function analyzeDocument(
   document: DocumentNode,
-  options: Readonly<{ development?: boolean; sourceName?: string }> = {},
-): CompilerState {
-  const definitions = new Map<string, DefinitionNode>();
-  const intrinsicTags = new Set<string>();
-  const missingReferences = new Map<string, boolean>();
-  const referencedComponents = new Set<string>();
+  content: HtmlRootNode,
+  options: Readonly<{ development?: boolean; sourceName?: string; source?: SourceFile }>,
+): CompileAnalysis {
   const inScope = new Set<string>();
-  const esm: CompiledEsm[] = [];
-  const footnoteReferences = new Map<FootnoteReferenceNode, CompiledFootnoteReference>();
-  const footnoteDrafts: CompiledFootnoteDraft[] = [];
-  const footnoteIndexes = new Map<string, number>();
-  const footnoteCounts = new Map<string, number>();
-
-  for (const { node } of walkTree<MdxNode>(document, (value) => value.children)) {
-    if (node instanceof DefinitionNode) {
-      const identifier = normalizeIdentifier(node.identifier);
-
-      if (!definitions.has(identifier)) {
-        definitions.set(identifier, node);
-      }
-
-      continue;
-    }
-
-    if (!(node instanceof FootnoteReferenceNode)) {
-      continue;
-    }
-
-    const definition = document.footnote(node.identifier);
-
-    if (definition === undefined) {
-      continue;
-    }
-
-    const identifier = normalizeIdentifier(node.identifier);
-    let index = footnoteIndexes.get(identifier);
-
-    if (index === undefined) {
-      index = footnoteDrafts.length;
-      footnoteIndexes.set(identifier, index);
-      footnoteDrafts.push({ definition, identifier, ordinal: index + 1 });
-    }
-
-    const occurrence = (footnoteCounts.get(identifier) ?? 0) + 1;
-    footnoteCounts.set(identifier, occurrence);
-    footnoteReferences.set(node, { occurrence, ordinal: index + 1 });
-  }
-
-  const footnotes = footnoteDrafts.map((footnote): CompiledFootnote => ({
-    ...footnote,
-    count: footnoteCounts.get(footnote.identifier) ?? 1,
-  }));
+  const authoredEsm: CompiledEsm[] = [];
 
   for (const child of document.children) {
-    if (!(child instanceof EsmNode)) {
-      continue;
+    if (child.kind === "esm") {
+      collectProgramBindings(parseJavaScriptProgram(child.code), inScope);
+      authoredEsm.push({ code: child.code, origin: child.origin });
     }
-
-    const program = parseJavaScriptProgram(child.code);
-    collectProgramBindings(program, inScope);
-    esm.push({ code: child.code, span: child.origin });
   }
 
-  const state: CompilerState = {
-    definitions,
+  const scope: CompileScope = {
     development: options.development ?? false,
-    esm: [],
-    footnoteReferences,
-    footnotes,
-    hasInternalLayout: false,
+    file: options.source,
     inScope,
-    intrinsicTags,
-    missingReferences,
-    referencedComponents,
-    sourceName: options.sourceName ?? "source.mdx",
+    missingReferences: new Map(),
+    referencedComponents: new Set(),
+    sourceName: options.sourceName ?? options.source?.name ?? "source.mdx",
   };
 
-  const esmContext: CompilerState = {
-    ...state,
+  // ESM may render JSX, but its references never become required content components.
+  const esmScope: CompileScope = {
+    ...scope,
     missingReferences: new Map(),
     referencedComponents: new Set(),
   };
 
   let hasInternalLayout = false;
 
-  const compiledEsm = esm.map((entry): CompiledEsm => {
+  const esm = authoredEsm.map((entry): CompiledEsm => {
     const jsx = transformJavaScriptProgram(
       entry.code,
-      esmContext,
-      entry.span === undefined ? undefined : { file: entry.span.file, offset: entry.span.start },
+      esmScope,
+      entry.origin === undefined || scope.file === undefined
+        ? undefined
+        : { file: scope.file, offset: entry.origin.start },
     );
 
     const transformed = transformEsm(jsx, parseJavaScriptProgram(jsx));
@@ -197,196 +90,61 @@ export function analyzeDocument(
       hasInternalLayout = true;
     }
 
-    return { code: transformed.code, span: entry.span };
+    return { code: transformed.code, origin: entry.origin };
   });
 
-  const result = {
-    ...state,
-    esm: compiledEsm,
-    hasInternalLayout,
-  };
+  const intrinsicTags = new Set<string>();
+  analyzeContent(content, scope, intrinsicTags);
 
-  analyzeContentReferences(document, result);
-
-  if (footnotes.length > 0) {
-    addIntrinsic(result, "a", "h2", "li", "ol", "section", "sup");
-  }
-
-  return result;
+  return { esm, hasInternalLayout, intrinsicTags, scope };
 }
 
-function analyzeContentReferences(document: DocumentNode, state: CompilerState): void {
-  for (const child of visible(document.children)) {
-    analyzeNodeReferences(child, state);
-  }
-}
-
-function analyzeNodeReferences(
-  node: FlowContent | PhrasingContent | ListItemNode | TableCellNode | TableRowNode,
-  state: CompilerState,
-): void {
-  if (node instanceof InlineExpressionNode || node instanceof BlockExpressionNode) {
-    analyzeJavaScriptExpression(node.code, state);
-
-    return;
-  }
-
-  if (node instanceof JsxTextElementNode || node instanceof JsxFlowElementNode) {
-    recordJsxReference(resolveJsxName(node.name), state);
-
-    for (const attribute of node.attributes) {
-      if (attribute instanceof JsxSpreadAttributeNode) {
-        analyzeJavaScriptExpression(attribute.code.slice(3).trimStart(), state);
-      } else if (attribute.value instanceof JsxAttributeValueExpressionNode) {
-        analyzeJavaScriptExpression(attribute.value.code, state);
+function analyzeContent(node: HtmlNode, scope: CompileScope, intrinsicTags: Set<string>): void {
+  switch (node.kind) {
+    case "element":
+      intrinsicTags.add(node.tagName);
+      break;
+    case "expression":
+      if (hasJavaScriptToken(node.code)) {
+        analyzeJavaScriptExpression(node.code, scope);
       }
-    }
 
-    analyzeChildren(node.children, state);
+      break;
+    case "jsx":
+      recordJsxReference(resolveJsxName(node.node.name), scope);
 
-    return;
+      for (const attribute of node.node.attributes) {
+        if (attribute.kind === "jsxSpreadAttribute") {
+          analyzeJavaScriptExpression(attribute.code, scope);
+        } else if (attribute.value !== undefined && !isString(attribute.value)) {
+          analyzeJavaScriptExpression(attribute.value.code, scope);
+        }
+      }
+
+      break;
+    case "codeBlock":
+    case "math":
+    case "footnoteReference":
+    case "footnoteSection":
+      // Compiled output renders the same fallback elements as HTML.
+      analyzeContent(htmlFallback(node), scope, intrinsicTags);
+
+      return;
+    default:
+      break;
   }
 
-  if (
-    node instanceof TextNode ||
-    node instanceof RawHtmlInlineNode ||
-    node instanceof RawHtmlBlockNode
-  ) {
-    return;
-  }
-
-  if (node instanceof ParagraphNode) {
-    addIntrinsic(state, "p");
-    analyzeChildren(node.children, state);
-  } else if (node instanceof HeadingNode) {
-    addIntrinsic(state, `h${node.depth}`);
-    analyzeChildren(node.children, state);
-  } else if (node instanceof EmphasisNode) {
-    addIntrinsic(state, "em");
-    analyzeChildren(node.children, state);
-  } else if (node instanceof StrongNode) {
-    addIntrinsic(state, "strong");
-    analyzeChildren(node.children, state);
-  } else if (node instanceof DeleteNode) {
-    addIntrinsic(state, "del");
-    analyzeChildren(node.children, state);
-  } else if (node instanceof InlineCodeNode) {
-    addIntrinsic(state, "code");
-  } else if (node instanceof HardBreakNode) {
-    addIntrinsic(state, "br");
-  } else if (node instanceof LinkNode) {
-    addIntrinsic(state, "a");
-    analyzeChildren(node.children, state);
-  } else if (node instanceof LinkReferenceNode) {
-    if (state.definitions.has(normalizeIdentifier(node.identifier))) {
-      addIntrinsic(state, "a");
-      analyzeChildren(node.children, state);
-    }
-  } else if (node instanceof ImageNode) {
-    addIntrinsic(state, "img");
-  } else if (node instanceof ImageReferenceNode) {
-    if (state.definitions.has(normalizeIdentifier(node.identifier))) {
-      addIntrinsic(state, "img");
-    }
-  } else if (node instanceof FootnoteReferenceNode) {
-    if (state.footnoteReferences.has(node)) {
-      addIntrinsic(state, "a", "sup");
-    }
-  } else if (node instanceof CodeBlockNode) {
-    addIntrinsic(state, "pre", "code");
-  } else if (node instanceof ThematicBreakNode) {
-    addIntrinsic(state, "hr");
-  } else if (node instanceof BlockQuoteNode) {
-    addIntrinsic(state, "blockquote");
-    analyzeChildren(visible(node.children), state);
-  } else if (node instanceof ListNode) {
-    addIntrinsic(state, node.ordered ? "ol" : "ul");
-    analyzeChildren(node.items, state);
-  } else if (node instanceof ListItemNode) {
-    addIntrinsic(state, "li");
-
-    if (node.checked !== undefined) {
-      addIntrinsic(state, "input");
-    }
-
-    analyzeChildren(visible(node.children), state);
-  } else if (node instanceof TableNode) {
-    analyzeTableReferences(node, state);
-  } else if (node instanceof InlineMathNode) {
-    addIntrinsic(state, "code");
-  } else if (node instanceof DisplayMathNode) {
-    addIntrinsic(state, "pre", "code");
-  } else if (node instanceof TextDirectiveNode) {
-    addIntrinsic(state, "span");
-    analyzeChildren(node.label?.children ?? [], state);
-  } else if (node instanceof LeafDirectiveNode) {
-    addIntrinsic(state, "div");
-    analyzeChildren(node.label?.children ?? [], state);
-  } else if (node instanceof ContainerDirectiveNode) {
-    addIntrinsic(state, "div");
-    analyzeChildren(visible(node.body), state);
-  } else if (node instanceof TableCellNode || node instanceof TableRowNode) {
-    CompileError.unsupportedStandaloneNode(node.kind);
+  for (const child of htmlChildren(node)) {
+    analyzeContent(child, scope, intrinsicTags);
   }
 }
 
-function analyzeChildren(
-  children: readonly (
-    | FlowContent
-    | PhrasingContent
-    | ListItemNode
-    | TableCellNode
-    | TableRowNode
-  )[],
-  state: CompilerState,
-): void {
-  for (const child of visible(children)) {
-    analyzeNodeReferences(child, state);
-  }
+interface TransformedEsm {
+  readonly code: string;
+  readonly hasDefaultExport: boolean;
 }
 
-function analyzeTableReferences(table: TableNode, state: CompilerState): void {
-  addIntrinsic(state, "table");
-
-  if (table.children.length > 0) {
-    addIntrinsic(state, "thead");
-  }
-
-  if (table.children.length > 1) {
-    addIntrinsic(state, "tbody");
-  }
-
-  for (const [rowIndex, row] of table.children.entries()) {
-    addIntrinsic(state, "tr");
-
-    for (const cell of row.children) {
-      addIntrinsic(state, rowIndex === 0 ? "th" : "td");
-      analyzeChildren(cell.children, state);
-    }
-  }
-}
-
-function addIntrinsic(state: CompilerState, ...names: readonly string[]): void {
-  for (const name of names) {
-    state.intrinsicTags.add(name);
-  }
-}
-
-export function visible<T extends SyntaxNode<string>>(nodes: readonly T[]): T[] {
-  return nodes.filter(
-    (node) =>
-      !(node instanceof DefinitionNode) &&
-      !(node instanceof FootnoteDefinitionNode) &&
-      !(node instanceof FrontmatterNode) &&
-      !(
-        (node instanceof InlineExpressionNode || node instanceof BlockExpressionNode) &&
-        !hasJavaScriptToken(node.code)
-      ) &&
-      !(node instanceof EsmNode),
-  );
-}
-
-function transformEsm(source: string, program: JavaScriptNode) {
+function transformEsm(source: string, program: JavaScriptNode): TransformedEsm {
   const body = nodeArray(program, "body");
   let cursor = 0;
   let hasDefaultExport = false;

@@ -12,7 +12,8 @@ import { parse as parseToml, TomlDate, TomlError } from "smol-toml";
 import { parseDocument } from "yaml";
 
 import type { DiagnosticReporter } from "./diagnostics.ts";
-import type { FrontmatterObject, FrontmatterValue, SourceSpan } from "./model.ts";
+import type { FrontmatterObject, FrontmatterValue } from "./model.ts";
+import type { SourceSpan } from "./source.ts";
 import type { FrontmatterFormat } from "./syntax-options.ts";
 
 import { FrontmatterTemporal } from "./model.ts";

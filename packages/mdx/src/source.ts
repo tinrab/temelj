@@ -17,6 +17,13 @@ export interface SourceLocation {
   readonly column: number;
 }
 
+/** A range in a specific source file. Diagnostics carry spans because they outlive trees. */
+export interface SourceSpan {
+  readonly file: SourceFile;
+  readonly start: number;
+  readonly end: number;
+}
+
 export interface PhysicalLine {
   readonly line: number;
   readonly range: SourceRange;

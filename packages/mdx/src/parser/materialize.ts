@@ -1,73 +1,44 @@
+import { isString } from "@temelj/value";
+
 import type { Diagnostic } from "../diagnostics.ts";
-import type { FlowContent, PhrasingContent, SourceSpan } from "../model.ts";
+import type {
+  DirectiveAttribute,
+  DirectiveLabelNode,
+  ListItemNode,
+  DocumentNode,
+  FlowContent,
+  JsxAttributeLike,
+  JsxTextElementNode,
+  PhrasingContent,
+} from "../model.ts";
 import type { SourceRange } from "../ranges.ts";
-import type { SourceFile } from "../source.ts";
+import type { SourceFile, SourceSpan } from "../source.ts";
 import type { ResolvedSyntaxOptions } from "../syntax-options.ts";
-import type { BlockSyntax, DirectiveAttributeSyntax } from "./block-syntax.ts";
+import type { BlockSyntax, DirectiveAttributeSyntax, ListItemSyntax } from "./block-syntax.ts";
 import type { ResolvedParserLimits } from "./config.ts";
 import type { FootnoteReferenceSyntax, InlineSyntax, ReferenceSyntax } from "./inline-syntax.ts";
 
 import { createDiagnostic, DiagnosticBag } from "../diagnostics.ts";
 import { decodeFrontmatter } from "../frontmatter.ts";
 import { normalizeIdentifier } from "../identifier.ts";
-import {
-  BlockExpressionNode,
-  BlockQuoteNode,
-  CodeBlockNode,
-  ContainerDirectiveNode,
-  DirectiveAttribute,
-  DirectiveAttributes,
-  DirectiveLabelNode,
-  DefinitionNode,
-  DeleteNode,
-  DisplayMathNode,
-  DocumentNode,
-  EmphasisNode,
-  EsmNode,
-  FootnoteDefinitionNode,
-  FootnoteReferenceNode,
-  FrontmatterNode,
-  HardBreakNode,
-  HeadingNode,
-  ImageNode,
-  ImageReferenceNode,
-  InlineCodeNode,
-  InlineExpressionNode,
-  InlineMathNode,
-  JsxAttributeNode,
-  JsxAttributeValueExpressionNode,
-  JsxFlowElementNode,
-  JsxSpreadAttributeNode,
-  JsxTextElementNode,
-  LinkNode,
-  LinkReferenceNode,
-  ListItemNode,
-  ListNode,
-  LeafDirectiveNode,
-  ParagraphNode,
-  RawHtmlBlockNode,
-  RawHtmlInlineNode,
-  StrongNode,
-  TableCellNode,
-  TableNode,
-  TableRowNode,
-  TextDirectiveNode,
-  TextNode,
-  ThematicBreakNode,
-} from "../model.ts";
+import { childNode, nodeArray, nodeValue, type JavaScriptNode } from "../javascript-ast.ts";
+import { parseJavaScriptExpression } from "../javascript.ts";
+import { nodeText } from "../model.ts";
+import { parseFlowRange } from "./block-parser.ts";
 import { InlineInput } from "./inline-input.ts";
 import { parseInline } from "./inline-parser.ts";
 
 export type ReferenceCandidate = ReferenceSyntax | FootnoteReferenceSyntax;
 
 export interface MaterializedBlock {
+  readonly nodeCount: number;
   readonly node: FlowContent;
   readonly candidates: readonly ReferenceCandidate[];
 }
 
 export type StrictMaterializeResult =
   | Readonly<{
-      kind: "parsed";
+      kind: "ok";
       document: DocumentNode;
       blocks: readonly MaterializedBlock[];
       diagnostics: readonly Diagnostic[];
@@ -79,6 +50,26 @@ export type StrictMaterializeResult =
       diagnostics: readonly [Diagnostic, ...Diagnostic[]];
     }>;
 
+interface CachedMaterialization<TNode> {
+  readonly node: TNode;
+  readonly nodeCount: number;
+  readonly depth: number;
+  readonly candidates: readonly ReferenceCandidate[];
+}
+
+/**
+ * Materialized nodes keyed by parser output identity. A cache is valid only for
+ * one set of defined references and footnotes, because resolution depends on it.
+ */
+export interface MaterializeCache {
+  readonly blocks: WeakMap<BlockSyntax, CachedMaterialization<FlowContent>>;
+  readonly items: WeakMap<ListItemSyntax, CachedMaterialization<ListItemNode>>;
+}
+
+export function createMaterializeCache(): MaterializeCache {
+  return { blocks: new WeakMap(), items: new WeakMap() };
+}
+
 interface MaterializeContext {
   readonly definitions: ReadonlySet<string>;
   readonly diagnostics: DiagnosticBag;
@@ -86,6 +77,12 @@ interface MaterializeContext {
   readonly footnotes: ReadonlySet<string>;
   readonly limits: ResolvedParserLimits;
   readonly syntax: ResolvedSyntaxOptions;
+  readonly allowIncomplete: boolean;
+  readonly cache: MaterializeCache | undefined;
+  grammarSource: string | undefined;
+  maximumDepth: number;
+  /** Leniency at the end of the source makes the result depend on later input. */
+  usedEndOfInput: boolean;
   candidates: ReferenceCandidate[] | undefined;
   depth: number;
   nodes: number;
@@ -98,6 +95,8 @@ export function materializeStrictDocument(
   blocks: readonly BlockSyntax[],
   syntax: ResolvedSyntaxOptions,
   limits: ResolvedParserLimits,
+  allowIncomplete = false,
+  cache?: MaterializeCache,
 ): StrictMaterializeResult {
   const indexes = collectIndexes(blocks);
 
@@ -109,6 +108,11 @@ export function materializeStrictDocument(
     limits,
     syntax,
     candidates: undefined,
+    cache,
+    grammarSource: undefined,
+    maximumDepth: 0,
+    usedEndOfInput: false,
+    allowIncomplete,
     depth: 0,
     nodes: 0,
     authoredInvalid: false,
@@ -121,12 +125,17 @@ export function materializeStrictDocument(
   for (const block of blocks) {
     const candidates: ReferenceCandidate[] = [];
     context.candidates = candidates;
+    const before = context.nodes;
     const child = materializeBlock(block, context);
 
     if (child !== undefined) {
       children.push(child);
       materializedBlocks.push(
-        Object.freeze({ node: child, candidates: Object.freeze(candidates) }),
+        Object.freeze({
+          node: child,
+          nodeCount: context.nodes - before,
+          candidates: Object.freeze(candidates),
+        }),
       );
     }
   }
@@ -170,7 +179,11 @@ export function materializeStrictDocument(
     });
   }
 
-  const document = counted(context, new DocumentNode(children, origin(file, 0, file.text.length)));
+  const document = counted<DocumentNode>(context, {
+    kind: "document",
+    children,
+    origin: range(0, file.text.length),
+  });
 
   if (document === undefined || context.limit !== undefined) {
     const diagnostic = limitDiagnostic(file, "maximumNodes");
@@ -184,7 +197,7 @@ export function materializeStrictDocument(
   }
 
   return Object.freeze({
-    kind: "parsed",
+    kind: "ok",
     document,
     blocks: Object.freeze(materializedBlocks),
     diagnostics,
@@ -195,186 +208,263 @@ function materializeBlock(
   block: BlockSyntax,
   context: MaterializeContext,
 ): FlowContent | undefined {
+  return cached(context.cache?.blocks, block, context, () =>
+    materializeBlockContent(block, context),
+  );
+}
+
+/**
+ * Replays a cached subtree, or materializes and caches it. Subtrees with
+ * diagnostics or input-dependent leniency are never cached.
+ */
+function cached<TKey extends BlockSyntax | ListItemSyntax, TNode>(
+  cache: WeakMap<TKey, CachedMaterialization<TNode>> | undefined,
+  key: TKey,
+  context: MaterializeContext,
+  materialize: () => TNode | undefined,
+): TNode | undefined {
+  if (cache === undefined) {
+    return materialize();
+  }
+
+  const hit = cache.get(key);
+
+  if (
+    hit !== undefined &&
+    context.depth + hit.depth <= context.limits.maximumNestingDepth &&
+    context.nodes + hit.nodeCount <= context.limits.maximumNodes
+  ) {
+    context.nodes += hit.nodeCount;
+    context.maximumDepth = Math.max(context.maximumDepth, context.depth + hit.depth);
+    context.candidates?.push(...hit.candidates);
+
+    return hit.node;
+  }
+
+  const nodes = context.nodes;
+  const diagnostics = context.diagnostics.size;
+  const candidates = context.candidates?.length ?? 0;
+  const outerDepth = context.maximumDepth;
+  const outerEndOfInput = context.usedEndOfInput;
+  context.maximumDepth = context.depth;
+  context.usedEndOfInput = false;
+  const node = materialize();
+
+  if (
+    node !== undefined &&
+    context.diagnostics.size === diagnostics &&
+    !context.authoredInvalid &&
+    context.limit === undefined &&
+    !context.usedEndOfInput
+  ) {
+    cache.set(key, {
+      node,
+      nodeCount: context.nodes - nodes,
+      depth: context.maximumDepth - context.depth,
+      candidates: context.candidates?.slice(candidates) ?? [],
+    });
+  }
+
+  context.maximumDepth = Math.max(outerDepth, context.maximumDepth);
+  context.usedEndOfInput ||= outerEndOfInput;
+
+  return node;
+}
+
+function materializeBlockContent(
+  block: BlockSyntax,
+  context: MaterializeContext,
+): FlowContent | undefined {
   if (!enter(context)) {
     return;
   }
 
   try {
-    const blockOrigin = origin(context.file, block.range.start, block.range.end);
+    const origin = range(block.range.start, block.range.end);
 
     switch (block.kind) {
       case "paragraph":
-        return counted(
-          context,
-          new ParagraphNode(materializeInline(block.input, context), blockOrigin),
-        );
+        return counted(context, {
+          kind: "paragraph",
+          children: materializeInline(block.input, context),
+          origin,
+        });
       case "heading":
-        return counted(
-          context,
-          new HeadingNode(block.depth, materializeInline(block.input, context), blockOrigin),
-        );
+        return counted(context, {
+          kind: "heading",
+          depth: block.depth,
+          children: materializeInline(block.input, context),
+          origin,
+        });
       case "code":
-        return counted(
-          context,
-          new CodeBlockNode(trimFinalLineEnding(inlineInputText(context.file, block.value)), {
-            language: sliceOptional(context.file, block.language),
-            meta: sliceOptional(context.file, block.meta),
-            origin: blockOrigin,
-          }),
-        );
+        return counted(context, {
+          kind: "codeBlock",
+          value: trimFinalLineEnding(inlineInputText(context.file, block.value)),
+          language: sliceOptional(context.file, block.language),
+          meta: sliceOptional(context.file, block.meta),
+          origin,
+        });
       case "thematicBreak":
-        return counted(context, new ThematicBreakNode(blockOrigin));
+        return counted(context, { kind: "thematicBreak", origin });
       case "blockQuote":
-        return counted(
-          context,
-          new BlockQuoteNode(materializeBlocks(block.children, context), blockOrigin),
-        );
+        return counted(context, {
+          kind: "blockquote",
+          children: materializeBlocks(block.children, context),
+          origin,
+        });
       case "list":
-        return counted(
-          context,
-          new ListNode(
-            block.items.map(
-              (item) =>
-                new ListItemNode(materializeBlocks(item.children, context), {
-                  checked: item.checked,
-                  spread: item.spread,
-                  origin: origin(context.file, item.range.start, item.range.end),
-                }),
-            ),
-            {
-              ordered: block.ordered,
-              spread: block.spread,
-              start: block.start,
-              origin: blockOrigin,
-            },
-          ),
-        );
+        return counted(context, {
+          kind: "list",
+          ordered: block.ordered,
+          spread: block.spread,
+          start: block.start ?? 1,
+          children: block.items.flatMap((item) => {
+            const node = cached(context.cache?.items, item, context, (): ListItemNode => ({
+              kind: "listItem",
+              checked: item.checked,
+              spread: item.spread,
+              children: materializeBlocks(item.children, context),
+              origin: range(item.range.start, item.range.end),
+            }));
+
+            return node === undefined ? [] : [node];
+          }),
+          origin,
+        });
       case "definition":
-        return counted(
-          context,
-          new DefinitionNode(block.identifier, context.file.semanticSlice(block.destination), {
-            title: semanticSliceOptional(context.file, block.title),
-            origin: blockOrigin,
-          }),
-        );
+        return counted(context, {
+          kind: "definition",
+          identifier: normalizeIdentifier(block.identifier),
+          url: context.file.semanticSlice(block.destination),
+          title: semanticSliceOptional(context.file, block.title),
+          origin,
+        });
       case "footnoteDefinition":
-        return counted(
-          context,
-          new FootnoteDefinitionNode(block.identifier, materializeBlocks(block.children, context), {
-            origin: blockOrigin,
-          }),
-        );
+        return counted(context, {
+          kind: "footnoteDefinition",
+          identifier: normalizeIdentifier(block.identifier),
+          label: block.identifier,
+          children: materializeBlocks(block.children, context),
+          origin,
+        });
       case "rawHtml":
-        return counted(
-          context,
-          new RawHtmlBlockNode(context.file.semanticSlice(block.range), blockOrigin),
-        );
+        return counted(context, {
+          kind: "rawHtmlBlock",
+          value: context.file.semanticSlice(block.range),
+          origin,
+        });
       case "frontmatter": {
         const rawValue = trimFinalLineEnding(context.file.slice(block.value));
-        const value = rawValue.replace(/\r\n?|\n/gu, "\n");
-
-        const valueOrigin = origin(
-          context.file,
-          block.value.start,
-          block.value.start + rawValue.length,
-        );
+        const valueOrigin = range(block.value.start, block.value.start + rawValue.length);
 
         const data = decodeFrontmatter({
           diagnostics: context.diagnostics,
           format: block.format,
           source: rawValue,
-          span: valueOrigin,
+          span: span(context.file, valueOrigin.start, valueOrigin.end),
         });
 
-        return counted(
-          context,
-          new FrontmatterNode(block.format, value, { data, origin: blockOrigin, valueOrigin }),
-        );
+        return counted(context, {
+          kind: "frontmatter",
+          format: block.format,
+          value: rawValue.replace(/\r\n?|\n/gu, "\n"),
+          data,
+          valueOrigin,
+          origin,
+        });
       }
 
       case "directive":
-        return counted(
-          context,
-          new ContainerDirectiveNode(block.name, materializeBlocks(block.children, context), {
-            label: materializeDirectiveLabel(block.label, context),
-            attributes: materializeDirectiveAttributes(block.attributes),
-            origin: blockOrigin,
-          }),
-        );
+        return counted(context, {
+          kind: "containerDirective",
+          name: block.name,
+          attributes: materializeDirectiveAttributes(block.attributes),
+          label: materializeDirectiveLabel(block.label, context),
+          children: materializeBlocks(block.children, context),
+          origin,
+        });
       case "leafDirective":
-        return counted(
-          context,
-          new LeafDirectiveNode(block.name, {
-            label: materializeDirectiveLabel(block.label, context),
-            attributes: materializeDirectiveAttributes(block.attributes),
-            origin: blockOrigin,
-          }),
-        );
-      case "math":
+        return counted(context, {
+          kind: "leafDirective",
+          name: block.name,
+          attributes: materializeDirectiveAttributes(block.attributes),
+          label: materializeDirectiveLabel(block.label, context),
+          origin,
+        });
+      case "math": {
+        const value = trimFinalLineEnding(inlineInputText(context.file, block.value));
+
         return counted(
           context,
           block.format === "tex"
-            ? new DisplayMathNode(trimFinalLineEnding(inlineInputText(context.file, block.value)), {
-                format: "tex",
-                origin: blockOrigin,
-              })
-            : new DisplayMathNode(trimFinalLineEnding(inlineInputText(context.file, block.value)), {
+            ? { kind: "displayMath", value, format: "tex", origin }
+            : {
+                kind: "displayMath",
+                value,
                 format: "dollar",
                 meta: sliceOptional(context.file, block.meta),
-                origin: blockOrigin,
-              }),
-        );
-      case "table":
-        return counted(
-          context,
-          new TableNode(
-            block.alignments,
-            block.rows.map(
-              (row) =>
-                new TableRowNode(
-                  row.cells.map((cell) => {
-                    const cellRange = inlineSegmentsRange(cell, row.range);
-
-                    return new TableCellNode(
-                      materializeInline(cell, context),
-                      origin(context.file, cellRange.start, cellRange.end),
-                    );
-                  }),
-                  origin(context.file, row.range.start, row.range.end),
-                ),
-            ),
-            blockOrigin,
-          ),
-        );
-      case "expression": {
-        const authored = context.file.slice(block.range);
-
-        return counted(
-          context,
-          new BlockExpressionNode(
-            authored.slice(authored.indexOf("{") + 1, authored.lastIndexOf("}")),
-            blockOrigin,
-          ),
+                origin,
+              },
         );
       }
 
+      case "table":
+        return counted(context, {
+          kind: "table",
+          alignments: block.alignments,
+          children: block.rows.map((row) => ({
+            kind: "tableRow",
+            children: row.cells.map((cell) => {
+              const cellRange = inlineSegmentsRange(cell, row.range);
+
+              return {
+                kind: "tableCell",
+                children: materializeInline(cell, context),
+                origin: range(cellRange.start, cellRange.end),
+              };
+            }),
+            origin: range(row.range.start, row.range.end),
+          })),
+          origin,
+        });
+      case "expression": {
+        const authored = context.file.slice(block.range);
+
+        return counted(context, {
+          kind: "blockExpression",
+          code: authored.slice(authored.indexOf("{") + 1, authored.lastIndexOf("}")),
+          origin,
+        });
+      }
+
       case "esm":
-        return counted(
-          context,
-          new EsmNode(trimFinalLineEnding(context.file.slice(block.range)), blockOrigin),
-        );
+        return counted(context, {
+          kind: "esm",
+          code: trimFinalLineEnding(context.file.slice(block.range)),
+          origin,
+        });
       case "jsx":
         return counted(
           context,
-          materializeFlowJsx(context.file.slice(block.range), blockOrigin, context),
+          materializeFlowJsx(context.file.slice(block.range), origin, context),
         );
       case "invalidMdx":
+        if (context.allowIncomplete && block.state === "incomplete") {
+          context.usedEndOfInput = true;
+
+          return counted(context, {
+            kind: "rawHtmlBlock",
+            value: context.file.slice(block.range),
+            origin,
+          });
+        }
+
         context.authoredInvalid = true;
         context.diagnostics.add({
           code: `mdx.${block.syntax}.invalid`,
           message: `Invalid or unfinished MDX ${block.syntax}`,
           severity: "error",
-          span: blockOrigin,
+          span: span(context.file, origin.start, origin.end),
         });
 
         return;
@@ -412,12 +502,22 @@ function materializeInline(
   }
 
   for (const invalid of result.invalid) {
+    // Streaming input can still close a construct that reaches the end of the source.
+    if (
+      context.allowIncomplete &&
+      invalid.open &&
+      /^[ \t]*(?:\r\n?|\n)?[ \t]*$/u.test(context.file.text.slice(invalid.range.end))
+    ) {
+      context.usedEndOfInput = true;
+      continue;
+    }
+
     context.authoredInvalid = true;
     context.diagnostics.add({
       code: `mdx.${invalid.syntax}.invalid`,
       message: `Invalid or unfinished MDX ${invalid.syntax}`,
       severity: "error",
-      span: origin(context.file, invalid.range.start, invalid.range.end),
+      span: span(context.file, invalid.range.start, invalid.range.end),
     });
   }
 
@@ -444,7 +544,7 @@ function collectReferenceCandidates(
 }
 
 function materializeInlineNode(node: InlineSyntax, context: MaterializeContext): PhrasingContent[] {
-  const nodeOrigin = origin(context.file, node.range.start, node.range.end);
+  const origin = range(node.range.start, node.range.end);
 
   const children =
     "children" in node
@@ -453,76 +553,92 @@ function materializeInlineNode(node: InlineSyntax, context: MaterializeContext):
 
   switch (node.kind) {
     case "text":
-      return countedArray(context, new TextNode(node.value, nodeOrigin));
+      return countedArray(context, { kind: "text", value: node.value, origin });
     case "emphasis":
-      return countedArray(context, new EmphasisNode(children, nodeOrigin));
     case "strong":
-      return countedArray(context, new StrongNode(children, nodeOrigin));
     case "delete":
-      return countedArray(context, new DeleteNode(children, nodeOrigin));
+      return countedArray(context, { kind: node.kind, children, origin });
     case "code":
-      return countedArray(context, new InlineCodeNode(node.value, nodeOrigin));
+      return countedArray(context, { kind: "inlineCode", value: node.value, origin });
     case "hardBreak":
-      return countedArray(context, new HardBreakNode(nodeOrigin));
+      return countedArray(context, { kind: "hardBreak", origin });
     case "link":
-      return countedArray(
-        context,
-        new LinkNode(node.destination, children, { title: node.title, origin: nodeOrigin }),
-      );
+      return countedArray(context, {
+        kind: "link",
+        url: node.destination,
+        title: node.title,
+        children,
+        origin,
+      });
     case "image":
-      return countedArray(
-        context,
-        new ImageNode(node.destination, node.alt, { title: node.title, origin: nodeOrigin }),
-      );
-    case "reference":
+      return countedArray(context, {
+        kind: "image",
+        url: node.destination,
+        alt: node.alt,
+        title: node.title,
+        origin,
+      });
+    case "reference": {
       if (!context.definitions.has(node.identifier)) {
-        return countedArray(context, new TextNode(context.file.slice(node.range), nodeOrigin));
+        return countedArray(context, {
+          kind: "text",
+          value: context.file.slice(node.range),
+          origin,
+        });
       }
+
+      const identifier = normalizeIdentifier(node.identifier);
 
       return countedArray(
         context,
         node.image
-          ? new ImageReferenceNode(
-              node.identifier,
-              children.map((child) => child.toString()).join(""),
-              {
-                referenceKind: node.referenceKind,
-                origin: nodeOrigin,
-              },
-            )
-          : new LinkReferenceNode(node.identifier, children, {
+          ? {
+              kind: "imageReference",
+              identifier,
+              alt: children.map(nodeText).join(""),
               referenceKind: node.referenceKind,
-              origin: nodeOrigin,
-            }),
+              origin,
+            }
+          : {
+              kind: "linkReference",
+              identifier,
+              referenceKind: node.referenceKind,
+              children,
+              origin,
+            },
       );
+    }
+
     case "rawHtml":
-      return countedArray(context, new RawHtmlInlineNode(node.value, nodeOrigin));
+      return countedArray(context, { kind: "rawHtmlInline", value: node.value, origin });
     case "expression":
-      return countedArray(context, new InlineExpressionNode(node.value, nodeOrigin));
+      return countedArray(context, { kind: "inlineExpression", code: node.value, origin });
     case "jsx":
-      return countedArray(context, materializeTextJsx(node.value, nodeOrigin, context));
+      return countedArray(context, materializeTextJsx(node.value, origin, context));
     case "math":
-      return countedArray(
-        context,
-        new InlineMathNode(node.value, { format: node.format, origin: nodeOrigin }),
-      );
+      return countedArray(context, {
+        kind: "inlineMath",
+        value: node.value,
+        format: node.format,
+        origin,
+      });
     case "footnoteReference":
       return context.footnotes.has(node.identifier)
-        ? countedArray(context, new FootnoteReferenceNode(node.identifier, { origin: nodeOrigin }))
-        : countedArray(context, new TextNode(context.file.slice(node.range), nodeOrigin));
+        ? countedArray(context, {
+            kind: "footnoteReference",
+            identifier: normalizeIdentifier(node.identifier),
+            label: node.identifier,
+            origin,
+          })
+        : countedArray(context, { kind: "text", value: context.file.slice(node.range), origin });
     case "directive":
-      return countedArray(
-        context,
-        new TextDirectiveNode(node.name, {
-          label: new DirectiveLabelNode(children, nodeOrigin),
-          attributes: new DirectiveAttributes(
-            node.attributes.map(
-              (attribute) => new DirectiveAttribute(attribute.name, attribute.value),
-            ),
-          ),
-          origin: nodeOrigin,
-        }),
-      );
+      return countedArray(context, {
+        kind: "textDirective",
+        name: node.name,
+        attributes: materializeDirectiveAttributes(node.attributes),
+        label: { kind: "directiveLabel", children, origin },
+        origin,
+      });
   }
 }
 
@@ -534,64 +650,98 @@ function materializeDirectiveLabel(
     return;
   }
 
-  const range = inlineSegmentsRange(label, { start: 0, end: 0 });
+  const labelRange = inlineSegmentsRange(label, { start: 0, end: 0 });
 
-  return new DirectiveLabelNode(
-    materializeInline(label, context),
-    origin(context.file, range.start, range.end),
-  );
+  return {
+    kind: "directiveLabel",
+    children: materializeInline(label, context),
+    origin: range(labelRange.start, labelRange.end),
+  };
 }
 
 function materializeDirectiveAttributes(
   attributes: readonly DirectiveAttributeSyntax[],
-): DirectiveAttributes {
-  return new DirectiveAttributes(
-    attributes.map((attribute) => new DirectiveAttribute(attribute.name, attribute.value)),
-  );
+): DirectiveAttribute[] {
+  return attributes.map((attribute) => ({ name: attribute.name, value: attribute.value }));
 }
 
+/**
+ * Children on following lines are Markdown flow content. Like MDX, children on
+ * the same line are phrasing: the element is text JSX in a paragraph, which
+ * lowering does not wrap in `p`.
+ */
 function materializeFlowJsx(
   authored: string,
-  jsxOrigin: SourceSpan,
+  jsxOrigin: SourceRange,
   context: MaterializeContext,
-): JsxFlowElementNode {
-  const parsed = jsxParts(context.file, authored, jsxOrigin.start);
+): FlowContent {
+  const parsed = jsxParts(authored, jsxOrigin.start);
+  const children = parsed.children;
 
-  const children =
-    parsed.children === undefined || parsed.children.start === parsed.children.end
-      ? []
-      : [
-          new ParagraphNode(
-            materializeInline([{ kind: "source", range: parsed.children }], context),
-            origin(context.file, parsed.children.start, parsed.children.end),
+  if (
+    children !== undefined &&
+    children.start !== children.end &&
+    !isFlowJsxChildren(context.file.text, children)
+  ) {
+    return {
+      kind: "paragraph",
+      children: [materializeTextJsx(authored, jsxOrigin, context)],
+      origin: jsxOrigin,
+    };
+  }
+
+  return {
+    kind: "jsxFlowElement",
+    name: parsed.name,
+    attributes: parsed.attributes,
+    children:
+      children === undefined || children.start === children.end
+        ? []
+        : materializeBlocks(
+            parseFlowRange(grammarSource(context), children, context.syntax),
+            context,
           ),
-        ];
+    origin: jsxOrigin,
+  };
+}
 
-  return new JsxFlowElementNode(parsed.name, parsed.attributes, children, jsxOrigin);
+/** Children that start on a new line are Markdown flow content; same-line children are phrasing. */
+export function isFlowJsxChildren(source: string, range: SourceRange): boolean {
+  return /^[ \t]*(?:\r\n|\r|\n)/u.test(source.slice(range.start, range.end));
+}
+
+function grammarSource(context: MaterializeContext): string {
+  context.grammarSource ??= context.file.text.replaceAll("\0", "\uFFFD");
+
+  return context.grammarSource;
 }
 
 function materializeTextJsx(
   authored: string,
-  jsxOrigin: SourceSpan,
+  jsxOrigin: SourceRange,
   context: MaterializeContext,
 ): JsxTextElementNode {
-  const parsed = jsxParts(context.file, authored, jsxOrigin.start);
+  const parsed = jsxParts(authored, jsxOrigin.start);
 
-  const children =
-    parsed.children === undefined
-      ? []
-      : materializeInline([{ kind: "source", range: parsed.children }], context);
-
-  return new JsxTextElementNode(parsed.name, parsed.attributes, children, jsxOrigin);
+  return {
+    kind: "jsxTextElement",
+    name: parsed.name,
+    attributes: parsed.attributes,
+    children:
+      parsed.children === undefined
+        ? []
+        : materializeInline([{ kind: "source", range: parsed.children }], context),
+    origin: jsxOrigin,
+  };
 }
 
 interface JsxParts {
-  readonly attributes: readonly (JsxAttributeNode | JsxSpreadAttributeNode)[];
+  readonly attributes: readonly JsxAttributeLike[];
   readonly children: SourceRange | undefined;
   readonly name: string | undefined;
 }
 
-function jsxParts(file: SourceFile, authored: string, sourceOffset: number): JsxParts {
+function jsxParts(authored: string, sourceOffset: number): JsxParts {
   if (authored.startsWith("<>")) {
     const close = authored.lastIndexOf("</>");
 
@@ -608,7 +758,7 @@ function jsxParts(file: SourceFile, authored: string, sourceOffset: number): Jsx
   const closingStart = name === undefined ? -1 : authored.lastIndexOf(`</${name}`);
 
   return {
-    attributes: jsxAttributes(file, authored, sourceOffset, name?.length ?? 0, openingEnd),
+    attributes: jsxAttributes(authored, sourceOffset, openingEnd),
     children:
       selfClosing || closingStart < openingEnd
         ? undefined
@@ -642,43 +792,78 @@ function jsxOpeningEnd(authored: string): number {
   return authored.length;
 }
 
+/** Reads attributes from the opening tag with the same JSX grammar that validated it. */
 function jsxAttributes(
-  file: SourceFile,
   authored: string,
   sourceOffset: number,
-  nameLength: number,
   openingEnd: number,
-): (JsxAttributeNode | JsxSpreadAttributeNode)[] {
-  const attributes: (JsxAttributeNode | JsxSpreadAttributeNode)[] = [];
-  const start = nameLength === 0 ? 1 : nameLength + 1;
-  const source = authored.slice(start, Math.max(start, openingEnd - 1)).replace(/\/$/u, "");
+): JsxAttributeLike[] {
+  const opening = authored.slice(0, openingEnd).replace(/\/?\s*>$/u, "/>");
+  let element: JavaScriptNode;
 
-  const pattern =
-    /\{\.\.\.([^}]+)\}|([A-Za-z_$][\w$:.-]*)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|\{([^}]*)\}))?/gu;
-
-  for (const match of source.matchAll(pattern)) {
-    const attributeStart = sourceOffset + start + (match.index ?? 0);
-    const attributeEnd = attributeStart + match[0].length;
-    const attributeOrigin = origin(file, attributeStart, attributeEnd);
-
-    if (match[1] !== undefined) {
-      attributes.push(new JsxSpreadAttributeNode(match[1], attributeOrigin));
-    } else if (match[2] !== undefined) {
-      const expression =
-        match[5] === undefined
-          ? undefined
-          : new JsxAttributeValueExpressionNode(match[5], attributeOrigin);
-
-      attributes.push(
-        new JsxAttributeNode(match[2], {
-          value: expression ?? match[3] ?? match[4],
-          origin: attributeOrigin,
-        }),
-      );
-    }
+  try {
+    element = parseJavaScriptExpression(opening);
+  } catch {
+    return [];
   }
 
-  return attributes;
+  const attributes = childNode(nodeValue(element, "openingElement"));
+
+  return attributes === undefined
+    ? []
+    : nodeArray(attributes, "attributes").flatMap((attribute) =>
+        jsxAttribute(attribute, opening, sourceOffset),
+      );
+}
+
+function jsxAttribute(
+  attribute: JavaScriptNode,
+  opening: string,
+  sourceOffset: number,
+): JsxAttributeLike[] {
+  const origin = range(sourceOffset + attribute.start, sourceOffset + attribute.end);
+
+  if (attribute.type === "JSXSpreadAttribute") {
+    const argument = childNode(nodeValue(attribute, "argument"));
+
+    return argument === undefined
+      ? []
+      : [{ kind: "jsxSpreadAttribute", code: opening.slice(argument.start, argument.end), origin }];
+  }
+
+  const nameNode = childNode(nodeValue(attribute, "name"));
+  const name = nameNode === undefined ? undefined : opening.slice(nameNode.start, nameNode.end);
+  const value = childNode(nodeValue(attribute, "value"));
+
+  if (name === undefined) {
+    return [];
+  }
+
+  if (value === undefined) {
+    return [{ kind: "jsxAttribute", name, origin }];
+  }
+
+  if (value.type === "JSXExpressionContainer") {
+    const expression = childNode(nodeValue(value, "expression"));
+
+    return [
+      {
+        kind: "jsxAttribute",
+        name,
+        value: {
+          kind: "jsxAttributeValueExpression",
+          code: expression === undefined ? "" : opening.slice(expression.start, expression.end),
+          origin: range(sourceOffset + value.start, sourceOffset + value.end),
+        },
+        origin,
+      },
+    ];
+  }
+
+  // String literals keep JSX semantics, including decoded character references.
+  const literal = nodeValue(value, "value");
+
+  return [{ kind: "jsxAttribute", name, value: isString(literal) ? literal : "", origin }];
 }
 
 function escapedAt(value: string, offset: number): boolean {
@@ -761,12 +946,17 @@ function trimFinalLineEnding(value: string): string {
       : value;
 }
 
-function origin(file: SourceFile, start: number, end: number): SourceSpan {
+function span(file: SourceFile, start: number, end: number): SourceSpan {
   return { file, start, end };
+}
+
+function range(start: number, end: number): SourceRange {
+  return { start, end };
 }
 
 function enter(context: MaterializeContext): boolean {
   context.depth++;
+  context.maximumDepth = Math.max(context.maximumDepth, context.depth);
 
   if (context.depth > context.limits.maximumNestingDepth) {
     context.limit = "maximumNestingDepth";
@@ -802,6 +992,6 @@ function limitDiagnostic(
     code: `mdx.limit.${limit}`,
     message: `Parser limit ${limit} exceeded`,
     severity: "error",
-    span: origin(file, 0, file.text.length),
+    span: span(file, 0, file.text.length),
   });
 }

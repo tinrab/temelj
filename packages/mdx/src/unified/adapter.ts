@@ -2,10 +2,16 @@ import type { Preset, Plugin, Transformer } from "unified";
 
 import { isFunction } from "@temelj/value";
 
-import type { DocumentTransformContext, HtmlTransformContext } from "../plugin.ts";
+import type { HtmlRootNode } from "../html.ts";
+import type { DocumentNode } from "../model.ts";
+import type {
+  DocumentPlugin,
+  DocumentPluginContext,
+  HtmlPlugin,
+  HtmlPluginContext,
+} from "../plugin.ts";
 import type { UnifiedAttach } from "./runtime.ts";
 
-import { DocumentTransformPlugin, HtmlTransformPlugin } from "../plugin.ts";
 import { runRehypePlugin, runRemarkPlugin } from "./runtime.ts";
 
 type UnifiedNode = Parameters<Transformer>[0];
@@ -20,7 +26,7 @@ export class RemarkPluginAdapter<
   TParameters extends unknown[] = [],
   TInput extends UnifiedNode = UnifiedNode,
   TOutput extends UnifiedNode = TInput,
-> extends DocumentTransformPlugin {
+> implements DocumentPlugin {
   public readonly name: string;
   readonly #attach: UnifiedAttach;
 
@@ -33,12 +39,11 @@ export class RemarkPluginAdapter<
     plugin: UnifiedAttacher<TParameters, TInput, TOutput> | Preset,
     ...parameters: TParameters
   ) {
-    super();
     this.#attach = createAttach(plugin, parameters);
     this.name = `unified:remark:${pluginName(plugin)}`;
   }
 
-  public transform(context: DocumentTransformContext) {
+  public transform(context: DocumentPluginContext): DocumentNode | Promise<DocumentNode> {
     return runRemarkPlugin(context, this.#attach);
   }
 }
@@ -47,7 +52,7 @@ export class RehypePluginAdapter<
   TParameters extends unknown[] = [],
   TInput extends UnifiedNode = UnifiedNode,
   TOutput extends UnifiedNode = TInput,
-> extends HtmlTransformPlugin {
+> implements HtmlPlugin {
   public readonly name: string;
   readonly #attach: UnifiedAttach;
 
@@ -60,12 +65,11 @@ export class RehypePluginAdapter<
     plugin: UnifiedAttacher<TParameters, TInput, TOutput> | Preset,
     ...parameters: TParameters
   ) {
-    super();
     this.#attach = createAttach(plugin, parameters);
     this.name = `unified:rehype:${pluginName(plugin)}`;
   }
 
-  public transform(context: HtmlTransformContext) {
+  public transform(context: HtmlPluginContext): HtmlRootNode | Promise<HtmlRootNode> {
     return runRehypePlugin(context, this.#attach);
   }
 }

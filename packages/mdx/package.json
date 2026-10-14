@@ -16,6 +16,7 @@
     "dist"
   ],
   "type": "module",
+  "sideEffects": false,
   "main": "./dist/mod.mjs",
   "types": "./dist/mod.d.mts",
   "exports": {
@@ -23,7 +24,7 @@
       "types": "./dist/mod.d.mts",
       "import": "./dist/mod.mjs"
     },
-    "./plugin": {
+    "./plugins": {
       "types": "./dist/plugins/mod.d.mts",
       "import": "./dist/plugins/mod.mjs"
     },
@@ -37,35 +38,37 @@
     "script:generate-entities": "node --import tsx/esm ./scripts/generate-character-entities.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "clean": "shx rm -rf dist"
+    "clean": "shx rm -rf dist",
+    "measure:streaming": "tsx scripts/measure-streaming.ts",
+    "measure:highlighting": "tsx scripts/measure-highlighting.ts"
   },
   "dependencies": {
     "@temelj/standard-schema": "workspace:*",
     "@temelj/string": "workspace:*",
     "@temelj/value": "workspace:*",
-    "acorn": "8.18.0",
+    "acorn": "8.19.0",
     "acorn-jsx": "5.3.2",
-    "smol-toml": "1.8.0",
-    "yaml": "2.9.0"
+    "smol-toml": "1.9.1",
+    "yaml": "2.9.1"
   },
   "devDependencies": {
-    "@shikijs/rehype": "4.4.3",
-    "@types/node": "26.3.0",
+    "@shikijs/rehype": "4.5.0",
+    "@types/node": "26.6.5",
     "property-information": "7.2.0",
     "rehype-slug": "6.0.0",
     "remark-toc": "9.0.0",
-    "shiki": "4.4.3",
+    "shiki": "4.5.0",
     "shx": "^0.4.0",
-    "tsdown": "^0.22.14",
-    "tsx": "^4.23.12",
+    "tsdown": "^0.23.1",
+    "tsx": "^4.23.15",
     "typescript": "^7.0.2",
     "unified": "11.0.5",
     "vfile": "6.0.3",
-    "vitest": "^4.1.11"
+    "vitest": "^5.0.4"
   },
   "peerDependencies": {
     "property-information": "7.2.0",
-    "shiki": "4.4.3",
+    "shiki": "4.5.0",
     "unified": "11.0.5",
     "vfile": "6.0.3"
   },

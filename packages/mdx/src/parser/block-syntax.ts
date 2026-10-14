@@ -1,5 +1,6 @@
 import type { SourceRange } from "../ranges.ts";
 import type { FrontmatterFormat, MathFormat } from "../syntax-options.ts";
+import type { CommittedJsxOpening } from "./embedded-scanner.ts";
 import type { InlineSegment } from "./inline-input.ts";
 
 interface ContainerFrameBase {
@@ -22,6 +23,8 @@ export interface ListItemFrame extends ContainerFrameBase {
   readonly start: number | undefined;
   readonly checked: boolean | undefined;
   readonly spread: boolean;
+  // A blank line was seen since this item last received content.
+  readonly blankPending: boolean;
   readonly rangeStart: number;
 }
 
@@ -168,6 +171,8 @@ export interface ListSyntax extends BlockSyntaxBase {
   readonly spread: boolean;
   readonly marker: "." | ")" | "*" | "+" | "-";
   readonly items: readonly ListItemSyntax[];
+  // The last item ended with a blank line, so a following sibling item makes the list loose.
+  readonly trailingBlank: boolean;
 }
 
 export interface DefinitionSyntax extends BlockSyntaxBase {
@@ -234,6 +239,7 @@ export interface EsmSyntax extends BlockSyntaxBase {
 }
 
 export interface InvalidMdxSyntax extends BlockSyntaxBase {
+  readonly opening?: CommittedJsxOpening;
   readonly kind: "invalidMdx";
   readonly syntax: "jsx" | "expression" | "esm";
   readonly state: "incomplete" | "invalid";
@@ -294,6 +300,7 @@ export interface PendingMathSyntax extends BlockSyntaxBase {
 }
 
 export interface PendingJsxSyntax extends BlockSyntaxBase {
+  readonly opening: CommittedJsxOpening | undefined;
   readonly kind: "jsx";
 }
 

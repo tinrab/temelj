@@ -4,7 +4,6 @@ import { SourceContent } from "@temelj/mdx-react";
 import { useState } from "react";
 import { TextArea } from "react-aria-components";
 
-import { KaTeXMath } from "~/components/KaTeXMath";
 import { mdxRegistry } from "~/components/registry";
 import { Button } from "~/components/ui/button";
 import { Collapsible, CollapsibleContent } from "~/components/ui/collapsible";
@@ -39,10 +38,9 @@ function StaticExampleRoute() {
       <article className="typeset">
         <SourceContent
           registry={mdxRegistry}
-          math={KaTeXMath}
           source={content}
           syntax={mdxSyntax}
-          diagnosticFallback={(diagnostics) => (
+          fallback={(diagnostics) => (
             <pre className="border-error text-error rounded border p-4 whitespace-pre-wrap">
               {diagnostics
                 .map((diagnostic) => `${diagnostic.code}: ${diagnostic.message}`)

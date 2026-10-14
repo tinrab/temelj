@@ -1,6 +1,7 @@
 import { encodeBase64 } from "@temelj/string";
 
-import type { SourceFile, SourceSpan } from "./model.ts";
+import type { SourceRange } from "./ranges.ts";
+import type { SourceFile } from "./source.ts";
 
 export interface SourceMap {
   readonly file?: string;
@@ -25,9 +26,9 @@ export class CodeWriter {
   private column = 0;
   private line = 0;
   private size = 0;
-  private sourceFile?: SourceFile;
+  private readonly sourceFile: SourceFile | undefined;
 
-  public constructor(sourceFile?: SourceFile) {
+  public constructor(sourceFile: SourceFile | undefined) {
     this.sourceFile = sourceFile;
   }
 
@@ -35,25 +36,20 @@ export class CodeWriter {
     return this.size;
   }
 
-  public write(value: string, span?: SourceSpan): void {
+  /** Writes generated code. `origin` maps it to a range in the source file. */
+  public write(value: string, origin?: SourceRange): void {
     if (value.length === 0) {
       return;
     }
 
-    if (span !== undefined) {
-      if (this.sourceFile === undefined) {
-        this.sourceFile = span.file;
-      }
-
-      if (this.sourceFile === span.file) {
-        const location = span.file.location(span.start);
-        this.points.push({
-          generatedColumn: this.column,
-          generatedLine: this.line,
-          originalColumn: location.column - 1,
-          originalLine: location.line - 1,
-        });
-      }
+    if (origin !== undefined && this.sourceFile !== undefined) {
+      const location = this.sourceFile.location(origin.start);
+      this.points.push({
+        generatedColumn: this.column,
+        generatedLine: this.line,
+        originalColumn: location.column - 1,
+        originalLine: location.line - 1,
+      });
     }
 
     this.chunks.push(value);

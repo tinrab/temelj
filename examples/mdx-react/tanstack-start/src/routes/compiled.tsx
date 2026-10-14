@@ -3,22 +3,19 @@ import type { TrustedMdxEvaluationOutcome } from "@temelj/mdx-react";
 
 import { createFileRoute } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
-import { compileMdx } from "@temelj/mdx";
+import { compile, Processor } from "@temelj/mdx";
 import { CompiledContent, evaluateTrustedMdx } from "@temelj/mdx-react";
 import React from "react";
 
-import { KaTeXMath } from "~/components/KaTeXMath";
 import { mdxRegistry } from "~/components/registry";
 
 import { compiledMdxSource, mdxSyntax } from "../../../content";
 
 const loadCompiledMdx = createServerFn({ method: "GET" }).handler(async () => {
-  const outcome = await compileMdx(compiledMdxSource, {
-    outputFormat: "functionBody",
-    syntax: mdxSyntax,
-  });
+  const transformed = await new Processor({ syntax: mdxSyntax }).transform(compiledMdxSource);
+  const outcome = await compile(transformed, { outputFormat: "functionBody" });
 
-  if (outcome.kind !== "compiled") {
+  if (outcome.kind !== "ok") {
     return {
       kind: "invalid" as const,
       diagnostics: outcome.diagnostics.map(({ code, message }) => ({ code, message })),
@@ -55,7 +52,7 @@ function CompiledRoute(): React.ReactNode {
 
   const evaluation = React.use(evaluationFor(result.artifact));
 
-  if (evaluation.kind !== "evaluated") {
+  if (evaluation.kind !== "ok") {
     return (
       <pre className="border-error text-error rounded border p-4 whitespace-pre-wrap">
         {evaluation.diagnostics.map(({ code, message }) => `${code}: ${message}`).join("\n")}
@@ -65,7 +62,7 @@ function CompiledRoute(): React.ReactNode {
 
   return (
     <article className="typeset">
-      <CompiledContent registry={mdxRegistry} math={KaTeXMath} module={evaluation.module} />
+      <CompiledContent module={evaluation.module} registry={mdxRegistry} />
     </article>
   );
 }

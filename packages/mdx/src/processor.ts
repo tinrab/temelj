@@ -1,134 +1,176 @@
-import { isString } from "@temelj/value";
+import { isPromise, isString } from "@temelj/value";
 
 import type { Diagnostic } from "./diagnostics.ts";
-import type { HtmlDocumentNode, HtmlRenderOptions } from "./html.ts";
-import type { ParseOutcome, ParserLimits } from "./parser.ts";
-import type { PluginPipelineOptions } from "./plugin-internal.ts";
-import type {
-  DocumentPlugin,
-  DocumentTransformPlugin,
-  HtmlPlugin,
-  HtmlTransformPlugin,
-} from "./plugin.ts";
-import type { SyntaxOptions } from "./syntax-options.ts";
+import type { HtmlRenderOptions } from "./html-lower.ts";
+import type { HtmlRootNode } from "./html.ts";
+import type { DocumentNode } from "./model.ts";
+import type { MdxFailure, ParseOptions, ParseOutcome } from "./parser.ts";
+import type { PluginRun } from "./plugin-internal.ts";
+import type { DocumentPlugin, HtmlPlugin } from "./plugin.ts";
 
 import { DiagnosticBag } from "./diagnostics.ts";
-import { DocumentNode } from "./model.ts";
-import { runNativePipeline, runNativePipelineSync } from "./native-runtime.ts";
+import { lowerHtml } from "./html-lower.ts";
 import { parse } from "./parser.ts";
-import { normalizeDocumentPlugins, normalizeHtmlPlugins } from "./plugin-internal.ts";
+import { runDocumentPlugins, runHtmlPlugins } from "./plugin-internal.ts";
 import { SourceFile } from "./source.ts";
 
-export interface ProcessedDocument {
-  readonly document: DocumentNode;
-  readonly html: HtmlDocumentNode;
+export interface ProcessorOptions extends ParseOptions {
+  /** Run on the semantic document before lowering and before compilation. */
+  readonly documentPlugins?: readonly DocumentPlugin[];
+  /** Run on lowered HTML. They do not affect compiled output. */
+  readonly htmlPlugins?: readonly HtmlPlugin[];
+  readonly html?: Omit<HtmlRenderOptions, "source">;
 }
 
 export type ProcessOutcome =
   | Readonly<{
-      kind: "processed";
+      kind: "ok";
       file: SourceFile;
-      value: ProcessedDocument;
+      document: DocumentNode;
+      html: HtmlRootNode;
       diagnostics: readonly Diagnostic[];
     }>
-  | Extract<ParseOutcome, { kind: "invalid" | "limitExceeded" }>;
-
-export interface ProcessorOptions {
-  readonly documentPlugins?: readonly DocumentPlugin[];
-  readonly html?: HtmlRenderOptions;
-  readonly htmlPlugins?: readonly HtmlPlugin[];
-  readonly parserLimits?: ParserLimits;
-  readonly syntax?: SyntaxOptions;
-}
+  | MdxFailure;
 
 export interface ProcessOptions {
   readonly signal?: AbortSignal;
 }
 
-type ProcessInput = string | SourceFile | ParseOutcome;
+/** Strict input: a source string, a `SourceFile`, or an existing parse outcome. */
+export type ProcessInput = string | SourceFile | ParseOutcome;
 
+/** Parses, transforms, and lowers MDX with one configuration. */
 export class Processor {
-  public readonly syntax: Readonly<SyntaxOptions>;
-  private readonly htmlOptions: HtmlRenderOptions;
-  private readonly parserLimits: ParserLimits;
-  private readonly documentPlugins: readonly DocumentTransformPlugin[];
-  private readonly htmlPlugins: readonly HtmlTransformPlugin[];
+  public readonly options: ProcessorOptions;
 
   public constructor(options: ProcessorOptions = {}) {
-    this.syntax = Object.freeze({ ...options.syntax });
-    this.parserLimits = { ...options.parserLimits };
-    this.documentPlugins = normalizeDocumentPlugins(options.documentPlugins ?? []);
-    this.htmlPlugins = normalizeHtmlPlugins(options.htmlPlugins ?? []);
-    this.htmlOptions = { ...options.html };
+    // Later changes to the caller's plugin arrays do not reconfigure the processor.
+    this.options = {
+      ...options,
+      documentPlugins: [...(options.documentPlugins ?? [])],
+      htmlPlugins: [...(options.htmlPlugins ?? [])],
+    };
   }
 
   public parse(source: string | SourceFile): ParseOutcome {
-    return parse(source, { syntax: this.syntax, limits: this.parserLimits });
+    return parse(source, this.options);
   }
 
   public async process(input: ProcessInput, options: ProcessOptions = {}): Promise<ProcessOutcome> {
     options.signal?.throwIfAborted();
+    const parsed = this.parseInput(input);
 
-    const outcome = input instanceof SourceFile || isString(input) ? this.parse(input) : input;
-
-    if (outcome.kind !== "parsed") {
-      return outcome;
+    if (parsed.kind !== "ok") {
+      return parsed;
     }
 
-    const diagnostics = new DiagnosticBag(outcome.diagnostics);
+    const run = this.pluginRun(parsed, false, options.signal);
+    const document = await runDocumentPlugins(parsed.document, this.documentPlugins, run);
+    const html = await runHtmlPlugins(this.lower(document, parsed.file), this.htmlPlugins, run);
 
-    const result = await runNativePipeline(
-      this.pipelineOptions(outcome.document, outcome.file, diagnostics, options.signal),
-    );
-
-    return processedOutcome(result.document, result.html, outcome.file, diagnostics);
+    return processed(parsed.file, document, html, run.diagnostics);
   }
 
+  /** Processes synchronously and throws a configuration error for an asynchronous plugin. */
   public processSync(input: ProcessInput): ProcessOutcome {
-    const outcome = input instanceof SourceFile || isString(input) ? this.parse(input) : input;
+    const parsed = this.parseInput(input);
 
-    if (outcome.kind !== "parsed") {
-      return outcome;
+    if (parsed.kind !== "ok") {
+      return parsed;
     }
 
-    const diagnostics = new DiagnosticBag(outcome.diagnostics);
+    const run = this.pluginRun(parsed, true);
+    const document = settled(runDocumentPlugins(parsed.document, this.documentPlugins, run));
+    const html = settled(runHtmlPlugins(this.lower(document, parsed.file), this.htmlPlugins, run));
 
-    const result = runNativePipelineSync(
-      this.pipelineOptions(outcome.document, outcome.file, diagnostics),
-    );
-
-    return processedOutcome(result.document, result.html, outcome.file, diagnostics);
+    return processed(parsed.file, document, html, run.diagnostics);
   }
 
-  private pipelineOptions(
-    document: DocumentNode,
-    file: SourceFile,
-    diagnostics: DiagnosticBag,
+  /**
+   * Parses and runs document plugins without lowering. Pass the result to
+   * `compile` to emit JavaScript from the transformed document.
+   */
+  public async transform(input: ProcessInput, options: ProcessOptions = {}): Promise<ParseOutcome> {
+    options.signal?.throwIfAborted();
+    const parsed = this.parseInput(input);
+
+    if (parsed.kind !== "ok") {
+      return parsed;
+    }
+
+    const run = this.pluginRun(parsed, false, options.signal);
+    const document = await runDocumentPlugins(parsed.document, this.documentPlugins, run);
+
+    return transformed(parsed.file, document, run.diagnostics);
+  }
+
+  /** Transforms synchronously and throws a configuration error for an asynchronous plugin. */
+  public transformSync(input: ProcessInput): ParseOutcome {
+    const parsed = this.parseInput(input);
+
+    if (parsed.kind !== "ok") {
+      return parsed;
+    }
+
+    const run = this.pluginRun(parsed, true);
+    const document = settled(runDocumentPlugins(parsed.document, this.documentPlugins, run));
+
+    return transformed(parsed.file, document, run.diagnostics);
+  }
+
+  private get documentPlugins(): readonly DocumentPlugin[] {
+    return this.options.documentPlugins ?? [];
+  }
+
+  private get htmlPlugins(): readonly HtmlPlugin[] {
+    return this.options.htmlPlugins ?? [];
+  }
+
+  private parseInput(input: ProcessInput): ParseOutcome {
+    return input instanceof SourceFile || isString(input) ? this.parse(input) : input;
+  }
+
+  private lower(document: DocumentNode, file: SourceFile): HtmlRootNode {
+    return lowerHtml(document, { ...this.options.html, source: file });
+  }
+
+  private pluginRun(
+    parsed: Extract<ParseOutcome, { kind: "ok" }>,
+    synchronous: boolean,
     signal?: AbortSignal,
-  ): PluginPipelineOptions {
+  ): PluginRun {
     return {
-      document,
-      documentPlugins: this.documentPlugins,
-      diagnostics,
-      file,
-      htmlOptions: this.htmlOptions,
-      htmlPlugins: this.htmlPlugins,
+      diagnostics: new DiagnosticBag(parsed.diagnostics),
+      file: parsed.file,
       signal,
-      syntax: this.syntax,
+      syntax: this.options.syntax ?? {},
+      synchronous,
     };
   }
 }
 
-function processedOutcome(
-  document: DocumentNode,
-  html: HtmlDocumentNode,
+function settled<T>(value: T | Promise<T>): T {
+  // A synchronous run rejects asynchronous plugins before returning a promise.
+  if (isPromise(value)) {
+    throw new TypeError("Synchronous plugin run returned a promise");
+  }
+
+  return value;
+}
+
+function transformed(
   file: SourceFile,
+  document: DocumentNode,
   diagnostics: DiagnosticBag,
-): Extract<ProcessOutcome, { kind: "processed" }> {
-  return Object.freeze({
-    kind: "processed",
-    file,
-    value: Object.freeze({ document, html }),
-    diagnostics: diagnostics.snapshot(),
-  });
+): Extract<ParseOutcome, { kind: "ok" }> {
+  return Object.freeze({ kind: "ok", file, document, diagnostics: diagnostics.snapshot() });
+}
+
+function processed(
+  file: SourceFile,
+  document: DocumentNode,
+  html: HtmlRootNode,
+  diagnostics: DiagnosticBag,
+): Extract<ProcessOutcome, { kind: "ok" }> {
+  return Object.freeze({ kind: "ok", file, document, html, diagnostics: diagnostics.snapshot() });
 }

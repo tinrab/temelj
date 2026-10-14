@@ -1,4 +1,7 @@
-import type { CodeBlockRenderInput, HtmlAttributeValue, MathRenderInput } from "./html.ts";
+import type { HtmlAttributes, MathRenderStyle } from "./html.ts";
+
+import { formatHtml, formatHtmlElement } from "./html-format.ts";
+import { htmlFallback } from "./html.ts";
 
 export type StreamingNode =
   | StreamingElement
@@ -41,7 +44,7 @@ export type StreamingPendingMarkdownNode =
 export interface StreamingElement {
   readonly kind: "element";
   readonly tagName: string;
-  readonly attributes: Readonly<Record<string, HtmlAttributeValue>>;
+  readonly attributes: HtmlAttributes;
   readonly children: readonly StreamingNode[];
   readonly range?: Readonly<{ start: number; end: number }>;
 }
@@ -77,13 +80,17 @@ export interface StreamingOmitted {
 
 export interface StreamingMath {
   readonly kind: "math";
-  readonly math: MathRenderInput;
+  readonly source: string;
+  readonly style: MathRenderStyle;
+  readonly meta?: string;
   readonly range?: Readonly<{ start: number; end: number }>;
 }
 
 export interface StreamingCodeBlock {
   readonly kind: "codeBlock";
-  readonly codeBlock: CodeBlockRenderInput;
+  readonly code: string;
+  readonly language: string;
+  readonly meta?: string;
   readonly range?: Readonly<{ start: number; end: number }>;
 }
 
@@ -198,14 +205,10 @@ export interface StreamingPendingEsm {
   readonly range: Readonly<{ start: number; end: number }>;
 }
 
-/** Immutable provisional tree. Strict compiler and plugin APIs do not accept this type. */
-export class StreamingDocument {
-  public readonly children: readonly StreamingNode[];
-
-  public constructor(children: readonly StreamingNode[]) {
-    this.children = Object.freeze([...children]);
-    Object.freeze(this);
-  }
+/** A provisional tree. Strict compiler and plugin APIs do not accept this type. */
+export interface StreamingDocument {
+  readonly kind: "root";
+  readonly children: readonly StreamingNode[];
 }
 
 export function renderStreamingHtml(document: StreamingDocument): string {
@@ -235,15 +238,9 @@ function renderStreamingNode(node: StreamingNode): string {
       return `<code>${escapeHtml(node.value)}</code>`;
     case "pendingMath":
       return escapeHtml(node.authored);
-    case "codeBlock": {
-      const language = escapeHtml(node.codeBlock.language);
-      const code = escapeHtml(node.codeBlock.code.length === 0 ? "" : `${node.codeBlock.code}\n`);
-
-      return `<pre><code class="language-${language}">${code}</code></pre>`;
-    }
-
+    case "codeBlock":
     case "math":
-      return renderMathFallback(node.math);
+      return formatHtml(htmlFallback(node));
     case "pendingFencedCode":
       return node.language === undefined
         ? `<pre><code>${escapeHtml(node.value)}</code></pre>`
@@ -258,13 +255,12 @@ function renderStreamingNode(node: StreamingNode): string {
       return `<span>${node.children.map(renderStreamingNode).join("")}</span>`;
     case "jsx":
       return escapeHtml(node.authored);
-    case "element": {
-      const attributes = Object.entries(node.attributes)
-        .map(([name, value]) => ` ${name}="${escapeHtml(String(value))}"`)
-        .join("");
-
-      return `<${node.tagName}${attributes}>${node.children.map(renderStreamingNode).join("")}</${node.tagName}>`;
-    }
+    case "element":
+      return formatHtmlElement(
+        node.tagName,
+        node.attributes,
+        node.children.map(renderStreamingNode).join(""),
+      );
 
     default: {
       const exhaustive: never = node;
@@ -272,19 +268,6 @@ function renderStreamingNode(node: StreamingNode): string {
       return exhaustive;
     }
   }
-}
-
-function renderMathFallback(math: MathRenderInput): string {
-  const source = escapeHtml(math.source);
-
-  if (math.style === "inline") {
-    return `<code class="language-math math-inline">${source}</code>`;
-  }
-
-  const metadata = math.meta === undefined ? "" : ` data-math-meta="${escapeHtml(math.meta)}"`;
-  const value = source.length === 0 ? "" : `${source}\n`;
-
-  return `<pre${metadata}><code class="language-math math-display">${value}</code></pre>`;
 }
 
 function escapeHtml(value: string): string {

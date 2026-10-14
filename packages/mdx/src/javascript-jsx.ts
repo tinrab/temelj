@@ -1,6 +1,6 @@
 import { isString } from "@temelj/value";
 
-import type { SourceFile } from "./model.ts";
+import type { SourceFile } from "./source.ts";
 
 import { CompileError } from "./errors.ts";
 import {
@@ -17,10 +17,6 @@ import { recordJsxReference, resolveJsxName, type JsxReferenceContext } from "./
 
 export interface JavaScriptJsxContext extends JsxReferenceContext {
   readonly development: boolean;
-  readonly inScope: ReadonlySet<string>;
-  readonly intrinsicTags: Set<string>;
-  readonly missingReferences: Map<string, boolean>;
-  readonly referencedComponents: Set<string>;
   readonly sourceName: string;
 }
 

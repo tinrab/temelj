@@ -5,6 +5,7 @@ import type {
   InlineParseResult,
   InlinePendingSyntax,
   InlineSyntax,
+  InvalidInlineSyntax,
 } from "./inline-syntax.ts";
 
 import {
@@ -42,10 +43,12 @@ interface InlineMatch {
 interface OptionalInlineMatch {
   readonly end: number;
   readonly node: InlineSyntax | undefined;
+  readonly open: boolean;
 }
 
 interface AngleMatch extends InlineMatch {
   readonly invalid: boolean;
+  readonly open: boolean;
 }
 
 interface ReferenceSuffix {
@@ -65,8 +68,8 @@ export function parseInline(input: InlineInput, syntax: ResolvedSyntaxOptions): 
   const delimiters: Delimiter[] = [];
   const brackets: Bracket[] = [];
 
-  const invalid: { range: ReturnType<InlineInput["sourceRange"]>; syntax: "expression" | "jsx" }[] =
-    [];
+  const invalid: InvalidInlineSyntax[] = [];
+  let openEmbedded: PendingCandidate | undefined;
 
   const references = new Set<string>();
   const footnotes = new Set<string>();
@@ -250,7 +253,19 @@ export function parseInline(input: InlineInput, syntax: ResolvedSyntaxOptions): 
         flushText(offset);
 
         if (expression.node === undefined) {
-          invalid.push({ range: input.sourceRange(offset, expression.end), syntax: "expression" });
+          invalid.push({
+            range: input.sourceRange(offset, expression.end),
+            syntax: "expression",
+            open: expression.open,
+          });
+
+          if (expression.open) {
+            openEmbedded = {
+              start: offset,
+              pending: { kind: "expression", range: input.sourceRange(offset, expression.end) },
+            };
+          }
+
           output.push(textNode(input, value, offset, expression.end));
         } else {
           output.push(expression.node);
@@ -269,7 +284,18 @@ export function parseInline(input: InlineInput, syntax: ResolvedSyntaxOptions): 
         flushText(offset);
 
         if (angle.invalid) {
-          invalid.push({ range: input.sourceRange(offset, angle.end), syntax: "jsx" });
+          invalid.push({
+            range: input.sourceRange(offset, angle.end),
+            syntax: "jsx",
+            open: angle.open,
+          });
+
+          if (angle.open) {
+            openEmbedded = {
+              start: offset,
+              pending: { kind: "jsx", range: input.sourceRange(offset, angle.end) },
+            };
+          }
         }
 
         output.push(angle.node);
@@ -300,7 +326,7 @@ export function parseInline(input: InlineInput, syntax: ResolvedSyntaxOptions): 
 
   flushText(value.length);
 
-  const pending = pendingInline(input, value, output, syntax);
+  const pending = pendingInline(input, value, output, openEmbedded, syntax);
 
   const nodes = mergeText(
     output.map((entry) =>
@@ -314,7 +340,7 @@ export function parseInline(input: InlineInput, syntax: ResolvedSyntaxOptions): 
 
   return {
     nodes: nodes,
-    invalid: invalid.map((entry) => entry),
+    invalid,
     references,
     footnotes,
     pending,
@@ -325,9 +351,10 @@ function pendingInline(
   input: InlineInput,
   value: string,
   output: readonly Output[],
+  openEmbedded: PendingCandidate | undefined,
   syntax: ResolvedSyntaxOptions,
 ): InlinePendingSyntax | undefined {
-  const candidates: PendingCandidate[] = [];
+  const candidates: PendingCandidate[] = openEmbedded === undefined ? [] : [openEmbedded];
 
   for (let index = output.length - 1; index >= 0; index--) {
     const opener = output[index];
@@ -1017,13 +1044,13 @@ function expressionNode(
   const structural = scanner.append(value.slice(start + 1));
 
   if (structural.kind === "open") {
-    return { end: value.length, node: undefined };
+    return { end: value.length, node: undefined, open: true };
   }
 
   const end = start + 1 + structural.offset;
 
   if (structural.kind === "invalid") {
-    return { end, node: undefined };
+    return { end, node: undefined, open: false };
   }
 
   const authored = value.slice(start + 1, end - 1);
@@ -1039,6 +1066,7 @@ function expressionNode(
 
   return {
     end,
+    open: false,
     node:
       authored.trim() === "" || boundary?.kind === "valid"
         ? {
@@ -1073,6 +1101,7 @@ function angleNode(input: InlineInput, value: string, start: number): AngleMatch
     return {
       end,
       invalid: false,
+      open: false,
       node: {
         kind: "rawHtml",
         range: input.sourceRange(start, end),
@@ -1101,6 +1130,7 @@ function angleNode(input: InlineInput, value: string, start: number): AngleMatch
     return {
       end,
       invalid: false,
+      open: false,
       node: {
         kind: "link",
         range: input.sourceRange(start, end),
@@ -1116,7 +1146,12 @@ function angleNode(input: InlineInput, value: string, start: number): AngleMatch
   const end = structural.kind === "open" ? value.length : start + structural.offset;
 
   if (structural.kind !== "closed") {
-    return { end, invalid: true, node: textNode(input, value, start, end) };
+    return {
+      end,
+      invalid: true,
+      open: structural.kind === "open",
+      node: textNode(input, value, start, end),
+    };
   }
 
   const authored = value.slice(start, end);
@@ -1132,6 +1167,7 @@ function angleNode(input: InlineInput, value: string, start: number): AngleMatch
   return {
     end,
     invalid: !valid,
+    open: false,
     node: valid
       ? { kind: "jsx", range: input.sourceRange(start, end), value: authored }
       : textNode(input, value, start, end),
