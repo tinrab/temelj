@@ -1,3 +1,4 @@
+import type { SourceText } from "../source-text.ts";
 import type { PhysicalLine } from "../source.ts";
 import type { ResolvedSyntaxOptions } from "../syntax-options.ts";
 import type { BlockSyntax, DirectiveAttributeSyntax } from "./block-syntax.ts";
@@ -5,8 +6,8 @@ import type { InlineSegment } from "./inline-input.ts";
 import type { RecognizerResult } from "./recognizer.ts";
 
 import { sourceRange } from "../ranges.ts";
-import { consumeIndent } from "../utility.ts";
-import { findUnescaped, isBlank, isSpaceOrTab } from "../utility.ts";
+import { consumeIndent, findUnescaped, isBlank, isSpaceOrTab } from "./characters.ts";
+import { parseDirectiveAttributes } from "./directive-attributes.ts";
 import { matched, noMatch } from "./recognizer.ts";
 
 export interface DirectiveContainerMarker {
@@ -19,14 +20,14 @@ export interface DirectiveContainerMarker {
 }
 
 export function directiveContainerMarker(
-  source: string,
+  source: SourceText,
   end: number,
   start: number,
 ): DirectiveContainerMarker | undefined {
   const markerStart = consumeIndent(source, start, end, 3).offset;
   let markerEnd = markerStart;
 
-  while (source[markerEnd] === ":") {
+  while (source.char(markerEnd) === ":") {
     markerEnd++;
   }
 
@@ -61,11 +62,11 @@ interface DirectiveTail {
   readonly label: readonly InlineSegment[] | undefined;
 }
 
-function directiveTail(source: string, start: number, end: number): DirectiveTail | undefined {
+function directiveTail(source: SourceText, start: number, end: number): DirectiveTail | undefined {
   let cursor = start;
   let label: readonly InlineSegment[] | undefined;
 
-  if (source[cursor] === "[") {
+  if (source.char(cursor) === "[") {
     const close = findUnescaped(source, "]", cursor + 1, end);
 
     if (close === undefined) {
@@ -78,7 +79,7 @@ function directiveTail(source: string, start: number, end: number): DirectiveTai
 
   let attributes: readonly DirectiveAttributeSyntax[] = [];
 
-  if (source[cursor] === "{") {
+  if (source.char(cursor) === "{") {
     const close = findUnescaped(source, "}", cursor + 1, end);
 
     if (close === undefined) {
@@ -89,30 +90,15 @@ function directiveTail(source: string, start: number, end: number): DirectiveTai
     cursor = close + 1;
   }
 
-  while (cursor < end && isSpaceOrTab(source[cursor])) {
+  while (cursor < end && isSpaceOrTab(source.char(cursor))) {
     cursor++;
   }
 
   return cursor === end ? { attributes, label } : undefined;
 }
 
-function parseDirectiveAttributes(source: string): readonly DirectiveAttributeSyntax[] {
-  const attributes: DirectiveAttributeSyntax[] = [];
-  const pattern = /([A-Za-z_:][\w:.-]*)(?:=(?:"([^"]*)"|'([^']*)'|([^\s]+)))?|([.#])([\w-]+)/gu;
-
-  for (const match of source.matchAll(pattern)) {
-    const shortcut = match[5];
-    attributes.push({
-      name: shortcut === "#" ? "id" : shortcut === "." ? "class" : match[1],
-      value: shortcut === undefined ? (match[2] ?? match[3] ?? match[4] ?? "") : match[6],
-    });
-  }
-
-  return attributes;
-}
-
 function matchLeafDirective(
-  source: string,
+  source: SourceText,
   line: PhysicalLine,
   syntax: ResolvedSyntaxOptions,
 ): Extract<BlockSyntax, { kind: "leafDirective" }> | undefined {
@@ -122,7 +108,7 @@ function matchLeafDirective(
 
   const start = consumeIndent(source, line.content.start, line.content.end, 3).offset;
 
-  if (!source.startsWith("::", start) || source[start + 2] === ":") {
+  if (!source.startsWith("::", start) || source.char(start + 2) === ":") {
     return;
   }
 
@@ -146,7 +132,7 @@ function matchLeafDirective(
 }
 
 export function recognizeLeafDirective(
-  source: string,
+  source: SourceText,
   line: PhysicalLine,
   syntax: ResolvedSyntaxOptions,
 ): RecognizerResult<Extract<BlockSyntax, { kind: "leafDirective" }>> {
@@ -156,7 +142,7 @@ export function recognizeLeafDirective(
 }
 
 export function isClosingDirectiveFence(
-  source: string,
+  source: SourceText,
   line: PhysicalLine,
   start: number,
   minimumFenceLength: number,
@@ -164,7 +150,7 @@ export function isClosingDirectiveFence(
   const markerStart = consumeIndent(source, start, line.content.end, 3).offset;
   let markerEnd = markerStart;
 
-  while (source[markerEnd] === ":") {
+  while (source.char(markerEnd) === ":") {
     markerEnd++;
   }
 

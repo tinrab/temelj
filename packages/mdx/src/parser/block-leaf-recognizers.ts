@@ -1,4 +1,5 @@
 import type { SourceRange } from "../ranges.ts";
+import type { SourceText } from "../source-text.ts";
 import type { PhysicalLine } from "../source.ts";
 import type { ResolvedSyntaxOptions } from "../syntax-options.ts";
 import type {
@@ -12,8 +13,8 @@ import type { RecognizerResult } from "./recognizer.ts";
 
 import { normalizeIdentifier } from "../identifier.ts";
 import { sourceRange } from "../ranges.ts";
-import { consumeIndent } from "../utility.ts";
-import { findUnescaped, isEscaped, isSpaceOrTab } from "../utility.ts";
+import { consumeIndent } from "./characters.ts";
+import { findUnescaped, isEscaped, isSpaceOrTab } from "./characters.ts";
 import { matched, noMatch } from "./recognizer.ts";
 
 interface RecognizedCompleteBlock {
@@ -28,7 +29,10 @@ interface RecognizedOpenLeaf {
 
 type RecognizedBlock = RecognizedCompleteBlock | RecognizedOpenLeaf;
 
-type BlockRecognizer = (source: string, line: PhysicalLine) => RecognizerResult<RecognizedBlock>;
+type BlockRecognizer = (
+  source: SourceText,
+  line: PhysicalLine,
+) => RecognizerResult<RecognizedBlock>;
 
 export const recognizeRawHtml: BlockRecognizer = (source, line) => {
   const content = source.slice(line.content.start, line.content.end);
@@ -73,7 +77,7 @@ export const recognizeRawHtml: BlockRecognizer = (source, line) => {
 };
 
 function matchFrontmatter(
-  source: string,
+  source: SourceText,
   line: PhysicalLine,
   syntax: ResolvedSyntaxOptions,
 ): Extract<OpenLeaf, { kind: "frontmatter" }> | undefined {
@@ -96,7 +100,7 @@ function matchFrontmatter(
 }
 
 export function recognizeFrontmatter(
-  source: string,
+  source: SourceText,
   line: PhysicalLine,
   syntax: ResolvedSyntaxOptions,
 ): RecognizerResult<Extract<OpenLeaf, { kind: "frontmatter" }>> {
@@ -106,7 +110,7 @@ export function recognizeFrontmatter(
 }
 
 function matchMathFence(
-  source: string,
+  source: SourceText,
   line: PhysicalLine,
   syntax: ResolvedSyntaxOptions,
 ): Extract<OpenLeaf, { kind: "math" }> | undefined {
@@ -168,7 +172,7 @@ function matchMathFence(
 }
 
 export function recognizeMathFence(
-  source: string,
+  source: SourceText,
   line: PhysicalLine,
   syntax: ResolvedSyntaxOptions,
 ): RecognizerResult<Extract<OpenLeaf, { kind: "math" }>> {
@@ -178,7 +182,7 @@ export function recognizeMathFence(
 }
 
 function matchSameLineMath(
-  source: string,
+  source: SourceText,
   line: PhysicalLine,
   syntax: ResolvedSyntaxOptions,
 ): Extract<BlockSyntax, { kind: "math" }> | undefined {
@@ -253,7 +257,7 @@ function matchSameLineMath(
 }
 
 export function recognizeSameLineMath(
-  source: string,
+  source: SourceText,
   line: PhysicalLine,
   syntax: ResolvedSyntaxOptions,
 ): RecognizerResult<Extract<BlockSyntax, { kind: "math" }>> {
@@ -262,16 +266,16 @@ export function recognizeSameLineMath(
   return match === undefined ? noMatch : matched(match);
 }
 
-export function trimLineEndingOffset(source: string, end: number): number {
-  return source[end - 1] === "\n" && source[end - 2] === "\r"
+export function trimLineEndingOffset(source: SourceText, end: number): number {
+  return source.char(end - 1) === "\n" && source.char(end - 2) === "\r"
     ? end - 2
-    : source[end - 1] === "\n" || source[end - 1] === "\r"
+    : source.char(end - 1) === "\n" || source.char(end - 1) === "\r"
       ? end - 1
       : end;
 }
 
 export function isClosingMathFence(
-  source: string,
+  source: SourceText,
   line: PhysicalLine,
   active: Extract<OpenLeaf, { kind: "math" }>,
 ): boolean {
@@ -308,7 +312,7 @@ export const recognizeDefinition: BlockRecognizer = (source, line) => {
   const indent = consumeIndent(source, line.content.start, end, 3);
   const labelStart = indent.offset;
 
-  if (source[labelStart] !== "[") {
+  if (source.char(labelStart) !== "[") {
     return noMatch;
   }
 
@@ -318,15 +322,15 @@ export const recognizeDefinition: BlockRecognizer = (source, line) => {
     labelEnd === undefined ||
     labelEnd === labelStart + 1 ||
     labelEnd - labelStart > 1000 ||
-    source[labelEnd + 1] !== ":" ||
-    source[labelStart + 1] === "^"
+    source.char(labelEnd + 1) !== ":" ||
+    source.char(labelStart + 1) === "^"
   ) {
     return noMatch;
   }
 
   let cursor = labelEnd + 2;
 
-  while (cursor < end && isSpaceOrTab(source[cursor])) {
+  while (cursor < end && isSpaceOrTab(source.char(cursor))) {
     cursor++;
   }
 
@@ -339,7 +343,7 @@ export const recognizeDefinition: BlockRecognizer = (source, line) => {
   cursor = destination.next;
   const beforeTitle = cursor;
 
-  while (cursor < end && isSpaceOrTab(source[cursor])) {
+  while (cursor < end && isSpaceOrTab(source.char(cursor))) {
     cursor++;
   }
 
@@ -350,7 +354,7 @@ export const recognizeDefinition: BlockRecognizer = (source, line) => {
       return noMatch;
     }
 
-    const opener = source[cursor];
+    const opener = source.char(cursor);
     const closer = opener === "(" ? ")" : opener === '"' ? '"' : opener === "'" ? "'" : undefined;
 
     if (closer === undefined) {
@@ -366,7 +370,7 @@ export const recognizeDefinition: BlockRecognizer = (source, line) => {
     title = sourceRange(cursor + 1, titleEnd);
     cursor = titleEnd + 1;
 
-    while (cursor < end && isSpaceOrTab(source[cursor])) {
+    while (cursor < end && isSpaceOrTab(source.char(cursor))) {
       cursor++;
     }
   }
@@ -393,11 +397,11 @@ interface DefinitionDestination {
 }
 
 function definitionDestination(
-  source: string,
+  source: SourceText,
   start: number,
   end: number,
 ): DefinitionDestination | undefined {
-  if (source[start] === "<") {
+  if (source.char(start) === "<") {
     const close = findUnescaped(source, ">", start + 1, end);
 
     return close === undefined
@@ -408,8 +412,8 @@ function definitionDestination(
   let cursor = start;
   let depth = 0;
 
-  while (cursor < end && !isSpaceOrTab(source[cursor])) {
-    const character = source[cursor];
+  while (cursor < end && !isSpaceOrTab(source.char(cursor))) {
+    const character = source.char(cursor);
 
     if (character === "(" && !isEscaped(source, cursor, start)) {
       depth++;
@@ -588,7 +592,7 @@ export const recognizeFence: BlockRecognizer = (source, line) => {
 };
 
 export function recognizeTable(
-  source: string,
+  source: SourceText,
   line: PhysicalLine,
   paragraph: Extract<OpenLeaf, { kind: "paragraph" }>,
 ): RecognizerResult<Extract<OpenLeaf, { kind: "table" }>> {
@@ -644,30 +648,30 @@ export function recognizeTable(
   });
 }
 
-export function tableRow(source: string, range: SourceRange): TableRowSyntax {
+export function tableRow(source: SourceText, range: SourceRange): TableRowSyntax {
   return { range, cells: tableCellRanges(source, range) };
 }
 
 function tableCellRanges(
-  source: string,
+  source: SourceText,
   range: SourceRange,
 ): readonly (readonly InlineSegment[])[] {
   let start = range.start;
   let end = range.end;
 
-  while (start < end && isSpaceOrTab(source[start])) {
+  while (start < end && isSpaceOrTab(source.char(start))) {
     start++;
   }
 
-  while (end > start && isSpaceOrTab(source[end - 1])) {
+  while (end > start && isSpaceOrTab(source.char(end - 1))) {
     end--;
   }
 
-  if (source[start] === "|") {
+  if (source.char(start) === "|") {
     start++;
   }
 
-  if (source[end - 1] === "|" && !isEscaped(source, end - 1, start)) {
+  if (source.char(end - 1) === "|" && !isEscaped(source, end - 1, start)) {
     end--;
   }
 
@@ -676,12 +680,12 @@ function tableCellRanges(
   let codeFence = 0;
 
   for (let offset = start; offset <= end; offset++) {
-    const character = source[offset];
+    const character = source.char(offset);
 
     if (character === "`" && !isEscaped(source, offset, start)) {
       let runEnd = offset;
 
-      while (source[runEnd] === "`") {
+      while (source.char(runEnd) === "`") {
         runEnd++;
       }
 
@@ -697,11 +701,11 @@ function tableCellRanges(
       let valueStart = cellStart;
       let valueEnd = offset;
 
-      while (valueStart < valueEnd && isSpaceOrTab(source[valueStart])) {
+      while (valueStart < valueEnd && isSpaceOrTab(source.char(valueStart))) {
         valueStart++;
       }
 
-      while (valueEnd > valueStart && isSpaceOrTab(source[valueEnd - 1])) {
+      while (valueEnd > valueStart && isSpaceOrTab(source.char(valueEnd - 1))) {
         valueEnd--;
       }
 
@@ -714,7 +718,7 @@ function tableCellRanges(
 }
 
 export function recognizeSetext(
-  source: string,
+  source: SourceText,
   line: PhysicalLine,
   paragraph: Extract<OpenLeaf, { kind: "paragraph" }>,
 ): RecognizerResult<BlockSyntax> {
@@ -749,7 +753,7 @@ export function recognizeSetext(
 }
 
 export function isClosingFence(
-  source: string,
+  source: SourceText,
   line: PhysicalLine,
   active: Extract<OpenLeaf, { kind: "fencedCode" }>,
 ): boolean {
@@ -777,7 +781,7 @@ export function isClosingFence(
   return markerEnd === content.length;
 }
 
-export function interruptsParagraph(source: string, line: PhysicalLine): boolean {
+export function interruptsParagraph(source: SourceText, line: PhysicalLine): boolean {
   return [recognizeRawHtml, recognizeFence, recognizeAtxHeading, recognizeThematicBreak].some(
     (recognize) => recognize(source, line).kind === "matched",
   );

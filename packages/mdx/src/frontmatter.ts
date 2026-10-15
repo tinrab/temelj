@@ -12,12 +12,9 @@ import { parse as parseToml, TomlDate, TomlError } from "smol-toml";
 import { parseDocument } from "yaml";
 
 import type { DiagnosticReporter } from "./diagnostics.ts";
-import type { FrontmatterObject, FrontmatterValue } from "./model.ts";
+import type { FrontmatterObject, FrontmatterTemporal, FrontmatterValue } from "./model.ts";
 import type { SourceSpan } from "./source.ts";
 import type { FrontmatterFormat } from "./syntax-options.ts";
-
-import { FrontmatterTemporal } from "./model.ts";
-import { lineStartOffsets } from "./utility.ts";
 
 interface DecodeOptions {
   readonly diagnostics: DiagnosticReporter;
@@ -223,18 +220,15 @@ function convertObject(
 }
 
 function convertTemporal(value: TomlDate): FrontmatterTemporal {
-  if (value.isDateTime()) {
-    return new FrontmatterTemporal(
-      value.isLocal() ? "local-date-time" : "offset-date-time",
-      value.toISOString(),
-    );
-  }
+  const type = value.isDateTime()
+    ? value.isLocal()
+      ? "local-date-time"
+      : "offset-date-time"
+    : value.isDate()
+      ? "local-date"
+      : "local-time";
 
-  if (value.isDate()) {
-    return new FrontmatterTemporal("local-date", value.toISOString());
-  }
-
-  return new FrontmatterTemporal("local-time", value.toISOString());
+  return Object.freeze({ kind: "temporal", type, value: value.toISOString() });
 }
 
 function invalidValue(options: DecodeOptions, path: string, description: string): undefined {
@@ -311,4 +305,22 @@ function describeValue(value: unknown): string {
   }
 
   return isObject(value) ? (value.constructor?.name ?? "object") : String(value);
+}
+
+function lineStartOffsets(source: string): readonly number[] {
+  const offsets = [0];
+
+  for (let index = 0; index < source.length; index++) {
+    if (source[index] === "\r") {
+      if (source[index + 1] === "\n") {
+        index++;
+      }
+
+      offsets.push(index + 1);
+    } else if (source[index] === "\n") {
+      offsets.push(index + 1);
+    }
+  }
+
+  return offsets;
 }

@@ -1,6 +1,12 @@
-import type { HtmlElementNode, HtmlJsxNode, HtmlNode } from "@temelj/mdx";
+import type {
+  HtmlElementNode,
+  HtmlJsxNode,
+  HtmlNode,
+  HtmlPendingNode,
+  HtmlUnresolvedReferenceNode,
+} from "@temelj/mdx";
 
-import { htmlFallback } from "@temelj/mdx";
+import { htmlFallback, htmlText, pendingFallback } from "@temelj/mdx";
 import { isObject } from "@temelj/value";
 import React from "react";
 
@@ -12,18 +18,63 @@ import { reservedMdxProps } from "./types.ts";
 
 const reservedProps: ReadonlySet<string> = new Set(reservedMdxProps);
 
+/**
+ * Rendered elements by node identity. Trees are immutable, so a node that kept
+ * its identity across stream updates reuses its element and React skips it.
+ */
+export type RenderCache = WeakMap<HtmlNode, Readonly<{ key: React.Key; element: React.ReactNode }>>;
+
+interface RenderContext {
+  readonly registry: MdxRegistry | undefined;
+  readonly cache: RenderCache | undefined;
+}
+
 /** Renders lowered HTML. Hook-free, so it also runs in React Server Components. */
 export function renderHtmlNodes(
   nodes: readonly HtmlNode[],
   registry: MdxRegistry | undefined,
-  inSvg = false,
+  cache?: RenderCache,
 ): React.ReactNode[] {
-  return nodes.map((node, index) => renderHtmlNode(node, registry, index, inSvg));
+  return renderNodes(nodes, { registry, cache }, false);
 }
 
 export function renderHtmlNode(
   node: HtmlNode,
   registry: MdxRegistry | undefined,
+  key: React.Key,
+): React.ReactNode {
+  return renderNode(node, { registry, cache: undefined }, key, false);
+}
+
+function renderNodes(
+  nodes: readonly HtmlNode[],
+  context: RenderContext,
+  inSvg: boolean,
+): React.ReactNode[] {
+  return nodes.map((node, index) => renderNode(node, context, index, inSvg));
+}
+
+function renderNode(
+  node: HtmlNode,
+  context: RenderContext,
+  key: React.Key,
+  inSvg: boolean,
+): React.ReactNode {
+  const cached = context.cache?.get(node);
+
+  if (cached !== undefined && cached.key === key) {
+    return cached.element;
+  }
+
+  const element = renderNodeCore(node, context, key, inSvg);
+  context.cache?.set(node, { key, element });
+
+  return element;
+}
+
+function renderNodeCore(
+  node: HtmlNode,
+  context: RenderContext,
   key: React.Key,
   inSvg: boolean,
 ): React.ReactNode {
@@ -38,17 +89,19 @@ export function renderHtmlNode(
       return null;
     case "root":
       return (
-        <React.Fragment key={key}>{renderHtmlNodes(node.children, registry, inSvg)}</React.Fragment>
+        <React.Fragment key={key}>{renderNodes(node.children, context, inSvg)}</React.Fragment>
       );
     case "jsx":
-      return renderJsx(node, registry, key);
+      return node.state === "complete"
+        ? renderJsx(node, context, key)
+        : renderPendingJsx(node, context, key);
     case "element":
-      return renderElement(node, registry, key, inSvg);
+      return renderElement(node, context, key, inSvg);
     case "codeBlock": {
-      const CodeBlock = registry?.markdown.codeBlock;
+      const CodeBlock = context.registry?.markdown.codeBlock;
 
       return CodeBlock === undefined ? (
-        renderElement({ ...htmlFallback(node), origin: node.origin }, registry, key, inSvg)
+        renderElement({ ...htmlFallback(node), origin: node.origin }, context, key, inSvg)
       ) : (
         <CodeBlock
           code={node.code}
@@ -62,10 +115,10 @@ export function renderHtmlNode(
     }
 
     case "math": {
-      const Math = registry?.math;
+      const Math = context.registry?.math;
 
       return Math === undefined ? (
-        renderElement(htmlFallback(node), registry, key, inSvg)
+        renderElement(htmlFallback(node), context, key, inSvg)
       ) : (
         <Math key={key} meta={node.meta} source={node.source} style={node.style} />
       );
@@ -73,7 +126,10 @@ export function renderHtmlNode(
 
     case "footnoteReference":
     case "footnoteSection":
-      return renderElement({ ...htmlFallback(node), origin: node.origin }, registry, key, inSvg);
+      return renderElement({ ...htmlFallback(node), origin: node.origin }, context, key, inSvg);
+    case "pending":
+    case "unresolvedReference":
+      return renderPending(node, context, key, inSvg);
     default: {
       const exhaustive: never = node;
 
@@ -84,23 +140,18 @@ export function renderHtmlNode(
 
 function renderElement(
   node: HtmlElementNode,
-  registry: MdxRegistry | undefined,
+  context: RenderContext,
   key: React.Key,
   inSvg: boolean,
 ): React.ReactNode {
   const svg = inSvg || node.tagName === "svg";
+  const children = renderNodes(node.children, context, svg && node.tagName !== "foreignObject");
 
-  const children = renderHtmlNodes(
-    node.children,
-    registry,
-    svg && node.tagName !== "foreignObject",
-  );
-
-  return createMdxElement(node, registry, key, svg, children);
+  return createMdxElement(node, context.registry, key, svg, children);
 }
 
 /** Creates an element through its `html` override or as an intrinsic element. */
-export function createMdxElement(
+function createMdxElement(
   node: Pick<HtmlElementNode, "attributes" | "origin" | "tagName">,
   registry: MdxRegistry | undefined,
   key: React.Key,
@@ -124,13 +175,9 @@ export function createMdxElement(
   return React.createElement(custom, { ...attributes, key, node: component }, ...children);
 }
 
-function renderJsx(
-  node: HtmlJsxNode,
-  registry: MdxRegistry | undefined,
-  key: React.Key,
-): React.ReactNode {
-  const name = node.node.name;
-  const entry = name === undefined ? undefined : registry?.jsx[name];
+function renderJsx(node: HtmlJsxNode, context: RenderContext, key: React.Key): React.ReactNode {
+  const { name } = node;
+  const entry = name === undefined ? undefined : context.registry?.jsx[name];
   const attributes = staticJsxAttributes(node);
 
   if (name === undefined || entry === undefined || attributes === undefined) {
@@ -138,16 +185,50 @@ function renderJsx(
   }
 
   const component: MdxJsxComponentNode = {
-    kind: node.node.kind,
+    kind: "jsx",
+    element: node.element,
     name,
     attributes,
-    origin: node.node.origin,
+    origin: node.origin,
   };
 
   return React.createElement(
     entry.component,
     { ...attributes, key, node: component },
-    ...renderHtmlNodes(node.children, registry),
+    ...renderNodes(node.children, context, false),
+  );
+}
+
+/** Unfinished JSX renders only through a pending renderer and never invokes the component. */
+function renderPendingJsx(
+  node: HtmlJsxNode,
+  context: RenderContext,
+  key: React.Key,
+): React.ReactNode {
+  const { name } = node;
+  const entry = name === undefined ? undefined : context.registry?.jsx[name];
+  const attributes = staticJsxAttributes(node);
+
+  if (name === undefined || entry === undefined || attributes === undefined) {
+    return null;
+  }
+
+  if (entry.pending === null) {
+    return null;
+  }
+
+  const children = renderNodes(node.children, context, false);
+
+  if (entry.pending !== undefined) {
+    return React.createElement(entry.pending, { ...attributes, key, node }, ...children);
+  }
+
+  const Pending = context.registry?.pending.jsx;
+
+  return Pending === undefined ? null : (
+    <Pending key={key} name={name} node={node} props={attributes}>
+      {children}
+    </Pending>
   );
 }
 
@@ -157,7 +238,7 @@ function staticJsxAttributes(
 ): Readonly<Record<string, MdxLiteralPropValue>> | undefined {
   const attributes: Record<string, MdxLiteralPropValue> = {};
 
-  for (const attribute of node.node.attributes) {
+  for (const attribute of node.attributes) {
     if (
       attribute.kind !== "jsxAttribute" ||
       isObject(attribute.value) ||
@@ -170,4 +251,79 @@ function staticJsxAttributes(
   }
 
   return attributes;
+}
+
+function renderPending(
+  node: HtmlPendingNode | HtmlUnresolvedReferenceNode,
+  context: RenderContext,
+  key: React.Key,
+  inSvg: boolean,
+): React.ReactNode {
+  if (node.kind === "pending" && node.construct === "fence") {
+    const CodeBlock = context.registry?.markdown.codeBlock;
+    const code = htmlText(node);
+
+    if (CodeBlock !== undefined) {
+      return (
+        <CodeBlock
+          code={code}
+          key={key}
+          language={node.language}
+          meta={node.meta}
+          node={node}
+          status="pending"
+        />
+      );
+    }
+
+    return wrapPending(
+      node,
+      context,
+      key,
+      <pre key={key}>
+        <code className={node.language === undefined ? undefined : `language-${node.language}`}>
+          {lineGroups(code)}
+        </code>
+      </pre>,
+    );
+  }
+
+  const rendered = (
+    <React.Fragment key={key}>{renderNodes(pendingFallback(node), context, inSvg)}</React.Fragment>
+  );
+
+  return node.kind === "pending" &&
+    (node.construct === "expression" ||
+      node.construct === "esm" ||
+      node.construct === "jsx" ||
+      node.construct === "inlineMath" ||
+      node.construct === "displayMath")
+    ? rendered
+    : wrapPending(node, context, key, rendered);
+}
+
+/** Open Markdown and unresolved references go through the registry's pending renderer. */
+function wrapPending(
+  node: HtmlPendingNode | HtmlUnresolvedReferenceNode,
+  context: RenderContext,
+  key: React.Key,
+  rendered: React.ReactNode,
+): React.ReactNode {
+  const Pending = context.registry?.pending.markdown;
+
+  return Pending === undefined ? (
+    rendered
+  ) : (
+    <Pending key={key} node={node}>
+      {rendered}
+    </Pending>
+  );
+}
+
+/**
+ * Splits growing code into groups of up to four lines. Settled groups keep their
+ * text nodes, so the DOM only updates the open group.
+ */
+function lineGroups(value: string): readonly string[] {
+  return value.match(/(?:[^\n]*\n){1,4}|[^\n]+$/gu) ?? [];
 }

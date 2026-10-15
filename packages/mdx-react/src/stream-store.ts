@@ -1,18 +1,30 @@
 "use client";
 
 import type {
+  CompletedBlock,
   Diagnostic,
   HtmlRenderOptions,
   HtmlRootNode,
   MdxEdit,
+  MdxPreview,
   MdxStreamCompletion,
   MdxStreamOptions,
   MdxStreamSnapshot,
+  ParserLimit,
 } from "@temelj/mdx";
 import type { HtmlPlugin } from "@temelj/mdx/plugins";
 
 import { MdxStream, Processor } from "@temelj/mdx";
-import { isString } from "@temelj/value";
+
+import {
+  consumeBatched,
+  scheduleFrame,
+  sourceEdit,
+  textChunks,
+  type MdxConsumeOptions,
+  type MdxPublishScheduler,
+  type MdxTextSource,
+} from "./transport.ts";
 
 export interface MdxStreamStoreOptions extends MdxStreamOptions {
   /** Shared by the completed document's HTML lowering. */
@@ -23,40 +35,38 @@ export interface MdxStreamStoreOptions extends MdxStreamOptions {
    */
   readonly htmlPlugins?: readonly HtmlPlugin[];
   /** Schedules a batched publish while consuming a transport. Defaults to the next frame. */
-  readonly schedule?: (flush: () => void) => void;
+  readonly schedule?: MdxPublishScheduler;
 }
 
-type SuccessfulCompletion = Extract<MdxStreamCompletion, { kind: "ok" }>;
-
-type FailedCompletion = Exclude<MdxStreamCompletion, { kind: "ok" }>;
-
-/** A generation identifies one document lifecycle within a renderer. */
+/**
+ * What a renderer shows for one document. A generation identifies one document
+ * lifecycle, so a reset remounts its content. Views are plain data: a stream
+ * store and a block store produce the same shapes.
+ */
 export type MdxStreamView =
-  | Readonly<{ kind: "streaming"; generation: number; snapshot: MdxStreamSnapshot }>
+  | Readonly<{
+      kind: "streaming";
+      generation: number;
+      preview: MdxPreview;
+      diagnostics: readonly Diagnostic[];
+      /** The limit the source exceeds; the preview then keeps the last valid blocks. */
+      limit: ParserLimit | undefined;
+    }>
   | Readonly<{
       kind: "complete";
       generation: number;
-      completion: SuccessfulCompletion;
       html: HtmlRootNode;
+      /** The stream blocks the document came from, so renderers keep their identities. */
+      blocks: readonly CompletedBlock[];
       diagnostics: readonly Diagnostic[];
     }>
   | Readonly<{
       kind: "failed";
       generation: number;
       /** The last preview, which stays editable. */
-      snapshot: MdxStreamSnapshot;
-      completion: FailedCompletion;
+      preview: MdxPreview;
+      diagnostics: readonly Diagnostic[];
     }>;
-
-/** Text chunks from a response, a readable stream, or an async iterable. */
-export type MdxTextSource =
-  | Response
-  | ReadableStream<string | Uint8Array>
-  | AsyncIterable<string | Uint8Array>;
-
-export interface MdxConsumeOptions {
-  readonly signal?: AbortSignal;
-}
 
 /** Owns one stream session and publishes immutable views to React. */
 export class MdxStreamStore {
@@ -64,13 +74,15 @@ export class MdxStreamStore {
   #stream: MdxStream;
   #options: MdxStreamStoreOptions;
   #processor: Processor;
+  #source = "";
   #view: MdxStreamView;
 
   public constructor(options: MdxStreamStoreOptions = {}) {
     this.#options = options;
     this.#stream = new MdxStream(options);
     this.#processor = completionProcessor(options);
-    this.#view = this.view(0, this.#stream.snapshot());
+    this.#source = options.source ?? "";
+    this.#view = streamingView(0, this.preview());
   }
 
   public readonly getSnapshot = (): MdxStreamView => this.#view;
@@ -83,14 +95,16 @@ export class MdxStreamStore {
 
   public readonly append = (text: string): MdxStreamSnapshot => {
     const snapshot = this.#stream.append(text);
-    this.publishSnapshot(snapshot);
+    this.#source = snapshot.file.text;
+    this.publishPreview(snapshot);
 
     return snapshot;
   };
 
   public readonly edit = (edit: MdxEdit): MdxStreamSnapshot => {
     const snapshot = this.#stream.edit(edit);
-    this.publishSnapshot(snapshot);
+    this.#source = snapshot.file.text;
+    this.publishPreview(snapshot);
 
     return snapshot;
   };
@@ -99,11 +113,40 @@ export class MdxStreamStore {
   public readonly complete = (): MdxStreamCompletion => {
     const completion = this.#stream.complete();
 
-    if (this.#view.kind === "complete" && this.#view.completion === completion) {
+    if (this.#view.kind === "complete") {
       return completion;
     }
 
-    this.publish(this.view(this.#view.generation, completion));
+    const generation = this.#view.generation;
+
+    if (completion.kind !== "ok") {
+      this.publish(
+        Object.freeze({
+          kind: "failed",
+          generation,
+          preview: this.preview(),
+          diagnostics: completion.diagnostics,
+        }),
+      );
+
+      return completion;
+    }
+
+    const processed = this.#processor.processSync(completion);
+
+    if (processed.kind !== "ok") {
+      throw new Error("A successful stream completion failed to process");
+    }
+
+    this.publish(
+      Object.freeze({
+        kind: "complete",
+        generation,
+        html: processed.html,
+        blocks: completion.blocks,
+        diagnostics: processed.diagnostics,
+      }),
+    );
 
     return completion;
   };
@@ -114,7 +157,8 @@ export class MdxStreamStore {
     this.#options = next;
     this.#stream = new MdxStream(next);
     this.#processor = completionProcessor(next);
-    this.publish(this.view(this.#view.generation + 1, this.#stream.snapshot()));
+    this.#source = next.source ?? "";
+    this.publish(streamingView(this.#view.generation + 1, this.preview()));
   };
 
   /**
@@ -126,48 +170,37 @@ export class MdxStreamStore {
     source: MdxTextSource,
     options: MdxConsumeOptions = {},
   ): Promise<MdxStreamCompletion> => {
-    const { signal } = options;
-    signal?.throwIfAborted();
+    options.signal?.throwIfAborted();
     const generation = this.#view.generation;
-    const schedule = this.#options.schedule ?? scheduleFrame;
-    let buffer = "";
-    let scheduled = false;
 
-    const flush = (): void => {
-      scheduled = false;
-
-      if (buffer.length > 0 && this.#view.generation === generation) {
-        const text = buffer;
-        buffer = "";
-        this.append(text);
-      }
-    };
-
-    for await (const chunk of textChunks(source, signal)) {
-      if (this.#view.generation !== generation) {
-        throw new DOMException("The MDX stream was reset", "AbortError");
-      }
-
-      buffer += chunk;
-
-      if (!scheduled) {
-        scheduled = true;
-        schedule(flush);
-      }
-    }
-
-    flush();
+    await consumeBatched(
+      textChunks(source, options.signal),
+      (chunks) => this.append(chunks.join("")),
+      this.#options.schedule ?? scheduleFrame,
+      () => this.#view.generation === generation,
+    );
 
     return this.complete();
   };
 
-  /** Moves the session to `source`, appending when it only grew. */
-  public setSource(source: string, status: "streaming" | "complete"): void {
-    const previous = this.#stream.snapshot().file.text;
+  /**
+   * Moves the session to `source`, appending when it only grew. With
+   * `appendOnly`, a longer source is trusted to extend the previous one, which
+   * skips comparing the shared prefix.
+   */
+  public setSource(
+    source: string,
+    status: "streaming" | "complete",
+    options: Readonly<{ appendOnly?: boolean }> = {},
+  ): void {
+    const previous = this.#source;
 
     if (this.#view.kind === "complete" && (source !== previous || status === "streaming")) {
       this.reset({ ...this.#options, source });
-    } else if (source.startsWith(previous)) {
+    } else if (
+      source.length >= previous.length &&
+      (options.appendOnly === true || source.startsWith(previous))
+    ) {
       if (source.length > previous.length) {
         this.append(source.slice(previous.length));
       }
@@ -180,49 +213,20 @@ export class MdxStreamStore {
     }
   }
 
-  private publishSnapshot(snapshot: MdxStreamSnapshot): void {
-    if (this.#view.kind !== "streaming" || this.#view.snapshot !== snapshot) {
-      this.publish(this.view(this.#view.generation, snapshot));
-    }
-  }
+  private preview(): MdxStreamSnapshot {
+    const snapshot = this.#stream.snapshot();
 
-  private view(generation: number, value: MdxStreamSnapshot | MdxStreamCompletion): MdxStreamView {
-    if (value.kind === "preview") {
-      return Object.freeze({ kind: "streaming", generation, snapshot: value });
-    }
-
-    if (value.kind !== "ok") {
-      const snapshot = this.#stream.snapshot();
-
-      return Object.freeze({
-        kind: "failed",
-        generation,
-        snapshot: snapshot.kind === "preview" ? snapshot : this.previousSnapshot(),
-        completion: value,
-      });
-    }
-
-    const processed = this.#processor.processSync(value);
-
-    if (processed.kind !== "ok") {
-      throw new Error("A successful stream completion failed to process");
-    }
-
-    return Object.freeze({
-      kind: "complete",
-      generation,
-      completion: value,
-      html: processed.html,
-      diagnostics: processed.diagnostics,
-    });
-  }
-
-  private previousSnapshot(): MdxStreamSnapshot {
-    if (this.#view.kind === "complete") {
+    if (snapshot.kind !== "preview") {
       throw new Error("A completed stream has no preview");
     }
 
-    return this.#view.snapshot;
+    return snapshot;
+  }
+
+  private publishPreview(snapshot: MdxStreamSnapshot): void {
+    if (this.#view.kind === "complete" || this.#view.preview !== snapshot) {
+      this.publish(streamingView(this.#view.generation, snapshot));
+    }
   }
 
   private publish(view: MdxStreamView): void {
@@ -234,6 +238,16 @@ export class MdxStreamStore {
   }
 }
 
+function streamingView(generation: number, snapshot: MdxStreamSnapshot): MdxStreamView {
+  return Object.freeze({
+    kind: "streaming",
+    generation,
+    preview: snapshot,
+    diagnostics: snapshot.diagnostics,
+    limit: snapshot.limit,
+  });
+}
+
 function completionProcessor(options: MdxStreamStoreOptions): Processor {
   return new Processor({
     syntax: options.syntax,
@@ -241,93 +255,4 @@ function completionProcessor(options: MdxStreamStoreOptions): Processor {
     html: options.html,
     htmlPlugins: options.htmlPlugins,
   });
-}
-
-function scheduleFrame(flush: () => void): void {
-  if ("requestAnimationFrame" in globalThis) {
-    requestAnimationFrame(flush);
-  } else {
-    queueMicrotask(flush);
-  }
-}
-
-async function* textChunks(
-  source: MdxTextSource,
-  signal: AbortSignal | undefined,
-): AsyncGenerator<string> {
-  const decoder = new TextDecoder();
-  const body = source instanceof Response ? source.body : source;
-
-  if (body === null) {
-    return;
-  }
-
-  const iterator = "getReader" in body ? readableIterator(body) : body[Symbol.asyncIterator]();
-  const abort = (): void => void iterator.return?.();
-  signal?.addEventListener("abort", abort, { once: true });
-
-  try {
-    for (let result = await iterator.next(); !result.done; result = await iterator.next()) {
-      signal?.throwIfAborted();
-      const value = result.value;
-      yield isString(value) ? value : decoder.decode(value, { stream: true });
-    }
-
-    signal?.throwIfAborted();
-    const tail = decoder.decode();
-
-    if (tail.length > 0) {
-      yield tail;
-    }
-  } finally {
-    signal?.removeEventListener("abort", abort);
-    await iterator.return?.();
-  }
-}
-
-function readableIterator(
-  stream: ReadableStream<string | Uint8Array>,
-): AsyncIterator<string | Uint8Array> {
-  const reader = stream.getReader();
-  let released = false;
-
-  return {
-    next: async () => {
-      const result = await reader.read();
-
-      return result.done ? { done: true, value: undefined } : result;
-    },
-    return: async () => {
-      if (!released) {
-        released = true;
-        await reader.cancel();
-        reader.releaseLock();
-      }
-
-      return { done: true, value: undefined };
-    },
-  };
-}
-
-function sourceEdit(previous: string, next: string): MdxEdit {
-  let start = 0;
-  const length = Math.min(previous.length, next.length);
-
-  while (start < length && previous[start] === next[start]) {
-    start++;
-  }
-
-  let previousEnd = previous.length;
-  let nextEnd = next.length;
-
-  while (
-    previousEnd > start &&
-    nextEnd > start &&
-    previous[previousEnd - 1] === next[nextEnd - 1]
-  ) {
-    previousEnd--;
-    nextEnd--;
-  }
-
-  return { start, end: previousEnd, text: next.slice(start, nextEnd) };
 }

@@ -232,7 +232,7 @@ function messageSpan(
   if (
     startPoint.offset < 0 ||
     endPoint.offset < startPoint.offset ||
-    endPoint.offset > file.text.length
+    endPoint.offset > file.length
   ) {
     return undefined;
   }

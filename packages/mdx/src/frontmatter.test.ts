@@ -5,11 +5,11 @@ import {
   documentFrontmatter,
   formatHtml,
   formatMdx,
-  FrontmatterTemporal,
   lowerHtml,
   MdxStream,
   parse,
   type FrontmatterNode,
+  type FrontmatterTemporal,
   type FrontmatterObject,
   type FrontmatterValue,
 } from "./mod.ts";
@@ -136,14 +136,22 @@ describe("frontmatter", () => {
     expect(data?.nan).toBeNaN();
     expect(data?.positive).toBe(Infinity);
     expect(data?.negative).toBe(-Infinity);
-    expect(data?.offset).toEqual(
-      new FrontmatterTemporal("offset-date-time", "1979-05-27T07:32:00.000-08:00"),
-    );
-    expect(data?.local_datetime).toEqual(
-      new FrontmatterTemporal("local-date-time", "1979-05-27T07:32:00.000"),
-    );
-    expect(data?.local_date).toEqual(new FrontmatterTemporal("local-date", "1979-05-27"));
-    expect(data?.local_time).toEqual(new FrontmatterTemporal("local-time", "07:32:00.000"));
+    expect(data?.offset).toEqual({
+      kind: "temporal",
+      type: "offset-date-time",
+      value: "1979-05-27T07:32:00.000-08:00",
+    });
+    expect(data?.local_datetime).toEqual({
+      kind: "temporal",
+      type: "local-date-time",
+      value: "1979-05-27T07:32:00.000",
+    });
+    expect(data?.local_date).toEqual({ kind: "temporal", type: "local-date", value: "1979-05-27" });
+    expect(data?.local_time).toEqual({
+      kind: "temporal",
+      type: "local-time",
+      value: "07:32:00.000",
+    });
   });
 
   it("rejects non-mapping roots, duplicate keys, and invalid syntax without dropping nodes", () => {

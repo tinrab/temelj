@@ -1,38 +1,37 @@
-import { isString } from "@temelj/value";
-
 import type {
   BlockQuoteNode,
   CodeBlockNode,
-  ContainerDirectiveNode,
   DefinitionNode,
-  DirectiveAttribute,
-  DirectiveLabelNode,
-  DisplayMathNode,
   FootnoteDefinitionNode,
   FootnoteReferenceNode,
   HeadingNode,
   ImageNode,
   ImageReferenceNode,
-  InlineMathNode,
-  JsxAttribute,
-  JsxAttributeLike,
-  JsxFlowElementNode,
-  JsxTextElementNode,
-  LeafDirectiveNode,
   LinkNode,
   LinkReferenceNode,
   ListItemNode,
   ListNode,
   MdxNode,
   ParagraphNode,
-  TableCellNode,
-  TableNode,
-  TableRowNode,
-  TextDirectiveNode,
 } from "./model.ts";
-import type { SyntaxOptions } from "./syntax-options.ts";
 
-import { InputError } from "./errors.ts";
+import { encodeNumericCharacterReference } from "./character-reference.ts";
+import {
+  indentLines,
+  longestRun,
+  rootInfo,
+  type FormatContext,
+  type FormatInfo,
+  type FormatOptions,
+} from "./format-context.ts";
+import {
+  formatContainerDirective,
+  formatDirective,
+  formatDirectiveLabel,
+  containsDirective,
+} from "./format-directive.ts";
+import { formatJsxFlowElement, formatJsxTextElement, indentExpression } from "./format-jsx.ts";
+import { formatDisplayMath, formatInlineMath, mathFormats } from "./format-math.ts";
 import {
   unsafePatterns,
   compileUnsafePattern,
@@ -42,7 +41,8 @@ import {
   type FormatSafetyState,
   type FormatUnsafePattern,
 } from "./format-safe.ts";
-import { createFormatTracker, type FormatTrackInfo } from "./format-track.ts";
+import { formatTable, formatTableCell, formatTableRow } from "./format-table.ts";
+import { createFormatTracker } from "./format-track.ts";
 import { normalizeIdentifier } from "./identifier.ts";
 import { mdxChildren } from "./model.ts";
 import {
@@ -51,52 +51,18 @@ import {
   type MathFormat,
   type ResolvedSyntaxOptions,
 } from "./syntax-options.ts";
-import { encodeNumericCharacterReference } from "./utility.ts";
-
-interface FormatInfo extends FormatTrackInfo {
-  readonly after: string;
-  readonly before: string;
-}
-
-const rootInfo: FormatInfo = {
-  after: "\n",
-  before: "\n",
-  lineShift: 0,
-  now: { line: 1, column: 1 },
-};
-
-export interface FormatOptions {
-  readonly bullet?: "*" | "+" | "-";
-  readonly bulletOrdered?: "." | ")";
-  readonly closeAtx?: boolean;
-  readonly emphasis?: "*" | "_";
-  readonly fence?: "`" | "~";
-  readonly footnoteFirstLineBlank?: boolean;
-  readonly incrementListMarker?: boolean;
-  readonly listItemIndent?: "mixed" | "one" | "tab";
-  readonly quote?: '"' | "'";
-  readonly rule?: "*" | "-" | "_";
-  readonly ruleRepetition?: number;
-  readonly ruleSpaces?: boolean;
-  readonly strong?: "*" | "_";
-  readonly syntax?: SyntaxOptions;
-  readonly tightDefinitions?: boolean;
-  readonly tableCellPadding?: boolean;
-  readonly tablePipeAlign?: boolean;
-  readonly tableStringLength?: (value: string) => number;
-}
 
 /** Formats a node as canonical MDX for the enabled syntax. */
 export function formatMdx(node: MdxNode, options: FormatOptions = {}): string {
   return new Formatter(options, containsDirective(node), mathFormats(node)).format(node, rootInfo);
 }
 
-class Formatter implements FormatSafetyState {
+class Formatter implements FormatSafetyState, FormatContext {
   public readonly stack: FormatConstruct[] = [];
   public readonly unsafe: readonly FormatUnsafePattern[];
   private readonly compiledPatterns = new Map<FormatUnsafePattern, RegExp>();
-  private readonly options: FormatOptions;
-  private readonly syntax: ResolvedSyntaxOptions;
+  public readonly options: FormatOptions;
+  public readonly syntax: ResolvedSyntaxOptions;
   private bulletLastUsed: "*" | "+" | "-" | "." | ")" | undefined;
 
   public constructor(
@@ -176,11 +142,11 @@ class Formatter implements FormatSafetyState {
       case "listItem":
         return this.flow(node.children, info, node.spread);
       case "table":
-        return this.table(node, info);
+        return formatTable(this, node, info);
       case "tableRow":
-        return this.tableRow(node, info);
+        return formatTableRow(this, node, info);
       case "tableCell":
-        return this.tableCell(node, info);
+        return formatTableCell(this, node, info);
       case "definition":
         return this.definition(node, info);
       case "footnoteDefinition":
@@ -188,15 +154,15 @@ class Formatter implements FormatSafetyState {
       case "frontmatter":
         return `${frontmatterFence(node.format)}${node.value.length === 0 ? "" : `\n${node.value}`}\n${frontmatterFence(node.format)}`;
       case "directiveLabel":
-        return this.directiveLabel(node, info);
+        return formatDirectiveLabel(this, node, info);
       case "textDirective":
-        return this.directive(node, info, ":");
+        return formatDirective(this, node, info, ":");
       case "leafDirective":
-        return this.directive(node, info, "::");
+        return formatDirective(this, node, info, "::");
       case "containerDirective":
-        return this.containerDirective(node, info);
+        return formatContainerDirective(this, node, info);
       case "displayMath":
-        return this.displayMath(node, info);
+        return formatDisplayMath(this, node, info);
       case "rawHtmlBlock":
       case "rawHtmlInline":
         return node.value;
@@ -223,7 +189,7 @@ class Formatter implements FormatSafetyState {
           ? formatInlineCode(node.value).replaceAll("|", "\\|")
           : formatInlineCode(node.value);
       case "inlineMath":
-        return this.inlineMath(node);
+        return formatInlineMath(this, node);
       case "hardBreak":
         return "\\\n";
       case "link":
@@ -242,9 +208,9 @@ class Formatter implements FormatSafetyState {
       case "esm":
         return node.code;
       case "jsxTextElement":
-        return this.jsxTextElement(node, info);
+        return formatJsxTextElement(this, node, info);
       case "jsxFlowElement":
-        return this.jsxFlowElement(node, info);
+        return formatJsxFlowElement(this, node, info);
       default: {
         const exhaustive: never = node;
 
@@ -253,7 +219,7 @@ class Formatter implements FormatSafetyState {
     }
   }
 
-  private flow(nodes: readonly MdxNode[], info: FormatInfo, spread?: boolean): string {
+  public flow(nodes: readonly MdxNode[], info: FormatInfo, spread?: boolean): string {
     const tracker = createFormatTracker(info);
     const output: string[] = [];
 
@@ -302,74 +268,7 @@ class Formatter implements FormatSafetyState {
     return value;
   }
 
-  private jsxAttribute(node: JsxAttribute): string {
-    if (node.value === undefined) {
-      return node.name;
-    }
-
-    if (!isString(node.value)) {
-      return `${node.name}={${indentExpression(node.value.code)}}`;
-    }
-
-    const quote = this.options.quote ?? '"';
-
-    return `${node.name}=${quote}${escapeJsxAttribute(node.value, quote)}${quote}`;
-  }
-
-  private jsxTextElement(node: JsxTextElementNode, info: FormatInfo): string {
-    const opening = this.jsxOpening(node.name, node.attributes, node.children.length === 0);
-
-    if (node.name !== undefined && node.children.length === 0) {
-      return opening;
-    }
-
-    const exit = this.enter("phrasing");
-    const body = this.phrasing(node.children, { ...info, after: "<", before: ">" });
-    exit();
-
-    return `${opening}${body}</${node.name ?? ""}>`;
-  }
-
-  private jsxFlowElement(node: JsxFlowElementNode, info: FormatInfo): string {
-    const opening = this.jsxOpening(node.name, node.attributes, node.children.length === 0);
-
-    if (node.name !== undefined && node.children.length === 0) {
-      return opening;
-    }
-
-    if (node.children.length === 0) {
-      return `${opening}</>`;
-    }
-
-    const body = indentLines(
-      this.flow(node.children, { ...info, after: "\n", before: "\n" }),
-      (line, blank) => (blank ? "" : `  ${line}`),
-    );
-
-    return `${opening}\n${body}\n</${node.name ?? ""}>`;
-  }
-
-  private jsxOpening(
-    name: string | undefined,
-    attributes: readonly JsxAttributeLike[],
-    empty: boolean,
-  ): string {
-    if (name === undefined && attributes.length > 0) {
-      throw new Error("A JSX fragment cannot have attributes");
-    }
-
-    const values = attributes.map((attribute) =>
-      attribute.kind === "jsxAttribute"
-        ? this.jsxAttribute(attribute)
-        : `{...${indentExpression(attribute.code)}}`,
-    );
-
-    const suffix = name !== undefined && empty ? " />" : ">";
-
-    return `<${name ?? ""}${values.length === 0 ? "" : ` ${values.join(" ")}`}${suffix}`;
-  }
-
-  private phrasing(nodes: readonly MdxNode[], info: FormatInfo): string {
+  public phrasing(nodes: readonly MdxNode[], info: FormatInfo): string {
     let tracker = createFormatTracker(info);
     const output: string[] = [];
     let before = info.before;
@@ -609,68 +508,6 @@ class Formatter implements FormatSafetyState {
     return value;
   }
 
-  private table(node: TableNode, info: FormatInfo): string {
-    const columns = node.alignments.length;
-
-    if (columns === 0) {
-      return "";
-    }
-
-    const exit = this.enter("table");
-
-    const matrix = node.children.map((row) =>
-      Array.from({ length: columns }, (_, index) =>
-        row.children[index] === undefined ? "" : this.tableCell(row.children[index], info),
-      ),
-    );
-
-    if (matrix.length === 0) {
-      matrix.push(Array.from({ length: columns }, () => ""));
-    }
-
-    const measure = this.options.tableStringLength ?? ((value: string): number => value.length);
-    const alignPipes = this.options.tablePipeAlign !== false;
-
-    const widths = Array.from({ length: columns }, (_, column) => {
-      const content = alignPipes ? Math.max(...matrix.map((row) => measure(row[column] ?? ""))) : 0;
-
-      return Math.max(3, content);
-    });
-
-    const delimiter = node.alignments.map((alignment, column) =>
-      tableDelimiter(alignment, widths[column]),
-    );
-
-    const rows = [matrix[0], delimiter, ...matrix.slice(1)].map((row) =>
-      serializeTableRow(row, widths, this.options.tableCellPadding !== false, measure),
-    );
-
-    exit();
-
-    return rows.join("\n");
-  }
-
-  private tableRow(node: TableRowNode, info: FormatInfo): string {
-    const values = node.children.map((cell) => this.tableCell(cell, info));
-
-    return serializeTableRow(
-      values,
-      values.map((value) => Math.max(3, value.length)),
-      this.options.tableCellPadding !== false,
-      (value) => value.length,
-    );
-  }
-
-  private tableCell(node: TableCellNode, info: FormatInfo): string {
-    const exitCell = this.enter("tableCell");
-    const exitPhrasing = this.enter("phrasing");
-    const value = this.phrasing(node.children, { ...info, after: "|", before: "|" });
-    exitPhrasing();
-    exitCell();
-
-    return value;
-  }
-
   private definition(node: DefinitionNode, info: FormatInfo): string {
     const exit = this.enter("definition");
     const tracker = createFormatTracker(info);
@@ -729,195 +566,6 @@ class Formatter implements FormatSafetyState {
     exit();
 
     return value;
-  }
-
-  private directive(
-    node: TextDirectiveNode | LeafDirectiveNode,
-    info: FormatInfo,
-    sequence: ":" | "::",
-  ): string {
-    const exit = this.enter(node.kind);
-    const tracker = createFormatTracker(info);
-    let value = tracker.move(`${sequence}${node.name}`);
-
-    if (node.label !== undefined) {
-      value += tracker.move(
-        this.directiveLabel(node.label, {
-          after: "{",
-          before: value,
-          ...tracker.current(),
-        }),
-      );
-    }
-
-    value += tracker.move(formatDirectiveAttributes(node.attributes, this.options));
-    exit();
-
-    return value;
-  }
-
-  private containerDirective(node: ContainerDirectiveNode, info: FormatInfo): string {
-    const exit = this.enter("containerDirective");
-    const tracker = createFormatTracker(info);
-    const sequence = ":".repeat(containerDirectiveFenceSize(node));
-    let value = tracker.move(`${sequence}${node.name}`);
-
-    if (node.label !== undefined) {
-      value += tracker.move(
-        this.directiveLabel(node.label, {
-          after: "{",
-          before: value,
-          ...tracker.current(),
-        }),
-      );
-    }
-
-    value += tracker.move(formatDirectiveAttributes(node.attributes, this.options));
-
-    if (node.children.length > 0) {
-      value += tracker.move("\n");
-      value += tracker.move(
-        this.flow(node.children, {
-          after: "\n",
-          before: "\n",
-          ...tracker.current(),
-        }),
-      );
-    }
-
-    value += tracker.move(`\n${sequence}`);
-    exit();
-
-    return value;
-  }
-
-  private directiveLabel(node: DirectiveLabelNode, info: FormatInfo): string {
-    const exit = this.enter("directiveLabel");
-    const exitLabel = this.enter("label");
-    const tracker = createFormatTracker(info);
-    const opening = tracker.move("[");
-
-    const content = tracker.move(
-      this.phrasing(node.children, {
-        after: "]",
-        before: opening,
-        ...tracker.current(),
-      }),
-    );
-
-    exitLabel();
-    exit();
-
-    return `${opening}${content}]`;
-  }
-
-  private displayMath(node: DisplayMathNode, info: FormatInfo): string {
-    if (node.format === "tex") {
-      if (node.meta !== undefined) {
-        InputError.mathMetadataUnsupported();
-      }
-
-      if (node.value.includes("\\]")) {
-        InputError.mathDelimiterCollision("displayMath", "\\]");
-      }
-
-      const exit = this.enter("mathFlow");
-      const tracker = createFormatTracker(info);
-      let value = tracker.move("\\[");
-      value += tracker.move("\n");
-
-      if (node.value.length > 0) {
-        value += tracker.move(`${node.value}\n`);
-      }
-
-      value += tracker.move("\\]");
-      exit();
-
-      return value;
-    }
-
-    const sequence = "$".repeat(Math.max(2, longestRun(node.value, "$") + 1));
-    const exit = this.enter("mathFlow");
-    const tracker = createFormatTracker(info);
-    let value = tracker.move(sequence);
-
-    if (node.meta !== undefined && node.meta.length > 0) {
-      const exitMeta = this.enter("mathFlowMeta");
-      value += tracker.move(
-        this.safe(node.meta, {
-          after: "\n",
-          before: value,
-          encode: ["$"],
-          ...tracker.current(),
-        }),
-      );
-      exitMeta();
-    }
-
-    value += tracker.move("\n");
-
-    if (node.value.length > 0) {
-      value += tracker.move(`${node.value}\n`);
-    }
-
-    value += tracker.move(sequence);
-    exit();
-
-    return value;
-  }
-
-  private inlineMath(node: InlineMathNode): string {
-    if (node.format === "tex") {
-      if (node.value.includes("\\)")) {
-        InputError.mathDelimiterCollision("inlineMath", "\\)");
-      }
-
-      return `\\(${node.value}\\)`;
-    }
-
-    let value = node.value;
-    let size = 1;
-
-    while (new RegExp(`(^|[^$])${"\\$".repeat(size)}([^$]|$)`, "u").test(value)) {
-      size++;
-    }
-
-    const sequence = "$".repeat(size);
-
-    if (
-      /[^ \r\n]/u.test(value) &&
-      ((/^[ \r\n]/u.test(value) && /[ \r\n]$/u.test(value)) || /^\$|\$$/u.test(value))
-    ) {
-      value = ` ${value} `;
-    }
-
-    for (const pattern of this.unsafe) {
-      if (pattern.atBreak !== true) {
-        continue;
-      }
-
-      const expression = this.compilePattern(pattern);
-      expression.lastIndex = 0;
-      let match = expression.exec(value);
-
-      while (match !== null) {
-        let position = match.index;
-
-        if (value.charCodeAt(position) === 10 && value.charCodeAt(position - 1) === 13) {
-          position--;
-        }
-
-        value = `${value.slice(0, position)} ${value.slice(match.index + 1)}`;
-        expression.lastIndex = 0;
-        match = expression.exec(value);
-      }
-    }
-
-    const exit = this.enter("inlineMath");
-    const result = `${sequence}${value}${sequence}`;
-    exit();
-
-    return result;
   }
 
   private attention(
@@ -1073,49 +721,17 @@ class Formatter implements FormatSafetyState {
     return result;
   }
 
-  private safe(value: string, info: FormatSafeInfo): string {
+  public safe(value: string, info: FormatSafeInfo): string {
     return safeSource(this, value, info);
   }
 
-  private enter(construct: FormatConstruct): () => void {
+  public enter(construct: FormatConstruct): () => void {
     this.stack.push(construct);
 
     return (): void => {
       this.stack.pop();
     };
   }
-}
-
-function tableDelimiter(alignment: TableNode["alignments"][number], width: number): string {
-  if (alignment === "center") {
-    return `:${"-".repeat(Math.max(1, width - 2))}:`;
-  }
-
-  if (alignment === "left") {
-    return `:${"-".repeat(Math.max(2, width - 1))}`;
-  }
-
-  if (alignment === "right") {
-    return `${"-".repeat(Math.max(2, width - 1))}:`;
-  }
-
-  return "-".repeat(width);
-}
-
-function serializeTableRow(
-  values: readonly string[],
-  widths: readonly number[],
-  padding: boolean,
-  measure: (value: string) => number,
-): string {
-  const cells = widths.map((width, index) => {
-    const value = values[index] ?? "";
-    const tail = " ".repeat(Math.max(0, width - measure(value)));
-
-    return padding ? ` ${value}${tail} ` : `${value}${tail}`;
-  });
-
-  return `|${cells.join("|")}|`;
 }
 
 function peek(node: MdxNode, options: FormatOptions): string {
@@ -1153,138 +769,6 @@ function peek(node: MdxNode, options: FormatOptions): string {
   }
 }
 
-function indentExpression(value: string): string {
-  return value.replace(/\r\n?|\n/gu, (ending) => `${ending}  `);
-}
-
-function escapeJsxAttribute(value: string, quote: '"' | "'"): string {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(quote, quote === '"' ? "&quot;" : "&#x27;");
-}
-
-function containsDirective(node: MdxNode): boolean {
-  return (
-    node.kind === "textDirective" ||
-    node.kind === "leafDirective" ||
-    node.kind === "containerDirective" ||
-    mdxChildren(node).some(containsDirective)
-  );
-}
-
-function mathFormats(node: MdxNode): ReadonlySet<MathFormat> {
-  const formats = new Set<MathFormat>();
-  collectMathFormats(node, formats);
-
-  return formats;
-}
-
-function collectMathFormats(node: MdxNode, formats: Set<MathFormat>): void {
-  if (node.kind === "inlineMath" || node.kind === "displayMath") {
-    formats.add(node.format);
-  }
-
-  for (const child of mdxChildren(node)) {
-    collectMathFormats(child, formats);
-  }
-}
-
-function containerDirectiveFenceSize(node: ContainerDirectiveNode): number {
-  let nested = 0;
-
-  const visit = (child: MdxNode): void => {
-    if (child.kind === "containerDirective") {
-      nested = Math.max(nested, containerDirectiveFenceSize(child) - 2);
-    } else {
-      mdxChildren(child).forEach(visit);
-    }
-  };
-
-  node.children.forEach(visit);
-
-  return 3 + nested;
-}
-
-function formatDirectiveAttributes(
-  entries: readonly DirectiveAttribute[],
-  options: FormatOptions,
-): string {
-  if (entries.length === 0) {
-    return "";
-  }
-
-  const shortcut = /^[^\t\n\r "#'.<=>`}]+$/u;
-  const values: string[] = [];
-  let id: string | undefined;
-  const classes: string[] = [];
-  const fullClasses: string[] = [];
-
-  for (const entry of entries) {
-    if (entry.name === "id" && shortcut.test(entry.value)) {
-      id = `#${entry.value}`;
-    } else if (entry.name === "class") {
-      for (const className of entry.value.split(/[\t\n\r ]+/u)) {
-        if (className.length === 0) {
-          continue;
-        }
-
-        if (shortcut.test(className)) {
-          classes.push(className);
-        } else {
-          fullClasses.push(className);
-        }
-      }
-    } else {
-      values.push(formatDirectiveAttribute(entry.name, entry.value, options));
-    }
-  }
-
-  if (fullClasses.length > 0) {
-    values.unshift(formatDirectiveAttribute("class", fullClasses.join(" "), options));
-  }
-
-  if (classes.length > 0) {
-    values.unshift(`.${classes.join(".")}`);
-  }
-
-  if (id !== undefined) {
-    values.unshift(id);
-  }
-
-  return `{${values.join(" ")}}`;
-}
-
-function formatDirectiveAttribute(name: string, value: string, options: FormatOptions): string {
-  if (value.length === 0) {
-    return name;
-  }
-
-  const quote = options.quote ?? '"';
-
-  const encoded = value.replace(/[&\r\n"']/gu, (character) => {
-    if (character === "&") {
-      return "&amp;";
-    }
-
-    if (character === "\r") {
-      return "&#xD;";
-    }
-
-    if (character === "\n") {
-      return "&#xA;";
-    }
-
-    if (character === quote) {
-      return quote === '"' ? "&quot;" : "&#x27;";
-    }
-
-    return character;
-  });
-
-  return `${name}=${quote}${encoded}${quote}`;
-}
-
 function formatInlineCode(input: string): string {
   const value = input.replace(/\r\n?|\n/gu, " ");
   let sequence = "`";
@@ -1300,18 +784,6 @@ function formatInlineCode(input: string): string {
       : value;
 
   return `${sequence}${padded}${sequence}`;
-}
-
-function longestRun(value: string, marker: string): number {
-  let longest = 0;
-  let current = 0;
-
-  for (const character of value) {
-    current = character === marker ? current + 1 : 0;
-    longest = Math.max(longest, current);
-  }
-
-  return longest;
 }
 
 function alternateListMarker(marker: "*" | "+" | "-" | "." | ")"): "*" | "-" | "." | ")" {
@@ -1358,14 +830,4 @@ function formatAssociationIdentifier(value: string): string {
 
 function escapeRegularExpression(value: string): string {
   return value.replace(/[|\\{}()[\]^$+*?.]/gu, "\\$&");
-}
-
-function indentLines(
-  value: string,
-  map: (line: string, blank: boolean, index: number) => string,
-): string {
-  return value
-    .split(/\r\n?|\n/gu)
-    .map((line, index) => map(line, line.length === 0, index))
-    .join("\n");
 }

@@ -1,8 +1,9 @@
+import type { SourceText } from "../source-text.ts";
 import type { PhysicalLine } from "../source.ts";
 import type { ContainerFrame } from "./block-syntax.ts";
 
 import { normalizeIdentifier } from "../identifier.ts";
-import { consumeIndent, findUnescaped, isAsciiDigit, isBlank, isSpaceOrTab } from "../utility.ts";
+import { consumeIndent, findUnescaped, isAsciiDigit, isBlank, isSpaceOrTab } from "./characters.ts";
 
 export interface QuoteMarker {
   readonly markerStart: number;
@@ -11,18 +12,18 @@ export interface QuoteMarker {
 }
 
 export function blockQuoteMarker(
-  source: string,
+  source: SourceText,
   end: number,
   start: number,
 ): QuoteMarker | undefined {
   const indent = consumeIndent(source, start, end, 3);
 
-  if (source[indent.offset] !== ">") {
+  if (source.char(indent.offset) !== ">") {
     return;
   }
 
   const markerEnd = indent.offset + 1;
-  const contentStart = isSpaceOrTab(source[markerEnd]) ? markerEnd + 1 : markerEnd;
+  const contentStart = isSpaceOrTab(source.char(markerEnd)) ? markerEnd + 1 : markerEnd;
 
   return { markerStart: start, markerEnd, contentStart };
 }
@@ -35,7 +36,7 @@ export interface FootnoteMarker {
 }
 
 export function footnoteMarker(
-  source: string,
+  source: SourceText,
   end: number,
   start: number,
 ): FootnoteMarker | undefined {
@@ -49,14 +50,14 @@ export function footnoteMarker(
 
   const labelEnd = findUnescaped(source, "]", labelStart + 2, end);
 
-  if (labelEnd === undefined || source[labelEnd + 1] !== ":" || labelEnd === labelStart + 2) {
+  if (labelEnd === undefined || source.char(labelEnd + 1) !== ":" || labelEnd === labelStart + 2) {
     return;
   }
 
   const markerEnd = labelEnd + 2;
   let contentStart = markerEnd;
 
-  while (contentStart < end && isSpaceOrTab(source[contentStart])) {
+  while (contentStart < end && isSpaceOrTab(source.char(contentStart))) {
     contentStart++;
   }
 
@@ -79,14 +80,14 @@ export interface ListMarker {
 }
 
 export function listMarker(
-  source: string,
+  source: SourceText,
   end: number,
   start: number,
   interruptingParagraph = false,
 ): ListMarker | undefined {
   const indent = consumeIndent(source, start, end, 3);
   let offset = indent.offset;
-  const first = source[offset];
+  const first = source.char(offset);
   let markerCharacter: ListMarker["markerCharacter"];
   let ordered = false;
   let listStart: number | undefined;
@@ -97,11 +98,11 @@ export function listMarker(
   } else {
     const numberStart = offset;
 
-    while (offset < end && offset - numberStart < 9 && isAsciiDigit(source[offset])) {
+    while (offset < end && offset - numberStart < 9 && isAsciiDigit(source.char(offset))) {
       offset++;
     }
 
-    const delimiter = source[offset];
+    const delimiter = source.char(offset);
 
     if (offset === numberStart || (delimiter !== "." && delimiter !== ")")) {
       return;
@@ -118,7 +119,7 @@ export function listMarker(
     offset++;
   }
 
-  if (offset < end && !isSpaceOrTab(source[offset])) {
+  if (offset < end && !isSpaceOrTab(source.char(offset))) {
     return;
   }
 
@@ -150,7 +151,7 @@ export function listMarker(
 }
 
 export function isSiblingListItem(
-  source: string,
+  source: SourceText,
   line: PhysicalLine,
   frame: Extract<ContainerFrame, { kind: "listItem" }>,
 ): boolean {
@@ -170,7 +171,7 @@ export interface TaskMarker {
 }
 
 export function taskListMarker(
-  source: string,
+  source: SourceText,
   line: PhysicalLine,
   containers: readonly ContainerFrame[],
   continuingParagraph: boolean,
@@ -193,7 +194,7 @@ export function taskListMarker(
     return;
   }
 
-  const after = source[start + 3];
+  const after = source.char(start + 3);
 
   if (start + 3 < line.content.end && !isSpaceOrTab(after)) {
     return;
@@ -201,7 +202,7 @@ export function taskListMarker(
 
   let contentStart = start + 3;
 
-  while (contentStart < line.content.end && isSpaceOrTab(source[contentStart])) {
+  while (contentStart < line.content.end && isSpaceOrTab(source.char(contentStart))) {
     contentStart++;
   }
 

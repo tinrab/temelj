@@ -1,5 +1,6 @@
 import { isFunction } from "@temelj/value";
 
+import type { FootnoteOccurrence } from "./footnote-numbering.ts";
 import type {
   HtmlAttributes,
   HtmlElementNode,
@@ -7,13 +8,16 @@ import type {
   HtmlNode,
   HtmlRootNode,
   HtmlTextNode,
+  HtmlUnresolvedReferenceNode,
 } from "./html.ts";
 import type {
   ContainerDirectiveNode,
   DirectiveAttribute,
-  DocumentIndex,
+  DefinitionNode,
   DocumentNode,
+  FootnoteDefinitionNode,
   FootnoteReferenceNode,
+  ImageReferenceNode,
   LeafDirectiveNode,
   LinkReferenceNode,
   ListItemNode,
@@ -27,10 +31,10 @@ import type {
 } from "./model.ts";
 import type { SourceFile } from "./source.ts";
 
+import { FootnoteNumbering } from "./footnote-numbering.ts";
 import { formatMdx } from "./format.ts";
 import { indexDocument, mdxChildren } from "./model.ts";
-import { normalizeUri } from "./uri.ts";
-import { isUrlControlCharacter } from "./utility.ts";
+import { isUrlControlCharacter, normalizeUri } from "./uri.ts";
 
 export interface HtmlRenderOptions {
   readonly allowUnsafeUrls?: boolean;
@@ -53,33 +57,56 @@ export interface HtmlRenderOptions {
   ) => string | undefined;
 }
 
-interface FootnoteReferenceInfo {
-  readonly index: number;
-  readonly reuse: number;
-}
-
 /**
  * Lowered HTML by node identity, separately for tight and loose list context. A
- * cache is valid while definitions and footnote numbering are unchanged.
+ * cache is valid while link definitions are unchanged. Subtrees that depend on
+ * footnote numbering or a replacement are never cached.
  */
 export interface HtmlLoweringCache {
   readonly loose: WeakMap<MdxNode, LoweredHtml>;
   readonly tight: WeakMap<MdxNode, LoweredHtml>;
+  /** A growing list's lowered children, by the item they end with. */
+  readonly lists: WeakMap<ListItemNode, ListPrefix>;
+}
+
+/** The wrapped children of a list's first `index + 1` items. */
+interface ListPrefix {
+  readonly index: number;
+  readonly loose: boolean;
+  readonly spread: boolean;
+  readonly tasks: boolean;
+  readonly children: SequencePrefix;
+}
+
+export function createHtmlLoweringCache(): HtmlLoweringCache {
+  return { loose: new WeakMap(), tight: new WeakMap(), lists: new WeakMap() };
+}
+
+/**
+ * What lowering resolves against. Batch lowering derives a scope from one
+ * document; a stream assembles one from its settled blocks and open tail.
+ */
+export interface LoweringScope {
+  readonly definition: (identifier: string) => DefinitionNode | undefined;
+  readonly footnote: (identifier: string) => FootnoteDefinitionNode | undefined;
+  readonly options: HtmlRenderOptions;
+  /** The numbering of a reference to a defined footnote. */
+  readonly occurrence: (node: FootnoteReferenceNode) => FootnoteOccurrence | undefined;
+  /** Missing references lower to `unresolvedReference` nodes instead of authored text. */
+  readonly provisional?: boolean;
+  readonly cache?: HtmlLoweringCache;
+  /** Lowers one node differently, such as the open leaf of a stream. */
+  readonly replace?: (node: MdxNode) => readonly HtmlNode[] | undefined;
 }
 
 interface HtmlLoweringContext {
-  readonly cache: HtmlLoweringCache | undefined;
-  readonly index: DocumentIndex;
-  readonly footnoteReference: (node: FootnoteReferenceNode) => HtmlNode;
+  readonly scope: LoweringScope;
   readonly listLoose: boolean;
-  readonly options: HtmlRenderOptions;
+  /** Counts lowered nodes whose output must not be cached. */
+  readonly volatile: { count: number };
 }
 
 type LoweredHtml = HtmlNode | readonly HtmlNode[] | undefined;
-
-export function createHtmlLoweringCache(): HtmlLoweringCache {
-  return { loose: new WeakMap(), tight: new WeakMap() };
-}
 
 const percentEncodedByteLength = 2;
 
@@ -92,111 +119,83 @@ const linkSchemes = new Set(["http", "https", "irc", "ircs", "mailto", "xmpp"]);
 const imageSchemes = new Set(["http", "https"]);
 
 export function lowerHtml(document: DocumentNode, options: HtmlRenderOptions = {}): HtmlRootNode {
-  const renderer = createBlockHtmlRenderer(document, options);
-  const children = renderer.render(document.children);
-  const footnotes = renderer.footnotes();
+  const index = indexDocument(document);
+  const numbering = new FootnoteNumbering();
+  const occurrences = new Map<FootnoteReferenceNode, FootnoteOccurrence>();
+
+  for (const reference of footnoteReferences(document)) {
+    if (index.footnotes.has(reference.identifier)) {
+      occurrences.set(reference, numbering.reference(reference.identifier));
+    }
+  }
+
+  const scope: LoweringScope = {
+    definition: (identifier) => index.definitions.get(identifier),
+    footnote: (identifier) => index.footnotes.get(identifier),
+    options,
+    occurrence: (node) => occurrences.get(node),
+  };
+
+  const children = lowerNodes(document.children, scope);
+  const footnotes = lowerFootnoteSection(numbering, scope);
 
   if (footnotes !== undefined) {
     children.push(footnotes);
   }
 
-  return { kind: "root", children: wrap(children, false), origin: document.origin };
+  return { kind: "root", children: joinBlocks(children), origin: document.origin };
 }
 
-export interface BlockHtmlRenderer {
-  readonly render: (nodes: readonly MdxNode[]) => HtmlNode[];
-  readonly footnotes: () => HtmlFootnoteSectionNode | undefined;
-  readonly referenceContext: (ranges: readonly SourceRange[]) => string;
+/**
+ * Lowers sibling nodes in one scope. `previous` is the sibling before them,
+ * because text after a hard break drops its leading spaces.
+ */
+export function lowerNodes(
+  nodes: readonly MdxNode[],
+  scope: LoweringScope,
+  previous?: MdxNode,
+): HtmlNode[] {
+  return lowerChildren(nodes, { scope, listLoose: false, volatile: { count: 0 } }, previous);
 }
 
-/** Shares one document-wide footnote layout across separately rendered blocks. */
-export function createBlockHtmlRenderer(
-  document: DocumentNode,
-  options: HtmlRenderOptions = {},
-  referenceNodes: readonly FootnoteReferenceNode[] = footnoteReferences(document),
-  cache?: HtmlLoweringCache,
-): BlockHtmlRenderer {
-  const index = indexDocument(document);
-  const order: string[] = [];
-  const indexes = new Map<string, number>();
-  const counts = new Map<string, number>();
-  const references = new Map<FootnoteReferenceNode, FootnoteReferenceInfo>();
-  const referencesByRange = new Map<string, FootnoteReferenceInfo>();
-
-  for (const reference of referenceNodes) {
-    if (!index.footnotes.has(reference.identifier)) {
-      continue;
-    }
-
-    let position = indexes.get(reference.identifier);
-
-    if (position === undefined) {
-      order.push(reference.identifier);
-      position = order.length - 1;
-      indexes.set(reference.identifier, position);
-    }
-
-    const reuse = (counts.get(reference.identifier) ?? 0) + 1;
-    counts.set(reference.identifier, reuse);
-    const info = { index: position, reuse };
-    references.set(reference, info);
-
-    if (reference.origin !== undefined) {
-      referencesByRange.set(rangeKey(reference.origin), info);
-    }
-  }
-
-  const context: HtmlLoweringContext = {
-    cache,
-    index,
-    footnoteReference: (reference) =>
-      lowerFootnoteReference(
-        reference,
-        references.get(reference) ??
-          (reference.origin === undefined
-            ? undefined
-            : referencesByRange.get(rangeKey(reference.origin))),
-        options,
-      ),
-    listLoose: false,
-    options,
-  };
-
-  return {
-    render: (nodes) => lowerChildren(nodes, context),
-    footnotes: () => lowerFootnoteSection(order, counts, context),
-    referenceContext: (ranges) =>
-      JSON.stringify(ranges.map((range) => referencesByRange.get(rangeKey(range)))),
-  };
+/** Separates top-level blocks with line endings, like a document root. */
+export function joinBlocks(nodes: readonly HtmlNode[]): HtmlNode[] {
+  return wrap(nodes, false);
 }
 
-function footnoteReferences(document: DocumentNode): FootnoteReferenceNode[] {
+/** Footnote reference nodes in document order. */
+export function footnoteReferences(node: MdxNode): FootnoteReferenceNode[] {
   const result: FootnoteReferenceNode[] = [];
 
-  const visit = (node: MdxNode): void => {
-    if (node.kind === "footnoteReference") {
-      result.push(node);
+  const visit = (current: MdxNode): void => {
+    if (current.kind === "footnoteReference") {
+      result.push(current);
     }
 
-    mdxChildren(node).forEach(visit);
+    mdxChildren(current).forEach(visit);
   };
 
-  visit(document);
+  visit(node);
 
   return result;
 }
 
-function rangeKey(range: SourceRange): string {
-  return `${range.start}:${range.end}`;
-}
-
 function lowerHtmlNode(node: MdxNode, context: HtmlLoweringContext): LoweredHtml {
-  const cache = context.listLoose ? context.cache?.loose : context.cache?.tight;
+  const replaced = context.scope.replace?.(node);
+
+  if (replaced !== undefined) {
+    context.volatile.count++;
+
+    return replaced;
+  }
+
+  const cache = context.listLoose ? context.scope.cache?.loose : context.scope.cache?.tight;
 
   if (cache?.has(node) === true) {
     return cache.get(node);
   }
 
+  const volatile = context.volatile.count;
   const lowered = lowerHtmlNodeCore(node, context);
 
   const result =
@@ -206,7 +205,9 @@ function lowerHtmlNode(node: MdxNode, context: HtmlLoweringContext): LoweredHtml
         ? lowered.map((item) => withOrigin(item, node.origin))
         : withOrigin(lowered, node.origin);
 
-  cache?.set(node, result);
+  if (context.volatile.count === volatile) {
+    cache?.set(node, result);
+  }
 
   return result;
 }
@@ -221,7 +222,7 @@ function withOrigin(node: HtmlNode, origin: SourceRange | undefined): HtmlNode {
 
 /** Authored source when the file is known, otherwise canonical MDX. */
 function authored(node: MdxNode, context: HtmlLoweringContext): string {
-  const source = context.options.source;
+  const source = context.scope.options.source;
 
   return source !== undefined && node.origin !== undefined
     ? source.slice(node.origin)
@@ -251,25 +252,44 @@ function lowerHtmlNodeCore(node: MdxNode, context: HtmlLoweringContext): Lowered
     case "link":
       return lowerLink(node.url, node.title, node.children, context);
     case "linkReference": {
-      const definition = context.index.definitions.get(node.identifier);
+      const definition = context.scope.definition(node.identifier);
 
-      return definition === undefined
-        ? revertReference(node, context)
-        : lowerLink(definition.url, definition.title, node.children, context);
+      if (definition !== undefined) {
+        return lowerLink(definition.url, definition.title, node.children, context);
+      }
+
+      return context.scope.provisional === true
+        ? unresolvedReference("link", node, lowerChildren(node.children, context), context)
+        : revertReference(node, context);
     }
 
     case "image":
       return lowerImage(node.url, node.alt, node.title, context);
     case "imageReference": {
-      const definition = context.index.definitions.get(node.identifier);
+      const definition = context.scope.definition(node.identifier);
 
-      return definition === undefined
-        ? text(formatMdx(node))
-        : lowerImage(definition.url, node.alt, definition.title, context);
+      if (definition !== undefined) {
+        return lowerImage(definition.url, node.alt, definition.title, context);
+      }
+
+      return context.scope.provisional === true
+        ? unresolvedReference("image", node, [text(node.alt)], context)
+        : text(formatMdx(node));
     }
 
-    case "footnoteReference":
-      return context.footnoteReference(node);
+    case "footnoteReference": {
+      context.volatile.count++;
+      const occurrence = context.scope.occurrence(node);
+
+      if (occurrence !== undefined) {
+        return lowerFootnoteReference(node, occurrence, context.scope.options);
+      }
+
+      return context.scope.provisional === true
+        ? unresolvedReference("footnote", node, [], context)
+        : text(formatMdx(node));
+    }
+
     case "definition":
     case "footnoteDefinition":
     case "frontmatter":
@@ -289,7 +309,10 @@ function lowerHtmlNodeCore(node: MdxNode, context: HtmlLoweringContext): Lowered
     case "jsxFlowElement":
       return {
         kind: "jsx",
-        node,
+        state: "complete",
+        element: node.kind === "jsxFlowElement" ? "flow" : "text",
+        name: node.name,
+        attributes: node.attributes,
         fallback: authored(node, context),
         children: lowerChildren(node.children, context),
       };
@@ -414,24 +437,35 @@ function directiveHtmlAttributes(
       };
 }
 
+function unresolvedReference(
+  reference: HtmlUnresolvedReferenceNode["reference"],
+  node: LinkReferenceNode | ImageReferenceNode | FootnoteReferenceNode,
+  children: readonly HtmlNode[],
+  context: HtmlLoweringContext,
+): HtmlUnresolvedReferenceNode {
+  return {
+    kind: "unresolvedReference",
+    reference,
+    identifier: node.identifier,
+    source: authored(node, context),
+    children,
+  };
+}
+
 function lowerFootnoteReference(
   node: FootnoteReferenceNode,
-  info: FootnoteReferenceInfo | undefined,
+  occurrence: FootnoteOccurrence,
   options: HtmlRenderOptions,
 ): HtmlNode {
-  if (info === undefined) {
-    return text(formatMdx(node));
-  }
-
   const prefix = options.clobberPrefix ?? "user-content-";
   const identifier = normalizeUri(node.identifier.toLowerCase());
-  const suffix = info.reuse > 1 ? `-${info.reuse}` : "";
+  const suffix = occurrence.occurrence > 1 ? `-${occurrence.occurrence}` : "";
 
   return {
     kind: "footnoteReference",
     identifier: node.identifier,
-    occurrence: info.reuse,
-    ordinal: info.index + 1,
+    occurrence: occurrence.occurrence,
+    ordinal: occurrence.ordinal,
     children: [
       element(
         "a",
@@ -441,27 +475,30 @@ function lowerFootnoteReference(
           "data-footnote-ref": "",
           "aria-describedby": "footnote-label",
         },
-        [text(String(info.index + 1))],
+        [text(String(occurrence.ordinal))],
       ),
     ],
   };
 }
 
-function lowerFootnoteSection(
-  order: readonly string[],
-  counts: ReadonlyMap<string, number>,
-  context: HtmlLoweringContext,
+/** The generated section for the numbered footnotes, or `undefined` when none is referenced. */
+export function lowerFootnoteSection(
+  numbering: FootnoteNumbering,
+  scope: LoweringScope,
 ): HtmlFootnoteSectionNode | undefined {
+  const order = numbering.order;
+
   if (order.length === 0) {
     return undefined;
   }
 
-  const prefix = context.options.clobberPrefix ?? "user-content-";
+  const context: HtmlLoweringContext = { scope, listLoose: false, volatile: { count: 0 } };
+  const prefix = scope.options.clobberPrefix ?? "user-content-";
   const items: HtmlElementNode[] = [];
 
   for (let index = 0; index < order.length; index++) {
     const identifier = order[index];
-    const definition = context.index.footnotes.get(identifier);
+    const definition = scope.footnote(identifier);
 
     if (definition === undefined) {
       continue;
@@ -473,9 +510,9 @@ function lowerFootnoteSection(
     const backreferences = footnoteBackreferences(
       safeIdentifier,
       index,
-      counts.get(identifier) ?? 1,
+      numbering.count(identifier),
       prefix,
-      context.options,
+      scope.options,
     );
 
     const tail = blocks.at(-1);
@@ -501,14 +538,14 @@ function lowerFootnoteSection(
   }
 
   const heading = element(
-    context.options.footnoteLabelTagName ?? "h2",
+    scope.options.footnoteLabelTagName ?? "h2",
     { id: "footnote-label", class: ["sr-only"] },
-    [text(context.options.footnoteLabel ?? "Footnotes")],
+    [text(scope.options.footnoteLabel ?? "Footnotes")],
   );
 
   return {
     kind: "footnoteSection",
-    identifiers: order,
+    identifiers: [...order],
     children: wrap([heading, element("ol", {}, wrap(items, true))], true),
   };
 }
@@ -605,7 +642,7 @@ function lowerLink(
   children: readonly MdxNode[],
   context: HtmlLoweringContext,
 ): HtmlElementNode {
-  const href = resolveUrl(url, "link", context.options);
+  const href = resolveUrl(url, "link", context.scope.options);
 
   const attributes: HtmlAttributes =
     href === undefined ? {} : title === undefined ? { href } : { href, title };
@@ -619,7 +656,7 @@ function lowerImage(
   title: string | undefined,
   context: HtmlLoweringContext,
 ): HtmlNode {
-  const src = resolveUrl(source, "image", context.options);
+  const src = resolveUrl(source, "image", context.scope.options);
 
   if (src === undefined) {
     return text(alt);
@@ -628,21 +665,157 @@ function lowerImage(
   return element("img", title === undefined ? { src, alt } : { src, alt, title });
 }
 
+/**
+ * A list wraps its items in line endings. A growing list reuses the wrapped
+ * children of its unchanged leading items, so an append lowers only new items.
+ * Stream previews build long children from fixed fragments, so extending them
+ * copies only the fragment list; strict output stays flat.
+ */
 function lowerList(node: ListNode, context: HtmlLoweringContext): HtmlElementNode {
-  const loose = node.spread || node.children.some((item) => item.spread);
+  const items = node.children;
+  const prefix = listPrefix(items, context.scope.cache);
+  const rest = items.slice((prefix?.index ?? -1) + 1);
+  const spread = (prefix?.spread ?? false) || rest.some((item) => item.spread);
+  const loose = node.spread || spread;
+  const tasks = (prefix?.tasks ?? false) || rest.some((item) => item.checked !== undefined);
+  const reused = prefix !== undefined && prefix.loose === loose ? prefix : undefined;
   const itemContext: HtmlLoweringContext = { ...context, listLoose: loose };
-  const items = node.children.flatMap((item) => lowerHtmlNode(item, itemContext) ?? []);
+  const children = new ChildSequence(context.scope.provisional === true, reused?.children);
+
+  if (reused === undefined) {
+    children.push(newline);
+  }
+
+  let stable = true;
+  let spreadSoFar = reused?.spread ?? false;
+  let tasksSoFar = reused?.tasks ?? false;
+
+  for (let index = (reused?.index ?? -1) + 1; index < items.length; index++) {
+    spreadSoFar ||= items[index].spread;
+    tasksSoFar ||= items[index].checked !== undefined;
+    const volatile = context.volatile.count;
+    const lowered = lowerHtmlNode(items[index], itemContext);
+
+    for (const item of lowered === undefined
+      ? []
+      : isHtmlNodeArray(lowered)
+        ? lowered
+        : [lowered]) {
+      if (children.size > 1) {
+        children.push(newline);
+      }
+
+      children.push(item);
+    }
+
+    stable &&= context.volatile.count === volatile;
+
+    // The last items can still close differently, so prefixes ending a few items back are kept.
+    if (stable && index >= items.length - prefixWindow) {
+      context.scope.cache?.lists.set(items[index], {
+        index,
+        loose,
+        spread: spreadSoFar,
+        tasks: tasksSoFar,
+        children: children.prefix(),
+      });
+    }
+  }
+
   const attributes: Record<string, number | readonly string[]> = {};
 
   if (node.ordered && node.start !== 1) {
     attributes.start = node.start;
   }
 
-  if (node.children.some((item) => item.checked !== undefined)) {
+  if (tasks) {
     attributes.class = ["contains-task-list"];
   }
 
-  return element(node.ordered ? "ol" : "ul", attributes, wrap(items, true));
+  if (children.size > 1) {
+    children.push(newline);
+  }
+
+  return element(node.ordered ? "ol" : "ul", attributes, children.toArray());
+}
+
+/**
+ * How far back a list prefix can end. The parser closes an item only when the
+ * next line completes, so the last two items are rebuilt by each tail draft.
+ */
+const prefixWindow = 8;
+
+/** Children of a long sequence in fragments of this many nodes. */
+const fragmentSize = 64;
+
+/** A prefix of a child sequence: full fragments, then the nodes after them. */
+interface SequencePrefix {
+  readonly fragments: readonly HtmlRootNode[];
+  readonly rest: readonly HtmlNode[];
+  readonly size: number;
+}
+
+/**
+ * Children that grow at the end. With fragments, full groups of nodes become
+ * frozen fragments that later prefixes share, so copying a prefix costs only
+ * the fragment list and the partial group.
+ */
+class ChildSequence {
+  readonly #fragmented: boolean;
+  readonly #fragments: HtmlRootNode[];
+  #rest: HtmlNode[];
+  #size: number;
+
+  public constructor(fragmented: boolean, prefix?: SequencePrefix) {
+    this.#fragmented = fragmented;
+    this.#fragments = prefix === undefined ? [] : [...prefix.fragments];
+    this.#rest = prefix === undefined ? [] : [...prefix.rest];
+    this.#size = prefix?.size ?? 0;
+  }
+
+  public get size(): number {
+    return this.#size;
+  }
+
+  public push(node: HtmlNode): void {
+    this.#rest.push(node);
+    this.#size++;
+
+    if (this.#fragmented && this.#rest.length === fragmentSize) {
+      this.#fragments.push(Object.freeze({ kind: "root", children: this.#rest }));
+      this.#rest = [];
+    }
+  }
+
+  public prefix(): SequencePrefix {
+    return { fragments: [...this.#fragments], rest: [...this.#rest], size: this.#size };
+  }
+
+  /** A short sequence stays flat, so fragments appear only where they save copying. */
+  public toArray(): HtmlNode[] {
+    if (this.#fragments.length < 2) {
+      return [...this.#fragments.flatMap((fragment) => fragment.children), ...this.#rest];
+    }
+
+    return [...this.#fragments, ...this.#rest];
+  }
+}
+
+/** The longest cached prefix of `items`, found from the end. */
+function listPrefix(
+  items: readonly ListItemNode[],
+  cache: HtmlLoweringCache | undefined,
+): ListPrefix | undefined {
+  for (let index = items.length - 1; index >= Math.max(0, items.length - prefixWindow); index--) {
+    const item = items[index];
+    const prefix = item === undefined ? undefined : cache?.lists.get(item);
+
+    if (prefix?.index === index) {
+      return prefix;
+    }
+  }
+
+  return undefined;
 }
 
 function lowerListItem(node: ListItemNode, context: HtmlLoweringContext): HtmlElementNode {
@@ -736,7 +909,11 @@ function revertReference(
   return result;
 }
 
-function lowerChildren(children: readonly MdxNode[], context: HtmlLoweringContext): HtmlNode[] {
+function lowerChildren(
+  children: readonly MdxNode[],
+  context: HtmlLoweringContext,
+  previous?: MdxNode,
+): HtmlNode[] {
   const values: HtmlNode[] = [];
 
   for (let index = 0; index < children.length; index++) {
@@ -748,8 +925,9 @@ function lowerChildren(children: readonly MdxNode[], context: HtmlLoweringContex
     }
 
     const additions = isHtmlNodeArray(lowered) ? [...lowered] : [lowered];
+    const before = index === 0 ? previous : children[index - 1];
 
-    if (children[index - 1]?.kind === "hardBreak" && additions.length > 0) {
+    if (before?.kind === "hardBreak" && additions.length > 0) {
       additions[0] = trimSpaceStart(additions[0]);
     }
 
@@ -801,23 +979,26 @@ function trimSpaceStart(node: HtmlNode): HtmlNode {
   return node;
 }
 
+/** Line endings between blocks. Trees are immutable, so every separator shares one node. */
+const newline: HtmlTextNode = Object.freeze({ kind: "text", value: "\n" });
+
 function wrap(nodes: readonly HtmlNode[], loose: boolean): HtmlNode[] {
   const result: HtmlNode[] = [];
 
   if (loose) {
-    result.push(text("\n"));
+    result.push(newline);
   }
 
   nodes.forEach((node, index) => {
     if (index > 0) {
-      result.push(text("\n"));
+      result.push(newline);
     }
 
     result.push(node);
   });
 
   if (loose && nodes.length > 0) {
-    result.push(text("\n"));
+    result.push(newline);
   }
 
   return result;

@@ -1,4 +1,4 @@
-import type { HtmlNode, ParseOptions } from "@temelj/mdx";
+import type { CompiledComponents, HtmlNode, ParseOptions } from "@temelj/mdx";
 
 import { hasErrorDiagnostics, lowerHtml, parse } from "@temelj/mdx";
 import React from "react";
@@ -18,7 +18,7 @@ export interface HtmlContentProps {
 
 /** Renders lowered HTML. Hook-free, so it also runs in React Server Components. */
 export function HtmlContent({ tree, registry }: HtmlContentProps): React.ReactNode {
-  return renderHtmlNode(tree, registry, "root", false);
+  return renderHtmlNode(tree, registry, "root");
 }
 
 export interface SourceContentProps extends ParseOptions {
@@ -73,5 +73,20 @@ export function CompiledContent({
   registry?: MdxRegistry;
   props?: object;
 }>): React.ReactNode {
-  return React.createElement(module.default, { ...props, registry });
+  return React.createElement(module.default, {
+    ...props,
+    components: registry === undefined ? undefined : compiledComponents(registry),
+  });
+}
+
+/** Maps a registry to the components protocol that compiled content reads. */
+export function compiledComponents(registry: MdxRegistry): CompiledComponents<React.ElementType> {
+  return {
+    ...registry.html,
+    ...Object.fromEntries(
+      Object.entries(registry.jsx).map(([name, entry]) => [name, entry.component]),
+    ),
+    codeBlock: registry.markdown.codeBlock,
+    mathFormula: registry.math,
+  };
 }

@@ -205,30 +205,17 @@ export interface FrontmatterObject {
   readonly [key: string]: FrontmatterValue;
 }
 
-export type FrontmatterTemporalKind =
+export type FrontmatterTemporalType =
   | "offset-date-time"
   | "local-date-time"
   | "local-date"
   | "local-time";
 
-/** A TOML date or time. A class keeps it distinct from frontmatter objects. */
-export class FrontmatterTemporal {
-  public readonly kind: FrontmatterTemporalKind;
-  public readonly value: string;
-
-  public constructor(kind: FrontmatterTemporalKind, value: string) {
-    this.kind = kind;
-    this.value = value;
-    Object.freeze(this);
-  }
-
-  public toString(): string {
-    return this.value;
-  }
-
-  public toJSON(): string {
-    return this.value;
-  }
+/** A TOML date or time as an ISO 8601 string. */
+export interface FrontmatterTemporal {
+  readonly kind: "temporal";
+  readonly type: FrontmatterTemporalType;
+  readonly value: string;
 }
 
 export interface FrontmatterNode extends NodeBase<"frontmatter"> {
@@ -301,6 +288,57 @@ export type MdxNode =
 export type MdxKind = MdxNode["kind"];
 
 export type MdxNodeForKind<TKind extends MdxKind> = Extract<MdxNode, { readonly kind: TKind }>;
+
+/** Whether a node can appear where phrasing (inline) content is expected. */
+export function isPhrasingContent(node: MdxNode): node is PhrasingContent {
+  switch (node.kind) {
+    case "text":
+    case "emphasis":
+    case "strong":
+    case "delete":
+    case "inlineCode":
+    case "hardBreak":
+    case "link":
+    case "image":
+    case "linkReference":
+    case "imageReference":
+    case "rawHtmlInline":
+    case "footnoteReference":
+    case "textDirective":
+    case "inlineMath":
+    case "jsxTextElement":
+    case "inlineExpression":
+      return true;
+    default:
+      return false;
+  }
+}
+
+/** Whether a node can appear where flow (block) content is expected. */
+export function isFlowContent(node: MdxNode): node is FlowContent {
+  switch (node.kind) {
+    case "paragraph":
+    case "heading":
+    case "codeBlock":
+    case "thematicBreak":
+    case "blockquote":
+    case "list":
+    case "definition":
+    case "rawHtmlBlock":
+    case "footnoteDefinition":
+    case "frontmatter":
+    case "leafDirective":
+    case "containerDirective":
+    case "displayMath":
+    case "table":
+    case "blockExpression":
+    case "esm":
+    case "jsxFlowElement":
+      return true;
+    default:
+      return false;
+  }
+}
 
 /** Child nodes in document order, including a directive label before its body. */
 export function mdxChildren(node: MdxNode): readonly MdxNode[] {

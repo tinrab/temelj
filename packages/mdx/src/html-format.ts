@@ -2,9 +2,9 @@ import { isNumber } from "@temelj/value";
 
 import type { HtmlAttributes, HtmlAttributeValue, HtmlNode } from "./html.ts";
 
+import { encodeNumericCharacterReference } from "./character-reference.ts";
 import { InputError } from "./errors.ts";
-import { htmlFallback } from "./html.ts";
-import { encodeNumericCharacterReference } from "./utility.ts";
+import { htmlFallback, pendingFallback } from "./html.ts";
 
 export interface HtmlFormatOptions {
   readonly closeSelfClosing?: boolean;
@@ -92,6 +92,11 @@ class HtmlFormatter {
       case "footnoteReference":
       case "footnoteSection":
         return this.format(htmlFallback(node));
+      case "pending":
+      case "unresolvedReference":
+        return pendingFallback(node)
+          .map((child) => this.format(child))
+          .join("");
       default: {
         const exhaustive: never = node;
 

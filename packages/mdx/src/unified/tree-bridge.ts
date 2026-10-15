@@ -28,6 +28,7 @@ import type { SourceFile } from "../source.ts";
 import { isHeadingDepth, type HeadingDepth } from "../heading.ts";
 import { htmlChildren, htmlFallback, htmlText } from "../html.ts";
 import { normalizeIdentifier } from "../identifier.ts";
+import { isFlowContent, isPhrasingContent } from "../model.ts";
 
 interface UnistRecord {
   readonly type: string;
@@ -577,10 +578,12 @@ export class UnifiedTreeBridge {
         };
       case "jsx":
       case "expression":
+      case "pending":
+      case "unresolvedReference":
         // Rehype sees inert source text. The original node returns when the text is unchanged.
         return {
           type: "text",
-          value: node.fallback,
+          value: htmlText(node),
           data: { [unifiedDataKeys.htmlNode]: this.#owned.push(node) - 1 },
           ...base,
         };
@@ -727,7 +730,7 @@ export class UnifiedTreeBridge {
       !isNumber(end) ||
       start < 0 ||
       end < start ||
-      end > this.file.text.length
+      end > this.file.length
     ) {
       throw new UnifiedBoundaryError("A returned Unist position has invalid UTF-16 offsets");
     }
@@ -1024,7 +1027,7 @@ function jsxAttributes(value: unknown, bridge: UnifiedTreeBridge): JsxAttributeL
 }
 
 function phrasing(values: MdxNode[], parent: string): PhrasingContent[] {
-  if (!values.every(isPhrasing)) {
+  if (!values.every(isPhrasingContent)) {
     throw new UnifiedBoundaryError(`${parent} contains non-phrasing content`);
   }
 
@@ -1032,7 +1035,7 @@ function phrasing(values: MdxNode[], parent: string): PhrasingContent[] {
 }
 
 function flow(values: MdxNode[], parent: string): FlowContent[] {
-  if (!values.every(isFlow)) {
+  if (!values.every(isFlowContent)) {
     throw new UnifiedBoundaryError(`${parent} contains non-flow content`);
   }
 
@@ -1061,55 +1064,6 @@ function tableRows(values: MdxNode[], parent: string): TableRowNode[] {
   }
 
   return values;
-}
-
-function isPhrasing(node: MdxNode): node is PhrasingContent {
-  switch (node.kind) {
-    case "text":
-    case "emphasis":
-    case "strong":
-    case "delete":
-    case "inlineCode":
-    case "hardBreak":
-    case "link":
-    case "image":
-    case "linkReference":
-    case "imageReference":
-    case "rawHtmlInline":
-    case "footnoteReference":
-    case "textDirective":
-    case "inlineMath":
-    case "jsxTextElement":
-    case "inlineExpression":
-      return true;
-    default:
-      return false;
-  }
-}
-
-function isFlow(node: MdxNode): node is FlowContent {
-  switch (node.kind) {
-    case "paragraph":
-    case "heading":
-    case "codeBlock":
-    case "thematicBreak":
-    case "blockquote":
-    case "list":
-    case "definition":
-    case "rawHtmlBlock":
-    case "footnoteDefinition":
-    case "frontmatter":
-    case "leafDirective":
-    case "containerDirective":
-    case "displayMath":
-    case "table":
-    case "blockExpression":
-    case "esm":
-    case "jsxFlowElement":
-      return true;
-    default:
-      return false;
-  }
 }
 
 function isUnistNode(value: unknown): value is UnistRecord {

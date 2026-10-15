@@ -6,18 +6,18 @@ import type { Diagnostic } from "./diagnostics.ts";
 import type { HtmlRenderOptions } from "./html-lower.ts";
 import type { HtmlRootNode } from "./html.ts";
 import type { DocumentNode, FrontmatterObject, SourceRange } from "./model.ts";
-import type { MdxFailure, ParseOutcome, ParserLimit } from "./parser.ts";
+import type { MdxOutcome } from "./outcome.ts";
+import type { ParseOutcome, ParserLimit } from "./parser.ts";
 import type { SourceFile } from "./source.ts";
 
 import { analyzeDocument, type CompileAnalysis } from "./compile-analysis.ts";
 import { contentUsesAwait, emitContent } from "./compile-emit.ts";
 import { createDiagnostic, hasErrorDiagnostics } from "./diagnostics.ts";
 import { CompileError, ConfigurationError, MdxError } from "./errors.ts";
-import { toFunctionBody } from "./function-body.ts";
 import { lowerHtml } from "./html-lower.ts";
 import { javascriptPropertyName } from "./javascript-ast.ts";
 import { parseJavaScriptProgram } from "./javascript.ts";
-import { documentFrontmatter, FrontmatterTemporal } from "./model.ts";
+import { documentFrontmatter } from "./model.ts";
 import { CodeWriter, type SourceMap } from "./source-map.ts";
 
 const defaultMaximumGeneratedCodeBytes = 10 * 1024 * 1024;
@@ -45,6 +45,21 @@ export interface CompileOptions extends HtmlRenderOptions {
 }
 
 export type CompileOutputFormat = "functionBody" | "program";
+
+/**
+ * The components compiled content reads from `props.components`: element
+ * overrides by tag name, authored JSX components by name, and three reserved
+ * entries whose names cannot collide with either.
+ */
+export interface CompiledComponents<TComponent = unknown> {
+  readonly [name: string]: TComponent | undefined;
+  /** Receives `code`, `language`, `meta`, `node`, and `status`. Defaults to `<pre><code>`. */
+  readonly codeBlock?: TComponent;
+  /** Receives `source`, `style`, and `meta`. Defaults to a readable code fallback. */
+  readonly mathFormula?: TComponent;
+  /** Wraps the whole document and receives its props plus `children`. */
+  readonly wrapper?: TComponent;
+}
 
 export type MdxTransportValue =
   | null
@@ -79,16 +94,10 @@ export interface CompileSchemaOptions<TSchema extends Schema> extends CompileOpt
   readonly frontmatterSchema: TSchema;
 }
 
-export type CompileOutcome<TFrontmatter = FrontmatterObject> =
-  | Readonly<{
-      kind: "ok";
-      file: SourceFile;
-      document: DocumentNode;
-      artifact: CompileArtifact;
-      frontmatter: TFrontmatter;
-      diagnostics: readonly Diagnostic[];
-    }>
-  | MdxFailure<CompileLimit>;
+export type CompileOutcome<TFrontmatter = FrontmatterObject> = MdxOutcome<
+  { document: DocumentNode; artifact: CompileArtifact; frontmatter: TFrontmatter },
+  CompileLimit
+>;
 
 /** Emits JavaScript for a strict document. Throws for configuration errors and compiler limits. */
 function emitArtifact(
@@ -122,31 +131,28 @@ function emitArtifact(
     const analysis = analyzeDocument(document, content, options);
     const usesAwait = contentUsesAwait(content);
 
+    const format = options.outputFormat ?? "functionBody";
     const writer = new CodeWriter(options.source);
-    emitModulePreamble(writer, analysis, options);
+    emitModulePreamble(writer, analysis, options, format);
     emitContentFunction(writer, content, analysis, options, usesAwait);
-    emitPublicComponent(writer, analysis, options, usesAwait);
+    emitPublicComponent(writer, analysis, options, usesAwait, format);
 
     if (analysis.scope.missingReferences.size > 0) {
       emitMissingReferenceHelper(writer);
     }
 
-    const program = writer.toString();
+    if (format === "functionBody") {
+      writer.write(`return {${[...analysis.esm.exports, "default: Content"].join(", ")}};\n`);
+    }
 
-    const runtimeImportSource = `${options.jsxImportSource ?? "react"}/${
-      options.development ? "jsx-dev-runtime" : "jsx-runtime"
-    }`;
-
-    const functionBody =
-      options.outputFormat === "program" ? undefined : toFunctionBody(program, runtimeImportSource);
-
-    const code = functionBody?.code ?? program;
+    const code = writer.toString();
     enforceGeneratedCodeLimit(code, options.maximumGeneratedCodeBytes);
 
     try {
-      if (functionBody === undefined) {
-        parseJavaScriptProgram(code);
-      }
+      // The output is valid by construction; parsing it once guards that invariant.
+      parseJavaScriptProgram(
+        format === "program" ? code : `async function __evaluateMdx(){\n${code}\n}`,
+      );
     } catch (cause) {
       CompileError.generatedProgramInvalid(cause);
     }
@@ -154,13 +160,18 @@ function emitArtifact(
     const map = writer.sourceMap(analysis.scope.sourceName, options.outputName);
     enforceSourceMapLimit(map, options.maximumSourceMapBytes);
 
-    return functionBody === undefined
-      ? Object.freeze({ format: "program", code, map, frontmatter })
+    return format === "program"
+      ? Object.freeze({ format, code, map, frontmatter })
       : Object.freeze({
-          format: "functionBody",
+          format,
           code,
           map,
-          imports: functionBody.imports,
+          imports: Object.freeze(
+            options.providerImportSource === undefined ||
+              analysis.esm.imports.includes(options.providerImportSource)
+              ? [...analysis.esm.imports]
+              : [...analysis.esm.imports, options.providerImportSource],
+          ),
           frontmatter,
         });
   } catch (cause) {
@@ -327,13 +338,6 @@ function copyTransportValue(
     return Object.freeze({ kind: "transportable", value });
   }
 
-  if (value instanceof FrontmatterTemporal) {
-    return Object.freeze({
-      kind: "transportable",
-      value: Object.freeze({ kind: value.kind, value: value.value }),
-    });
-  }
-
   if (!isObject(value)) {
     return unsupportedTransport(
       `${path} contains unsupported ${Object.prototype.toString.call(value)}`,
@@ -450,25 +454,40 @@ function compilerLimit(error: CompileError): CompileLimit | undefined {
       : undefined;
 }
 
+/**
+ * Authored ESM, the JSX runtime, and the optional provider. A function body
+ * receives the runtime as `__mdxRuntime` and resolves imports through
+ * `__resolveMdxImport` instead of importing.
+ */
 function emitModulePreamble(
   writer: CodeWriter,
   analysis: CompileAnalysis,
   options: Readonly<CompileOptions>,
+  format: CompileOutputFormat,
 ): void {
-  for (const entry of analysis.esm) {
+  for (const entry of analysis.esm.blocks) {
     writer.write(`${entry.code.trimEnd()}\n`, entry.origin);
   }
 
-  const importSource = options.jsxImportSource ?? "react";
+  const runtime = analysis.scope.development
+    ? "{Fragment: _Fragment, jsxDEV: _jsxDEV}"
+    : "{Fragment: _Fragment, jsx: _jsx, jsxs: _jsxs}";
+
+  const importSource = `${options.jsxImportSource ?? "react"}/${
+    analysis.scope.development ? "jsx-dev-runtime" : "jsx-runtime"
+  }`;
+
   writer.write(
-    analysis.scope.development
-      ? `import {Fragment as _Fragment, jsxDEV as _jsxDEV} from ${JSON.stringify(`${importSource}/jsx-dev-runtime`)};\n`
-      : `import {Fragment as _Fragment, jsx as _jsx, jsxs as _jsxs} from ${JSON.stringify(`${importSource}/jsx-runtime`)};\n`,
+    format === "program"
+      ? `import ${runtime.replaceAll(": ", " as ")} from ${JSON.stringify(importSource)};\n`
+      : `const ${runtime} = __mdxRuntime;\n`,
   );
 
   if (options.providerImportSource !== undefined) {
     writer.write(
-      `import {useMDXComponents as _provideComponents} from ${JSON.stringify(options.providerImportSource)};\n`,
+      format === "program"
+        ? `import {useMDXComponents as _provideComponents} from ${JSON.stringify(options.providerImportSource)};\n`
+        : `const {useMDXComponents: _provideComponents} = await __resolveMdxImport(${JSON.stringify(options.providerImportSource)});\n`,
     );
   }
 }
@@ -496,15 +515,13 @@ function emitContentFunction(
   }
 
   writer.write(
-    `${tags.length === 0 && options.providerImportSource === undefined ? "" : ", "}...props.registry?.html};\n`,
+    `${tags.length === 0 && options.providerImportSource === undefined ? "" : ", "}...props.components};\n`,
   );
 
   const components = [...analysis.scope.referencedComponents].sort();
 
   for (const component of components) {
-    writer.write(
-      `  const ${component} = props.registry?.jsx?.[${JSON.stringify(component)}]?.component ?? _components[${JSON.stringify(component)}];\n`,
-    );
+    writer.write(`  const ${component} = _components[${JSON.stringify(component)}];\n`);
   }
 
   for (const [reference, component] of analysis.scope.missingReferences) {
@@ -523,11 +540,14 @@ function emitPublicComponent(
   analysis: CompileAnalysis,
   options: Readonly<CompileOptions>,
   usesAwait: boolean,
+  format: CompileOutputFormat,
 ): void {
-  writer.write(`export default ${usesAwait ? "async " : ""}function Content(props = {}) {\n`);
+  writer.write(
+    `${format === "program" ? "export default " : ""}${usesAwait ? "async " : ""}function Content(props = {}) {\n`,
+  );
   const content = `${usesAwait ? "await " : ""}_createContent(props)`;
 
-  if (analysis.hasInternalLayout) {
+  if (analysis.esm.hasLayout) {
     writer.write(
       `  return ${runtimeCall(analysis, "Layout", `{...props, children: ${content}}`)};\n`,
     );
@@ -538,7 +558,7 @@ function emitPublicComponent(
       writer.write("..._provideComponents(), ");
     }
 
-    writer.write("...props.registry?.html};\n");
+    writer.write("...props.components};\n");
     writer.write(
       `  return Layout ? ${runtimeCall(analysis, "Layout", `{...props, children: ${content}}`)} : ${content};\n`,
     );

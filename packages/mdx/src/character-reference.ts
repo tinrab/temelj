@@ -56,3 +56,7 @@ export function decodeSourceString(value: string): string {
     },
   );
 }
+
+export function encodeNumericCharacterReference(code: number): string {
+  return `&#x${code.toString(16).toUpperCase()};`;
+}

@@ -1,6 +1,6 @@
 import { isString } from "@temelj/value";
 
-import { encodeNumericCharacterReference } from "./utility.ts";
+import { encodeNumericCharacterReference } from "./character-reference.ts";
 
 export type FormatConstruct =
   | "autolink"

@@ -1,11 +1,19 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  applyBlockEvent,
+  blockEvent,
   formatHtml,
+  lowerHtml,
   MdxStream,
   parse,
-  lowerHtml,
-  renderStreamingHtml,
+  previewDocument,
+  streamBlockEvents,
+  SourceFile,
+  type HtmlNode,
+  type MdxBlockEvent,
+  type MdxPreview,
+  type MdxStreamChange,
   type MdxStreamSnapshot,
 } from "./mod.ts";
 import * as inlineParser from "./parser/inline-parser.ts";
@@ -21,6 +29,22 @@ function preview(source: string): MdxStreamSnapshot {
   return snapshot;
 }
 
+function html(snapshot: MdxPreview): string {
+  return formatHtml(previewDocument(snapshot));
+}
+
+function status(snapshot: MdxStreamSnapshot): string {
+  if (snapshot.limit !== undefined) {
+    return "limitExceeded";
+  }
+
+  return snapshot.blocks.some((block) => block.status === "invalid") ? "invalid" : "valid";
+}
+
+function blockHtml(nodes: readonly HtmlNode[]): string {
+  return formatHtml({ kind: "root", children: nodes });
+}
+
 describe("streaming regressions", () => {
   it.each(["**", "_", "~~"])("filters destinations inside pending %s", (marker) => {
     for (const target of [
@@ -33,7 +57,7 @@ describe("streaming regressions", () => {
         const source = `${marker}${image}[label](${target})`;
 
         for (let end = 1; end <= source.length; end++) {
-          expect(renderStreamingHtml(preview(source.slice(0, end)).document)).not.toMatch(
+          expect(html(preview(source.slice(0, end)))).not.toMatch(
             /(?:href|src)="(?:javascript|data)/iu,
           );
         }
@@ -49,40 +73,45 @@ describe("streaming regressions", () => {
       '<blockquote>\n<p>intro</p>\n<pre><code class="language-js">x</code></pre>\n</blockquote>',
     ],
   ])("preserves containers for %s", (source, expected) => {
-    expect(renderStreamingHtml(preview(source).document)).toBe(expected);
+    expect(html(preview(source))).toBe(expected);
   });
 
   it("publishes only committed JSX attributes", () => {
     const source = '<Alert title="Hello world" disabled >child words';
 
     for (let end = 1; end <= source.length; end++) {
-      const node = preview(source.slice(0, end)).document.children[0];
+      const node = preview(source.slice(0, end)).blocks[0]?.nodes[0];
 
       if (node?.kind !== "jsx") {
         continue;
       }
 
-      expect(node.name).toBe(end < 7 ? undefined : "Alert");
-      expect(node.attributes).not.toHaveProperty("world");
-      expect(node.attributes).not.toHaveProperty("words");
-      expect(node.attributes.title).toBe(end < 26 ? undefined : "Hello world");
-      expect(node.attributes.disabled).toBe(end < 37 ? undefined : true);
+      const attributes = Object.fromEntries(
+        node.attributes.flatMap((attribute) =>
+          attribute.kind === "jsxAttribute" ? [[attribute.name, attribute.value ?? true]] : [],
+        ),
+      );
+
+      expect(node.name).toBe("Alert");
+      expect(end).toBeGreaterThanOrEqual(7);
+      expect(attributes).not.toHaveProperty("world");
+      expect(attributes).not.toHaveProperty("words");
+      expect(attributes.title).toBe(end < 26 ? undefined : "Hello world");
+      expect(attributes.disabled).toBe(end < 37 ? undefined : true);
     }
   });
 
   it("updates footnote ordinals after an equal-length edit", () => {
     const stream = new MdxStream({ source: "AAAAAA\n\nSecond[^b].\n\n[^a]: Alpha\n\n[^b]: Bravo" });
     const updated = stream.edit({ start: 0, end: 6, text: "x[^a]." });
-    expect(renderStreamingHtml(updated.document)).toBe(
-      renderStreamingHtml(preview(updated.file.text).document),
-    );
+    expect(html(updated)).toBe(html(preview(updated.file.text)));
   });
 
   it("retains settled rendered blocks across appends", () => {
     const stream = new MdxStream();
     const before = stream.append("# Settled\n\nTail");
     const after = stream.append(".\n\nNext");
-    expect(after.blocks[0].document).toBe(before.blocks[0].document);
+    expect(after.blocks[0].nodes).toBe(before.blocks[0].nodes);
   });
 
   it("serializes void and boolean attributes consistently", () => {
@@ -94,7 +123,23 @@ describe("streaming regressions", () => {
       throw new Error("Expected valid fixture");
     }
 
-    expect(renderStreamingHtml(snapshot.document)).toBe(formatHtml(lowerHtml(parsed.document)));
+    expect(html(snapshot)).toBe(formatHtml(lowerHtml(parsed.document)));
+  });
+
+  it("renders open syntax as pending nodes and missing references as unresolved", () => {
+    const fence = preview("```ts\nconst a = 1;\nconst").blocks[0]?.nodes[0];
+    expect(fence).toMatchObject({ kind: "pending", construct: "fence", language: "ts" });
+    expect(fence?.kind === "pending" ? fence.children : []).toEqual([
+      { kind: "text", value: "const a = 1;\nconst" },
+    ]);
+
+    const reference = preview("See [guide][g] now").blocks[0]?.nodes[0];
+    expect(reference?.kind === "element" ? reference.children[1] : undefined).toMatchObject({
+      kind: "unresolvedReference",
+      reference: "link",
+      identifier: "G",
+      source: "[guide][g]",
+    });
   });
 });
 
@@ -102,20 +147,16 @@ describe("stream cache validity", () => {
   it("recovers from invalid edits without reusing stale source", () => {
     const stream = new MdxStream({ source: "old\n\nend" });
     const invalid = stream.edit({ start: 0, end: 8, text: "new\n\n<A></B>" });
-    expect(invalid.status).toBe("invalid");
+    expect(status(invalid)).toBe("invalid");
     const start = invalid.file.text.indexOf("B");
     const repaired = stream.edit({ start, end: start + 1, text: "A" });
-    expect(renderStreamingHtml(repaired.document)).toBe(
-      renderStreamingHtml(preview(repaired.file.text).document),
-    );
+    expect(html(repaired)).toBe(html(preview(repaired.file.text)));
   });
 
-  it("refreshes footnote ranges when an identical later definition wins", () => {
+  it("refreshes footnotes when an identical later definition wins", () => {
     const stream = new MdxStream({ source: "A[^x].\n\n[^x]: same\n\n[^x]: same\n\nend" });
-    const previous = stream.append("");
     const next = stream.edit({ start: 8, end: 13, text: "plain" });
-    expect(next.supplement).not.toBe(previous.supplement);
-    expect(next.supplement).toEqual(preview(next.file.text).supplement);
+    expect(next.footnotes).toEqual(preview(next.file.text).footnotes);
   });
 
   it("refreshes link definitions inside footnotes", () => {
@@ -123,20 +164,18 @@ describe("stream cache validity", () => {
     const stream = new MdxStream({ source });
     const start = source.indexOf("/old");
     const next = stream.edit({ start, end: start + 4, text: "/new" });
-    expect(renderStreamingHtml(next.document)).toBe(
-      renderStreamingHtml(preview(next.file.text).document),
-    );
+    expect(html(next)).toBe(html(preview(next.file.text)));
+    expect(html(next)).toContain('href="/new"');
   });
 
-  it("preserves authored JSX attribute values through completion", () => {
-    const node = preview('<A x="&copy;" ').document.children[0];
-    expect(node?.kind).toBe("jsx");
+  it("preserves authored JSX attribute values", () => {
+    const node = preview('<A x="&copy;" ').blocks[0]?.nodes[0];
 
-    if (node?.kind !== "jsx") {
-      throw new Error("Expected pending JSX");
-    }
-
-    expect(node.attributes).toEqual({ x: "&copy;" });
+    expect(node).toMatchObject({
+      kind: "jsx",
+      state: "pending",
+      attributes: [{ kind: "jsxAttribute", name: "x", value: "&copy;" }],
+    });
   });
 
   it.each([1, 3, 8, 32])("matches fresh snapshots with %i-character chunks and edits", (size) => {
@@ -147,9 +186,7 @@ describe("stream cache validity", () => {
 
     for (let offset = 0; offset < source.length; offset += size) {
       const snapshot = stream.append(source.slice(offset, offset + size));
-      expect(renderStreamingHtml(snapshot.document)).toBe(
-        renderStreamingHtml(preview(snapshot.file.text).document),
-      );
+      expect(html(snapshot)).toBe(html(preview(snapshot.file.text)));
     }
 
     for (const edit of [
@@ -158,81 +195,224 @@ describe("stream cache validity", () => {
       { start: 0, end: 7, text: "" },
     ]) {
       const snapshot = stream.edit(edit);
-      expect(renderStreamingHtml(snapshot.document)).toBe(
-        renderStreamingHtml(preview(snapshot.file.text).document),
-      );
+      expect(html(snapshot)).toBe(html(preview(snapshot.file.text)));
     }
 
     const final = stream.complete();
-    const batch = parse(final.file);
+    const batch = parse(final.file.text);
     expect(final.kind).toBe("ok");
 
     if (final.kind !== "ok" || batch.kind !== "ok") {
       throw new Error("Expected parsed completion");
     }
 
+    expect(final.document).toEqual(batch.document);
     expect(formatHtml(lowerHtml(final.document))).toBe(formatHtml(lowerHtml(batch.document)));
   });
 
-  it("enforces node limits across retained and newly materialized blocks", () => {
+  it("enforces node limits across settled and open blocks", () => {
     const stream = new MdxStream({ limits: { maximumNodes: 5 } });
-    expect(stream.append("one\n\n").status).toBe("valid");
-    expect(stream.append("two\n\n").status).toBe("valid");
-    expect(stream.append("three").status).toBe("limitExceeded");
+    expect(status(stream.append("one\n\n"))).toBe("valid");
+    expect(status(stream.append("two\n\n"))).toBe("valid");
+    const limited = stream.append("three");
+    expect(status(limited)).toBe("limitExceeded");
+    expect(limited.limit).toBe("maximumNodes");
+    expect(html(limited)).toBe("<p>one</p>\n<p>two</p>");
     const repaired = stream.edit({ start: 0, end: 15, text: "new" });
-    expect(repaired.status).toBe("valid");
-    expect(renderStreamingHtml(repaired.document)).toBe("<p>new</p>");
+    expect(status(repaired)).toBe("valid");
+    expect(html(repaired)).toBe("<p>new</p>");
   });
 
   it("keeps prior snapshots unchanged after shifted edits", () => {
     const stream = new MdxStream({ source: "# First\n\nSecond[^a].\n\n[^a]: note" });
     const before = stream.append("");
-    const html = renderStreamingHtml(before.document);
-    const blocks = before.blocks.map((block) => ({ ...block.range }));
+    const rendered = html(before);
+    const blocks = before.blocks.map((block) => ({ ...block.origin }));
     stream.edit({ start: 0, end: 0, text: "Intro\n\n" });
     expect(before.file.text).toBe("# First\n\nSecond[^a].\n\n[^a]: note");
-    expect(before.blocks.map((block) => block.range)).toEqual(blocks);
-    expect(renderStreamingHtml(before.document)).toBe(html);
+    expect(before.blocks.map((block) => block.origin)).toEqual(blocks);
+    expect(html(before)).toBe(rendered);
+  });
+
+  it("renders a reference again when its definition settles later", () => {
+    const stream = new MdxStream();
+    stream.append("Read [guide][g].\n\nMore\n\n");
+    const resolved = stream.append("[g]: /guide\n\nEnd");
+
+    expect(blockHtml(resolved.blocks[0].nodes)).toBe('<p>Read <a href="/guide">guide</a>.</p>');
+    expect(blockHtml(resolved.blocks[1].nodes)).toBe("<p>More</p>");
   });
 });
 
-it("does not rematerialize settled headings on append", () => {
-  const stream = new MdxStream({ source: "# Settled\n\nTail" });
-  const spy = vi.spyOn(materializer, "materializeStrictDocument");
+describe("long open blocks", () => {
+  it.each([7, 32, 97])(
+    "render a long open paragraph like a fresh stream with %i-character chunks",
+    (size) => {
+      const source =
+        "Some **bold** text, `code`, and a [link](/x) here.  \n".repeat(120) + "end *open";
 
-  try {
+      const stream = new MdxStream();
+      const snapshots: MdxStreamSnapshot[] = [];
+
+      for (let offset = 0; offset < source.length; offset += size) {
+        snapshots.push(stream.append(source.slice(offset, offset + size)));
+      }
+
+      // Every 17th snapshot, and the last, match a stream that saw the text at once.
+      const sampled = snapshots.filter(
+        (_, index) => index % 17 === 0 || index === snapshots.length - 1,
+      );
+
+      expect(sampled.map(html)).toEqual(
+        sampled.map((snapshot) => html(preview(snapshot.file.text))),
+      );
+
+      const completion = stream.complete();
+      const batch = parse(source);
+      expect(completion.kind === "ok" ? completion.document : completion.kind).toEqual(
+        batch.kind === "ok" ? batch.document : batch.kind,
+      );
+    },
+  );
+
+  it("hides a bare trailing marker after a long list", () => {
+    for (let count = 60; count < 70; count++) {
+      const rendered = html(preview("- item\n".repeat(count) + "-"));
+
+      expect(rendered).not.toMatch(/<li>\s*<\/li>/u);
+      expect(rendered.match(/<li>/gu)).toHaveLength(count);
+    }
+  });
+
+  it("renders a long growing list like a fresh stream", () => {
+    const source = "- item *one* [^a]\n".repeat(150) + "- last\n\n[^a]: Note\n";
+    const stream = new MdxStream();
+    const snapshots: MdxStreamSnapshot[] = [];
+
+    for (let offset = 0; offset < source.length; offset += 11) {
+      snapshots.push(stream.append(source.slice(offset, offset + 11)));
+    }
+
+    const sampled = snapshots.filter((_, index) => index % 11 === 0);
+    expect(sampled.map(html)).toEqual(sampled.map((snapshot) => html(preview(snapshot.file.text))));
+    expect(html(stream.append(""))).toBe(html(preview(source)));
+  });
+});
+
+describe("stream source", () => {
+  it("hands out immutable views of one buffer that share a growing line index", () => {
+    const stream = new MdxStream({ source: "# One\r\n" });
+    const first = stream.append("two\nthree").file;
+    const second = stream.append("\nfour\r\nfive").file;
+
+    // Appends extend one buffer generation: earlier views stay valid prefixes.
+    expect(first.isPrefixOf(second)).toBe(true);
+    expect(first.text).toBe("# One\r\ntwo\nthree");
+    expect(first.lineCount).toBe(new SourceFile(first.text).lineCount);
+    expect(second.location(second.length)).toEqual(
+      new SourceFile(second.text).location(second.length),
+    );
+
+    // An edit starts a new generation, and the earlier views keep their text.
+    const edited = stream.edit({ start: 0, end: 1, text: "##" }).file;
+    expect(second.isPrefixOf(edited)).toBe(false);
+    expect(second.text).toBe("# One\r\ntwo\nthree\nfour\r\nfive");
+    expect(edited.line(3)).toEqual(new SourceFile(edited.text).line(3));
+  });
+});
+
+describe("incremental work", () => {
+  it("does not rematerialize settled headings on append", () => {
+    const stream = new MdxStream({ source: "# Settled\n\nTail" });
+    const spy = vi.spyOn(materializer, "materializeDocument");
+
+    try {
+      stream.append(" more");
+      const kinds = spy.mock.calls.flatMap((call) => call[1].map((block) => block.kind));
+      expect(kinds).not.toContain("heading");
+      expect(kinds).toContain("paragraph");
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("parses only the open item when an open list grows", () => {
+    const stream = new MdxStream({ source: "- *item*\n".repeat(50) });
+    const spy = vi.spyOn(inlineParser, "parseInline");
+
+    try {
+      stream.append("- *new*");
+      stream.append(" item");
+      // Each append parses only the open item, never the 50 settled items.
+      expect(spy.mock.calls.length).toBeGreaterThan(0);
+      expect(spy.mock.calls.length).toBeLessThanOrEqual(6);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("reuses settled block snapshots by identity", () => {
+    const stream = new MdxStream({ source: "One\n\nTwo\n\nThree" });
+    const before = stream.append("");
+    const after = stream.append(" more");
+
+    expect(after.blocks[0]).toBe(before.blocks[0]);
+    expect(after.blocks[1]).toBe(before.blocks[1]);
+    expect(after.blocks[2]).not.toBe(before.blocks[2]);
+  });
+
+  it("reports what changed to subscribers", () => {
+    const stream = new MdxStream();
+    const changes: MdxStreamChange[] = [];
+    stream.subscribe((change) => changes.push(change));
+    stream.append("One\n\nTwo");
+    stream.append("\n\nThree");
+
+    expect(changes.map((change) => change.start)).toEqual([0, 1]);
+    expect(changes[1]?.snapshot.blocks.slice(0, 1)).toEqual(
+      changes[0]?.snapshot.blocks.slice(0, 1),
+    );
+  });
+});
+
+describe("block events", () => {
+  it("rebuilds the preview on a client from update events", async () => {
+    const source =
+      "# Title\n\nRead [guide][g] and[^a].\n\n- one\n- two\n\n[g]: /guide\n\n[^a]: Note\n";
+
+    async function* chunks(): AsyncGenerator<string> {
+      for (let offset = 0; offset < source.length; offset += 5) {
+        yield source.slice(offset, offset + 5);
+      }
+    }
+
+    let client: MdxPreview = { blocks: [], footnotes: undefined };
+    const events: MdxBlockEvent[] = [];
+
+    for await (const event of streamBlockEvents(chunks())) {
+      events.push(JSON.parse(JSON.stringify(event)));
+    }
+
+    for (const event of events) {
+      if (event.kind === "update") {
+        client = applyBlockEvent(client, event);
+      }
+    }
+
+    expect(html(client)).toBe(html(preview(source)));
+    expect(events.at(-1)?.kind).toBe("complete");
+  });
+
+  it("sends only the changed blocks", () => {
+    const stream = new MdxStream();
+    let event: ReturnType<typeof blockEvent> | undefined;
+    stream.subscribe((change) => (event = blockEvent(change)));
+    stream.append("One\n\nTwo\n\nThree");
     stream.append(" more");
-    const kinds = spy.mock.calls.flatMap((call) => call[1].map((block) => block.kind));
-    expect(kinds).not.toContain("heading");
-    expect(kinds).toContain("paragraph");
-  } finally {
-    spy.mockRestore();
-  }
-});
 
-it("parses only the open item when an open list grows", () => {
-  const stream = new MdxStream({ source: "- *item*\n".repeat(50) });
-  const spy = vi.spyOn(inlineParser, "parseInline");
-
-  try {
-    stream.append("- *new*");
-    stream.append(" item");
-    // Each append parses only the open item, never the 50 settled items.
-    expect(spy.mock.calls.length).toBeGreaterThan(0);
-    expect(spy.mock.calls.length).toBeLessThanOrEqual(6);
-  } finally {
-    spy.mockRestore();
-  }
-});
-
-it("reuses settled block snapshots by identity", () => {
-  const stream = new MdxStream({ source: "One\n\nTwo\n\nThree" });
-  const before = stream.append("");
-  const after = stream.append(" more");
-
-  expect(after.blocks[0]).toBe(before.blocks[0]);
-  expect(after.blocks[1]).toBe(before.blocks[1]);
-  expect(after.blocks[2]).not.toBe(before.blocks[2]);
+    expect(event?.start).toBe(2);
+    expect(event?.blocks.map((block) => block.id)).toHaveLength(1);
+  });
 });
 
 it.each([
@@ -241,15 +421,15 @@ it.each([
   ["- [^a]: foot\n\n  ref[^a]", 8],
 ] as const)("uses strict node counting for %s", (source, maximumNodes) => {
   const options = { source, limits: { maximumNodes } };
-  expect(new MdxStream(options).append("").status).toBe("valid");
+  expect(status(new MdxStream(options).append(""))).toBe("valid");
   expect(parse(source, { limits: options.limits }).kind).toBe("ok");
 });
 
 it("bounds the whole pending container", () => {
   const stream = new MdxStream({
     source: "- one\n- two\n- **x",
-    maximumPendingBlockLength: 4,
+    limits: { maximumPendingBlockLength: 4 },
   });
 
-  expect(stream.append("").status).toBe("limitExceeded");
+  expect(stream.append("").limit).toBe("maximumPendingBlockLength");
 });

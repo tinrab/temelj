@@ -15,10 +15,6 @@ export abstract class MdxError extends Error {
 }
 
 export type InputIssue =
-  | Readonly<{ kind: "directiveAttributeDuplicate"; name: string }>
-  | Readonly<{ kind: "htmlAttributeName"; name: string }>
-  | Readonly<{ kind: "htmlNodeKind"; nodeKind: string }>
-  | Readonly<{ kind: "syntaxNodeKind"; nodeKind: string }>
   | Readonly<{ kind: "htmlTagName"; name: string }>
   | Readonly<{
       kind: "mathDelimiterCollision";
@@ -38,22 +34,6 @@ export class InputError extends MdxError {
   private constructor(message: string, issue: InputIssue, context: Function) {
     super("InputError", message, {}, context);
     this.issue = Object.freeze(issue);
-  }
-
-  public static invalidHtmlAttributeName(this: void, name: string): never {
-    throw new InputError(
-      `Invalid HTML attribute name: ${name}`,
-      { kind: "htmlAttributeName", name },
-      InputError.invalidHtmlAttributeName,
-    );
-  }
-
-  public static duplicateDirectiveAttribute(this: void, name: string): never {
-    throw new InputError(
-      `Duplicate directive attribute: ${name}`,
-      { kind: "directiveAttributeDuplicate", name },
-      InputError.duplicateDirectiveAttribute,
-    );
   }
 
   public static mathDelimiterCollision(
@@ -81,22 +61,6 @@ export class InputError extends MdxError {
       `Invalid HTML tag name: ${name}`,
       { kind: "htmlTagName", name },
       InputError.invalidHtmlTagName,
-    );
-  }
-
-  public static unsupportedHtmlNode(this: void, nodeKind: string): never {
-    throw new InputError(
-      `Cannot serialize unsupported HTML node kind: ${nodeKind}`,
-      { kind: "htmlNodeKind", nodeKind },
-      InputError.unsupportedHtmlNode,
-    );
-  }
-
-  public static unsupportedSyntaxNode(this: void, nodeKind: string): never {
-    throw new InputError(
-      `Cannot process stream-only syntax node kind: ${nodeKind}`,
-      { kind: "syntaxNodeKind", nodeKind },
-      InputError.unsupportedSyntaxNode,
     );
   }
 
@@ -142,7 +106,6 @@ export type ConfigurationIssue =
   | Readonly<{ kind: "asynchronousPluginInSynchronousProcessor" }>
   | Readonly<{ kind: "cacheCapacity"; pluginName: string; capacity: number }>
   | Readonly<{ kind: "compilerLimit"; option: string; value: number }>
-  | Readonly<{ kind: "compilerOutputFormat"; value: unknown }>
   | Readonly<{ kind: "parserLimit"; option: string; value: number; minimum: number }>
   | Readonly<{
       kind: "pluginIntegerOption";
@@ -152,7 +115,6 @@ export type ConfigurationIssue =
       minimum: number;
     }>
   | Readonly<{ kind: "streamLimit"; option: string; value: number; minimum: number }>
-  | Readonly<{ kind: "pluginInstance"; stage: "document" | "html"; pluginName: string }>
   | Readonly<{ kind: "unifiedPlugin" }>;
 
 export class ConfigurationError extends MdxError {
@@ -168,18 +130,6 @@ export class ConfigurationError extends MdxError {
       "processSync() cannot run an asynchronous plugin; use process() instead",
       { kind: "asynchronousPluginInSynchronousProcessor" },
       ConfigurationError.asynchronousPluginInSynchronousProcessor,
-    );
-  }
-
-  public static invalidPluginInstance(
-    this: void,
-    stage: "document" | "html",
-    pluginName: string,
-  ): never {
-    throw new ConfigurationError(
-      `${JSON.stringify(pluginName)} is not a registered ${stage} plugin implementation`,
-      { kind: "pluginInstance", stage, pluginName },
-      ConfigurationError.invalidPluginInstance,
     );
   }
 
@@ -204,14 +154,6 @@ export class ConfigurationError extends MdxError {
       `Invalid compiler ${option}: ${value}; expected a non-negative safe integer`,
       { kind: "compilerLimit", option, value },
       ConfigurationError.invalidCompilerLimit,
-    );
-  }
-
-  public static invalidCompilerOutputFormat(this: void, value: string): never {
-    throw new ConfigurationError(
-      `Invalid compiler outputFormat: ${String(value)}`,
-      { kind: "compilerOutputFormat", value },
-      ConfigurationError.invalidCompilerOutputFormat,
     );
   }
 
@@ -304,9 +246,7 @@ export type CompilationInvariant =
   | "jsxNamespaceIncomplete"
   | "jsxSpreadArgumentMissing"
   | "multipleDefaultExports"
-  | "unsupportedJsxAttribute"
-  | "unsupportedJsxName"
-  | "unsupportedStandaloneNode";
+  | "unsupportedJsxName";
 
 export type CompilationIssue =
   | Readonly<{ kind: "generation" }>
@@ -343,24 +283,6 @@ export class CompileError extends MdxError {
       "MDX has more than one default export",
       undefined,
       CompileError.multipleDefaultExports,
-    );
-  }
-
-  public static unsupportedStandaloneNode(this: void, nodeKind: string): never {
-    CompileError.invalidDocument(
-      "unsupportedStandaloneNode",
-      `Unexpected standalone ${nodeKind} node`,
-      nodeKind,
-      CompileError.unsupportedStandaloneNode,
-    );
-  }
-
-  public static unsupportedJsxAttribute(this: void): never {
-    CompileError.invalidDocument(
-      "unsupportedJsxAttribute",
-      "Unknown MDX JSX attribute",
-      undefined,
-      CompileError.unsupportedJsxAttribute,
     );
   }
 

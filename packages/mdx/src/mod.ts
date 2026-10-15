@@ -7,6 +7,7 @@ export {
   type CompileOutputFormat,
   type CompileSchemaOptions,
   type FunctionBodyCompileArtifact,
+  type CompiledComponents,
   type MdxTransportValue,
   type ProgramCompileArtifact,
 } from "./compiler.ts";
@@ -35,7 +36,9 @@ export {
   type TransformTarget,
 } from "./errors.ts";
 
-export { formatMdx, type FormatOptions } from "./format.ts";
+export type { FormatOptions } from "./format-context.ts";
+
+export { formatMdx } from "./format.ts";
 
 export type { HeadingDepth } from "./heading.ts";
 
@@ -49,6 +52,7 @@ export {
   htmlFallback,
   htmlText,
   isHtmlAttributeList,
+  pendingFallback,
   type HtmlAttributeList,
   type HtmlAttributes,
   type HtmlAttributeValue,
@@ -64,10 +68,13 @@ export {
   type HtmlMathNode,
   type HtmlNode,
   type HtmlNodeForKind,
+  type HtmlPendingConstruct,
+  type HtmlPendingNode,
   type HtmlRawNode,
   type HtmlRootNode,
   type HtmlSemanticNode,
   type HtmlTextNode,
+  type HtmlUnresolvedReferenceNode,
   type MathRenderStyle,
 } from "./html.ts";
 
@@ -75,8 +82,9 @@ export { normalizeIdentifier } from "./identifier.ts";
 
 export {
   documentFrontmatter,
-  FrontmatterTemporal,
   indexDocument,
+  isFlowContent,
+  isPhrasingContent,
   mdxChildren,
   nodeText,
   type BlockExpressionNode,
@@ -97,7 +105,8 @@ export {
   type FootnoteReferenceNode,
   type FrontmatterNode,
   type FrontmatterObject,
-  type FrontmatterTemporalKind,
+  type FrontmatterTemporal,
+  type FrontmatterTemporalType,
   type FrontmatterValue,
   type HardBreakNode,
   type HeadingNode,
@@ -137,10 +146,11 @@ export {
   type ThematicBreakNode,
 } from "./model.ts";
 
+export { isOk, type MdxFailure, type MdxOutcome } from "./outcome.ts";
+
 export {
   defaultParserLimits,
   parse,
-  type MdxFailure,
   type ParseOptions,
   type ParseOutcome,
   type ParserLimit,
@@ -158,6 +168,7 @@ export {
 export type { SourceMap } from "./source-map.ts";
 
 export {
+  SourceBuffer,
   SourceFile,
   type SourceFileInput,
   type SourceLocation,
@@ -165,45 +176,32 @@ export {
 } from "./source.ts";
 
 export {
-  MdxStream,
-  type BlockId,
-  type CompletedBlockSnapshot,
-  type MdxEdit,
-  type MdxStreamCompletion,
-  type MdxStreamOptions,
-  type MdxStreamSnapshot,
-  type StreamDependencies,
-  type StreamingBlockSnapshot,
-} from "./stream.ts";
+  applyBlockEvent,
+  blockEvent,
+  completionEvent,
+  previewDocument,
+  streamBlockEvents,
+  type MdxBlockEvent,
+  type MdxEventDiagnostic,
+  type StreamBlockEventsOptions,
+} from "./stream-events.ts";
 
-export {
-  renderStreamingHtml,
-  type StreamingCodeBlock,
-  type StreamingDocument,
-  type StreamingElement,
-  type StreamingFootnoteReference,
-  type StreamingFootnoteSection,
-  type StreamingJsx,
-  type StreamingMath,
-  type StreamingNode,
-  type StreamingOmitted,
-  type StreamingPendingCode,
-  type StreamingPendingDelete,
-  type StreamingPendingEmphasis,
-  type StreamingPendingEsm,
-  type StreamingPendingExpression,
-  type StreamingPendingFencedCode,
-  type StreamingPendingImage,
-  type StreamingPendingLink,
-  type StreamingPendingMarkdownNode,
-  type StreamingPendingMath,
-  type StreamingPendingStrong,
-  type StreamingRaw,
-  type StreamingText,
-  type StreamingUnresolvedFootnoteReference,
-  type StreamingUnresolvedImageReference,
-  type StreamingUnresolvedLinkReference,
-} from "./streaming-document.ts";
+export type {
+  BlockId,
+  CompletedBlock,
+  MdxEdit,
+  MdxPreview,
+  MdxStreamChange,
+  MdxStreamCompletion,
+  MdxStreamLimits,
+  MdxStreamOptions,
+  MdxStreamSnapshot,
+  PreviewBlock,
+  StreamBlock,
+  StreamDependencies,
+} from "./stream-types.ts";
+
+export { MdxStream } from "./stream.ts";
 
 export type {
   FrontmatterFormat,

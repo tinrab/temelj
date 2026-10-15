@@ -1,4 +1,5 @@
 export {
+  compiledComponents,
   CompiledContent,
   HtmlContent,
   SourceContent,
@@ -6,6 +7,12 @@ export {
   type HtmlContentProps,
   type SourceContentProps,
 } from "./content.tsx";
+
+export {
+  MdxBlockStore,
+  type MdxBlockEventSource,
+  type MdxBlockStoreOptions,
+} from "./block-store.ts";
 
 export type { DiagnosticFallback } from "./fallback.ts";
 
@@ -27,13 +34,9 @@ export {
 
 export { StreamSourceContent, type StreamSourceContentProps } from "./stream-source-content.tsx";
 
-export {
-  MdxStreamStore,
-  type MdxConsumeOptions,
-  type MdxStreamStoreOptions,
-  type MdxStreamView,
-  type MdxTextSource,
-} from "./stream-store.ts";
+export { MdxStreamStore, type MdxStreamStoreOptions, type MdxStreamView } from "./stream-store.ts";
+
+export type { MdxConsumeOptions, MdxPublishScheduler, MdxTextSource } from "./transport.ts";
 
 export {
   compileTrustedMdx,
@@ -66,5 +69,7 @@ export type {
   PendingMdxJsxProps,
   PendingMdxMarkdownProps,
 } from "./types.ts";
+
+export { useMdxBlocks, type UseMdxBlocksResult } from "./use-mdx-blocks.ts";
 
 export { useMdxStream, type UseMdxStreamResult } from "./use-mdx-stream.ts";

@@ -1,8 +1,16 @@
 import type { HtmlKind, HtmlNode, HtmlNodeForKind, HtmlRootNode } from "./html.ts";
-import type { DocumentNode, MdxKind, MdxNode, MdxNodeForKind } from "./model.ts";
+import type {
+  DirectiveLabelNode,
+  DocumentNode,
+  FlowContent,
+  MdxKind,
+  MdxNode,
+  MdxNodeForKind,
+  PhrasingContent,
+} from "./model.ts";
 
 import { htmlChildren } from "./html.ts";
-import { mdxChildren } from "./model.ts";
+import { isFlowContent, isPhrasingContent, mdxChildren } from "./model.ts";
 import { selectTree, TreeCursor, walkTree } from "./tree.ts";
 
 export { TreeCursor } from "./tree.ts";
@@ -30,16 +38,24 @@ export function* selectHtml<TKind extends HtmlKind>(
 }
 
 /**
- * A rewrite handler runs before the node's children are rewritten. Returning
- * `undefined` keeps the node, a node of the same kind replaces it, and `null`
- * removes it from its parent.
+ * A node that may replace `TNode`: any phrasing node for phrasing content, any
+ * flow node for flow content, and the same kind otherwise.
  */
-type RewriteHandler<TRoot, TNode extends TRoot> = (
-  cursor: TreeCursor<TRoot, TNode>,
-) => TNode | null | undefined;
+export type MdxReplacement<TNode extends MdxNode> = TNode extends PhrasingContent
+  ? PhrasingContent
+  : TNode extends FlowContent
+    ? FlowContent
+    : TNode;
 
+/**
+ * A rewrite handler runs before the node's children are rewritten. Returning
+ * `undefined` keeps the node, a node of the same content category replaces it,
+ * and `null` removes it from its parent.
+ */
 export type MdxRewriteHandlers = {
-  readonly [TKind in MdxKind]?: RewriteHandler<MdxNode, MdxNodeForKind<TKind>>;
+  readonly [TKind in MdxKind]?: (
+    cursor: TreeCursor<MdxNode, MdxNodeForKind<TKind>>,
+  ) => MdxReplacement<MdxNodeForKind<TKind>> | null | undefined;
 };
 
 /** HTML handlers may replace a node with any node kind, because every parent accepts all kinds. */
@@ -65,19 +81,19 @@ export function rewriteHtml(root: HtmlRootNode, handlers: HtmlRewriteHandlers): 
   return result.kind === "root" ? result : { ...root, children: [result] };
 }
 
-function rewriteMdxNode<TNode extends MdxNode>(
-  node: TNode,
+function rewriteMdxNode(
+  node: MdxNode,
   parent: TreeCursor<MdxNode> | undefined,
   index: number | undefined,
   handlers: MdxRewriteHandlers,
-): TNode | null {
+): MdxNode | null {
   const replacement = invokeMdxHandler(handlers, node.kind, new TreeCursor(node, parent, index));
 
   if (replacement === null) {
     return null;
   }
 
-  if (replacement !== undefined && !sameKind(node, replacement)) {
+  if (replacement !== undefined && !replaceable(node, replacement)) {
     throw new TypeError(`A ${node.kind} rewrite handler returned a ${replacement.kind} node`);
   }
 
@@ -87,42 +103,85 @@ function rewriteMdxNode<TNode extends MdxNode>(
   switch (current.kind) {
     case "textDirective":
     case "leafDirective": {
-      const label =
-        current.label === undefined
-          ? undefined
-          : rewriteMdxNode(current.label, cursor, 0, handlers);
+      const label = rewriteLabel(current.label, cursor, handlers);
 
-      return label === current.label ? current : { ...current, label: label ?? undefined };
+      return label === current.label ? current : { ...current, label };
     }
 
     case "containerDirective": {
       const offset = current.label === undefined ? 0 : 1;
+      const body = rewriteParent(current, cursor, offset, handlers);
+      const label = rewriteLabel(current.label, cursor, handlers);
 
-      const label =
-        current.label === undefined
-          ? undefined
-          : rewriteMdxNode(current.label, cursor, 0, handlers);
-
-      const children = rewriteChildren(current.children, (child, childIndex) =>
-        rewriteMdxNode(child, cursor, childIndex + offset, handlers),
-      );
-
-      return label === current.label && children === current.children
-        ? current
-        : { ...current, label: label ?? undefined, children };
+      return label === body.label ? body : { ...body, label };
     }
 
+    default:
+      return "children" in current ? rewriteParent(current, cursor, 0, handlers) : current;
+  }
+}
+
+type MdxParentNode = Extract<MdxNode, { readonly children: readonly MdxNode[] }>;
+
+function rewriteParent<TNode extends MdxParentNode>(
+  node: TNode,
+  cursor: TreeCursor<MdxNode>,
+  offset: number,
+  handlers: MdxRewriteHandlers,
+): TNode {
+  const children = rewriteChildren<MdxNode>(node.children, (child, childIndex) =>
+    rewriteMdxNode(child, cursor, childIndex + offset, handlers),
+  );
+
+  if (children === node.children) {
+    return node;
+  }
+
+  if (!fitsParent(node, children)) {
+    throw new TypeError(`A rewrite produced children that a ${node.kind} node cannot contain`);
+  }
+
+  return { ...node, children };
+}
+
+/** Rewrite handlers keep content categories, so this holds unless a handler bypassed the types. */
+function fitsParent<TNode extends MdxParentNode>(
+  parent: TNode,
+  children: readonly MdxNode[],
+): children is TNode["children"] {
+  return children.every((child) => acceptsChild(parent, child));
+}
+
+function acceptsChild(parent: MdxParentNode, child: MdxNode): boolean {
+  switch (parent.kind) {
+    case "list":
+      return child.kind === "listItem";
+    case "table":
+      return child.kind === "tableRow";
+    case "tableRow":
+      return child.kind === "tableCell";
+    case "document":
+    case "blockquote":
+    case "listItem":
+    case "footnoteDefinition":
+    case "containerDirective":
+    case "jsxFlowElement":
+      return isFlowContent(child);
+    case "emphasis":
+    case "strong":
+    case "delete":
+    case "link":
+    case "linkReference":
+    case "directiveLabel":
+    case "jsxTextElement":
+    case "paragraph":
+    case "heading":
+    case "tableCell":
+      return isPhrasingContent(child);
     default: {
-      if (!("children" in current)) {
-        return current;
-      }
+      const exhaustive: never = parent;
 
-      const children = rewriteChildren<MdxNode>(current.children, (child, childIndex) =>
-        rewriteMdxNode(child, cursor, childIndex, handlers),
-      );
-
-      // SAFETY: rewritten children keep their kinds, so they stay valid for this parent.
-      return children === current.children ? current : ({ ...current, children } as TNode);
+      return exhaustive;
     }
   }
 }
@@ -182,7 +241,7 @@ function invokeMdxHandler<TKind extends MdxKind>(
   handlers: MdxRewriteHandlers,
   kind: TKind,
   cursor: TreeCursor<MdxNode, MdxNodeForKind<TKind>>,
-): MdxNodeForKind<TKind> | null | undefined {
+): MdxNode | null | undefined {
   const handler: MdxRewriteHandlers[TKind] = handlers[kind];
 
   return handler?.(cursor);
@@ -198,7 +257,25 @@ function invokeHtmlHandler<TKind extends HtmlKind>(
   return handler?.(cursor);
 }
 
-/** Nodes of one discriminated kind share a type. */
-function sameKind<TNode extends MdxNode>(node: TNode, replacement: MdxNode): replacement is TNode {
+function rewriteLabel(
+  label: DirectiveLabelNode | undefined,
+  parent: TreeCursor<MdxNode>,
+  handlers: MdxRewriteHandlers,
+): DirectiveLabelNode | undefined {
+  const result = label === undefined ? undefined : rewriteMdxNode(label, parent, 0, handlers);
+
+  return result?.kind === "directiveLabel" ? result : undefined;
+}
+
+/** Phrasing and flow nodes may change kind within their category; other nodes keep their kind. */
+function replaceable(node: MdxNode, replacement: MdxNode): boolean {
+  if (isPhrasingContent(node)) {
+    return isPhrasingContent(replacement);
+  }
+
+  if (isFlowContent(node)) {
+    return isFlowContent(replacement);
+  }
+
   return replacement.kind === node.kind;
 }

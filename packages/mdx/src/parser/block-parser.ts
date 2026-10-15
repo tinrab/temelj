@@ -1,10 +1,16 @@
 import type { SourceRange } from "../ranges.ts";
+import type { SourceText } from "../source-text.ts";
 import type { ResolvedSyntaxOptions } from "../syntax-options.ts";
 import type {
   BlockSyntax,
   ContainerFrame,
   ListItemSyntax,
+  ListSyntax,
+  OpenExpression,
+  OpenIndentedCode,
+  OpenJsx,
   OpenLeaf,
+  OpenTable,
   PendingBlockSyntax,
 } from "./block-syntax.ts";
 import type { InlineSegment } from "./inline-input.ts";
@@ -12,7 +18,6 @@ import type { RecognizerResult } from "./recognizer.ts";
 
 import { rangeLength, sourceRange } from "../ranges.ts";
 import { PhysicalLineScanner, type PhysicalLine } from "../source.ts";
-import { consumeIndent, isBlank } from "../utility.ts";
 import {
   blockQuoteMarker,
   footnoteMarker,
@@ -42,6 +47,7 @@ import {
   tableRow,
   trimLineEndingOffset,
 } from "./block-leaf-recognizers.ts";
+import { consumeIndent, isBlank } from "./characters.ts";
 import { ExpressionBoundaryScanner, JsxBoundaryScanner } from "./embedded-scanner.ts";
 import { parseJavaScriptBoundary } from "./javascript-boundary.ts";
 import { matched, noMatch } from "./recognizer.ts";
@@ -51,22 +57,48 @@ export interface BlockParserCheckpoint {
   readonly tail: BlockSyntax | undefined;
 }
 
+/** Receives each top-level block once later input can no longer change it. */
+export type SettledBlockListener = (block: BlockSyntax, index: number) => void;
+
 export class BlockParser {
   readonly #blocks: BlockSyntax[] = [];
   readonly #containers: ContainerFrame[] = [];
   readonly #leaf: LeafParser;
   readonly #syntax: ResolvedSyntaxOptions;
+  readonly #onSettled: SettledBlockListener | undefined;
+  #settled: number;
+  readonly #items: ListItemGrowth = { draft: false, owned: new WeakMap() };
 
-  public constructor(syntax: ResolvedSyntaxOptions, blocks: readonly BlockSyntax[] = []) {
+  public constructor(
+    syntax: ResolvedSyntaxOptions,
+    blocks: readonly BlockSyntax[] = [],
+    onSettled?: SettledBlockListener,
+  ) {
     this.#syntax = syntax;
     this.#leaf = new LeafParser(syntax);
     this.#blocks.push(...blocks);
+    this.#onSettled = onSettled;
+    this.#settled = settledLength(this.#blocks);
+  }
+
+  /** The number of top-level blocks that later input cannot change. */
+  public get settledCount(): number {
+    return this.#settled;
   }
 
   public checkpoint(): BlockParserCheckpoint | undefined {
-    return this.#containers.length === 0 && this.#leaf.idle
-      ? { length: this.#blocks.length, tail: this.#blocks.at(-1) }
-      : undefined;
+    if (this.#containers.length !== 0 || !this.#leaf.idle) {
+      return undefined;
+    }
+
+    const tail = this.#blocks.at(-1);
+
+    // A checkpoint keeps this list, so its items must not grow in place any more.
+    if (tail?.kind === "list") {
+      this.#items.owned.delete(tail.items);
+    }
+
+    return { length: this.#blocks.length, tail };
   }
 
   public fork(checkpoint: BlockParserCheckpoint): BlockParser {
@@ -76,12 +108,16 @@ export class BlockParser {
       blocks[blocks.length - 1] = checkpoint.tail;
     }
 
-    return new BlockParser(this.#syntax, blocks);
+    return new BlockParser(this.#syntax, blocks, this.#onSettled);
   }
 
-  public clone(): BlockParser {
-    const copy = new BlockParser(this.#syntax);
-    copy.#blocks.push(...this.#blocks);
+  /**
+   * A copy of the unsettled part: a trailing list, the open containers, and
+   * the active leaf. Finishing it costs only the open tail.
+   */
+  public tail(): BlockParser {
+    const copy = new BlockParser(this.#syntax, this.#blocks.slice(this.#settled));
+    copy.#items.draft = true;
     copy.#containers.push(...this.#containers);
     copy.#leaf.copyFrom(this.#leaf);
 
@@ -92,9 +128,19 @@ export class BlockParser {
     return this.#leaf.pending();
   }
 
-  public write(source: string, physicalLine: PhysicalLine): void {
+  public write(source: SourceText, physicalLine: PhysicalLine): void {
+    this.#leaf.rollback();
+    this.writeLine(source, physicalLine);
+
+    while (this.#onSettled !== undefined && this.#settled < settledLength(this.#blocks)) {
+      this.#onSettled(this.#blocks[this.#settled], this.#settled);
+      this.#settled++;
+    }
+  }
+
+  private writeLine(source: SourceText, physicalLine: PhysicalLine): void {
     let cursor =
-      physicalLine.range.start === 0 && source[0] === "\uFEFF"
+      physicalLine.range.start === 0 && source.char(0) === "\uFEFF"
         ? physicalLine.content.start + 1
         : physicalLine.content.start;
 
@@ -192,7 +238,8 @@ export class BlockParser {
     this.appendLeafBlocks(this.#leaf.write(source, line, allowFrontmatter));
   }
 
-  public finish(source: string): readonly BlockSyntax[] {
+  public finish(source: SourceText): readonly BlockSyntax[] {
+    this.#leaf.rollback();
     this.appendLeafBlocks(this.#leaf.finish(source));
     this.closeContainers(0);
 
@@ -220,7 +267,7 @@ export class BlockParser {
           children: frame.children,
         });
       } else if (frame.kind === "listItem") {
-        appendListItem(this.#blocks, this.#containers, frame);
+        appendListItem(this.#blocks, this.#containers, frame, this.#items);
       } else if (frame.kind === "footnoteDefinition") {
         appendBlock(this.#blocks, this.#containers, {
           kind: "footnoteDefinition",
@@ -242,9 +289,25 @@ export class BlockParser {
   }
 }
 
+/** Arrays an open leaf grows in place. Only the parser that created one extends it. */
+const growable = new WeakSet<readonly unknown[]>();
+
+function isGrowable<T>(array: readonly T[]): array is T[] {
+  return growable.has(array);
+}
+
+/**
+ * Extensions a tail draft made to its parser's arrays, undone before the parser
+ * reads them again. A draft lives for one update, so its lines never outlast it.
+ */
+type DraftLog = Array<readonly [unknown[], number]>;
+
 class LeafParser {
   readonly #syntax: ResolvedSyntaxOptions;
   #active: OpenLeaf | undefined;
+  /** Set on a tail draft: extensions are logged so the parser can undo them. */
+  #draftLog: DraftLog | undefined;
+  readonly #log: DraftLog = [];
   #expressionScanner: ExpressionBoundaryScanner | undefined;
   #jsxScanner: JsxBoundaryScanner | undefined;
 
@@ -275,9 +338,39 @@ class LeafParser {
   }
 
   public copyFrom(source: LeafParser): void {
+    source.rollback();
+    this.#draftLog = source.#log;
     this.#active = source.#active;
     this.#expressionScanner = source.#expressionScanner?.clone();
     this.#jsxScanner = source.#jsxScanner?.clone();
+  }
+
+  /** Undoes a tail draft's extensions, so the open leaf holds only written lines. */
+  public rollback(): void {
+    for (let index = this.#log.length - 1; index >= 0; index--) {
+      const [array, length] = this.#log[index];
+      array.length = length;
+    }
+
+    this.#log.length = 0;
+  }
+
+  /**
+   * Appends to a leaf array without copying it. A tail draft logs the old
+   * length, so the parser it came from can undo the extension.
+   */
+  private grow<T>(array: readonly T[], ...items: T[]): readonly T[] {
+    if (!isGrowable(array)) {
+      const copy = [...array, ...items];
+      growable.add(copy);
+
+      return copy;
+    }
+
+    this.#draftLog?.push([array, array.length]);
+    array.push(...items);
+
+    return array;
   }
 
   public pending(): PendingBlockSyntax | undefined {
@@ -332,7 +425,7 @@ class LeafParser {
     return;
   }
 
-  public canLazyContinue(source: string, line: PhysicalLine): boolean {
+  public canLazyContinue(source: SourceText, line: PhysicalLine): boolean {
     return (
       this.#active?.kind === "paragraph" &&
       !isBlank(source.slice(line.content.start, line.content.end)) &&
@@ -342,238 +435,270 @@ class LeafParser {
   }
 
   public write(
-    source: string,
+    source: SourceText,
     line: PhysicalLine,
     allowFrontmatter = false,
   ): readonly BlockSyntax[] {
     const blocks: BlockSyntax[] = [];
 
-    if (this.#active?.kind === "expression" || this.#active?.kind === "jsx") {
-      const active = this.#active;
-
-      const segment: InlineSegment = {
-        kind: "source",
-        range: sourceRange(line.content.start, line.range.end),
-      };
-
-      const scanner = active.kind === "expression" ? this.#expressionScanner : this.#jsxScanner;
-
-      if (scanner === undefined) {
-        throw new Error(`Missing retained scanner for ${active.kind}`);
-      }
-
-      const result = scanner.append(source.slice(line.range.start, line.range.end));
-      this.#active = {
-        ...active,
-        end: line.range.end,
-        value: [...active.value, segment],
-      };
-
-      if (result.kind !== "open") {
-        blocks.push(this.finishEmbedded(source, result.kind === "invalid"));
-      }
-
+    if (this.continueActive(source, line, blocks)) {
       return blocks;
     }
 
-    if (this.#active?.kind === "esm") {
-      const content = source.slice(line.content.start, line.content.end);
-
-      if (isBlank(content)) {
-        blocks.push(this.finishEmbedded(source));
-
-        return blocks;
-      }
-
-      this.#active = {
-        ...this.#active,
-        end: line.range.end,
-        value: [
-          ...this.#active.value,
-          {
-            kind: "source",
-            range: sourceRange(line.content.start, line.range.end),
-          },
-        ],
-      };
-
-      return blocks;
-    }
-
-    if (this.#active?.kind === "html") {
-      const active = this.#active;
-
-      if (source.slice(line.content.start, line.content.end).includes(active.closing)) {
-        blocks.push(this.closeActive(line.range.end));
-      } else {
-        this.#active = { ...active, end: line.range.end };
-      }
-
-      return blocks;
-    }
-
-    if (this.#active?.kind === "frontmatter") {
-      if (source.slice(line.content.start, line.content.end).trim() === this.#active.fence) {
-        blocks.push(this.closeActive(line.range.end));
-      } else {
-        this.#active = {
-          ...this.#active,
-          end: line.range.end,
-          valueEnd: line.range.end,
-        };
-      }
-
-      return blocks;
-    }
-
-    if (this.#active?.kind === "math") {
-      if (isClosingMathFence(source, line, this.#active)) {
-        blocks.push(this.closeActive(line.range.end));
-      } else {
-        this.#active = {
-          ...this.#active,
-          end: line.range.end,
-          value: [...this.#active.value, { kind: "source", range: line.range }],
-        };
-      }
-
-      return blocks;
-    }
-
-    if (this.#active?.kind === "fencedCode") {
-      if (isClosingFence(source, line, this.#active)) {
-        blocks.push(this.closeActive(line.range.end));
-      } else {
-        this.#active = {
-          ...this.#active,
-          end: line.range.end,
-          value: [...this.#active.value, { kind: "source", range: line.range }],
-        };
-      }
-
-      return blocks;
-    }
-
-    if (this.#active?.kind === "indentedCode") {
-      const active = this.#active;
-      const content = source.slice(line.content.start, line.content.end);
-
-      if (isBlank(content)) {
-        this.#active = {
-          ...active,
-          end: line.range.end,
-          pendingBlank: [
-            ...active.pendingBlank,
-            {
-              kind: "source",
-              range: sourceRange(line.content.end, line.range.end),
-            },
-          ],
-        };
-
-        return blocks;
-      }
-
-      const indented = indentedCodeLine(source, line);
-
-      if (indented !== undefined) {
-        this.#active = {
-          ...active,
-          end: line.range.end,
-          value: [...active.value, ...active.pendingBlank, ...indented],
-          pendingBlank: [],
-        };
-
-        return blocks;
-      }
-
-      blocks.push(this.closeActive());
-    }
-
-    if (this.#active?.kind === "table") {
-      const content = source.slice(line.content.start, line.content.end);
-
-      if (isBlank(content)) {
-        blocks.push(this.closeActive());
-      } else {
-        const row = tableRow(source, line.content);
-        this.#active = {
-          ...this.#active,
-          end: line.range.end,
-          rows: [...this.#active.rows, row],
-        };
-
-        return blocks;
-      }
-    }
-
-    const content = source.slice(line.content.start, line.content.end);
-
-    if (isBlank(content)) {
+    if (isBlank(source.slice(line.content.start, line.content.end))) {
       return [...blocks, ...this.finish()];
     }
 
-    if (this.#active?.kind === "paragraph") {
-      const setext = recognizeSetext(source, line, this.#active);
-
-      if (setext.kind === "matched") {
-        blocks.push(setext.value);
-        this.#active = undefined;
-
-        return blocks;
-      }
-
-      const table = recognizeTable(source, line, this.#active);
-
-      if (table.kind === "matched") {
-        this.#active = table.value;
-
-        return blocks;
-      }
-
-      if (!this.interruptsParagraph(source, line)) {
-        this.#active = {
-          kind: "paragraph",
-          start: this.#active.start,
-          end: line.content.end,
-          lines: [
-            ...this.#active.lines,
-            { kind: "source", range: this.#active.pendingEnding },
-            { kind: "source", range: line.content },
-          ],
-          pendingEnding: sourceRange(line.content.end, line.range.end),
-        };
-
-        return blocks;
-      }
-
-      blocks.push(this.closeActive());
+    if (this.continueParagraph(source, line, blocks)) {
+      return blocks;
     }
 
+    this.startLeaf(source, line, allowFrontmatter, blocks);
+
+    return blocks;
+  }
+
+  /**
+   * Feeds a line to an open leaf that owns its lines. Returns `false` when the
+   * leaf closed without consuming the line, so the line starts new content.
+   */
+  private continueActive(source: SourceText, line: PhysicalLine, blocks: BlockSyntax[]): boolean {
+    const active = this.#active;
+
+    switch (active?.kind) {
+      case "expression":
+      case "jsx":
+        this.continueEmbedded(source, line, active, blocks);
+
+        return true;
+      case "esm":
+        if (isBlank(source.slice(line.content.start, line.content.end))) {
+          blocks.push(this.finishEmbedded(source));
+        } else {
+          this.#active = {
+            ...active,
+            end: line.range.end,
+            value: this.grow(active.value, embeddedSegment(line)),
+          };
+        }
+
+        return true;
+      case "html":
+        if (source.slice(line.content.start, line.content.end).includes(active.closing)) {
+          blocks.push(this.closeActive(line.range.end));
+        } else {
+          this.#active = { ...active, end: line.range.end };
+        }
+
+        return true;
+      case "frontmatter":
+        if (source.slice(line.content.start, line.content.end).trim() === active.fence) {
+          blocks.push(this.closeActive(line.range.end));
+        } else {
+          this.#active = { ...active, end: line.range.end, valueEnd: line.range.end };
+        }
+
+        return true;
+      case "math":
+        if (isClosingMathFence(source, line, active)) {
+          blocks.push(this.closeActive(line.range.end));
+        } else {
+          this.#active = {
+            ...active,
+            end: line.range.end,
+            value: this.grow(active.value, { kind: "source", range: line.range }),
+          };
+        }
+
+        return true;
+      case "fencedCode":
+        if (isClosingFence(source, line, active)) {
+          blocks.push(this.closeActive(line.range.end));
+        } else {
+          this.#active = {
+            ...active,
+            end: line.range.end,
+            value: this.grow(active.value, { kind: "source", range: line.range }),
+          };
+        }
+
+        return true;
+      case "indentedCode":
+        return this.continueIndentedCode(source, line, active, blocks);
+      case "table":
+        return this.continueTable(source, line, active, blocks);
+      case "paragraph":
+      case undefined:
+        return false;
+      default: {
+        const exhaustive: never = active;
+
+        return exhaustive;
+      }
+    }
+  }
+
+  private continueEmbedded(
+    source: SourceText,
+    line: PhysicalLine,
+    active: OpenJsx | OpenExpression,
+    blocks: BlockSyntax[],
+  ): void {
+    const scanner = active.kind === "expression" ? this.#expressionScanner : this.#jsxScanner;
+
+    if (scanner === undefined) {
+      throw new Error(`Missing retained scanner for ${active.kind}`);
+    }
+
+    const result = scanner.append(source.slice(line.range.start, line.range.end));
+    this.#active = {
+      ...active,
+      end: line.range.end,
+      value: this.grow(active.value, embeddedSegment(line)),
+    };
+
+    if (result.kind !== "open") {
+      blocks.push(this.finishEmbedded(source, result.kind === "invalid"));
+    }
+  }
+
+  /** Blank lines stay pending until more indented code follows them. */
+  private continueIndentedCode(
+    source: SourceText,
+    line: PhysicalLine,
+    active: OpenIndentedCode,
+    blocks: BlockSyntax[],
+  ): boolean {
+    if (isBlank(source.slice(line.content.start, line.content.end))) {
+      this.#active = {
+        ...active,
+        end: line.range.end,
+        pendingBlank: this.grow(active.pendingBlank, {
+          kind: "source",
+          range: sourceRange(line.content.end, line.range.end),
+        }),
+      };
+
+      return true;
+    }
+
+    const indented = indentedCodeLine(source, line);
+
+    if (indented !== undefined) {
+      this.#active = {
+        ...active,
+        end: line.range.end,
+        value: this.grow(active.value, ...active.pendingBlank, ...indented),
+        pendingBlank: [],
+      };
+
+      return true;
+    }
+
+    blocks.push(this.closeActive());
+
+    return false;
+  }
+
+  private continueTable(
+    source: SourceText,
+    line: PhysicalLine,
+    active: OpenTable,
+    blocks: BlockSyntax[],
+  ): boolean {
+    if (isBlank(source.slice(line.content.start, line.content.end))) {
+      blocks.push(this.closeActive());
+
+      return false;
+    }
+
+    this.#active = {
+      ...active,
+      end: line.range.end,
+      rows: this.grow(active.rows, tableRow(source, line.content)),
+    };
+
+    return true;
+  }
+
+  /**
+   * A paragraph line can turn the paragraph into a setext heading or a table,
+   * or continue it. Returns `false` when the line interrupts the paragraph.
+   */
+  private continueParagraph(
+    source: SourceText,
+    line: PhysicalLine,
+    blocks: BlockSyntax[],
+  ): boolean {
+    const active = this.#active;
+
+    if (active?.kind !== "paragraph") {
+      return false;
+    }
+
+    const setext = recognizeSetext(source, line, active);
+
+    if (setext.kind === "matched") {
+      blocks.push(setext.value);
+      this.#active = undefined;
+
+      return true;
+    }
+
+    const table = recognizeTable(source, line, active);
+
+    if (table.kind === "matched") {
+      this.#active = table.value;
+
+      return true;
+    }
+
+    if (this.interruptsParagraph(source, line)) {
+      blocks.push(this.closeActive());
+
+      return false;
+    }
+
+    this.#active = {
+      kind: "paragraph",
+      start: active.start,
+      end: line.content.end,
+      lines: this.grow(
+        active.lines,
+        { kind: "source", range: active.pendingEnding },
+        { kind: "source", range: line.content },
+      ),
+      pendingEnding: sourceRange(line.content.end, line.range.end),
+    };
+
+    return true;
+  }
+
+  /** Starts the leaf a non-blank line opens, in CommonMark precedence order. */
+  private startLeaf(
+    source: SourceText,
+    line: PhysicalLine,
+    allowFrontmatter: boolean,
+    blocks: BlockSyntax[],
+  ): void {
     if (allowFrontmatter) {
       const frontmatter = recognizeFrontmatter(source, line, this.#syntax);
 
       if (frontmatter.kind === "matched") {
         this.#active = frontmatter.value;
 
-        return blocks;
+        return;
       }
     }
 
-    const leafDirective = recognizeLeafDirective(source, line, this.#syntax);
+    for (const recognize of [recognizeLeafDirective, recognizeSameLineMath]) {
+      const result = recognize(source, line, this.#syntax);
 
-    if (leafDirective.kind === "matched") {
-      blocks.push(leafDirective.value);
+      if (result.kind === "matched") {
+        blocks.push(result.value);
 
-      return blocks;
-    }
-
-    const sameLineMath = recognizeSameLineMath(source, line, this.#syntax);
-
-    if (sameLineMath.kind === "matched") {
-      blocks.push(sameLineMath.value);
-
-      return blocks;
+        return;
+      }
     }
 
     const math = recognizeMathFence(source, line, this.#syntax);
@@ -581,57 +706,11 @@ class LeafParser {
     if (math.kind === "matched") {
       this.#active = math.value;
 
-      return blocks;
+      return;
     }
 
-    const embedded = recognizeEmbeddedFlowStart(source, line);
-
-    if (embedded.kind === "matched") {
-      const segment: InlineSegment = {
-        kind: "source",
-        range: sourceRange(line.content.start, line.range.end),
-      };
-
-      this.#active = {
-        kind: embedded.value.kind,
-        start: line.content.start,
-        end: line.range.end,
-        value: [segment],
-      };
-
-      if (embedded.value.kind === "esm") {
-        return blocks;
-      }
-
-      const start =
-        embedded.value.kind === "expression" ? embedded.value.markerEnd : line.content.start;
-
-      const text = source.slice(start, line.range.end);
-      let result;
-
-      if (embedded.value.kind === "expression") {
-        this.#expressionScanner = new ExpressionBoundaryScanner();
-        result = this.#expressionScanner.append(text);
-      } else {
-        this.#jsxScanner = new JsxBoundaryScanner();
-        result = this.#jsxScanner.append(text);
-      }
-
-      // Like MDX, a construct followed by more content on its line is phrasing content.
-      const phrasing =
-        result.kind === "closed" && !isBlank(source.slice(start + result.offset, line.content.end));
-
-      if (!phrasing) {
-        if (result.kind !== "open") {
-          blocks.push(this.finishEmbedded(source, result.kind === "invalid"));
-        }
-
-        return blocks;
-      }
-
-      this.#active = undefined;
-      this.#expressionScanner = undefined;
-      this.#jsxScanner = undefined;
+    if (this.startEmbedded(source, line, blocks)) {
+      return;
     }
 
     for (const recognize of [
@@ -650,36 +729,86 @@ class LeafParser {
           blocks.push(result.value.block);
         }
 
-        return blocks;
+        return;
       }
     }
 
     const indented = indentedCodeLine(source, line);
 
-    if (indented !== undefined) {
-      this.#active = {
-        kind: "indentedCode",
-        start: line.range.start,
-        end: line.range.end,
-        value: indented,
-        pendingBlank: [],
-      };
+    this.#active =
+      indented === undefined
+        ? {
+            kind: "paragraph",
+            start: line.content.start,
+            end: line.content.end,
+            lines: [{ kind: "source", range: line.content }],
+            pendingEnding: sourceRange(line.content.end, line.range.end),
+          }
+        : {
+            kind: "indentedCode",
+            start: line.range.start,
+            end: line.range.end,
+            value: indented,
+            pendingBlank: [],
+          };
+  }
 
-      return blocks;
+  /**
+   * Starts flow JSX, an expression, or ESM. Returns `false` when the construct
+   * closes with more content on its line, which makes it phrasing content.
+   */
+  private startEmbedded(source: SourceText, line: PhysicalLine, blocks: BlockSyntax[]): boolean {
+    const embedded = recognizeEmbeddedFlowStart(source, line);
+
+    if (embedded.kind !== "matched") {
+      return false;
     }
 
     this.#active = {
-      kind: "paragraph",
+      kind: embedded.value.kind,
       start: line.content.start,
-      end: line.content.end,
-      lines: [{ kind: "source", range: line.content }],
-      pendingEnding: sourceRange(line.content.end, line.range.end),
+      end: line.range.end,
+      value: [embeddedSegment(line)],
     };
 
-    return blocks;
+    if (embedded.value.kind === "esm") {
+      return true;
+    }
+
+    const start =
+      embedded.value.kind === "expression" ? embedded.value.markerEnd : line.content.start;
+
+    const text = source.slice(start, line.range.end);
+    let result;
+
+    if (embedded.value.kind === "expression") {
+      this.#expressionScanner = new ExpressionBoundaryScanner();
+      result = this.#expressionScanner.append(text);
+    } else {
+      this.#jsxScanner = new JsxBoundaryScanner();
+      result = this.#jsxScanner.append(text);
+    }
+
+    // Like MDX, a construct followed by more content on its line is phrasing content.
+    const phrasing =
+      result.kind === "closed" && !isBlank(source.slice(start + result.offset, line.content.end));
+
+    if (!phrasing) {
+      if (result.kind !== "open") {
+        blocks.push(this.finishEmbedded(source, result.kind === "invalid"));
+      }
+
+      return true;
+    }
+
+    this.#active = undefined;
+    this.#expressionScanner = undefined;
+    this.#jsxScanner = undefined;
+
+    return false;
   }
 
-  public finish(source?: string): readonly BlockSyntax[] {
+  public finish(source?: SourceText): readonly BlockSyntax[] {
     if (this.#active?.kind === "esm" && source !== undefined) {
       return [this.finishEmbedded(source)];
     }
@@ -734,7 +863,7 @@ class LeafParser {
     return this.#active === undefined ? [] : [this.closeActive()];
   }
 
-  private finishEmbedded(source: string, structurallyInvalid = false): BlockSyntax {
+  private finishEmbedded(source: SourceText, structurallyInvalid = false): BlockSyntax {
     const active = this.#active;
 
     if (active?.kind !== "expression" && active?.kind !== "jsx" && active?.kind !== "esm") {
@@ -852,7 +981,7 @@ class LeafParser {
     throw new Error(`Cannot close unimplemented ${active.kind} leaf`);
   }
 
-  private interruptsParagraph(source: string, line: PhysicalLine): boolean {
+  private interruptsParagraph(source: SourceText, line: PhysicalLine): boolean {
     return (
       interruptsParagraph(source, line) ||
       recognizeLeafDirective(source, line, this.#syntax).kind === "matched" ||
@@ -868,7 +997,10 @@ interface EmbeddedFlowStart {
   readonly markerEnd: number;
 }
 
-function matchEmbeddedFlowStart(source: string, line: PhysicalLine): EmbeddedFlowStart | undefined {
+function matchEmbeddedFlowStart(
+  source: SourceText,
+  line: PhysicalLine,
+): EmbeddedFlowStart | undefined {
   const start = consumeIndent(source, line.content.start, line.content.end, 3).offset;
   const content = source.slice(start, line.content.end);
 
@@ -892,7 +1024,7 @@ function matchEmbeddedFlowStart(source: string, line: PhysicalLine): EmbeddedFlo
 }
 
 function recognizeEmbeddedFlowStart(
-  source: string,
+  source: SourceText,
   line: PhysicalLine,
 ): RecognizerResult<EmbeddedFlowStart> {
   const match = matchEmbeddedFlowStart(source, line);
@@ -900,7 +1032,7 @@ function recognizeEmbeddedFlowStart(
   return match === undefined ? noMatch : matched(match);
 }
 
-function segmentsText(source: string, segments: readonly InlineSegment[]): string {
+function segmentsText(source: SourceText, segments: readonly InlineSegment[]): string {
   let value = "";
 
   for (const segment of segments) {
@@ -911,6 +1043,14 @@ function segmentsText(source: string, segments: readonly InlineSegment[]): strin
   }
 
   return value;
+}
+
+/**
+ * Top-level blocks that later input cannot change. A closing list item merges
+ * into a preceding list with the same marker, so only a trailing list can grow.
+ */
+function settledLength(blocks: readonly BlockSyntax[]): number {
+  return blocks.at(-1)?.kind === "list" ? blocks.length - 1 : blocks.length;
 }
 
 function appendBlock(root: BlockSyntax[], containers: ContainerFrame[], block: BlockSyntax): void {
@@ -934,10 +1074,21 @@ function appendBlock(root: BlockSyntax[], containers: ContainerFrame[], block: B
   containers[index] = { ...parent, children: children };
 }
 
+/**
+ * How a parser grows top-level lists. The parser pushes into item arrays it
+ * owns, since only it extends them; a tail draft records its closed items
+ * separately and never touches the parser's arrays.
+ */
+interface ListItemGrowth {
+  draft: boolean;
+  readonly owned: WeakMap<readonly ListItemSyntax[], ListItemSyntax[]>;
+}
+
 function appendListItem(
   root: BlockSyntax[],
   containers: ContainerFrame[],
   frame: Extract<ContainerFrame, { kind: "listItem" }>,
+  growth: ListItemGrowth,
 ): void {
   const item: ListItemSyntax = {
     range: sourceRange(frame.rangeStart, frame.end),
@@ -947,6 +1098,7 @@ function appendListItem(
   };
 
   const parent = containers.at(-1);
+  // Top-level siblings change in place, so a growing list costs only its last entry.
   const siblings = parent === undefined ? root : [...parent.children];
   const previous = siblings.at(-1);
 
@@ -959,7 +1111,7 @@ function appendListItem(
       ...previous,
       range: sourceRange(previous.range.start, frame.end),
       spread: previous.spread || previous.trailingBlank || frame.spread,
-      items: [...previous.items, item],
+      ...grownItems(previous, item, parent === undefined ? growth : undefined),
       trailingBlank: frame.blankPending,
     };
   } else {
@@ -975,9 +1127,7 @@ function appendListItem(
     });
   }
 
-  if (parent === undefined) {
-    root.splice(0, root.length, ...siblings);
-  } else {
+  if (parent !== undefined) {
     containers[containers.length - 1] = {
       ...parent,
       children: siblings,
@@ -985,8 +1135,36 @@ function appendListItem(
   }
 }
 
+/** The items after appending `item`, without copying the items a top-level list already has. */
+function grownItems(
+  list: ListSyntax,
+  item: ListItemSyntax,
+  growth: ListItemGrowth | undefined,
+): Pick<ListSyntax, "items" | "closing"> {
+  if (growth === undefined) {
+    return { items: [...list.items, ...(list.closing ?? []), item] };
+  }
+
+  if (growth.draft) {
+    return { items: list.items, closing: [...(list.closing ?? []), item] };
+  }
+
+  const owned = growth.owned.get(list.items);
+
+  if (owned !== undefined) {
+    owned.push(item);
+
+    return { items: owned };
+  }
+
+  const items = [...list.items, item];
+  growth.owned.set(items, items);
+
+  return { items };
+}
+
 function continueContainer(
-  source: string,
+  source: SourceText,
   line: PhysicalLine,
   cursor: number,
   frame: ContainerFrame,
@@ -1021,7 +1199,7 @@ function continueContainer(
 }
 
 function openContainers(
-  source: string,
+  source: SourceText,
   line: PhysicalLine,
   initialCursor: number,
   containers: ContainerFrame[],
@@ -1114,7 +1292,7 @@ function openContainers(
 }
 
 function opensContainer(
-  source: string,
+  source: SourceText,
   line: PhysicalLine,
   syntax: ResolvedSyntaxOptions,
 ): boolean {
@@ -1129,7 +1307,7 @@ function opensContainer(
 }
 
 function consumeColumns(
-  source: string,
+  source: SourceText,
   start: number,
   end: number,
   required: number,
@@ -1140,7 +1318,7 @@ function consumeColumns(
 }
 
 function indentedCodeLine(
-  source: string,
+  source: SourceText,
   line: PhysicalLine,
 ): readonly InlineSegment[] | undefined {
   const contentStart = consumeColumns(source, line.content.start, line.content.end, 4);
@@ -1213,7 +1391,7 @@ function contentLine(line: PhysicalLine, contentStart: number): PhysicalLine {
  * the enclosing source. Frontmatter is never recognized inside the region.
  */
 export function parseFlowRange(
-  source: string,
+  source: SourceText,
   range: SourceRange,
   syntax: ResolvedSyntaxOptions,
 ): readonly BlockSyntax[] {
@@ -1232,4 +1410,9 @@ export function parseFlowRange(
 
 export function blockLength(block: BlockSyntax): number {
   return rangeLength(block.range);
+}
+
+/** An embedded flow line from its content to the end of the line, including the ending. */
+function embeddedSegment(line: PhysicalLine): InlineSegment {
+  return { kind: "source", range: sourceRange(line.content.start, line.range.end) };
 }

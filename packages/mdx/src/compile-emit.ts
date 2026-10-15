@@ -14,7 +14,7 @@ import type {
 import type { JsxAttributeLike, SourceRange } from "./model.ts";
 import type { CodeWriter } from "./source-map.ts";
 
-import { htmlFallback, isHtmlAttributeList } from "./html.ts";
+import { htmlFallback, isHtmlAttributeList, pendingFallback } from "./html.ts";
 import { javascriptPropertyName } from "./javascript-ast.ts";
 import { javascriptExpressionUsesAwait, transformJavaScriptExpression } from "./javascript-jsx.ts";
 import { hasJavaScriptToken } from "./javascript.ts";
@@ -58,7 +58,7 @@ export function contentUsesAwait(node: HtmlNode): boolean {
     return hasJavaScriptToken(node.code) && javascriptExpressionUsesAwait(node.code);
   }
 
-  if (node.kind === "jsx" && node.node.attributes.some(attributeUsesAwait)) {
+  if (node.kind === "jsx" && node.attributes.some(attributeUsesAwait)) {
     return true;
   }
 
@@ -120,6 +120,18 @@ function emitNode(writer: CodeWriter, node: HtmlNode, scope: CompileScope): void
       writer.write("null");
 
       return;
+    case "pending":
+    case "unresolvedReference":
+      emitCall(
+        writer,
+        "_Fragment",
+        [],
+        node.origin,
+        scope,
+        emittedChildren(pendingFallback(node), false),
+      );
+
+      return;
     default: {
       const exhaustive: never = node;
 
@@ -142,8 +154,8 @@ function emitElement(writer: CodeWriter, node: HtmlElementNode, scope: CompileSc
 function emitJsx(writer: CodeWriter, node: HtmlJsxNode, scope: CompileScope): void {
   emitCall(
     writer,
-    resolveJsxName(node.node.name).expression,
-    jsxProperties(node.node.attributes, scope),
+    resolveJsxName(node.name).expression,
+    jsxProperties(node.attributes, scope),
     node.origin,
     scope,
     emittedChildren(node.children, false),
@@ -159,10 +171,10 @@ function emitCodeBlock(writer: CodeWriter, node: HtmlCodeBlockNode, scope: Compi
     origin: node.origin,
   });
 
-  writer.write("(props.registry?.markdown?.codeBlock ? ");
+  writer.write("(_components.codeBlock ? ");
   emitCall(
     writer,
-    "props.registry.markdown.codeBlock",
+    "_components.codeBlock",
     [
       ["code", JSON.stringify(node.code)],
       ["language", JSON.stringify(node.language)],
@@ -180,10 +192,10 @@ function emitCodeBlock(writer: CodeWriter, node: HtmlCodeBlockNode, scope: Compi
 }
 
 function emitMath(writer: CodeWriter, node: HtmlMathNode, scope: CompileScope): void {
-  writer.write("(props.registry?.math ? ");
+  writer.write("(_components.mathFormula ? ");
   emitCall(
     writer,
-    "props.registry.math",
+    "_components.mathFormula",
     [
       ["source", JSON.stringify(node.source)],
       ["style", JSON.stringify(node.style)],

@@ -70,8 +70,8 @@ Each channel has a concrete message ID. Use a typed factory when the ID depends
 on a key, then pass the resulting channel to `send`, `broadcast`, or `wait`:
 
 ```ts
-import { defineMessageChannel } from "@temelj/workflow";
 import { ss } from "@temelj/standard-schema";
+import { defineMessageChannel } from "@temelj/workflow";
 
 const approvalFor = (requestId: string) =>
   defineMessageChannel({

@@ -1,17 +1,19 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 
 import {
+  formatHtml,
   formatMdx,
   InputError,
   MdxStream,
   parse,
-  renderStreamingHtml,
+  previewDocument,
   selectMdx,
   type MathFormat,
   type DisplayMathNode,
   type InlineMathNode,
   type MathMode,
-  type StreamingDocument,
+  type HtmlNode,
+  type MdxStreamSnapshot,
   type SyntaxOptions,
 } from "./mod.ts";
 
@@ -153,12 +155,12 @@ describe("streaming TeX math", () => {
   it("publishes inline math only after its closing delimiter arrives", () => {
     const stream = new MdxStream({ syntax: { math: "tex" } });
 
-    const pending = stream.append("\\(x").document;
-    expect(renderStreamingHtml(pending)).toContain("\\(x");
-    expect(streamingKinds(pending)).toContain("pendingMath");
+    const pending = stream.append("\\(x");
+    expect(streamingKinds(pending)).toContain("pending");
+    expect(streamingKinds(pending)).not.toContain("math");
 
-    const committed = stream.append("\\)").document;
-    expect(renderStreamingHtml(committed)).toContain(
+    const committed = stream.append("\\)");
+    expect(formatHtml(previewDocument(committed))).toContain(
       '<code class="language-math math-inline">x</code>',
     );
     expect(streamingKinds(committed)).toContain("math");
@@ -167,15 +169,19 @@ describe("streaming TeX math", () => {
   it("publishes display math only after its closing delimiter arrives", () => {
     const stream = new MdxStream({ syntax: { math: "tex" } });
 
-    expect(renderStreamingHtml(stream.append("\\[\nx").document)).toContain("\\[");
-    expect(renderStreamingHtml(stream.append("\n\\]").document)).toContain("x");
+    expect(stream.append("\\[\nx").blocks[0]?.nodes[0]).toMatchObject({
+      kind: "pending",
+      construct: "displayMath",
+      children: [{ kind: "text", value: "x" }],
+    });
+    expect(streamingKinds(stream.append("\n\\]"))).toContain("math");
   });
 });
 
-function streamingKinds(document: StreamingDocument): readonly string[] {
+function streamingKinds(snapshot: MdxStreamSnapshot): readonly string[] {
   const kinds: string[] = [];
 
-  const visit = (node: (typeof document.children)[number]): void => {
+  const visit = (node: HtmlNode): void => {
     kinds.push(node.kind);
 
     if ("children" in node) {
@@ -185,8 +191,8 @@ function streamingKinds(document: StreamingDocument): readonly string[] {
     }
   };
 
-  for (const child of document.children) {
-    visit(child);
+  for (const block of snapshot.blocks) {
+    block.nodes.forEach(visit);
   }
 
   return kinds;

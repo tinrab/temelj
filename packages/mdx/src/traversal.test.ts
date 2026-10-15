@@ -5,6 +5,7 @@ import type { DocumentPlugin, HtmlPlugin } from "./plugins/mod.ts";
 
 import {
   formatHtml,
+  formatMdx,
   indexDocument,
   lowerHtml,
   parse,
@@ -38,6 +39,26 @@ describe("tree traversal", () => {
     const rewritten = rewriteMdx(document, { thematicBreak: () => null });
 
     expect(rewritten.children.map((node) => node.kind)).toEqual(["paragraph", "paragraph"]);
+  });
+
+  it("replaces MDX nodes within the same content category", () => {
+    const document = expectParsed(parse("Use `code` here.\n\n---\n")).document;
+
+    const rewritten = rewriteMdx(document, {
+      inlineCode: ({ node }) => ({
+        kind: "strong",
+        children: [{ kind: "text", value: node.value }],
+      }),
+      thematicBreak: () => ({ kind: "paragraph", children: [{ kind: "text", value: "break" }] }),
+    });
+
+    expect(formatMdx(rewritten)).toBe("Use **code** here.\n\nbreak");
+    expect(() =>
+      rewriteMdx(document, {
+        // @ts-expect-error A phrasing node cannot be replaced with flow content.
+        inlineCode: () => ({ kind: "thematicBreak" }),
+      }),
+    ).toThrow("A inlineCode rewrite handler returned a thematicBreak node");
   });
 
   it("replaces HTML nodes with a different kind", () => {

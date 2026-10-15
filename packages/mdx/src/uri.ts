@@ -1,4 +1,4 @@
-import { replacementCharacter } from "./utility.ts";
+import { replacementCharacter } from "./source.ts";
 
 const percentEncodedByte = /^[0-9A-Fa-f]{2}$/u;
 
@@ -31,4 +31,8 @@ export function normalizeUri(value: string): string {
   }
 
   return result.join("");
+}
+
+export function isUrlControlCharacter(character: string): boolean {
+  return character === "\0" || character <= " " || character === "\u007F";
 }

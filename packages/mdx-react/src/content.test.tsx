@@ -2,7 +2,7 @@
 import type { HtmlElementNode, HtmlNode } from "@temelj/mdx";
 import type { SyntaxHighlighter } from "@temelj/mdx/plugins";
 
-import { Processor } from "@temelj/mdx";
+import { htmlText, Processor } from "@temelj/mdx";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -69,7 +69,8 @@ describe("MDX React content", () => {
     expect(encoded).toBeDefined();
     const received: unknown = JSON.parse(encoded ?? "null");
     expect(received).toEqual({
-      kind: "jsxFlowElement",
+      kind: "jsx",
+      element: "flow",
       name: "Alert",
       attributes: { title: "Info" },
       origin: { start: 0, end: 22 },
@@ -101,7 +102,7 @@ describe("MDX React content", () => {
 
     expect(screen.getByText("Info")).toBeDefined();
     expect(screen.getByText("Info description")).toBeDefined();
-    expect(document.querySelector("aside")?.getAttribute("data-node-kind")).toBe("jsxFlowElement");
+    expect(document.querySelector("aside")?.getAttribute("data-node-kind")).toBe("jsx");
   });
 
   it("keeps executable JSX properties inert for registered components", () => {
@@ -190,12 +191,12 @@ describe("MDX React content", () => {
       <StreamSourceContent registry={registry} source={unresolvedSource} status="streaming" />,
     );
     expect(screen.getByText("[manual][docs]").getAttribute("data-pending-kind")).toBe(
-      "unresolvedLinkReference",
+      "unresolvedReference",
     );
     expect(PendingMarkdown.mock.lastCall?.[0].node).toMatchObject({
-      authored: "[manual][docs]",
+      source: "[manual][docs]",
       identifier: "DOCS",
-      referenceKind: "full",
+      reference: "link",
     });
 
     rerender(
@@ -293,10 +294,10 @@ describe("MDX React content", () => {
     expect(document.querySelector("[data-footnotes]")).toBe(section);
 
     const PendingMarkdown = vi.fn<(props: PendingMdxMarkdownProps) => React.ReactNode>(
-      ({ children, node }: PendingMdxMarkdownProps): React.ReactNode =>
-        node.kind === "footnoteReference" || node.kind === "footnoteSection" ? null : children,
+      ({ children }: PendingMdxMarkdownProps): React.ReactNode => children,
     );
 
+    // Defined footnotes render with their final numbering while streaming.
     const registry = defineMdxRegistry({ math: Math, pending: { markdown: PendingMarkdown } });
     rerender(
       <StreamSourceContent
@@ -305,19 +306,20 @@ describe("MDX React content", () => {
         status="streaming"
       />,
     );
-    expect(document.querySelector("[data-footnotes]")).toBeNull();
-    expect(document.querySelector("[data-footnote-ref]")).toBeNull();
-    expect(PendingMarkdown.mock.calls.map(([props]) => props.node.kind)).toEqual([
-      "footnoteReference",
-      "footnoteReference",
-      "footnoteSection",
+    expect(document.querySelector("[data-footnotes]")).not.toBeNull();
+    expect(document.querySelectorAll("[data-footnote-ref]")).toHaveLength(2);
+    expect(PendingMarkdown).not.toHaveBeenCalled();
+
+    rerender(
+      <StreamSourceContent
+        registry={registry}
+        source={`${footnotes}\nAfter [^missing].`}
+        status="streaming"
+      />,
+    );
+    expect(PendingMarkdown.mock.calls.map(([props]) => props.node)).toMatchObject([
+      { kind: "unresolvedReference", reference: "footnote", source: "[^missing]" },
     ]);
-    expect(PendingMarkdown.mock.calls[0]?.[0].node).toMatchObject({
-      authored: "[^note]",
-      identifier: "NOTE",
-      occurrence: 1,
-      ordinal: 1,
-    });
 
     PendingMarkdown.mockClear();
     rerender(
@@ -367,9 +369,9 @@ describe("MDX React content", () => {
     } satisfies SyntaxHighlighter;
 
     const PendingMarkdown = ({ children, node }: PendingMdxMarkdownProps): React.ReactNode =>
-      node.kind === "pendingFencedCode" ? (
+      node.kind === "pending" && node.construct === "fence" ? (
         <HighlightedCode
-          code={node.value}
+          code={htmlText(node)}
           highlighter={highlighter}
           language={node.language}
           meta={node.meta}
@@ -701,10 +703,10 @@ describe("MDX React content", () => {
   });
 
   it("passes the semantic math component to compiled content", () => {
-    const Trusted: CompiledContentComponent = ({ registry }) =>
-      registry?.math === undefined
+    const Trusted: CompiledContentComponent = ({ components }) =>
+      components?.mathFormula === undefined
         ? null
-        : React.createElement(registry.math, { source: "compiled", style: "display" });
+        : React.createElement(components.mathFormula, { source: "compiled", style: "display" });
 
     render(<CompiledContent module={{ default: Trusted }} registry={mathRegistry} />);
     expect(document.querySelector('[data-source="compiled"]')).not.toBeNull();

@@ -43,7 +43,7 @@ output. It provides:
 
 - one incremental parser for complete files, appended chunks, and source edits;
 - exact source files and plain, JSON-serializable semantic and HTML trees;
-- a separate provisional tree for safe rendering while input is incomplete;
+- streaming previews in the same HTML tree, with pending kinds for open syntax;
 - a canonical MDX formatter and typed tree traversal;
 - safe HTML lowering and a non-evaluating JSX compiler that renders the same
   elements as the HTML;
@@ -158,9 +158,10 @@ switch (outcome.kind) {
 }
 ```
 
-Every outcome in the package has the same shape: `kind: "ok"` with its result,
+Every outcome in the package is an `MdxOutcome`: `kind: "ok"` with its result,
 or `kind: "invalid" | "limitExceeded"` with at least one error diagnostic.
-Invalid configuration, offsets, and edit ranges are caller errors and throw.
+`isOk(outcome)` narrows to the successful case. Invalid configuration, offsets,
+and edit ranges are caller errors and throw.
 
 ## Work with the tree
 
@@ -194,8 +195,13 @@ if (outcome.kind === "ok") {
 `walkMdx()`, `selectMdx()`, and `rewriteMdx()` traverse semantic trees;
 `walkHtml()`, `selectHtml()`, and `rewriteHtml()` traverse HTML trees. Rewrite
 handlers are keyed by kind. Returning `undefined` keeps a node, returning a node
-replaces it, and returning `null` removes it. MDX handlers keep the node kind;
+replaces it, and returning `null` removes it. An MDX handler for phrasing content
+may return any phrasing node, and one for flow content any flow node, so the tree
+stays valid; `isPhrasingContent()` and `isFlowContent()` test the categories.
 HTML handlers may return any node.
+
+Frontmatter data is plain JSON-like data too. A TOML date or time is a
+`{ kind: "temporal", type, value }` object with an ISO 8601 `value`.
 
 ```ts
 import { rewriteMdx } from "@temelj/mdx";
@@ -314,25 +320,33 @@ A schema failure returns `kind: "invalid"` with `mdx.frontmatter.schema`
 diagnostics. Values that cannot be transported, such as functions, cyclic data,
 and class instances, return `mdx.frontmatter.transport`.
 
-At runtime, compiled content reads components from `props.registry`: `html`
-overrides by tag name, `jsx` components by name, `markdown.codeBlock`, and
-`math`. `@temelj/mdx-react` defines that registry.
+At runtime, compiled content reads components from `props.components`
+(`CompiledComponents`): element overrides by tag name, authored JSX components
+by name, and the reserved `codeBlock`, `mathFormula`, and `wrapper` entries.
+Any JSX runtime can provide them; `@temelj/mdx-react` maps its registry with
+`compiledComponents()`.
+
+Each ESM block is parsed once; its bindings, JSX, and exports come from that
+parse. A function body receives the runtime as `__mdxRuntime`, resolves imports
+through `__resolveMdxImport`, and returns its exports with the content as
+`default`.
 
 ## Stream a document
 
-`MdxStream` owns a mutable source and keeps parser state across appends and
-edits. Every call returns a frozen preview.
+`MdxStream` parses a document while it arrives, such as a chat answer streamed
+token by token. Each append costs work proportional to the new text, not to the
+document.
 
 ```ts
-import { formatMdx, MdxStream, renderStreamingHtml } from "@temelj/mdx";
+import { formatHtml, formatMdx, MdxStream, previewDocument } from "@temelj/mdx";
 
-const stream = new MdxStream();
+const stream = new MdxStream({ syntax: { math: "auto" } });
 
-const before = stream.append("Read [the guide][guide].");
-const after = stream.append("\n\n[guide]: https://example.com/guide");
+const before = stream.append("Read [the guide][guide].\n\n");
+const after = stream.append("[guide]: https://example.com/guide\n\nMore **text");
 
 console.assert(after.blocks[0]?.id === before.blocks[0]?.id);
-console.log(renderStreamingHtml(after.document));
+console.log(formatHtml(previewDocument(after)));
 
 const completion = stream.complete();
 
@@ -341,61 +355,114 @@ if (completion.kind === "ok") {
 }
 ```
 
-A preview has `kind: "preview"`, the current `file`, top-level `blocks`, a
-`supplement` holding the shared footnote section, the joined `document`, and
-diagnostics. `snapshot()` returns the current preview or the successful
-completion, discriminated by `kind`.
+A snapshot has `kind: "preview"`, the current `file`, the top-level `blocks`,
+the shared footnote section in `footnotes`, the diagnostics, and a `limit` when
+the source exceeds one. `previewDocument()` joins a preview into one HTML tree.
+`snapshot()` returns the current preview or the successful completion.
 
-Each block has an opaque `BlockId`, its source range, a one-block document, and
-its reference and footnote dependencies. Identity follows edit lineage:
+Each block is plain data:
 
-| Change                             | Block ID result                            |
-| ---------------------------------- | ------------------------------------------ |
-| Append to the active block         | Preserved as the block grows and completes |
-| Insert before an untouched block   | Preserved, with an updated range           |
-| Replace text intersecting a block  | Reassigned for affected results            |
-| Move or delete and reinsert source | Reassigned                                 |
-| Change a winning definition        | Preserved for rematerialized consumers     |
+- `id` is an opaque `BlockId` that survives appends and edits that do not touch
+  the block;
+- `nodes` is the block's lowered HTML;
+- `status` is `"valid"`, or `"invalid"` for a block that renders its authored
+  source as inert text;
+- `settled` is `true` once later input can no longer change the block's syntax;
+- `diagnostics` and `dependencies` list what the block reports and references.
 
-Unchanged blocks keep their snapshot object, so a renderer can compare blocks by
-identity and key views by `BlockId`.
+### How appends stay cheap
 
-### Incomplete and invalid input
+The parser emits each top-level block once it settles. A settled block is
+materialized and lowered once, and keeps its snapshot object afterwards. Every
+append finishes only a copy of the open tail: a trailing list, the open
+containers, and the active leaf.
 
-Incomplete input has states that cannot appear in a strict document, so
-previews use their own `StreamingNode` union. It can be traversed and rendered
-but not formatted, compiled, or processed by plugins.
+- An open paragraph resumes its inline parse from the last line where nothing
+  was left open. Its decoded text, parsed nodes, and rendered nodes before that
+  line are reused in place, and a long paragraph's preview groups its children
+  into fragments, so a snapshot copies only the changed end.
+- An open fence decodes only the lines that arrived since the last append.
+- A growing list reuses the materialized and lowered output of its leading
+  items, so an append handles only the items that changed. The open list
+  extends its arrays in place, and its preview groups children into fragments.
+- The stream owns a `SourceBuffer`. Its files share text chunks, which merge
+  like a binary counter, and one line index that scans each character once; an
+  edit starts a new generation. The parser reads the chunks by offset, so a
+  growing document is never copied whole.
+- The parser grows the open leaf's line arrays in place. A tail draft's
+  extensions are undone before the parser reads them again.
+- Definitions, footnote numbers, node counts, and diagnostics are running
+  totals. A settled block renders again only when a definition or footnote
+  number it uses changes.
 
-- Unfinished emphasis, code, links, images, math, and fences are typed pending
-  nodes. A pending link is not clickable and a pending image does not load.
-- Unfinished inline JSX and expressions are pending nodes, not errors.
-- Pending JSX exposes only a committed name, complete literal attributes, and
-  safe Markdown children, which render as blocks when they start on a new line.
-- Expressions and spreads never execute, and pending ESM is omitted.
-- A bare list, heading, or quote marker at the end renders nothing until content
-  arrives.
+Each snapshot has a new `blocks` array, since snapshots are immutable; it holds
+references to unchanged block objects. `subscribe()` reports which blocks
+changed, for consumers that apply changes instead of reading whole snapshots.
 
-A closed but invalid construct, such as `{1+}`, makes only its block invalid.
-That block renders as inert authored text, its diagnostics are reported, and the
-rest of the document keeps streaming with `status: "invalid"`. Exceeding a limit
-keeps the last valid preview with `status: "limitExceeded"`. Block identities
-survive both states.
+Unchanged nodes keep their identity inside the open block too, so a renderer
+can skip them. `pnpm --filter @temelj/mdx measure:streaming` reports per-append
+p50, p95, and maximum latency for paragraphs, open paragraphs, open fences,
+lists, containers, and late definitions at several sizes.
 
-`complete()` strictly finalizes the session. A successful completion is cached,
-idempotent, and terminal; later appends and edits throw. A failed completion is
-not terminal, so the source can be repaired and completed again.
+### Open syntax and missing references
 
-### Cost
+Previews use the same `HtmlNode` union as `lowerHtml()`, plus two kinds that
+only previews contain:
 
-Appends reuse settled blocks by parser output identity, and an open container
-such as a growing list materializes, lowers, and converts only its changed
-items. A typical 20 KB answer streamed in 32-character chunks costs well under a
-millisecond per append. Very large documents still pay a small per-block cost on
-each append.
+- `pending` is a construct that is still open, such as `strong`, `link`,
+  `code`, `fence`, `inlineMath`, `displayMath`, `expression`, `esm`, or `jsx`.
+  `children` holds the content so far as inert HTML, and `pendingFallback()`
+  gives its provisional presentation. A pending link is not clickable and a
+  pending image does not load.
+- `unresolvedReference` is a link, image, or footnote reference whose
+  definition has not arrived. It renders its authored source until the
+  definition resolves it.
 
-Run `pnpm --filter @temelj/mdx measure:streaming` for per-append p50, p95, and
-maximum latency on generated paragraphs, open fences, lists, containers, and
-late definitions at several sizes.
+Open flow JSX with a committed name and literal attributes is a `jsx` node with
+`state: "pending"` and its Markdown children so far. Expressions and spreads
+never execute, and open ESM renders nothing. A bare list, heading, or quote
+marker at the end renders nothing until content arrives.
+
+A closed but invalid construct, such as `{1+}`, makes only its block invalid;
+the rest of the document keeps streaming. Exceeding a limit keeps the last valid
+blocks and sets `limit`. Block identities survive both states.
+
+`complete()` finishes the tail strictly and assembles the document from the
+settled blocks' nodes. Its blocks list the stream identities each block had. A
+successful completion is cached and terminal; later appends and edits throw. A
+failed completion leaves the stream open, so the source can be repaired.
+
+### Subscribe to changes
+
+`subscribe()` reports what changed after each append or edit. Blocks before
+`start` are the previous snapshot's objects, except the `refreshed` ones whose
+definitions changed.
+
+```ts
+stream.subscribe(({ snapshot, start, refreshed }) => {
+  send(snapshot.blocks.slice(start), refreshed);
+});
+```
+
+### Stream trees from a server
+
+Trees are plain data, so a server can run the stream and send blocks to a client
+that never parses. `streamBlockEvents()` turns text chunks into update events and
+a final completion event; `applyBlockEvent()` applies an update to the preview a
+client holds.
+
+```ts
+import { streamBlockEvents } from "@temelj/mdx";
+
+for await (const event of streamBlockEvents(chunks, { syntax: { math: "auto" } })) {
+  response.write(`${JSON.stringify(event)}\n`);
+}
+```
+
+An update event sends only the blocks from `start` on and the refreshed ones.
+The completion event carries the completed document's HTML; pass `html` to
+lower it through a `Processor` with HTML plugins. `@temelj/mdx-react` renders
+these events with `useMdxBlocks()`.
 
 ## Highlight fenced code
 
@@ -465,7 +532,9 @@ unchanged. Unified parser and compiler replacements are rejected.
 | `maximumNodes`              |             1,000,000 |
 | `maximumPendingBlockLength` | 4 MiB for `MdxStream` |
 
-Set parser limits with `limits` on `parse()`, `Processor`, and `MdxStream`.
+Set limits with `limits` on `parse()`, `Processor`, and `MdxStream`. Only a
+stream accepts `maximumPendingBlockLength`, the longest top-level block that can
+contain open syntax.
 Diagnostics carry a severity, stable code, message, optional source span, notes,
 and related spans. Use `formatDiagnostic()` for plain text and
 `hasErrorDiagnostics()` for a quick error check.

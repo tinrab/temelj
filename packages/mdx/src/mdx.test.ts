@@ -12,7 +12,7 @@ import {
   nodeText,
   parse,
   Processor,
-  renderStreamingHtml,
+  previewDocument,
   rewriteHtml,
   selectMdx,
   type DocumentNode,
@@ -275,7 +275,7 @@ describe("MDX", () => {
   });
 
   it("rejects invalid stream configuration", () => {
-    expect(() => new MdxStream({ maximumPendingBlockLength: 0 })).toThrow(
+    expect(() => new MdxStream({ limits: { maximumPendingBlockLength: 0 } })).toThrow(
       "Invalid stream maximumPendingBlockLength",
     );
   });
@@ -284,12 +284,14 @@ describe("MDX", () => {
     const stream = new MdxStream();
     const opening = stream.append('<Alert title="Info" ');
 
-    const node =
-      opening.document.children[0]?.kind === "jsx" ? opening.document.children[0] : undefined;
+    const node = opening.blocks[0]?.nodes[0];
 
-    expect(node?.name).toBe("Alert");
-    expect(node?.state).toBe("pending");
-    expect(node?.attributes).toEqual({ title: "Info" });
+    expect(node).toMatchObject({
+      kind: "jsx",
+      name: "Alert",
+      state: "pending",
+      attributes: [{ kind: "jsxAttribute", name: "title", value: "Info" }],
+    });
     expect(stream.complete().kind).toBe("invalid");
     expect(parse('<Alert title="Info" ').kind).toBe("invalid");
   });
@@ -298,7 +300,7 @@ describe("MDX", () => {
     const stream = new MdxStream();
     const snapshot = stream.append("<Alert />\n\nMore");
 
-    expect(renderStreamingHtml(snapshot.document)).toContain("&lt;Alert /&gt;");
+    expect(formatHtml(previewDocument(snapshot))).toContain("&lt;Alert />");
     expect(snapshot.blocks).toHaveLength(2);
   });
 
@@ -312,7 +314,7 @@ describe("MDX", () => {
 
     const firstId = snapshot.blocks[0]?.id;
     expect(snapshot.blocks[0]?.dependencies.definitions).toEqual(["DOCS"]);
-    expect(renderStreamingHtml(snapshot.document)).toContain("[manual][docs]");
+    expect(formatHtml(previewDocument(snapshot))).toContain("[manual][docs]");
 
     const appended = stream.append("[docs]: https://rabzelj.com\n\nSecond");
     expect(appended.blocks[0]?.id).toBe(firstId);
@@ -322,7 +324,7 @@ describe("MDX", () => {
       throw new Error("Expected the reference block");
     }
 
-    expect(renderStreamingHtml(resolved.document)).toContain(
+    expect(formatHtml({ kind: "root", children: resolved.nodes })).toContain(
       '<a href="https://rabzelj.com">manual</a>',
     );
 
@@ -341,7 +343,7 @@ describe("MDX", () => {
       throw new Error("Expected the repaired reference block");
     }
 
-    expect(renderStreamingHtml(unresolved.document)).toContain("[manual][docs]");
+    expect(formatHtml({ kind: "root", children: unresolved.nodes })).toContain("[manual][docs]");
     expect(stream.complete().kind).toBe("ok");
     expect(() => stream.append("more")).toThrow(InputError);
   });

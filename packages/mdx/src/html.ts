@@ -1,6 +1,6 @@
 import { isNumber, isString } from "@temelj/value";
 
-import type { JsxFlowElementNode, JsxTextElementNode, SourceRange } from "./model.ts";
+import type { JsxAttributeLike, SourceRange } from "./model.ts";
 
 /**
  * Lowered HTML is plain, readonly data. Semantic kinds such as `codeBlock` and
@@ -51,7 +51,13 @@ export interface HtmlExpressionNode extends HtmlNodeBase<"expression"> {
 
 /** A JSX element that a renderer may resolve. `fallback` is the authored source. */
 export interface HtmlJsxNode extends HtmlNodeBase<"jsx"> {
-  readonly node: JsxFlowElementNode | JsxTextElementNode;
+  /** `pending` while a stream has not closed the element; attributes are then the committed ones. */
+  readonly state: "complete" | "pending";
+  /** `flow` for block JSX, `text` for JSX inside a paragraph. */
+  readonly element: "flow" | "text";
+  /** Absent for fragments. */
+  readonly name?: string;
+  readonly attributes: readonly JsxAttributeLike[];
   readonly fallback: string;
   readonly children: readonly HtmlNode[];
 }
@@ -84,6 +90,48 @@ export interface HtmlFootnoteSectionNode extends HtmlNodeBase<"footnoteSection">
   readonly children: readonly HtmlNode[];
 }
 
+/** Syntax that a stream opened but has not closed yet. */
+export type HtmlPendingConstruct =
+  | "strong"
+  | "emphasis"
+  | "delete"
+  | "link"
+  | "image"
+  | "code"
+  | "inlineMath"
+  | "displayMath"
+  | "fence"
+  | "expression"
+  | "esm"
+  | "jsx";
+
+/**
+ * Open syntax at the end of a stream. `children` is the content so far as inert
+ * HTML, and `pendingFallback` gives its provisional presentation. Only stream
+ * previews contain pending nodes.
+ */
+export interface HtmlPendingNode extends HtmlNodeBase<"pending"> {
+  readonly construct: HtmlPendingConstruct;
+  /** Authored source of the construct so far. */
+  readonly source: string;
+  readonly children: readonly HtmlNode[];
+  /** The fence language, when a fence has an info string. */
+  readonly language?: string;
+  readonly meta?: string;
+}
+
+/**
+ * A reference whose definition has not arrived. It renders its authored source
+ * until the definition resolves it. Only stream previews contain these nodes.
+ */
+export interface HtmlUnresolvedReferenceNode extends HtmlNodeBase<"unresolvedReference"> {
+  readonly reference: "footnote" | "image" | "link";
+  readonly identifier: string;
+  readonly source: string;
+  /** The label as inert HTML. */
+  readonly children: readonly HtmlNode[];
+}
+
 export type HtmlNode =
   | HtmlCodeBlockNode
   | HtmlCommentNode
@@ -94,9 +142,11 @@ export type HtmlNode =
   | HtmlFootnoteSectionNode
   | HtmlJsxNode
   | HtmlMathNode
+  | HtmlPendingNode
   | HtmlRawNode
   | HtmlRootNode
-  | HtmlTextNode;
+  | HtmlTextNode
+  | HtmlUnresolvedReferenceNode;
 
 export type HtmlKind = HtmlNode["kind"];
 
@@ -153,6 +203,52 @@ export function htmlClassNames(node: HtmlElementNode): readonly string[] {
   return Array.isArray(value) ? value.filter((item) => isString(item)) : [];
 }
 
+/** The provisional presentation of open or unresolved stream syntax. */
+export function pendingFallback(
+  node: HtmlPendingNode | HtmlUnresolvedReferenceNode,
+): readonly HtmlNode[] {
+  if (node.kind === "unresolvedReference") {
+    return [text(node.source)];
+  }
+
+  switch (node.construct) {
+    case "strong":
+      return [element("strong", {}, node.children)];
+    case "emphasis":
+      return [element("em", {}, node.children)];
+    case "delete":
+      return [element("del", {}, node.children)];
+    case "link":
+      return [element("span", {}, node.children)];
+    case "code":
+      return [element("code", {}, node.children)];
+    case "inlineMath":
+      // A lone dollar sign is often currency, so open inline math stays authored text.
+      return [text(node.source)];
+    case "displayMath":
+      return [
+        element("pre", {}, [
+          element("code", { class: ["language-math", "math-display"] }, node.children),
+        ]),
+      ];
+    case "fence":
+      return [
+        element("pre", {}, [
+          element(
+            "code",
+            node.language === undefined ? {} : { class: [`language-${node.language}`] },
+            node.children,
+          ),
+        ]),
+      ];
+    case "image":
+    case "expression":
+    case "esm":
+    case "jsx":
+      return node.children;
+  }
+}
+
 function element(
   tagName: string,
   attributes: HtmlAttributes,
@@ -174,6 +270,8 @@ export function htmlText(node: HtmlNode): string {
     case "jsx":
     case "expression":
       return node.fallback;
+    case "unresolvedReference":
+      return node.source;
     case "codeBlock":
       return node.code;
     case "math":

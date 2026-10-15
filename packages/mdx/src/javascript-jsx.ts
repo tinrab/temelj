@@ -43,14 +43,19 @@ export function transformJavaScriptExpression(
   return transformNodeSource(source, root, { ...withLocalBindings(root, context), origin });
 }
 
-export function transformJavaScriptProgram(
+/**
+ * Transforms JSX inside the nodes of one parsed program. Each call returns a
+ * node's source with its JSX replaced by runtime calls.
+ */
+export function programTransformer(
   source: string,
+  program: JavaScriptNode,
   context: JavaScriptJsxContext,
   origin?: JavaScriptSourceOrigin,
-): string {
-  const root = parseJavaScriptProgram(source);
+): (node: JavaScriptNode) => string {
+  const transformContext = { ...withLocalBindings(program, context), origin };
 
-  return transformNodeSource(source, root, { ...withLocalBindings(root, context), origin });
+  return (node) => transformNodeSource(source, node, transformContext);
 }
 
 export function javascriptExpressionUsesAwait(source: string): boolean {

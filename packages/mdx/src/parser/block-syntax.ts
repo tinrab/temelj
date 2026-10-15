@@ -171,6 +171,11 @@ export interface ListSyntax extends BlockSyntaxBase {
   readonly spread: boolean;
   readonly marker: "." | ")" | "*" | "+" | "-";
   readonly items: readonly ListItemSyntax[];
+  /**
+   * Items a tail draft closed after `items`. A draft keeps the parser's item
+   * array instead of copying it, so finishing the open tail costs only its items.
+   */
+  readonly closing?: readonly ListItemSyntax[];
   // The last item ended with a blank line, so a following sibling item makes the list loose.
   readonly trailingBlank: boolean;
 }

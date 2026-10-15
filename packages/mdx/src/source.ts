@@ -4,7 +4,7 @@ import type { SourceRange } from "./ranges.ts";
 
 import { InputError } from "./errors.ts";
 import { sourceRange } from "./ranges.ts";
-import { nextTabColumn, semanticCharacter } from "./utility.ts";
+import { SourceText } from "./source-text.ts";
 
 export interface SourceFileInput {
   readonly name?: string;
@@ -31,31 +31,108 @@ export interface PhysicalLine {
   readonly ending: "" | "\n" | "\r" | "\r\n";
 }
 
-/** Immutable authored source with UTF-16 offsets and exact physical line boundaries. */
+/** The semantic character represented by NUL in parsed source. */
+export const replacementCharacter = "\uFFFD";
+
+export function semanticCharacter(value: string): string {
+  return value === "\0" ? replacementCharacter : value;
+}
+
+/** The column after a tab, with four-column tab stops. */
+export function nextTabColumn(column: number): number {
+  return column + (4 - ((column - 1) % 4));
+}
+
+/**
+ * Physical lines of a text that only grows. The files of one buffer generation
+ * share one index, which scans each character once instead of once per file.
+ */
+class LineIndex {
+  readonly lines: PhysicalLine[] = [];
+  readonly #scanner = new PhysicalLineScanner();
+  #length = 0;
+
+  /** Scans `text`, which extends every text scanned before, from where the last scan ended. */
+  public extend(text: SourceText): void {
+    if (text.length > this.#length) {
+      this.lines.push(...this.#scanner.append(text.slice(this.#length)));
+      this.#length = text.length;
+    }
+  }
+}
+
+/** A file's lines: the index's complete lines it contains, then its own last lines. */
+interface LineTable {
+  readonly complete: readonly PhysicalLine[];
+  readonly count: number;
+  readonly tail: readonly PhysicalLine[];
+}
+
+let createFile: (name: string, text: SourceText, index: LineIndex) => SourceFile;
+
+let readText: (file: SourceFile) => SourceText;
+
+/**
+ * Immutable authored source with UTF-16 offsets and exact physical line
+ * boundaries. Files from a `SourceBuffer` share text chunks and a line index,
+ * so reading a growing document never copies it whole.
+ */
 export class SourceFile {
-  #lines: readonly PhysicalLine[] | undefined;
+  #source: SourceText;
+  #index: LineIndex | undefined;
+  #table: LineTable | undefined;
   public readonly name: string;
-  public readonly text: string;
+
+  static {
+    createFile = (name, text, index) => {
+      const file = new SourceFile({ name, text: "" });
+      file.#source = text;
+      file.#index = index;
+
+      return file;
+    };
+
+    readText = (file) => file.#source;
+  }
 
   public constructor(input: string | SourceFileInput) {
-    this.text = isString(input) ? input : input.text;
+    this.#source = SourceText.of(isString(input) ? input : input.text);
     this.name = isString(input) ? "source.mdx" : (input.name ?? "source.mdx");
     Object.freeze(this);
   }
 
+  /** The whole text. Prefer `slice` and `length`, which do not join a growing text. */
+  public get text(): string {
+    return this.#source.toString();
+  }
+
+  public get length(): number {
+    return this.#source.length;
+  }
+
+  /**
+   * Whether `other` is known to start with this file's text: both come from
+   * the same `SourceBuffer` with only appends between them.
+   */
+  public isPrefixOf(other: SourceFile): boolean {
+    return (
+      this === other ||
+      (this.#index !== undefined && this.#index === other.#index && this.length <= other.length)
+    );
+  }
+
   public location(offset: number): SourceLocation {
-    if (!Number.isInteger(offset) || offset < 0 || offset > this.text.length) {
-      InputError.sourceOffsetOutsideFile(offset, this.text.length);
+    if (!Number.isInteger(offset) || offset < 0 || offset > this.length) {
+      InputError.sourceOffsetOutsideFile(offset, this.length);
     }
 
-    const lines = this.lines();
     let low = 0;
-    let high = lines.length;
+    let high = this.lineCount;
 
     while (low + 1 < high) {
       const middle = Math.floor((low + high) / 2);
 
-      if (lines[middle].range.start <= offset) {
+      if (this.physicalLine(middle).range.start <= offset) {
         low = middle;
       } else {
         high = middle;
@@ -64,35 +141,37 @@ export class SourceFile {
 
     let column = 1;
 
-    for (let index = lines[low].range.start; index < offset; index++) {
-      column = this.text[index] === "\t" ? nextTabColumn(column) : column + 1;
+    for (let index = this.physicalLine(low).range.start; index < offset; index++) {
+      column = this.#source.char(index) === "\t" ? nextTabColumn(column) : column + 1;
     }
 
     return Object.freeze({ offset, line: low + 1, column });
   }
 
   public lineStart(line: number): number | undefined {
-    return this.lines()[line - 1]?.range.start;
+    return this.line(line)?.range.start;
   }
 
   public get lineCount(): number {
-    return this.lines().length;
+    const table = this.table();
+
+    return table.count + table.tail.length;
   }
 
   public line(line: number): PhysicalLine | undefined {
-    return this.lines()[line - 1];
+    return line >= 1 && line <= this.lineCount ? this.physicalLine(line - 1) : undefined;
   }
 
   public lineAt(offset: number): PhysicalLine {
-    return this.lines()[this.location(offset).line - 1];
+    return this.physicalLine(this.location(offset).line - 1);
   }
 
   public character(offset: number): string | undefined {
-    if (!Number.isSafeInteger(offset) || offset < 0 || offset > this.text.length) {
-      InputError.sourceOffsetOutsideFile(offset, this.text.length);
+    if (!Number.isSafeInteger(offset) || offset < 0 || offset > this.length) {
+      InputError.sourceOffsetOutsideFile(offset, this.length);
     }
 
-    const value = this.text[offset];
+    const value = this.#source.char(offset);
 
     return value === undefined ? undefined : semanticCharacter(value);
   }
@@ -103,23 +182,107 @@ export class SourceFile {
       !Number.isSafeInteger(range.end) ||
       range.start < 0 ||
       range.end < range.start ||
-      range.end > this.text.length
+      range.end > this.length
     ) {
-      InputError.replacementRangeOutsideSource(range.start, range.end, this.text.length);
+      InputError.replacementRangeOutsideSource(range.start, range.end, this.length);
     }
 
-    return this.text.slice(range.start, range.end);
+    return this.#source.slice(range.start, range.end);
   }
 
   public semanticSlice(range: SourceRange): string {
     return this.slice(range).replaceAll("\0", "\uFFFD");
   }
 
-  private lines(): readonly PhysicalLine[] {
-    this.#lines ??= Object.freeze(indexLines(this.text));
+  private physicalLine(index: number): PhysicalLine {
+    const table = this.table();
 
-    return this.#lines;
+    return index < table.count ? table.complete[index] : table.tail[index - table.count];
   }
+
+  private table(): LineTable {
+    if (this.#table !== undefined) {
+      return this.#table;
+    }
+
+    const index = this.#index;
+
+    if (index === undefined) {
+      const lines = Object.freeze(indexLines(this.text));
+      this.#table = { complete: lines, count: lines.length, tail: [] };
+
+      return this.#table;
+    }
+
+    index.extend(this.#source);
+    const { lines } = index;
+    let count = lines.length;
+
+    // An earlier file in the chain holds a prefix of the indexed text.
+    while (count > 0 && lines[count - 1].range.end > this.length) {
+      count--;
+    }
+
+    const last = lines[count - 1];
+
+    const scanner = new PhysicalLineScanner({
+      offset: last?.range.end ?? 0,
+      line: (last?.line ?? 0) + 1,
+    });
+
+    const tail = Object.freeze([
+      ...scanner.append(this.#source.slice(last?.range.end ?? 0)),
+      ...scanner.complete(),
+    ]);
+
+    this.#table = { complete: lines, count, tail };
+
+    return this.#table;
+  }
+}
+
+/**
+ * Source that a stream owns and changes. Appends keep one line index, so
+ * successive files do not rescan their lines; an edit starts a new generation.
+ * Each change returns an immutable `SourceFile` for that version.
+ */
+export class SourceBuffer {
+  readonly #name: string;
+  #index = new LineIndex();
+  #text: SourceText;
+  #file: SourceFile;
+
+  public constructor(input: SourceFileInput) {
+    this.#name = input.name ?? "source.mdx";
+    this.#text = SourceText.of(input.text);
+    this.#file = createFile(this.#name, this.#text, this.#index);
+  }
+
+  public get file(): SourceFile {
+    return this.#file;
+  }
+
+  public append(text: string): SourceFile {
+    this.#text = this.#text.append(text);
+    this.#file = createFile(this.#name, this.#text, this.#index);
+
+    return this.#file;
+  }
+
+  /** Replaces `start..end` with `text`. Earlier files keep their own lines. */
+  public replace(start: number, end: number, text: string): SourceFile {
+    const previous = this.#text;
+    this.#text = SourceText.of(previous.slice(0, start) + text + previous.slice(end));
+    this.#index = new LineIndex();
+    this.#file = createFile(this.#name, this.#text, this.#index);
+
+    return this.#file;
+  }
+}
+
+/** The chunked text behind a file, for readers that index it by offset. */
+export function sourceText(file: SourceFile): SourceText {
+  return readText(file);
 }
 
 function indexLines(source: string): PhysicalLine[] {

@@ -1,17 +1,18 @@
 import { performance } from "node:perf_hooks";
 
-import { formatMdx, MdxStream, parse, renderStreamingHtml } from "../src/mod.ts";
+import { formatHtml, formatMdx, MdxStream, parse, previewDocument } from "../src/mod.ts";
 
 /** Fixture generators by size, so scaling is visible as the input doubles. */
 const fixtures: ReadonlyArray<readonly [string, (count: number) => string]> = [
   ["paragraphs", (count) => "Some **bold** text and a [link](/x) here.\n\n".repeat(count)],
+  ["open-paragraph", (count) => "Some **bold** text and a [link](/x) here.\n".repeat(count)],
   ["open-fence", (count) => "```ts\n" + "const value = 1;\n".repeat(count)],
   ["list", (count) => "- item with *emphasis*\n".repeat(count)],
   ["containers", (count) => "> - One\n> - **Two**\n\n".repeat(count)],
   ["late-definitions", (count) => "Read [guide][g].\n\n".repeat(count) + "[g]: /guide\n"],
 ];
 
-const sizes = [100, 400, 1600];
+const sizes = [100, 400, 1600, 6400];
 
 const chunkSize = 32;
 
@@ -31,7 +32,7 @@ for (const [name, create] of fixtures) {
 
     const snapshot = stream.append("");
     let started = performance.now();
-    renderStreamingHtml(snapshot.document);
+    formatHtml(previewDocument(snapshot));
     const serializeMs = performance.now() - started;
     started = performance.now();
     const completed = stream.complete();

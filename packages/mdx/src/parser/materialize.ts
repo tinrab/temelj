@@ -1,5 +1,3 @@
-import { isString } from "@temelj/value";
-
 import type { Diagnostic } from "../diagnostics.ts";
 import type {
   DirectiveAttribute,
@@ -7,33 +5,56 @@ import type {
   ListItemNode,
   DocumentNode,
   FlowContent,
-  JsxAttributeLike,
   JsxTextElementNode,
   PhrasingContent,
 } from "../model.ts";
 import type { SourceRange } from "../ranges.ts";
+import type { SourceText } from "../source-text.ts";
 import type { SourceFile, SourceSpan } from "../source.ts";
 import type { ResolvedSyntaxOptions } from "../syntax-options.ts";
-import type { BlockSyntax, DirectiveAttributeSyntax, ListItemSyntax } from "./block-syntax.ts";
+import type {
+  BlockSyntax,
+  DirectiveAttributeSyntax,
+  ListItemSyntax,
+  ListSyntax,
+} from "./block-syntax.ts";
 import type { ResolvedParserLimits } from "./config.ts";
-import type { FootnoteReferenceSyntax, InlineSyntax, ReferenceSyntax } from "./inline-syntax.ts";
+import type { InlineSyntax } from "./inline-syntax.ts";
+import type {
+  CachedListPrefix,
+  CachedMaterialization,
+  MaterializeCache,
+} from "./materialize-cache.ts";
 
 import { createDiagnostic, DiagnosticBag } from "../diagnostics.ts";
 import { decodeFrontmatter } from "../frontmatter.ts";
 import { normalizeIdentifier } from "../identifier.ts";
-import { childNode, nodeArray, nodeValue, type JavaScriptNode } from "../javascript-ast.ts";
-import { parseJavaScriptExpression } from "../javascript.ts";
 import { nodeText } from "../model.ts";
+import { sourceText } from "../source.ts";
 import { parseFlowRange } from "./block-parser.ts";
 import { InlineInput } from "./inline-input.ts";
 import { parseInline } from "./inline-parser.ts";
-
-export type ReferenceCandidate = ReferenceSyntax | FootnoteReferenceSyntax;
+import { isFlowJsxChildren, jsxParts } from "./materialize-jsx.ts";
 
 export interface MaterializedBlock {
   readonly nodeCount: number;
   readonly node: FlowContent;
-  readonly candidates: readonly ReferenceCandidate[];
+}
+
+export interface MaterializeOptions {
+  /**
+   * Keeps references whose definitions are missing, for a stream where the
+   * definitions may still arrive. Otherwise they become authored text.
+   */
+  readonly keepReferences?: boolean;
+  /** Open embedded syntax at the end of the source is inert instead of invalid. */
+  readonly allowIncomplete?: boolean;
+  readonly cache?: MaterializeCache;
+  /**
+   * The range of a stream's open leaf. A stream renders that leaf itself, so it
+   * materializes as an empty placeholder with the same kind and origin.
+   */
+  readonly open?: SourceRange;
 }
 
 export type StrictMaterializeResult =
@@ -50,26 +71,6 @@ export type StrictMaterializeResult =
       diagnostics: readonly [Diagnostic, ...Diagnostic[]];
     }>;
 
-interface CachedMaterialization<TNode> {
-  readonly node: TNode;
-  readonly nodeCount: number;
-  readonly depth: number;
-  readonly candidates: readonly ReferenceCandidate[];
-}
-
-/**
- * Materialized nodes keyed by parser output identity. A cache is valid only for
- * one set of defined references and footnotes, because resolution depends on it.
- */
-export interface MaterializeCache {
-  readonly blocks: WeakMap<BlockSyntax, CachedMaterialization<FlowContent>>;
-  readonly items: WeakMap<ListItemSyntax, CachedMaterialization<ListItemNode>>;
-}
-
-export function createMaterializeCache(): MaterializeCache {
-  return { blocks: new WeakMap(), items: new WeakMap() };
-}
-
 interface MaterializeContext {
   readonly definitions: ReadonlySet<string>;
   readonly diagnostics: DiagnosticBag;
@@ -78,69 +79,47 @@ interface MaterializeContext {
   readonly limits: ResolvedParserLimits;
   readonly syntax: ResolvedSyntaxOptions;
   readonly allowIncomplete: boolean;
+  readonly keepReferences: boolean;
   readonly cache: MaterializeCache | undefined;
-  grammarSource: string | undefined;
+  readonly open: SourceRange | undefined;
+  grammarSource: SourceText | undefined;
   maximumDepth: number;
   /** Leniency at the end of the source makes the result depend on later input. */
   usedEndOfInput: boolean;
-  candidates: ReferenceCandidate[] | undefined;
   depth: number;
   nodes: number;
   authoredInvalid: boolean;
   limit: "maximumNestingDepth" | "maximumNodes" | undefined;
 }
 
-export function materializeStrictDocument(
+export function materializeDocument(
   file: SourceFile,
   blocks: readonly BlockSyntax[],
   syntax: ResolvedSyntaxOptions,
   limits: ResolvedParserLimits,
-  allowIncomplete = false,
-  cache?: MaterializeCache,
+  options: MaterializeOptions = {},
 ): StrictMaterializeResult {
-  const indexes = collectIndexes(blocks);
-
-  const context: MaterializeContext = {
-    definitions: indexes.definitions,
-    diagnostics: new DiagnosticBag(),
+  // Kept references resolve later, so only resolving materialization indexes the definitions.
+  const context = createContext(
     file,
-    footnotes: indexes.footnotes,
-    limits,
     syntax,
-    candidates: undefined,
-    cache,
-    grammarSource: undefined,
-    maximumDepth: 0,
-    usedEndOfInput: false,
-    allowIncomplete,
-    depth: 0,
-    nodes: 0,
-    authoredInvalid: false,
-    limit: undefined,
-  };
+    limits,
+    options,
+    options.keepReferences === true ? undefined : collectIndexes(blocks),
+  );
 
   const children: FlowContent[] = [];
   const materializedBlocks: MaterializedBlock[] = [];
 
   for (const block of blocks) {
-    const candidates: ReferenceCandidate[] = [];
-    context.candidates = candidates;
     const before = context.nodes;
     const child = materializeBlock(block, context);
 
     if (child !== undefined) {
       children.push(child);
-      materializedBlocks.push(
-        Object.freeze({
-          node: child,
-          nodeCount: context.nodes - before,
-          candidates: Object.freeze(candidates),
-        }),
-      );
+      materializedBlocks.push(Object.freeze({ node: child, nodeCount: context.nodes - before }));
     }
   }
-
-  context.candidates = undefined;
 
   if (context.limit !== undefined) {
     const diagnostic = limitDiagnostic(file, context.limit);
@@ -182,7 +161,7 @@ export function materializeStrictDocument(
   const document = counted<DocumentNode>(context, {
     kind: "document",
     children,
-    origin: range(0, file.text.length),
+    origin: range(0, file.length),
   });
 
   if (document === undefined || context.limit !== undefined) {
@@ -202,6 +181,89 @@ export function materializeStrictDocument(
     blocks: Object.freeze(materializedBlocks),
     diagnostics,
   });
+}
+
+export interface MaterializedPhrasing {
+  readonly nodes: readonly PhrasingContent[];
+  readonly nodeCount: number;
+}
+
+/** Materialized phrasing by inline syntax identity, valid while references are kept. */
+export type PhrasingCache = WeakMap<InlineSyntax, MaterializedPhrasing>;
+
+/**
+ * Materializes parsed inline syntax that a stream renders outside a block,
+ * keeping references. Nodes found in `cache` keep their identity.
+ */
+export function materializePhrasing(
+  file: SourceFile,
+  nodes: readonly InlineSyntax[],
+  syntax: ResolvedSyntaxOptions,
+  limits: ResolvedParserLimits,
+  cache?: PhrasingCache,
+): MaterializedPhrasing {
+  const context = createContext(file, syntax, limits, {
+    keepReferences: true,
+    allowIncomplete: true,
+  });
+
+  const children: PhrasingContent[] = [];
+  let nodeCount = 0;
+
+  for (const node of nodes) {
+    let materialized = cache?.get(node);
+
+    if (materialized === undefined) {
+      const before = context.nodes;
+      materialized = {
+        nodes: materializeInlineNode(node, context),
+        nodeCount: context.nodes - before,
+      };
+
+      if (context.limit === undefined && !context.usedEndOfInput) {
+        cache?.set(node, materialized);
+      }
+    }
+
+    children.push(...materialized.nodes);
+    nodeCount += materialized.nodeCount;
+  }
+
+  return { nodes: children, nodeCount };
+}
+
+/** Only whitespace and at most one line ending follow `offset`. */
+function reachesEndOfInput(file: SourceFile, offset: number): boolean {
+  return /^[ \t]*(?:\r\n?|\n)?[ \t]*$/u.test(file.slice({ start: offset, end: file.length }));
+}
+
+function createContext(
+  file: SourceFile,
+  syntax: ResolvedSyntaxOptions,
+  limits: ResolvedParserLimits,
+  options: MaterializeOptions,
+  indexes: DependencyIndexes = { definitions: new Set(), footnotes: new Set() },
+): MaterializeContext {
+  return {
+    definitions: indexes.definitions,
+    diagnostics: new DiagnosticBag(),
+    file,
+    footnotes: indexes.footnotes,
+    limits,
+    syntax,
+    // Resolution depends on the definitions, so only reference-keeping output is cached.
+    cache: options.keepReferences === true ? options.cache : undefined,
+    grammarSource: undefined,
+    maximumDepth: 0,
+    usedEndOfInput: false,
+    allowIncomplete: options.allowIncomplete ?? false,
+    keepReferences: options.keepReferences ?? false,
+    open: options.open,
+    depth: 0,
+    nodes: 0,
+    authoredInvalid: false,
+    limit: undefined,
+  };
 }
 
 function materializeBlock(
@@ -236,14 +298,12 @@ function cached<TKey extends BlockSyntax | ListItemSyntax, TNode>(
   ) {
     context.nodes += hit.nodeCount;
     context.maximumDepth = Math.max(context.maximumDepth, context.depth + hit.depth);
-    context.candidates?.push(...hit.candidates);
 
     return hit.node;
   }
 
   const nodes = context.nodes;
   const diagnostics = context.diagnostics.size;
-  const candidates = context.candidates?.length ?? 0;
   const outerDepth = context.maximumDepth;
   const outerEndOfInput = context.usedEndOfInput;
   context.maximumDepth = context.depth;
@@ -261,7 +321,6 @@ function cached<TKey extends BlockSyntax | ListItemSyntax, TNode>(
       node,
       nodeCount: context.nodes - nodes,
       depth: context.maximumDepth - context.depth,
-      candidates: context.candidates?.slice(candidates) ?? [],
     });
   }
 
@@ -281,6 +340,12 @@ function materializeBlockContent(
 
   try {
     const origin = range(block.range.start, block.range.end);
+
+    if (isOpenLeaf(block, context)) {
+      context.usedEndOfInput = true;
+
+      return counted(context, openLeafPlaceholder(block, origin));
+    }
 
     switch (block.kind) {
       case "paragraph":
@@ -318,17 +383,7 @@ function materializeBlockContent(
           ordered: block.ordered,
           spread: block.spread,
           start: block.start ?? 1,
-          children: block.items.flatMap((item) => {
-            const node = cached(context.cache?.items, item, context, (): ListItemNode => ({
-              kind: "listItem",
-              checked: item.checked,
-              spread: item.spread,
-              children: materializeBlocks(item.children, context),
-              origin: range(item.range.start, item.range.end),
-            }));
-
-            return node === undefined ? [] : [node];
-          }),
+          children: materializeListItems(block, context),
           origin,
         });
       case "definition":
@@ -449,7 +504,11 @@ function materializeBlockContent(
           materializeFlowJsx(context.file.slice(block.range), origin, context),
         );
       case "invalidMdx":
-        if (context.allowIncomplete && block.state === "incomplete") {
+        if (
+          context.allowIncomplete &&
+          block.state === "incomplete" &&
+          reachesEndOfInput(context.file, block.range.end)
+        ) {
           context.usedEndOfInput = true;
 
           return counted(context, {
@@ -472,6 +531,135 @@ function materializeBlockContent(
   } finally {
     context.depth--;
   }
+}
+
+function isOpenLeaf(block: BlockSyntax, context: MaterializeContext): boolean {
+  return (
+    context.open !== undefined &&
+    block.range.start === context.open.start &&
+    block.range.end === context.open.end &&
+    (block.kind === "paragraph" ||
+      block.kind === "code" ||
+      block.kind === "math" ||
+      block.kind === "invalidMdx")
+  );
+}
+
+function openLeafPlaceholder(block: BlockSyntax, origin: SourceRange): FlowContent {
+  switch (block.kind) {
+    case "paragraph":
+      return { kind: "paragraph", children: [], origin };
+    case "code":
+      return { kind: "codeBlock", value: "", origin };
+    case "math":
+      return { kind: "displayMath", value: "", format: "dollar", origin };
+    default:
+      return { kind: "rawHtmlBlock", value: "", origin };
+  }
+}
+
+/**
+ * Materializes list items. A growing list reuses its unchanged leading items
+ * as one prefix, so an append materializes only the items after it. The list
+ * that contains a stream's open leaf is rebuilt on every append and never
+ * cached, so its children array is extended in place instead of copied.
+ */
+function materializeListItems(list: ListSyntax, context: MaterializeContext): ListItemNode[] {
+  const items = list.items;
+  const closing = list.closing ?? [];
+  const count = items.length + closing.length;
+  const itemAt = (index: number): ListItemSyntax => items[index] ?? closing[index - items.length];
+  const open = context.open !== undefined && containsRange(list.range, context.open);
+  const cache = context.cache;
+  const prefix = cache === undefined ? undefined : listPrefix(count, itemAt, cache.lists);
+
+  const reused =
+    prefix !== undefined &&
+    context.depth + prefix.depth <= context.limits.maximumNestingDepth &&
+    context.nodes + prefix.nodeCount <= context.limits.maximumNodes
+      ? prefix
+      : undefined;
+
+  let children: ListItemNode[] = [];
+
+  if (reused !== undefined && reused.live && open) {
+    children = reused.nodes;
+    children.length = reused.length;
+  } else if (reused !== undefined) {
+    children = reused.nodes.slice(0, reused.length);
+  }
+
+  let nodeCount = reused?.nodeCount ?? 0;
+  let depth = reused?.depth ?? 0;
+  let cacheable = true;
+
+  if (reused !== undefined) {
+    context.nodes += reused.nodeCount;
+    context.maximumDepth = Math.max(context.maximumDepth, context.depth + reused.depth);
+  }
+
+  for (let index = (reused?.index ?? -1) + 1; index < count; index++) {
+    const item = itemAt(index);
+
+    const node = cached(cache?.items, item, context, (): ListItemNode => ({
+      kind: "listItem",
+      checked: item.checked,
+      spread: item.spread,
+      children: materializeBlocks(item.children, context),
+      origin: range(item.range.start, item.range.end),
+    }));
+
+    if (node !== undefined) {
+      children.push(node);
+    }
+
+    // Items with diagnostics or end-of-input leniency are not cached, so prefixes stop there.
+    const entry = cache?.items.get(item);
+    cacheable &&= entry?.node === node;
+    nodeCount += entry?.nodeCount ?? 0;
+    depth = Math.max(depth, entry?.depth ?? 0);
+
+    // A prefix is the first \`length\` nodes of \`children\`, which only ever grows past them.
+    if (cacheable && index >= count - prefixWindow) {
+      cache?.lists.set(item, {
+        index,
+        nodes: children,
+        length: children.length,
+        live: open,
+        nodeCount,
+        depth,
+      });
+    }
+  }
+
+  return children;
+}
+
+/**
+ * How far back a list prefix can end. The parser closes an item only when the
+ * next line completes, so the last two items are rebuilt by each tail draft.
+ */
+const prefixWindow = 8;
+
+/** The cached prefix ending closest to the end of the list. Closing items can still change. */
+function listPrefix(
+  count: number,
+  itemAt: (index: number) => ListItemSyntax,
+  lists: MaterializeCache["lists"],
+): CachedListPrefix | undefined {
+  for (let index = count - 1; index >= Math.max(0, count - prefixWindow); index--) {
+    const prefix = lists.get(itemAt(index));
+
+    if (prefix?.index === index) {
+      return prefix;
+    }
+  }
+
+  return undefined;
+}
+
+function containsRange(outer: SourceRange, inner: SourceRange): boolean {
+  return outer.start <= inner.start && inner.end <= outer.end;
 }
 
 function materializeBlocks(
@@ -497,16 +685,12 @@ function materializeInline(
 ): PhrasingContent[] {
   const result = parseInline(new InlineInput(context.file, segments), context.syntax);
 
-  if (context.candidates !== undefined) {
-    collectReferenceCandidates(result.nodes, context.candidates);
-  }
-
   for (const invalid of result.invalid) {
     // Streaming input can still close a construct that reaches the end of the source.
     if (
       context.allowIncomplete &&
       invalid.open &&
-      /^[ \t]*(?:\r\n?|\n)?[ \t]*$/u.test(context.file.text.slice(invalid.range.end))
+      reachesEndOfInput(context.file, invalid.range.end)
     ) {
       context.usedEndOfInput = true;
       continue;
@@ -522,25 +706,6 @@ function materializeInline(
   }
 
   return result.nodes.flatMap((node) => materializeInlineNode(node, context));
-}
-
-function collectReferenceCandidates(
-  nodes: readonly InlineSyntax[],
-  candidates: ReferenceCandidate[],
-): void {
-  for (const node of nodes) {
-    if (node.kind === "reference" || node.kind === "footnoteReference") {
-      candidates.push(node);
-    }
-
-    if ("children" in node) {
-      collectReferenceCandidates(node.children, candidates);
-    }
-
-    if (node.kind === "directive") {
-      collectReferenceCandidates(node.label, candidates);
-    }
-  }
 }
 
 function materializeInlineNode(node: InlineSyntax, context: MaterializeContext): PhrasingContent[] {
@@ -579,7 +744,7 @@ function materializeInlineNode(node: InlineSyntax, context: MaterializeContext):
         origin,
       });
     case "reference": {
-      if (!context.definitions.has(node.identifier)) {
+      if (!context.keepReferences && !context.definitions.has(node.identifier)) {
         return countedArray(context, {
           kind: "text",
           value: context.file.slice(node.range),
@@ -623,7 +788,7 @@ function materializeInlineNode(node: InlineSyntax, context: MaterializeContext):
         origin,
       });
     case "footnoteReference":
-      return context.footnotes.has(node.identifier)
+      return context.keepReferences || context.footnotes.has(node.identifier)
         ? countedArray(context, {
             kind: "footnoteReference",
             identifier: normalizeIdentifier(node.identifier),
@@ -681,7 +846,7 @@ function materializeFlowJsx(
   if (
     children !== undefined &&
     children.start !== children.end &&
-    !isFlowJsxChildren(context.file.text, children)
+    !isFlowJsxChildren(context.file, children)
   ) {
     return {
       kind: "paragraph",
@@ -705,13 +870,8 @@ function materializeFlowJsx(
   };
 }
 
-/** Children that start on a new line are Markdown flow content; same-line children are phrasing. */
-export function isFlowJsxChildren(source: string, range: SourceRange): boolean {
-  return /^[ \t]*(?:\r\n|\r|\n)/u.test(source.slice(range.start, range.end));
-}
-
-function grammarSource(context: MaterializeContext): string {
-  context.grammarSource ??= context.file.text.replaceAll("\0", "\uFFFD");
+function grammarSource(context: MaterializeContext): SourceText {
+  context.grammarSource ??= sourceText(context.file).grammar();
 
   return context.grammarSource;
 }
@@ -733,147 +893,6 @@ function materializeTextJsx(
         : materializeInline([{ kind: "source", range: parsed.children }], context),
     origin: jsxOrigin,
   };
-}
-
-interface JsxParts {
-  readonly attributes: readonly JsxAttributeLike[];
-  readonly children: SourceRange | undefined;
-  readonly name: string | undefined;
-}
-
-function jsxParts(authored: string, sourceOffset: number): JsxParts {
-  if (authored.startsWith("<>")) {
-    const close = authored.lastIndexOf("</>");
-
-    return {
-      attributes: [],
-      children: close < 2 ? undefined : { start: sourceOffset + 2, end: sourceOffset + close },
-      name: undefined,
-    };
-  }
-
-  const name = /^<([A-Za-z_$][\w$:.-]*)/u.exec(authored)?.[1];
-  const openingEnd = jsxOpeningEnd(authored);
-  const selfClosing = authored.slice(0, openingEnd).trimEnd().endsWith("/>");
-  const closingStart = name === undefined ? -1 : authored.lastIndexOf(`</${name}`);
-
-  return {
-    attributes: jsxAttributes(authored, sourceOffset, openingEnd),
-    children:
-      selfClosing || closingStart < openingEnd
-        ? undefined
-        : { start: sourceOffset + openingEnd, end: sourceOffset + closingStart },
-    name,
-  };
-}
-
-function jsxOpeningEnd(authored: string): number {
-  let quote: "'" | '"' | undefined;
-  let braces = 0;
-
-  for (let offset = 1; offset < authored.length; offset++) {
-    const character = authored[offset];
-
-    if (quote !== undefined) {
-      if (character === quote && !escapedAt(authored, offset)) {
-        quote = undefined;
-      }
-    } else if (character === "'" || character === '"') {
-      quote = character;
-    } else if (character === "{") {
-      braces++;
-    } else if (character === "}") {
-      braces--;
-    } else if (character === ">" && braces === 0) {
-      return offset + 1;
-    }
-  }
-
-  return authored.length;
-}
-
-/** Reads attributes from the opening tag with the same JSX grammar that validated it. */
-function jsxAttributes(
-  authored: string,
-  sourceOffset: number,
-  openingEnd: number,
-): JsxAttributeLike[] {
-  const opening = authored.slice(0, openingEnd).replace(/\/?\s*>$/u, "/>");
-  let element: JavaScriptNode;
-
-  try {
-    element = parseJavaScriptExpression(opening);
-  } catch {
-    return [];
-  }
-
-  const attributes = childNode(nodeValue(element, "openingElement"));
-
-  return attributes === undefined
-    ? []
-    : nodeArray(attributes, "attributes").flatMap((attribute) =>
-        jsxAttribute(attribute, opening, sourceOffset),
-      );
-}
-
-function jsxAttribute(
-  attribute: JavaScriptNode,
-  opening: string,
-  sourceOffset: number,
-): JsxAttributeLike[] {
-  const origin = range(sourceOffset + attribute.start, sourceOffset + attribute.end);
-
-  if (attribute.type === "JSXSpreadAttribute") {
-    const argument = childNode(nodeValue(attribute, "argument"));
-
-    return argument === undefined
-      ? []
-      : [{ kind: "jsxSpreadAttribute", code: opening.slice(argument.start, argument.end), origin }];
-  }
-
-  const nameNode = childNode(nodeValue(attribute, "name"));
-  const name = nameNode === undefined ? undefined : opening.slice(nameNode.start, nameNode.end);
-  const value = childNode(nodeValue(attribute, "value"));
-
-  if (name === undefined) {
-    return [];
-  }
-
-  if (value === undefined) {
-    return [{ kind: "jsxAttribute", name, origin }];
-  }
-
-  if (value.type === "JSXExpressionContainer") {
-    const expression = childNode(nodeValue(value, "expression"));
-
-    return [
-      {
-        kind: "jsxAttribute",
-        name,
-        value: {
-          kind: "jsxAttributeValueExpression",
-          code: expression === undefined ? "" : opening.slice(expression.start, expression.end),
-          origin: range(sourceOffset + value.start, sourceOffset + value.end),
-        },
-        origin,
-      },
-    ];
-  }
-
-  // String literals keep JSX semantics, including decoded character references.
-  const literal = nodeValue(value, "value");
-
-  return [{ kind: "jsxAttribute", name, value: isString(literal) ? literal : "", origin }];
-}
-
-function escapedAt(value: string, offset: number): boolean {
-  let slashes = 0;
-
-  for (let index = offset - 1; index >= 0 && value[index] === "\\"; index--) {
-    slashes++;
-  }
-
-  return slashes % 2 === 1;
 }
 
 interface DependencyIndexes {
@@ -899,7 +918,7 @@ function collectIndexes(blocks: readonly BlockSyntax[]): DependencyIndexes {
     ) {
       block.children.forEach(visit);
     } else if (block.kind === "list") {
-      block.items.forEach((item) => item.children.forEach(visit));
+      [...block.items, ...(block.closing ?? [])].forEach((item) => item.children.forEach(visit));
     }
   };
 
@@ -992,6 +1011,6 @@ function limitDiagnostic(
     code: `mdx.limit.${limit}`,
     message: `Parser limit ${limit} exceeded`,
     severity: "error",
-    span: span(file, 0, file.text.length),
+    span: span(file, 0, file.length),
   });
 }

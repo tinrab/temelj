@@ -243,3 +243,44 @@ export const streamedMdxSource = streamedMdxChunks.join("");
 export function streamDelayMilliseconds(content: string): number {
   return content.startsWith('description="') ? 2_000 : 500;
 }
+
+/** Canned assistant answers for the chat example, streamed as small token-sized chunks. */
+export const chatAnswers = [
+  `Streaming Markdown well means **not re-parsing** the whole message for every token.
+
+1. Settled blocks keep their identity.
+2. Only the open tail renders again.
+3. Code keeps a stable component:
+
+\`\`\`ts
+const stream = new MdxStream();
+stream.append(token);
+\`\`\`
+
+See [the guide][guide] for details.[^tail]
+
+[guide]: https://example.com/guide
+
+[^tail]: The tail is everything after the last settled block.
+`,
+  `Here is a quick comparison:
+
+| Approach | Work per token |
+| :- | -: |
+| Re-parse | grows with the message |
+| Incremental | stays flat |
+
+> A long answer stays fast, because *finished* paragraphs never render again.
+`,
+  `Inline math such as $e^{i\\pi} + 1 = 0$ renders once its closing dollar arrives.
+
+<Note title="Pending JSX">
+Components render their **pending** variant until the closing tag arrives.
+</Note>
+`,
+] as const;
+
+/** Splits text into word-sized chunks, like model tokens. */
+export function tokenChunks(text: string): readonly string[] {
+  return text.match(/\s*\S+\s*/gu) ?? [];
+}

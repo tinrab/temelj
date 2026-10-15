@@ -1,11 +1,12 @@
 import type { Diagnostic } from "./diagnostics.ts";
 import type { DocumentNode } from "./model.ts";
-import type { ParserLimit, ParserLimits } from "./parser/config.ts";
+import type { MdxOutcome } from "./outcome.ts";
+import type { ParserLimits } from "./parser/config.ts";
 import type { SyntaxOptions } from "./syntax-options.ts";
 
 import { createDiagnostic } from "./diagnostics.ts";
 import { resolveParserLimits } from "./parser/config.ts";
-import { materializeStrictDocument } from "./parser/materialize.ts";
+import { materializeDocument } from "./parser/materialize.ts";
 import { ParserSession } from "./parser/session.ts";
 import { SourceFile } from "./source.ts";
 
@@ -16,40 +17,19 @@ export interface ParseOptions {
   readonly syntax?: SyntaxOptions;
 }
 
-/** Authored errors and exceeded limits are values. Every failure has an error diagnostic. */
-export type MdxFailure<TLimit extends string = ParserLimit> =
-  | Readonly<{
-      kind: "invalid";
-      file: SourceFile;
-      diagnostics: readonly [Diagnostic, ...Diagnostic[]];
-    }>
-  | Readonly<{
-      kind: "limitExceeded";
-      file: SourceFile;
-      limit: TLimit;
-      diagnostics: readonly [Diagnostic, ...Diagnostic[]];
-    }>;
-
-export type ParseOutcome =
-  | Readonly<{
-      kind: "ok";
-      file: SourceFile;
-      document: DocumentNode;
-      diagnostics: readonly Diagnostic[];
-    }>
-  | MdxFailure;
+export type ParseOutcome = MdxOutcome<{ document: DocumentNode }>;
 
 /** Strict parsing is terminal completion of the incremental parser session. */
 export function parse(input: string | SourceFile, options: ParseOptions = {}): ParseOutcome {
   const file = input instanceof SourceFile ? input : new SourceFile(input);
   const limits = resolveParserLimits(options.limits);
 
-  if (file.text.length > limits.maximumSourceLength) {
+  if (file.length > limits.maximumSourceLength) {
     const diagnostic = createDiagnostic({
       code: "mdx.limit.maximumSourceLength",
       message: "Parser limit maximumSourceLength exceeded",
       severity: "error",
-      span: { file, start: 0, end: file.text.length },
+      span: { file, start: 0, end: file.length },
     });
 
     const diagnostics: readonly [Diagnostic] = Object.freeze([diagnostic]);
@@ -65,7 +45,7 @@ export function parse(input: string | SourceFile, options: ParseOptions = {}): P
   const session = new ParserSession({ source: file, syntax: options.syntax, limits });
   const draft = session.completeDraft();
 
-  const materialized = materializeStrictDocument(
+  const materialized = materializeDocument(
     draft.file,
     draft.blocks,
     session.syntax,

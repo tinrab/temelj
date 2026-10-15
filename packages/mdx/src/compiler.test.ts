@@ -21,7 +21,7 @@ test("compiled math accepts a semantic renderer and keeps readable fallbacks", a
   );
 
   const code = expectCompiled(outcome).artifact.code;
-  expect(code).toContain("props.registry?.math ?");
+  expect(code).toContain("_components.mathFormula ?");
   expect(code).toContain('source:"x", style:"inline"');
   expect(code).toContain('source:"y", style:"display", meta:"equation"');
   expect(code).toContain("language-math math-inline");
@@ -143,6 +143,48 @@ test("a paragraph of only JSX and expressions renders without a p", async () => 
   expect(html).not.toContain("<p>");
 });
 
+test("function bodies resolve imports and return authored exports", async () => {
+  const source =
+    'import {value} from "values"\nexport * from "more"\nexport {wrap as default, extra as renamed} from "layout"\nexport const local = value + 1\n\n# Title\n';
+
+  const outcome = await compile(expectParsed(parse(source)), {
+    outputFormat: "functionBody",
+    providerImportSource: "provider",
+  });
+
+  const compiled = expectCompiled(outcome);
+
+  if (compiled.artifact.format !== "functionBody") {
+    throw new Error("Expected a function body");
+  }
+
+  expect(compiled.artifact.imports).toEqual(["values", "more", "layout", "provider"]);
+
+  const wrap = ({ children }: RenderedProps): RenderedValue => children;
+
+  const modules = new Map<string, TestModule>([
+    ["values", { value: 41 }],
+    ["more", { default: "ignored", star: "spread" }],
+    ["layout", { wrap, extra: "extra" }],
+    ["provider", { useMDXComponents: () => ({}) }],
+  ]);
+
+  const element = (type: string | symbol, props: RenderedProps): RenderedElement =>
+    new RenderedElement(type, props);
+
+  const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor;
+  const run = new AsyncFunction("__mdxRuntime", "__resolveMdxImport", compiled.artifact.code);
+
+  const module = await run(
+    { Fragment: Symbol("Fragment"), jsx: element, jsxs: element },
+    async (specifier: string) => modules.get(specifier),
+  );
+
+  expect(module).toMatchObject({ local: 42, renamed: "extra", star: "spread" });
+  // The re-exported default export is the layout around the content.
+  expect(module.default({})).toMatchObject({ type: wrap, props: { children: { type: "h1" } } });
+});
+
 /** Evaluates a compiled function body with a string-rendering JSX runtime. */
 async function renderCompiled(code: string): Promise<string> {
   const fragment = Symbol("Fragment");
@@ -168,6 +210,10 @@ type RenderedValue =
   | readonly RenderedValue[];
 
 type RenderedProps = Readonly<Record<string, RenderedValue>>;
+
+type TestModule = Readonly<
+  Record<string, number | string | ((props: RenderedProps) => RenderedValue | object)>
+>;
 
 class RenderedElement {
   public readonly type: string | symbol;

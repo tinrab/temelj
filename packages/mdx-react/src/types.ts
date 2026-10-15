@@ -1,15 +1,14 @@
 import type {
+  CompiledComponents,
   HtmlAttributes,
   HtmlCodeBlockNode,
+  HtmlJsxNode,
   HtmlMathNode,
+  HtmlPendingNode,
+  HtmlUnresolvedReferenceNode,
   SourceRange,
-  StreamingJsx,
-  StreamingPendingFencedCode,
-  StreamingPendingMarkdownNode,
 } from "@temelj/mdx";
 import type React from "react";
-
-import type { MdxRegistry } from "./registry.ts";
 
 export type MdxLiteralPropValue = boolean | string;
 
@@ -23,7 +22,9 @@ export interface MdxElementComponentNode {
 
 /** Plain JSX metadata passed to registered JSX components. */
 export interface MdxJsxComponentNode {
-  readonly kind: "jsxFlowElement" | "jsxTextElement";
+  readonly kind: "jsx";
+  /** `flow` for block JSX, `text` for JSX inside a paragraph. */
+  readonly element: "flow" | "text";
   readonly name: string;
   readonly attributes: Readonly<Record<string, MdxLiteralPropValue>>;
   readonly origin?: SourceRange;
@@ -48,7 +49,8 @@ export type PendingMdxJsxProps<Component extends React.ElementType> = Readonly<
     >;
   } & {
     children: React.ReactNode;
-    node: StreamingJsx;
+    /** The element so far, with `state: "pending"`. */
+    node: HtmlJsxNode;
   }
 >;
 
@@ -61,14 +63,14 @@ export interface MdxJsxComponentOptions<Component extends React.ElementType> {
 export interface PendingMdxJsxFallbackProps {
   readonly children: React.ReactNode;
   readonly name: string;
-  readonly node: StreamingJsx;
+  readonly node: HtmlJsxNode;
   readonly props: Readonly<Record<string, MdxLiteralPropValue>>;
 }
 
 export interface PendingMdxMarkdownProps {
   /** The node's complete safe default rendering. */
   readonly children: React.ReactNode;
-  readonly node: StreamingPendingMarkdownNode;
+  readonly node: HtmlPendingNode | HtmlUnresolvedReferenceNode;
 }
 
 export interface MdxPendingComponents {
@@ -82,7 +84,8 @@ export type MdxCodeBlockComponentProps =
       code: string;
       language?: string;
       meta?: string;
-      node: StreamingPendingFencedCode;
+      /** The open fence, with `construct: "fence"`. */
+      node: HtmlPendingNode;
       status: "pending";
     }>
   | Readonly<{
@@ -103,7 +106,7 @@ export type MathComponent = React.ComponentType<MathComponentProps>;
 
 /** Props that compiled content reads at render time. */
 export interface CompiledContentRuntimeProps {
-  readonly registry?: MdxRegistry;
+  readonly components?: CompiledComponents<React.ElementType>;
 }
 
 export type CompiledContentComponent<Props extends object = Record<never, never>> =

@@ -5,7 +5,7 @@ import {
   MdxStream,
   parse,
   lowerHtml,
-  renderStreamingHtml,
+  previewDocument,
   type MdxStreamSnapshot,
 } from "./mod.ts";
 
@@ -18,6 +18,10 @@ const fixtures = {
   references:
     "See [the guide][guide] and [^note].\n\n[guide]: https://example.com\n\n[^note]: Footnote.\n",
 };
+
+function html(snapshot: MdxStreamSnapshot): string {
+  return formatHtml(previewDocument(snapshot));
+}
 
 function previews(source: string): MdxStreamSnapshot[] {
   const stream = new MdxStream();
@@ -38,13 +42,15 @@ describe("streaming prefix sweep", () => {
       expect({
         prefix: source.slice(0, index + 1),
         kind: snapshot.kind,
-        status: snapshot.status,
+        limit: snapshot.limit,
+        invalid: snapshot.blocks.filter((block) => block.status === "invalid").length,
       }).toEqual({
         prefix: source.slice(0, index + 1),
         kind: "preview",
-        status: "valid",
+        limit: undefined,
+        invalid: 0,
       });
-      expect(() => renderStreamingHtml(snapshot.document)).not.toThrow();
+      expect(() => html(snapshot)).not.toThrow();
     }
   });
 
@@ -66,9 +72,7 @@ describe("streaming prefix sweep", () => {
     for (const [index, snapshot] of snapshots.entries()) {
       const fresh = new MdxStream({ source: source.slice(0, index + 1) }).snapshot();
 
-      expect(fresh.kind === "preview" ? renderStreamingHtml(fresh.document) : undefined).toBe(
-        renderStreamingHtml(snapshot.document),
-      );
+      expect(fresh.kind === "preview" ? html(fresh) : undefined).toBe(html(snapshot));
     }
   });
 
@@ -92,27 +96,25 @@ describe("streaming tail", () => {
     ["- one\n-", ["one"]],
     ["- one\n\n3.", ["one"]],
   ])("keeps a list visible when %j ends with a bare marker", (source, items) => {
-    const html = renderStreamingHtml(new MdxStream({ source }).append("").document);
+    const rendered = html(new MdxStream({ source }).append(""));
 
     for (const item of items) {
-      expect(html).toContain(item);
+      expect(rendered).toContain(item);
     }
 
-    expect(html).not.toMatch(/<li>\s*<\/li>/u);
+    expect(rendered).not.toMatch(/<li>\s*<\/li>/u);
   });
 
   it("does not render an empty trailing heading", () => {
-    expect(renderStreamingHtml(new MdxStream({ source: "Text\n\n#" }).append("").document)).toBe(
-      "<p>Text</p>",
-    );
+    expect(html(new MdxStream({ source: "Text\n\n#" }).append(""))).toBe("<p>Text</p>");
   });
 
   it.each(["Text <span>inl", "Hi {na"])("keeps %j valid while inline MDX is open", (source) => {
     const snapshot = new MdxStream({ source }).append("");
 
-    expect(snapshot.status).toBe("valid");
+    expect(snapshot.blocks.map((block) => block.status)).toEqual(["valid"]);
     expect(snapshot.diagnostics).toEqual([]);
-    expect(renderStreamingHtml(snapshot.document)).toContain(source.split(/[<{]/u)[0].trim());
+    expect(html(snapshot)).toContain(source.split(/[<{]/u)[0].trim());
   });
 
   it("isolates closed invalid MDX to its own block", () => {
@@ -120,12 +122,12 @@ describe("streaming tail", () => {
     stream.append("one\n\n");
     const snapshot = stream.append("{1+}\n\nnext");
 
-    expect(snapshot.status).toBe("invalid");
+    expect(snapshot.blocks.map((block) => block.status)).toEqual(["valid", "invalid", "valid"]);
     expect(snapshot.diagnostics.map((diagnostic) => diagnostic.code)).toEqual([
       "mdx.expression.invalid",
     ]);
-    expect(renderStreamingHtml(snapshot.document)).toContain("next");
-    expect(renderStreamingHtml(snapshot.document)).toContain("{1+}");
+    expect(html(snapshot)).toContain("next");
+    expect(html(snapshot)).toContain("{1+}");
   });
 
   it("keeps block identities across an invalid state", () => {
@@ -135,7 +137,7 @@ describe("streaming tail", () => {
     const repaired = stream.edit({ start: 10, end: 14, text: "{1}" });
     const ids = invalid.blocks.map((block) => block.id);
 
-    expect(repaired.status).toBe("valid");
+    expect(repaired.blocks.every((block) => block.status === "valid")).toBe(true);
     expect(repaired.blocks.map((block) => block.id)).toEqual([
       ids[0],
       ids[1],
@@ -146,21 +148,20 @@ describe("streaming tail", () => {
 
   it("renders pending flow JSX children as Markdown blocks", () => {
     const snapshot = new MdxStream({ source: "<Note>\n# Head\n\n- a\n- b" }).append("");
-    const jsx = snapshot.document.children[0];
+    const jsx = snapshot.blocks[0]?.nodes[0];
 
-    expect(jsx?.kind).toBe("jsx");
-    expect(jsx?.kind === "jsx" && jsx.safe).toBe(true);
+    expect(jsx).toMatchObject({ kind: "jsx", state: "pending", name: "Note" });
     expect(
       jsx?.kind === "jsx"
         ? jsx.children.map((child) => (child.kind === "element" ? child.tagName : child.kind))
         : [],
-    ).toEqual(["h1", "text", "ul"]);
+    ).toEqual(["h1", "ul"]);
   });
 
   it("keeps pending JSX safe when its children contain an expression", () => {
-    const jsx = new MdxStream({ source: "<Note>Hello {x}" }).append("").document.children[0];
+    const jsx = new MdxStream({ source: "<Note>Hello {x}" }).append("").blocks[0]?.nodes[0];
 
-    expect(jsx?.kind === "jsx" && jsx.safe).toBe(true);
+    expect(jsx).toMatchObject({ kind: "jsx", state: "pending", name: "Note" });
   });
 });
 

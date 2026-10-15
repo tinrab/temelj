@@ -82,6 +82,9 @@ export const registry = defineMdxRegistry({
 - `math` renders inline and display math. Without it, math keeps a readable code
   fallback.
 - `pending` renders unfinished JSX and unfinished Markdown while streaming.
+  `pending.markdown` receives each open construct (a `pending` node) and each
+  reference whose definition has not arrived (an `unresolvedReference` node),
+  with the safe default rendering as `children`.
 
 The registry is passed as a prop rather than through context, so the static
 renderers also work in React Server Components.
@@ -140,33 +143,72 @@ promise rejects with the abort reason. The hook also returns `append`, `edit`,
 `complete`, and `reset` for applications that receive text deltas themselves.
 Their identities are stable.
 
-`view` is `streaming`, `complete`, or `failed`:
+`view` is plain data with a `generation` and one of three kinds:
 
-- `streaming` holds the current preview. Errors stay local to the blocks that
-  contain them; the preview always renders.
-- `complete` holds the strict completion and its lowered HTML. Pass `html` and
-  synchronous `htmlPlugins` to the hook to run them in the store, outside render,
-  so completed output matches a `Processor`.
-- `failed` holds a failed strict completion and the last preview, which stays
-  editable. `StreamContent` renders its `fallback` when one is given.
+- `streaming` holds the current `preview`, its diagnostics, and the `limit` the
+  source exceeds, if any. Errors stay local to the blocks that contain them; the
+  preview always renders.
+- `complete` holds the completed document's `html` and the stream `blocks` it
+  came from. Pass `html` and synchronous `htmlPlugins` to the hook to run them
+  in the store, outside render, so completed output matches a `Processor`.
+- `failed` holds the strict completion's diagnostics and the last preview, which
+  stays editable. `StreamContent` renders its `fallback` when one is given.
 
 `StreamContent` keys top-level blocks by `BlockId` and memoizes them, so settled
 blocks do not re-render as the tail grows, and they stay mounted on completion.
-Inside a block, `useMdxBlockStatus()` returns `"pending"` for the open tail and
-`"complete"` otherwise, so components can defer expensive work. An open fence
-renders in groups of four lines, so the DOM only updates the last group.
+Inside the open block, nodes that kept their identity reuse their elements, so
+only the changed path renders again. `useMdxBlockStatus()` returns `"pending"`
+for a block that is not settled and `"complete"` otherwise, so components can
+defer expensive work. An open fence renders in groups of four lines, so the DOM
+only updates the last group.
 
 For a string that grows, such as a chat message from an AI SDK, use
 `StreamSourceContent`. Appends reuse the parser session; other changes become
-edits. Updates apply in a layout effect, so text never lags a frame.
+edits. Updates apply in a layout effect, so text never lags a frame. With
+`appendOnly`, a longer source is trusted to extend the previous one, which skips
+comparing the shared prefix.
 
 ```tsx
 <StreamSourceContent
+  appendOnly
   registry={registry}
   source={message.content}
   status={done ? "complete" : "streaming"}
 />
 ```
+
+A chat renders one stream per message. Each message owns its `useMdxStream` or
+`StreamSourceContent`, so finished messages stop rendering while new ones stream.
+
+## Stream trees from a server
+
+When the server parses, the client only renders. On the server,
+`streamBlockEvents()` from `@temelj/mdx` turns text chunks into block events;
+send them as newline-delimited JSON. On the client, `useMdxBlocks()` applies
+them and returns the same `view` shape:
+
+```tsx
+import { StreamContent, useMdxBlocks } from "@temelj/mdx-react";
+
+function ServerAnswer() {
+  const { view, consume } = useMdxBlocks();
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    fetch("/api/answer-blocks", { signal: controller.signal })
+      .then((response) => consume(response, { signal: controller.signal }))
+      .catch(() => {});
+
+    return () => controller.abort();
+  }, [consume]);
+
+  return <StreamContent registry={registry} view={view} />;
+}
+```
+
+`consume()` also accepts an async iterable of events, such as a streaming server
+function that yields them. Each update carries only the blocks that changed.
 
 ## Highlighted code
 
@@ -193,6 +235,10 @@ if (outcome.kind === "ok") {
   return <CompiledContent module={outcome.module} registry={registry} />;
 }
 ```
+
+`CompiledContent` passes the registry to compiled content as `props.components`,
+mapped by `compiledComponents()`: element overrides, JSX components, and the
+`codeBlock` and `mathFormula` renderers.
 
 In a Next.js Server Component, compile and render there. With TanStack Start,
 call `compile()` in a server function, return the function-body artifact, and

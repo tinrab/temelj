@@ -16,7 +16,17 @@ let renders = 0;
 for (let offset = 0; offset < source.length; offset += 32) {
   const snapshot = stream.append(source.slice(offset, offset + 32));
   const started = performance.now();
-  renderToStaticMarkup(<StreamContent view={{ kind: "streaming", generation: 0, snapshot }} />);
+  renderToStaticMarkup(
+    <StreamContent
+      view={{
+        kind: "streaming",
+        generation: 0,
+        preview: snapshot,
+        diagnostics: snapshot.diagnostics,
+        limit: snapshot.limit,
+      }}
+    />,
+  );
   renderMs += performance.now() - started;
   renders++;
 }

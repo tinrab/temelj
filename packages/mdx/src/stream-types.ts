@@ -1,14 +1,15 @@
 import type { Diagnostic } from "./diagnostics.ts";
+import type { HtmlFootnoteSectionNode, HtmlNode } from "./html.ts";
 import type { DocumentNode } from "./model.ts";
-import type { BlockSyntax } from "./parser/block-syntax.ts";
+import type { MdxOutcome } from "./outcome.ts";
 import type { ParserLimit, ParserLimits } from "./parser/config.ts";
-import type { ReferenceCandidate } from "./parser/materialize.ts";
+import type { SourceRange } from "./ranges.ts";
 import type { SourceFile } from "./source.ts";
-import type { StreamingDocument } from "./streaming-document.ts";
 import type { SyntaxOptions } from "./syntax-options.ts";
 
 declare const blockIdBrand: unique symbol;
 
+/** Identifies one top-level block for the lifetime of a stream, across appends and edits. */
 export type BlockId = string & { readonly [blockIdBrand]: "BlockId" };
 
 export interface MdxEdit {
@@ -17,79 +18,80 @@ export interface MdxEdit {
   readonly text: string;
 }
 
+/** Identifiers of the link definitions and footnotes a block references. */
 export interface StreamDependencies {
   readonly definitions: readonly string[];
   readonly footnotes: readonly string[];
 }
 
-export interface StreamingBlockSnapshot {
+/** What a renderer needs from one block. It is plain data, so a server can send it. */
+export interface PreviewBlock {
   readonly id: BlockId;
-  readonly range: Readonly<{ start: number; end: number }>;
-  readonly document: StreamingDocument;
-  readonly dependencies: StreamDependencies;
+  readonly origin: SourceRange;
+  /** Provisional HTML. Open syntax and missing references have their own node kinds. */
+  readonly nodes: readonly HtmlNode[];
+  /** An `invalid` block renders its authored source as inert text. */
+  readonly status: "invalid" | "valid";
+  /**
+   * Later input cannot change a settled block's syntax. Its rendering can still
+   * change when a definition it references changes.
+   */
+  readonly settled: boolean;
 }
 
-export interface CompletedBlockSnapshot {
-  readonly id: BlockId;
-  readonly range: Readonly<{ start: number; end: number }>;
-  readonly document: DocumentNode;
+/** What a renderer needs from a stream preview. */
+export interface MdxPreview {
+  readonly blocks: readonly PreviewBlock[];
+  /** The footnote section, while any defined footnote is referenced. */
+  readonly footnotes: HtmlFootnoteSectionNode | undefined;
+}
+
+export interface StreamBlock extends PreviewBlock {
+  readonly diagnostics: readonly Diagnostic[];
   readonly dependencies: StreamDependencies;
 }
 
 /** A provisional view of incomplete input. Errors stay local to the blocks that contain them. */
-export interface MdxStreamSnapshot {
+export interface MdxStreamSnapshot extends MdxPreview {
   readonly kind: "preview";
-  readonly supplement: StreamingDocument;
   readonly file: SourceFile;
-  readonly document: StreamingDocument;
-  readonly blocks: readonly StreamingBlockSnapshot[];
+  readonly blocks: readonly StreamBlock[];
   readonly diagnostics: readonly Diagnostic[];
-  readonly status: "valid" | "invalid" | "limitExceeded";
+  /** The limit the source exceeds. Blocks then keep the last preview within limits. */
+  readonly limit: ParserLimit | undefined;
 }
 
-export type MdxStreamCompletion =
-  | Readonly<{
-      kind: "ok";
-      file: SourceFile;
-      document: DocumentNode;
-      blocks: readonly CompletedBlockSnapshot[];
-      diagnostics: readonly Diagnostic[];
-    }>
-  | Readonly<{
-      kind: "invalid";
-      file: SourceFile;
-      diagnostics: readonly [Diagnostic, ...Diagnostic[]];
-    }>
-  | Readonly<{
-      kind: "limitExceeded";
-      file: SourceFile;
-      limit: ParserLimit;
-      diagnostics: readonly [Diagnostic, ...Diagnostic[]];
-    }>;
+export interface CompletedBlock {
+  readonly id: BlockId;
+  readonly origin: SourceRange;
+}
 
-export interface MdxStreamOptions {
-  readonly source?: string | SourceFile;
-  readonly syntax?: SyntaxOptions;
-  readonly limits?: ParserLimits;
+export type MdxStreamCompletion = MdxOutcome<{
+  document: DocumentNode;
+  /** The stream blocks that make up the document, with the identities they streamed with. */
+  blocks: readonly CompletedBlock[];
+}>;
+
+export interface MdxStreamLimits extends ParserLimits {
+  /** The longest top-level block that can contain open syntax. */
   readonly maximumPendingBlockLength?: number;
 }
 
-export interface OwnedBlock {
-  readonly id: BlockId;
-  readonly range: Readonly<{ start: number; end: number }>;
-  readonly syntax: BlockSyntax;
-  /** An edit shifted the block, so its rendering must be rebuilt. */
-  readonly moved: boolean;
-  readonly pendingKey: string;
-  readonly references: readonly {
-    readonly identifier: string;
-    readonly start: number;
-    readonly end: number;
-  }[];
-  readonly referenceContext: string;
-  readonly nodeCount: number;
-  readonly diagnostics: readonly Diagnostic[];
-  readonly dependencies: StreamDependencies;
-  readonly candidates: readonly ReferenceCandidate[];
-  readonly streaming: StreamingDocument;
+export interface MdxStreamOptions {
+  /** Initial source. */
+  readonly source?: string;
+  /** The file name for diagnostics. */
+  readonly name?: string;
+  readonly syntax?: SyntaxOptions;
+  readonly limits?: MdxStreamLimits;
+}
+
+/** What changed between two consecutive snapshots. */
+export interface MdxStreamChange {
+  readonly snapshot: MdxStreamSnapshot;
+  /** Blocks before this index are the previous snapshot's block objects, except `refreshed`. */
+  readonly start: number;
+  /** Earlier blocks that rendered again because a definition they reference changed. */
+  readonly refreshed: readonly StreamBlock[];
+  readonly footnotesChanged: boolean;
 }

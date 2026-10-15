@@ -33,25 +33,19 @@ function Note({ children, title }: React.PropsWithChildren<{ title: string }>) {
   );
 }
 
+/** Open Markdown renders as it is; references wait for their definitions. */
 function PendingMarkdown({ children, node }: PendingMdxMarkdownProps) {
-  switch (node.kind) {
-    case "unresolvedLinkReference":
+  if (node.kind !== "unresolvedReference") {
+    return children;
+  }
+
+  switch (node.reference) {
+    case "link":
       return <span className="underline decoration-dotted">{children}</span>;
-    case "unresolvedImageReference":
+    case "image":
       return <span>{children}</span>;
-    case "unresolvedFootnoteReference":
-    case "footnoteReference":
-    case "footnoteSection":
+    case "footnote":
       return null;
-    case "pendingStrong":
-    case "pendingEmphasis":
-    case "pendingDelete":
-    case "pendingCode":
-    case "pendingLink":
-    case "pendingImage":
-      return children;
-    case "pendingFencedCode":
-      return children;
   }
 }
 

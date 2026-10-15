@@ -1,4 +1,4 @@
-import { MdxStream, renderStreamingHtml } from "@temelj/mdx";
+import { formatHtml, htmlText, MdxStream, previewDocument, streamBlockEvents } from "@temelj/mdx";
 import { act, cleanup, render, renderHook } from "@testing-library/react";
 import React from "react";
 import { hydrateRoot } from "react-dom/client";
@@ -7,6 +7,7 @@ import { afterEach, expect, expectTypeOf, it, vi } from "vitest";
 
 import {
   defineMdxRegistry,
+  MdxBlockStore,
   MdxStreamStore,
   useMdxBlockStatus,
   StreamContent,
@@ -38,7 +39,7 @@ it("appends, edits, completes and explicitly resets with stable methods", () => 
   void act(() => result.current.edit({ start: 2, end: 7, text: "Edited" }));
   void act(() => result.current.complete());
   expect(result.current.view.kind).toBe("complete");
-  expect(text(result.current.view)).toBe("# Edited\n\nSecond");
+  expect(text(result.current.view)).toBe("Edited\nSecond");
   const completed = result.current.view;
   void act(() => result.current.complete());
   expect(result.current.view).toBe(completed);
@@ -59,15 +60,18 @@ it("appends, edits, completes and explicitly resets with stable methods", () => 
 it("can repair unsuccessful completion and applies limits", () => {
   const { result } = renderHook(() => useMdxStream({ source: "<Alert" }));
   void act(() => result.current.complete());
-  expect(result.current.view).toMatchObject({ kind: "failed", completion: { kind: "invalid" } });
+  expect(result.current.view).toMatchObject({
+    kind: "failed",
+    diagnostics: [{ code: "mdx.jsx.invalid" }],
+  });
   void act(() => result.current.append(" />"));
   void act(() => result.current.complete());
   expect(result.current.view.kind).toBe("complete");
   act(() => result.current.reset({ limits: { maximumSourceLength: 3 } }));
   void act(() => result.current.append("long"));
-  expect(result.current.view).toMatchObject({ snapshot: { status: "limitExceeded" } });
+  expect(result.current.view).toMatchObject({ kind: "streaming", limit: "maximumSourceLength" });
   void act(() => result.current.edit({ start: 0, end: 4, text: "ok" }));
-  expect(result.current.view).toMatchObject({ snapshot: { kind: "preview", status: "valid" } });
+  expect(result.current.view).toMatchObject({ kind: "streaming", limit: undefined });
 });
 
 it("preserves settled instances through appends and completion and clears them on reset", () => {
@@ -165,8 +169,16 @@ it("renders every Markdown prefix with HTML parity and safe URLs", () => {
 
   for (const character of source) {
     const snapshot = stream.append(character);
-    const view: MdxStreamView = { kind: "streaming", generation: 0, snapshot };
-    const html = renderStreamingHtml(snapshot.document);
+
+    const view: MdxStreamView = {
+      kind: "streaming",
+      generation: 0,
+      preview: snapshot,
+      diagnostics: snapshot.diagnostics,
+      limit: snapshot.limit,
+    };
+
+    const html = formatHtml(previewDocument(snapshot));
     const react = renderToStaticMarkup(<StreamContent view={view} />);
     expect(normalize(react)).toEqual(normalize(html));
     expect(html).not.toContain('href="javascript:');
@@ -193,7 +205,7 @@ it("consumes a transport, batching publishes and completing at EOF", async () =>
   const completion = await store.consume(new Response(body));
 
   expect(completion.kind).toBe("ok");
-  expect(text(store.getSnapshot())).toBe("# Title\n\nBody \u00e9nd");
+  expect(text(store.getSnapshot())).toBe("Title\nBody \u00e9nd");
   // One batched append and one completion.
   expect(listener).toHaveBeenCalledTimes(2);
 });
@@ -261,8 +273,9 @@ it("reports the open tail block as pending", () => {
   ]);
 });
 
+/** The rendered text of a view. */
 function text(view: MdxStreamView): string {
-  return view.kind === "complete" ? view.completion.file.text : view.snapshot.file.text;
+  return htmlText(view.kind === "complete" ? view.html : previewDocument(view.preview));
 }
 
 function normalize(html: string): string {
@@ -289,3 +302,62 @@ function normalize(html: string): string {
 
   return template.innerHTML;
 }
+
+it("renders server block events without parsing on the client", async () => {
+  const source = "# Title\n\nSome **bold** text[^a].\n\n- one\n- two\n\n[^a]: Note\n";
+
+  async function* chunks(): AsyncGenerator<string> {
+    for (let offset = 0; offset < source.length; offset += 4) {
+      yield source.slice(offset, offset + 4);
+    }
+  }
+
+  const lines: string[] = [];
+
+  for await (const event of streamBlockEvents(chunks())) {
+    lines.push(`${JSON.stringify(event)}\n`);
+  }
+
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      const encoder = new TextEncoder();
+
+      for (const line of lines) {
+        controller.enqueue(encoder.encode(line));
+      }
+
+      controller.close();
+    },
+  });
+
+  const store = new MdxBlockStore({ schedule: (flush) => flush() });
+  const view = await store.consume(new Response(body));
+
+  expect(view.kind).toBe("complete");
+  expect(normalize(renderToStaticMarkup(<StreamContent view={view} />))).toBe(
+    normalize(renderToStaticMarkup(<StreamSourceContent source={source} status="complete" />)),
+  );
+});
+
+it("reuses elements of unchanged nodes inside the open block", () => {
+  const renders = vi.fn<() => void>();
+
+  const Strong = ({ children }: { children?: React.ReactNode }): React.ReactNode => {
+    renders();
+
+    return <strong>{children}</strong>;
+  };
+
+  const registry = defineMdxRegistry({ html: { strong: Strong } });
+  const { result } = renderHook(() => useMdxStream());
+  const rendered = render(<StreamContent registry={registry} view={result.current.view} />);
+
+  for (const chunk of ["**first**\n", "more ", "words\n", "and ", "more"]) {
+    void act(() => result.current.append(chunk));
+    rendered.rerender(<StreamContent registry={registry} view={result.current.view} />);
+  }
+
+  // Once its line ends, the first line keeps its node, so later appends reuse its element.
+  expect(renders).toHaveBeenCalledTimes(2);
+  expect(rendered.container.textContent).toBe("first\nmore words\nand more");
+});

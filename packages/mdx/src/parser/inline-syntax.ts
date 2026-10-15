@@ -106,12 +106,24 @@ export interface InvalidInlineSyntax {
   readonly open: boolean;
 }
 
+declare const inlineResumeBrand: unique symbol;
+
+/** Where a later parse of the same growing input can resume. Opaque to callers. */
+export interface InlineResume {
+  readonly [inlineResumeBrand]?: never;
+}
+
 export interface InlineParseResult {
+  /**
+   * Parsed nodes. A resumed parse shares this array with the next parse that
+   * resumes from it, so read it before parsing the same input again.
+   */
   readonly nodes: readonly InlineSyntax[];
   readonly invalid: readonly InvalidInlineSyntax[];
   readonly references: ReadonlySet<string>;
   readonly footnotes: ReadonlySet<string>;
   readonly pending?: InlinePendingSyntax;
+  readonly resume?: InlineResume;
 }
 
 export interface PendingInlineParentSyntax extends InlineSyntaxBase {
