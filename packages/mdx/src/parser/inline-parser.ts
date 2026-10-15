@@ -26,7 +26,7 @@ import { pendingInline } from "./inline-pending.ts";
 interface ResumeState {
   readonly offset: number;
   readonly textStart: number;
-  readonly prefix: string;
+  readonly prefix: SourceText;
   /** The input the state came from. */
   readonly input: InlineInput;
   /**
@@ -39,8 +39,6 @@ interface ResumeState {
   readonly delimiters: Delimiter[];
   readonly delimitersLength: number;
   readonly invalid: readonly InvalidInlineSyntax[];
-  readonly references: readonly string[];
-  readonly footnotes: readonly string[];
   /** `output` as nodes, which resumed parses extend in place to keep node identities. */
   readonly nodes: InlineSyntax[];
   readonly nodesLength: number;
@@ -52,11 +50,13 @@ interface SafePoint {
   readonly output: number;
   readonly delimiters: number;
   readonly invalid: number;
-  readonly references: number;
-  readonly footnotes: number;
 }
 
 const resumeStates = new WeakMap<InlineResume, ResumeState>();
+
+type InlineParseOptions =
+  | Readonly<{ mode: "complete" }>
+  | Readonly<{ mode: "preview"; resume?: InlineResume }>;
 
 /**
  * Direct inline parser with one output sequence and one delimiter stack.
@@ -68,18 +68,20 @@ const resumeStates = new WeakMap<InlineResume, ResumeState>();
 export function parseInline(
   input: InlineInput,
   syntax: ResolvedSyntaxOptions,
-  resume?: InlineResume,
+  options: InlineParseOptions = { mode: "complete" },
 ): InlineParseResult {
   const value = input.text();
+  const resume = options.mode === "preview" ? options.resume : undefined;
   const saved = resume === undefined ? undefined : resumeStates.get(resume);
 
   // An input built by extending the saved one shares its text, so only other inputs are compared.
   const resumed =
-    saved !== undefined && (input.extends(saved.input) || value.startsWith(saved.prefix))
+    saved !== undefined &&
+    (input.extends(saved.input) || value.startsWith(saved.prefix.slice(0, saved.offset)))
       ? saved
       : undefined;
 
-  const scan = new InlineScan(input, value, syntax, resumed);
+  const scan = new InlineScan(input, value, syntax, resumed, options.mode === "preview");
   scan.run();
 
   return scan.result(resume);
@@ -91,12 +93,12 @@ class InlineScan {
   readonly #value: SourceText;
   readonly #syntax: ResolvedSyntaxOptions;
   readonly #resumed: ResumeState | undefined;
+  readonly #preview: boolean;
+  readonly #emailAutolinks: boolean;
   readonly #output: Output[];
   readonly #delimiters: Delimiter[];
   readonly #brackets: Bracket[] = [];
   readonly #invalid: InvalidInlineSyntax[];
-  readonly #references: Set<string>;
-  readonly #footnotes: Set<string>;
   #openEmbedded: PendingCandidate | undefined;
   #textStart: number;
   #offset: number;
@@ -109,25 +111,28 @@ class InlineScan {
     value: SourceText,
     syntax: ResolvedSyntaxOptions,
     resumed: ResumeState | undefined,
+    preview: boolean,
   ) {
     this.#input = input;
     this.#value = value;
     this.#syntax = syntax;
     this.#resumed = resumed;
+    this.#preview = preview;
     this.#output = resumed === undefined ? [] : resumed.output;
     this.#delimiters = resumed === undefined ? [] : resumed.delimiters;
     this.#output.length = resumed?.outputLength ?? 0;
     this.#delimiters.length = resumed?.delimitersLength ?? 0;
     this.#invalid = resumed === undefined ? [] : [...resumed.invalid];
-    this.#references = new Set(resumed?.references);
-    this.#footnotes = new Set(resumed?.footnotes);
     this.#textStart = resumed?.textStart ?? 0;
     this.#offset = resumed?.offset ?? 0;
+    this.#emailAutolinks = value.indexOf("@", this.#offset) !== -1;
   }
 
   public run(): void {
     while (this.#offset < this.#value.length) {
-      this.recordSafePoint();
+      if (this.#preview) {
+        this.recordSafePoint();
+      }
 
       if (!this.scanConstruct(this.#value.char(this.#offset) ?? "")) {
         this.#offset++;
@@ -135,7 +140,10 @@ class InlineScan {
     }
 
     // Input that ends with a line ending can resume after it.
-    this.recordSafePoint();
+    if (this.#preview) {
+      this.recordSafePoint();
+    }
+
     this.flushText(this.#value.length);
   }
 
@@ -146,15 +154,17 @@ class InlineScan {
     const resumedLength = resumed?.outputLength ?? 0;
     const safe = this.#safe;
 
-    const pending = pendingInline(
-      input,
-      this.#value,
-      output,
-      this.#openEmbedded,
-      this.#syntax,
-      resumed?.offset ?? 0,
-      resumedLength,
-    );
+    const pending = this.#preview
+      ? pendingInline(
+          input,
+          this.#value,
+          output,
+          this.#openEmbedded,
+          this.#syntax,
+          resumed?.offset ?? 0,
+          resumedLength,
+        )
+      : undefined;
 
     let nodes: InlineSyntax[];
     let stateNodes: InlineSyntax[] | undefined;
@@ -185,15 +195,13 @@ class InlineScan {
       const state: ResumeState = {
         offset: safe.offset,
         textStart: safe.textStart,
-        prefix: this.#value.slice(0, safe.offset),
+        prefix: this.#value,
         input,
         output,
         outputLength: safe.output,
         delimiters: this.#delimiters,
         delimitersLength: safe.delimiters,
         invalid: this.#invalid.slice(0, safe.invalid),
-        references: [...this.#references].slice(0, safe.references),
-        footnotes: [...this.#footnotes].slice(0, safe.footnotes),
         nodes: stateNodes,
         nodesLength: stateLength,
       };
@@ -205,8 +213,6 @@ class InlineScan {
     return {
       nodes,
       invalid: this.#invalid,
-      references: this.#references,
-      footnotes: this.#footnotes,
       pending,
       resume: next,
     };
@@ -214,21 +220,37 @@ class InlineScan {
 
   /** Consumes the construct at the cursor, in CommonMark precedence order. */
   private scanConstruct(character: string): boolean {
-    return (
-      this.scanDirective(character) ||
-      this.scanTexMath(character) ||
-      this.scanDollarMath(character) ||
-      this.scanSpaceBreak(character) ||
-      this.scanAutolink() ||
-      this.scanOpenBracket(character) ||
-      this.scanCloseBracket(character) ||
-      this.scanBackslash(character) ||
-      this.scanCodeSpan(character) ||
-      this.scanCharacterReference(character) ||
-      this.scanExpression(character) ||
-      this.scanAngle(character) ||
-      this.scanDelimiterRun(character)
-    );
+    switch (character) {
+      case ":":
+        return this.scanDirective(character);
+      case "\\":
+        return this.scanTexMath(character) || this.scanBackslash(character);
+      case "$":
+        return this.scanDollarMath(character);
+      case "\n":
+      case "\r":
+        return this.scanSpaceBreak(character);
+      case "!":
+      case "[":
+        return this.scanOpenBracket(character);
+      case "]":
+        return this.scanCloseBracket(character);
+      case "`":
+        return this.scanCodeSpan(character);
+      case "&":
+        return this.scanCharacterReference(character);
+      case "{":
+        return this.scanExpression(character);
+      case "<":
+        return this.scanAngle(character);
+      case "_":
+        return this.scanAutolink(character) || this.scanDelimiterRun(character);
+      case "*":
+      case "~":
+        return this.scanDelimiterRun(character);
+      default:
+        return this.scanAutolink(character);
+    }
   }
 
   /**
@@ -250,8 +272,6 @@ class InlineScan {
         output: this.#output.length,
         delimiters: this.#delimiters.length,
         invalid: this.#invalid.length,
-        references: this.#references.size,
-        footnotes: this.#footnotes.size,
       };
     }
   }
@@ -322,7 +342,18 @@ class InlineScan {
     return this.advance(end);
   }
 
-  private scanAutolink(): boolean {
+  private scanAutolink(character: string): boolean {
+    // Without an @, only HTTP and www prefixes can start a literal link.
+    if (
+      !this.#emailAutolinks &&
+      character !== "h" &&
+      character !== "H" &&
+      character !== "w" &&
+      character !== "W"
+    ) {
+      return false;
+    }
+
     const autolink = matchLiteralAutolink(this.#input, this.#value, this.#offset);
 
     return autolink !== undefined && this.emit(autolink);
@@ -360,8 +391,6 @@ class InlineScan {
       bracket,
       this.#output,
       this.#delimiters,
-      this.#references,
-      this.#footnotes,
     );
 
     this.#stable &&= resolved !== undefined;

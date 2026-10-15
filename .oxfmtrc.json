@@ -1,6 +1,7 @@
 {
   "$schema": "./node_modules/oxfmt/configuration_schema.json",
   "ignorePatterns": [
+    "packages/mdx/benches/fixtures/tanstack/**",
     "**/*.gen.ts",
     "packages/mdx/fixtures/*.json",
     "packages/mdx/src/syntax/generated/**",

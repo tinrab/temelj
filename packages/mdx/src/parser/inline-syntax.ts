@@ -120,8 +120,6 @@ export interface InlineParseResult {
    */
   readonly nodes: readonly InlineSyntax[];
   readonly invalid: readonly InvalidInlineSyntax[];
-  readonly references: ReadonlySet<string>;
-  readonly footnotes: ReadonlySet<string>;
   readonly pending?: InlinePendingSyntax;
   readonly resume?: InlineResume;
 }

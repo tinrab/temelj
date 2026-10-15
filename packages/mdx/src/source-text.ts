@@ -39,6 +39,13 @@ export class SourceText {
     return this.plain ? this : SourceText.of(this.toString().replaceAll("\0", "\uFFFD"));
   }
 
+  /** The same text in one chunk, for complete-document reads. */
+  public flatten(): SourceText {
+    return this.#chunks.length <= 1
+      ? this
+      : new SourceText([this.toString()], [0], this.length, this.plain);
+  }
+
   public append(text: string): SourceText {
     if (text.length === 0) {
       return this;

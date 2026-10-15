@@ -31,8 +31,7 @@
     "test": "vitest run --config ./vitest.config.ts",
     "typecheck": "tsc --noEmit",
     "clean": "shx rm -rf dist",
-    "measure:bundles": "tsx scripts/measure-bundles.ts",
-    "measure:rendering": "tsx scripts/measure-rendering.tsx"
+    "measure:bundles": "tsx scripts/measure-bundles.ts"
   },
   "dependencies": {
     "@temelj/mdx": "workspace:*",

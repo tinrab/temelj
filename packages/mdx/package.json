@@ -39,8 +39,13 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "clean": "shx rm -rf dist",
-    "measure:streaming": "tsx scripts/measure-streaming.ts",
-    "measure:highlighting": "tsx scripts/measure-highlighting.ts"
+    "bench": "pnpm run build && tsx benches/mdx.ts",
+    "bench:fetch-fixtures": "tsx benches/fetch-fixtures.ts",
+    "bench:verify": "pnpm bench --verify",
+    "bench:parse": "pnpm bench --suite parse",
+    "bench:html": "pnpm bench --suite html",
+    "bench:compile": "pnpm bench --suite compile",
+    "bench:stream": "pnpm bench --suite stream"
   },
   "dependencies": {
     "@temelj/standard-schema": "workspace:*",
@@ -52,13 +57,21 @@
     "yaml": "2.9.1"
   },
   "devDependencies": {
+    "@mdx-js/mdx": "3.1.1",
     "@shikijs/rehype": "4.5.0",
+    "@tanstack/markdown": "1.0.0",
     "@types/node": "26.6.5",
+    "parse5": "8.0.1",
     "property-information": "7.2.0",
     "rehype-slug": "6.0.0",
+    "remark": "15.0.1",
+    "remark-gfm": "4.0.1",
+    "remark-html": "16.0.1",
     "remark-toc": "9.0.0",
     "shiki": "4.5.0",
     "shx": "^0.4.0",
+    "source-map": "0.8.0",
+    "tinybench": "6.2.2",
     "tsdown": "^0.23.1",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",

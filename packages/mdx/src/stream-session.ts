@@ -174,7 +174,6 @@ export class StreamSession {
     this.#parser = new ParserSession({
       source: this.#file,
       syntax: options.syntax,
-      limits: options.limits,
       onSettled: (syntax, index) => this.#queue.push({ syntax, index }),
     });
 

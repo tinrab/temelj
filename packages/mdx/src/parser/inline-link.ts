@@ -33,8 +33,6 @@ export function resolveBracket(
   bracket: Bracket,
   output: Output[],
   delimiters: Delimiter[],
-  references: Set<string>,
-  footnotes: Set<string>,
 ): number | undefined {
   // The innermost open bracket is the most recent bracket, so it is found from the end.
   const outputIndex = output.lastIndexOf(bracket);
@@ -69,7 +67,6 @@ export function resolveBracket(
     !label.slice(1).includes("]")
   ) {
     const identifier = normalizeIdentifier(label.slice(1));
-    footnotes.add(identifier);
     output.splice(outputIndex, output.length - outputIndex, {
       kind: "footnoteReference",
       range: input.sourceRange(bracket.start, close + 1),
@@ -120,7 +117,6 @@ export function resolveBracket(
     return;
   }
 
-  references.add(identifier);
   const end = reference?.end ?? close + 1;
   output.splice(outputIndex, output.length - outputIndex, {
     kind: "reference",

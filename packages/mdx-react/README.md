@@ -274,10 +274,10 @@ function KaTeXMath({ source, style }: MathComponentProps) {
 Only the caller-owned KaTeX result enters `dangerouslySetInnerHTML`. Authored raw
 HTML stays inert.
 
-## Measure bundles and rendering
+## Measure bundles
 
 Run `pnpm --filter @temelj/mdx-react measure:bundles` for minified and gzip
 sizes. Bundle tests cap the core stream, the hook with renderer, and the
-snapshot renderer alone, and keep Shiki and Unified out of them. Run
-`pnpm --filter @temelj/mdx-react measure:rendering` to measure server rendering
-of successive snapshots.
+snapshot renderer alone, and keep Shiki and Unified out of them.
+Parser, HTML, compilation, and streaming benchmarks live in
+[`@temelj/mdx/benches`](../mdx/benches/README.md).

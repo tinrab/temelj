@@ -334,25 +334,35 @@ export class PhysicalLineScanner {
 
     const lines: PhysicalLine[] = [];
 
-    for (let index = 0; index < text.length; index++) {
-      const offset = this.#length + index;
-      const character = text[index];
+    const endings = /\r\n|[\r\n]/gu;
 
-      if (this.#pendingCarriageReturn !== undefined) {
-        if (character === "\n") {
-          lines.push(this.emit(this.#pendingCarriageReturn, offset + 1, "\r\n"));
-          this.#pendingCarriageReturn = undefined;
-          continue;
-        }
+    if (text.length > 0 && this.#pendingCarriageReturn !== undefined) {
+      const offset = this.#pendingCarriageReturn;
 
-        lines.push(this.emit(this.#pendingCarriageReturn, this.#pendingCarriageReturn + 1, "\r"));
-        this.#pendingCarriageReturn = undefined;
+      if (text[0] === "\n") {
+        lines.push(this.emit(offset, this.#length + 1, "\r\n"));
+        endings.lastIndex = 1;
+      } else {
+        lines.push(this.emit(offset, offset + 1, "\r"));
       }
 
-      if (character === "\r") {
+      this.#pendingCarriageReturn = undefined;
+    }
+
+    for (let match = endings.exec(text); match !== null; match = endings.exec(text)) {
+      const offset = this.#length + match.index;
+      const ending = match[0];
+
+      if (ending === "\r" && match.index === text.length - 1) {
         this.#pendingCarriageReturn = offset;
-      } else if (character === "\n") {
-        lines.push(this.emit(offset, offset + 1, "\n"));
+      } else {
+        lines.push(
+          this.emit(
+            offset,
+            offset + ending.length,
+            ending === "\r\n" ? "\r\n" : ending === "\r" ? "\r" : "\n",
+          ),
+        );
       }
     }
 

@@ -34,7 +34,7 @@ export function formatHtmlElement(
 
 const tagNamePattern = /^[A-Za-z][A-Za-z0-9:-]*$/u;
 
-const HTML_VOID_ELEMENTS: readonly string[] = [
+const HTML_VOID_ELEMENTS: ReadonlySet<string> = new Set([
   "area",
   "base",
   "basefont",
@@ -53,17 +53,18 @@ const HTML_VOID_ELEMENTS: readonly string[] = [
   "source",
   "track",
   "keygen",
-];
+]);
 
 class HtmlFormatter {
   private readonly options: HtmlFormatOptions;
   private readonly voids: ReadonlySet<string>;
 
   public constructor(options: HtmlFormatOptions) {
-    this.options = { ...options };
-    this.voids = new Set(
-      (options.voidElements ?? HTML_VOID_ELEMENTS).map((name) => name.toLowerCase()),
-    );
+    this.options = options;
+    this.voids =
+      options.voidElements === undefined
+        ? HTML_VOID_ELEMENTS
+        : new Set(options.voidElements.map((name) => name.toLowerCase()));
   }
 
   public format(node: HtmlNode): string {

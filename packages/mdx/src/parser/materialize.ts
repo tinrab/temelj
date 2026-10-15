@@ -218,8 +218,9 @@ export function materializePhrasing(
 
     if (materialized === undefined) {
       const before = context.nodes;
+      const child = materializeInlineNode(node, context);
       materialized = {
-        nodes: materializeInlineNode(node, context),
+        nodes: child === undefined ? [] : [child],
         nodeCount: context.nodes - before,
       };
 
@@ -708,38 +709,57 @@ function materializeInline(
     });
   }
 
-  return result.nodes.flatMap((node) => materializeInlineNode(node, context));
+  return materializeInlineNodes(result.nodes, context);
 }
 
-function materializeInlineNode(node: InlineSyntax, context: MaterializeContext): PhrasingContent[] {
-  const origin = range(node.range.start, node.range.end);
+function materializeInlineNodes(
+  nodes: readonly InlineSyntax[],
+  context: MaterializeContext,
+): PhrasingContent[] {
+  const children: PhrasingContent[] = [];
 
-  const children =
-    "children" in node
-      ? node.children.flatMap((child) => materializeInlineNode(child, context))
-      : [];
+  for (const node of nodes) {
+    const child = materializeInlineNode(node, context);
+
+    if (child !== undefined) {
+      children.push(child);
+    }
+  }
+
+  return children;
+}
+
+function materializeInlineNode(
+  node: InlineSyntax,
+  context: MaterializeContext,
+): PhrasingContent | undefined {
+  const origin = range(node.range.start, node.range.end);
 
   switch (node.kind) {
     case "text":
-      return countedArray(context, { kind: "text", value: node.value, origin });
+      return counted(context, { kind: "text", value: node.value, origin });
     case "emphasis":
     case "strong":
     case "delete":
-      return countedArray(context, { kind: node.kind, children, origin });
+      return counted(context, {
+        kind: node.kind,
+        children: materializeInlineNodes(node.children, context),
+        origin,
+      });
     case "code":
-      return countedArray(context, { kind: "inlineCode", value: node.value, origin });
+      return counted(context, { kind: "inlineCode", value: node.value, origin });
     case "hardBreak":
-      return countedArray(context, { kind: "hardBreak", origin });
+      return counted(context, { kind: "hardBreak", origin });
     case "link":
-      return countedArray(context, {
+      return counted(context, {
         kind: "link",
         url: node.destination,
         title: node.title,
-        children,
+        children: materializeInlineNodes(node.children, context),
         origin,
       });
     case "image":
-      return countedArray(context, {
+      return counted(context, {
         kind: "image",
         url: node.destination,
         alt: node.alt,
@@ -747,8 +767,10 @@ function materializeInlineNode(node: InlineSyntax, context: MaterializeContext):
         origin,
       });
     case "reference": {
+      const children = materializeInlineNodes(node.children, context);
+
       if (!context.keepReferences && !context.definitions.has(node.identifier)) {
-        return countedArray(context, {
+        return counted(context, {
           kind: "text",
           value: context.file.slice(node.range),
           origin,
@@ -757,7 +779,7 @@ function materializeInlineNode(node: InlineSyntax, context: MaterializeContext):
 
       const identifier = normalizeIdentifier(node.identifier);
 
-      return countedArray(
+      return counted(
         context,
         node.image
           ? {
@@ -778,13 +800,13 @@ function materializeInlineNode(node: InlineSyntax, context: MaterializeContext):
     }
 
     case "rawHtml":
-      return countedArray(context, { kind: "rawHtmlInline", value: node.value, origin });
+      return counted(context, { kind: "rawHtmlInline", value: node.value, origin });
     case "expression":
-      return countedArray(context, { kind: "inlineExpression", code: node.value, origin });
+      return counted(context, { kind: "inlineExpression", code: node.value, origin });
     case "jsx":
-      return countedArray(context, materializeTextJsx(node.value, origin, context));
+      return counted(context, materializeTextJsx(node.value, origin, context));
     case "math":
-      return countedArray(context, {
+      return counted(context, {
         kind: "inlineMath",
         value: node.value,
         format: node.format,
@@ -792,19 +814,19 @@ function materializeInlineNode(node: InlineSyntax, context: MaterializeContext):
       });
     case "footnoteReference":
       return context.keepReferences || context.footnotes.has(node.identifier)
-        ? countedArray(context, {
+        ? counted(context, {
             kind: "footnoteReference",
             identifier: normalizeIdentifier(node.identifier),
             label: node.identifier,
             origin,
           })
-        : countedArray(context, { kind: "text", value: context.file.slice(node.range), origin });
+        : counted(context, { kind: "text", value: context.file.slice(node.range), origin });
     case "directive":
-      return countedArray(context, {
+      return counted(context, {
         kind: "textDirective",
         name: node.name,
         attributes: materializeDirectiveAttributes(node.attributes),
-        label: { kind: "directiveLabel", children, origin },
+        label: { kind: "directiveLabel", children: [], origin },
         origin,
       });
   }
@@ -1000,10 +1022,6 @@ function counted<T>(context: MaterializeContext, node: T): T | undefined {
   }
 
   return node;
-}
-
-function countedArray<T extends PhrasingContent>(context: MaterializeContext, node: T): T[] {
-  return counted(context, node) === undefined ? [] : [node];
 }
 
 function limitDiagnostic(

@@ -11,9 +11,34 @@ export function matchLiteralAutolink(
   value: SourceText,
   start: number,
 ): InlineMatch | undefined {
+  const character = value.char(start);
+
+  // Literal links start with an ASCII email character or an HTTP/www prefix.
+  if (
+    character === undefined ||
+    !(
+      (character >= "a" && character <= "z") ||
+      (character >= "A" && character <= "Z") ||
+      (character >= "0" && character <= "9") ||
+      character === "_" ||
+      character === "." ||
+      character === "+" ||
+      character === "-"
+    )
+  ) {
+    return;
+  }
+
   const before = value.char(start - 1);
 
-  if (before !== undefined && /[\p{L}\p{N}_]/u.test(before)) {
+  if (
+    before !== undefined &&
+    ((before >= "a" && before <= "z") ||
+      (before >= "A" && before <= "Z") ||
+      (before >= "0" && before <= "9") ||
+      before === "_" ||
+      (before > "\x7f" && /[\p{L}\p{N}_]/u.test(before)))
+  ) {
     return;
   }
 

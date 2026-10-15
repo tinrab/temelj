@@ -18,30 +18,21 @@ export interface VirtualSpaceInlineSegment {
 export type InlineSegment = SourceInlineSegment | VirtualSpaceInlineSegment;
 
 /**
- * Offsets and segments that successive inputs of one growing text share. Each
+ * Segments that successive inputs of one growing text share. Each
  * input reads its own prefix; only the newest input may extend the storage, and
  * it only ever writes past every existing input's end.
  */
 class InputStorage {
-  offsets = new Uint32Array(64);
   /** The segments as given, compared by identity when a later input extends this one. */
   readonly inputs: InlineSegment[] = [];
   /** Text length after each segment. */
   readonly ends: number[] = [];
   tip: InlineInput | undefined;
-
-  public reserve(length: number): void {
-    if (length > this.offsets.length) {
-      const grown = new Uint32Array(Math.max(length, this.offsets.length * 2));
-      grown.set(this.offsets);
-      this.offsets = grown;
-    }
-  }
 }
 
 /**
  * Source-backed block content with explicit virtual indentation. Text is built
- * once; each character keeps the source offset it came from.
+ * once; segment boundaries map characters back to their source offsets.
  */
 export class InlineInput {
   readonly #storage: InputStorage;
@@ -51,7 +42,7 @@ export class InlineInput {
   /**
    * `base` is an earlier input of the same growing text, such as the open
    * paragraph before an append. When this input only adds text after it, the
-   * base's decoded text and offsets are shared and only the new text is decoded.
+   * base's decoded text and segment boundaries are shared; only new text is decoded.
    */
   public constructor(file: SourceFile, segments: readonly InlineSegment[], base?: InlineInput) {
     this.file = file;
@@ -67,23 +58,16 @@ export class InlineInput {
       const grown = segments[last];
       const previous = storage.inputs[last];
       let text = base.#text;
-      let length = text.length;
 
       if (grown?.kind === "source" && previous?.kind === "source" && grown !== previous) {
         const start = previous.range.end;
         const part = file.semanticSlice({ start, end: grown.range.end });
-        storage.reserve(length + part.length);
-
-        for (let offset = start; offset < grown.range.end; offset++) {
-          storage.offsets[length++] = offset;
-        }
-
         text = text.append(part);
         storage.inputs[last] = grown;
-        storage.ends[last] = length;
+        storage.ends[last] = text.length;
       }
 
-      this.#text = this.append(segments, last + 1, length, text);
+      this.#text = this.append(segments, last + 1, text.length, text);
     }
 
     this.#storage.tip = this;
@@ -102,17 +86,38 @@ export class InlineInput {
       throw new RangeError(`Inline range ${start}..${end} exceeds input length ${this.length}`);
     }
 
-    const offsets = this.#storage.offsets;
-
     if (start === this.length) {
-      const offset = this.length === 0 ? 0 : offsets[this.length - 1];
+      const offset = this.length === 0 ? 0 : this.sourceOffset(this.length - 1);
 
       return sourceRange(offset, offset);
     }
 
-    const first = offsets[start];
+    const first = this.sourceOffset(start);
 
-    return sourceRange(first, (end === 0 ? first : offsets[end - 1]) + 1);
+    return sourceRange(first, (end === 0 ? first : this.sourceOffset(end - 1)) + 1);
+  }
+
+  /** Source segments are contiguous; virtual indentation maps to one authored tab. */
+  private sourceOffset(offset: number): number {
+    const { inputs, ends } = this.#storage;
+    let low = 0;
+    let high = inputs.length - 1;
+
+    while (low < high) {
+      const middle = (low + high) >> 1;
+
+      if (offset < ends[middle]) {
+        high = middle;
+      } else {
+        low = middle + 1;
+      }
+    }
+
+    const segment = inputs[low];
+
+    return segment.kind === "virtualSpace"
+      ? segment.offset
+      : segment.range.start + offset - (low === 0 ? 0 : ends[low - 1]);
   }
 
   public toString(): string {
@@ -183,17 +188,7 @@ export class InlineInput {
           ? this.file.semanticSlice(segment.range)
           : " ".repeat(segment.columns);
 
-      storage.reserve(index + part.length);
-
-      if (segment.kind === "virtualSpace") {
-        storage.offsets.fill(segment.offset, index, index + segment.columns);
-        index += segment.columns;
-      } else {
-        for (let offset = segment.range.start; offset < segment.range.end; offset++) {
-          storage.offsets[index++] = offset;
-        }
-      }
-
+      index += part.length;
       parts.push(part);
       storage.inputs[position] = segments[position];
       storage.ends[position] = index;

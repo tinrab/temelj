@@ -269,7 +269,7 @@ function openParagraph(
   const cache = context.paragraph;
   cache.open(pending.range.start, context.lowering);
   const input = new InlineInput(context.file, pending.input, cache.input);
-  const parsed = parseInline(input, context.syntax, cache.resume);
+  const parsed = parseInline(input, context.syntax, { mode: "preview", resume: cache.resume });
   const open = parsed.pending;
   const boundary = open?.range.start ?? Infinity;
   const nodes = parsed.nodes;

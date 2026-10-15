@@ -41,7 +41,7 @@ deno add jsr:@temelj/mdx
 `@temelj/mdx` owns an MDX document from its first source character to its final
 output. It provides:
 
-- one incremental parser for complete files, appended chunks, and source edits;
+- one shared grammar for complete files, appended chunks, and source edits;
 - exact source files and plain, JSON-serializable semantic and HTML trees;
 - streaming previews in the same HTML tree, with pending kinds for open syntax;
 - a canonical MDX formatter and typed tree traversal;
@@ -49,10 +49,12 @@ output. It provides:
   elements as the HTML;
 - document and HTML plugins, plus optional Unified adapters.
 
-Batch parsing is not a second parser. `parse()` creates the same parser session
-used by `MdxStream`, gives it the complete source, and strictly completes it.
-The final result therefore does not depend on how streaming input was split into
-chunks.
+`parse()` feeds the complete source directly to the shared block parser and
+materializes the document. `MdxStream` retains an editable session around that
+parser for appends, previews, and source edits. Complete-document parsing skips
+edit checkpoints and preview bookkeeping while using the same grammar and
+strict validation. Streaming completion produces the same document regardless
+of how input was split into chunks.
 
 The package keeps parsing separate from execution. Parsing JSX, expressions, or
 ESM does not run them. HTML output remains inert by default, and compilation
@@ -133,7 +135,8 @@ attribute values. Acorn ASTs do not enter the public document model.
 
 `parse()` accepts a string or a `SourceFile` and returns a `ParseResult`
 containing the source file, document, and diagnostics. Invalid syntax throws
-`ParseError`; exceeded limits throw `LimitError`.
+`ParseError`; exceeded limits throw `LimitError`. When you pass a `SourceFile`,
+the result and its diagnostic spans retain that file.
 
 ```ts
 import { parse, SourceFile } from "@temelj/mdx";
@@ -386,9 +389,10 @@ references to unchanged block objects. `subscribe()` reports which blocks
 changed, for consumers that apply changes instead of reading whole snapshots.
 
 Unchanged nodes keep their identity inside the open block too, so a renderer
-can skip them. `pnpm --filter @temelj/mdx measure:streaming` reports per-append
-p50, p95, and maximum latency for paragraphs, open paragraphs, open fences,
-lists, containers, and late definitions at several sizes.
+can skip them. `pnpm --filter @temelj/mdx bench:stream` compares streaming
+HTML output against remark and TanStack Markdown at several sizes.
+See [benchmarks](./benches/README.md) for parsing, HTML, and compilation
+comparisons, options, and measurement details.
 
 ### Open syntax and missing references
 
