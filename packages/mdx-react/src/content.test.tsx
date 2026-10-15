@@ -20,6 +20,7 @@ import type {
 
 import {
   CompiledContent,
+  EvaluationError,
   compileTrustedMdx,
   defineMdxRegistry,
   HighlightedCode,
@@ -548,10 +549,6 @@ describe("MDX React content", () => {
 
     const outcome = mathProcessor.processSync("$direct$\n");
 
-    if (outcome.kind !== "ok") {
-      throw new Error(`Expected processed outcome, received ${outcome.kind}`);
-    }
-
     render(<HtmlContent registry={mathRegistry} tree={outcome.html} />);
     expect(document.querySelector('[data-source="direct"]')).not.toBeNull();
   });
@@ -718,12 +715,6 @@ describe("MDX React content", () => {
       syntax: { directives: true },
     });
 
-    expect(outcome.kind).toBe("ok");
-
-    if (outcome.kind !== "ok") {
-      return;
-    }
-
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
     const { container } = render(<CompiledContent module={outcome.module} />);
     expect(screen.getByRole("heading", { name: "Hello Tin" })).toBeDefined();
@@ -741,40 +732,28 @@ describe("MDX React content", () => {
       },
     );
 
-    expect(outcome.kind).toBe("ok");
-
-    if (outcome.kind !== "ok") {
-      return;
-    }
-
     expect(outcome.module).toHaveProperty("title", "Imported");
     render(<CompiledContent module={outcome.module} />);
     expect(screen.getByRole("heading", { name: "42" })).toBeDefined();
   });
 
   it("rejects primitive import results at the evaluator boundary", async () => {
-    const outcome = await compileTrustedMdx('import {answer} from "facts"\n\n# {answer}\n', {
-      // @ts-expect-error Import resolvers must return a module object.
-      resolveImport: () => 42,
-    });
-
-    expect(outcome.kind).toBe("evaluationFailed");
-    expect(outcome.diagnostics[0]?.message).toContain("non-module value");
+    await expect(
+      compileTrustedMdx('import {answer} from "facts"\n\n# {answer}\n', {
+        // @ts-expect-error Import resolvers must return a module object.
+        resolveImport: () => 42,
+      }),
+    ).rejects.toThrow("non-module value");
   });
 
   it("does not evaluate imports without a resolver", async () => {
-    const outcome = await compileTrustedMdx('import value from "remote"\n\n{value}\n');
-    expect(outcome.kind).toBe("evaluationFailed");
-    expect(outcome.diagnostics[0]?.code).toBe("mdx.evaluation.importResolver");
+    await expect(compileTrustedMdx('import value from "remote"\n\n{value}\n')).rejects.toThrow(
+      EvaluationError,
+    );
   });
 
   it("renders compiled footnotes with backlinks", async () => {
     const outcome = await compileTrustedMdx("A note[^one].\n\n[^one]: Footnote body.\n");
-    expect(outcome.kind).toBe("ok");
-
-    if (outcome.kind !== "ok") {
-      return;
-    }
 
     const { container } = render(<CompiledContent module={outcome.module} />);
     expect(container.querySelector("section[data-footnotes]")?.textContent).toContain(
@@ -787,11 +766,6 @@ describe("MDX React content", () => {
 
   it("routes compiled code blocks through the semantic registry", async () => {
     const outcome = await compileTrustedMdx("```ts showLineNumbers\nconst answer = 42;\n```\n");
-    expect(outcome.kind).toBe("ok");
-
-    if (outcome.kind !== "ok") {
-      return;
-    }
 
     const CodeBlock = ({ code, language, meta, status }: MdxCodeBlockComponentProps) => (
       <pre data-language={language} data-meta={meta} data-status={status}>

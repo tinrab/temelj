@@ -112,13 +112,13 @@ function emitJsx(
   const opening = childNode(nodeValue(node, "openingElement"));
 
   if (opening === undefined) {
-    CompileError.jsxElementOpeningMissing();
+    throw CompileError.jsxElementOpeningMissing();
   }
 
   const name = childNode(nodeValue(opening, "name"));
 
   if (name === undefined) {
-    CompileError.jsxElementNameMissing();
+    throw CompileError.jsxElementNameMissing();
   }
 
   const tag = jsxTag(name);
@@ -160,7 +160,7 @@ function jsxAttributes(
       const argument = childNode(nodeValue(attribute, "argument"));
 
       if (argument === undefined) {
-        CompileError.jsxSpreadArgumentMissing();
+        throw CompileError.jsxSpreadArgumentMissing();
       }
 
       return `...(${transformNodeSource(source, argument, context)})`;
@@ -169,7 +169,7 @@ function jsxAttributes(
     const nameNode = childNode(nodeValue(attribute, "name"));
 
     if (nameNode === undefined) {
-      CompileError.jsxAttributeNameMissing();
+      throw CompileError.jsxAttributeNameMissing();
     }
 
     const name = jsxName(nameNode);
@@ -187,7 +187,7 @@ function jsxAttributes(
       const expression = childNode(nodeValue(value, "expression"));
 
       if (expression === undefined || expression.type === "JSXEmptyExpression") {
-        CompileError.jsxAttributeExpressionEmpty();
+        throw CompileError.jsxAttributeExpressionEmpty();
       }
 
       return `${javascriptPropertyName(name)}:${transformNodeSource(source, expression, context)}`;
@@ -251,7 +251,7 @@ function jsxName(node: JavaScriptNode): string {
     const name = nodeValue(node, "name");
 
     if (!isString(name)) {
-      CompileError.jsxIdentifierNameMissing();
+      throw CompileError.jsxIdentifierNameMissing();
     }
 
     return name;
@@ -262,7 +262,7 @@ function jsxName(node: JavaScriptNode): string {
     const property = childNode(nodeValue(node, "property"));
 
     if (object === undefined || property === undefined) {
-      CompileError.jsxMemberExpressionIncomplete();
+      throw CompileError.jsxMemberExpressionIncomplete();
     }
 
     return `${jsxName(object)}.${jsxName(property)}`;
@@ -273,13 +273,13 @@ function jsxName(node: JavaScriptNode): string {
     const name = childNode(nodeValue(node, "name"));
 
     if (namespace === undefined || name === undefined) {
-      CompileError.jsxNamespaceIncomplete();
+      throw CompileError.jsxNamespaceIncomplete();
     }
 
     return `${jsxName(namespace)}:${jsxName(name)}`;
   }
 
-  CompileError.unsupportedJsxName(node.type);
+  throw CompileError.unsupportedJsxName(node.type);
 }
 
 function normalizeJsxText(value: string): string {
@@ -339,7 +339,7 @@ function collectJsxReferences(node: JavaScriptNode, context: JavaScriptJsxContex
     const name = opening === undefined ? undefined : childNode(nodeValue(opening, "name"));
 
     if (name === undefined) {
-      CompileError.jsxElementNameMissing();
+      throw CompileError.jsxElementNameMissing();
     }
 
     recordJsxReference(resolveJsxName(jsxName(name)), context);

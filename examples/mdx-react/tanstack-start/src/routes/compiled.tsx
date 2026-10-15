@@ -1,5 +1,5 @@
 import type { FunctionBodyCompileArtifact } from "@temelj/mdx";
-import type { TrustedMdxEvaluationOutcome } from "@temelj/mdx-react";
+import type { CompiledContentModule } from "@temelj/mdx-react";
 
 import { createFileRoute } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
@@ -15,24 +15,10 @@ const loadCompiledMdx = createServerFn({ method: "GET" }).handler(async () => {
   const transformed = await new Processor({ syntax: mdxSyntax }).transform(compiledMdxSource);
   const outcome = await compile(transformed, { outputFormat: "functionBody" });
 
-  if (outcome.kind !== "ok") {
-    return {
-      kind: "invalid" as const,
-      diagnostics: outcome.diagnostics.map(({ code, message }) => ({ code, message })),
-    };
-  }
-
-  if (outcome.artifact.format !== "functionBody") {
-    throw new Error("Expected a function-body MDX artifact");
-  }
-
-  return { kind: "compiled" as const, artifact: outcome.artifact };
+  return outcome.artifact;
 });
 
-const evaluations = new WeakMap<
-  FunctionBodyCompileArtifact,
-  Promise<TrustedMdxEvaluationOutcome>
->();
+const evaluations = new WeakMap<FunctionBodyCompileArtifact, Promise<CompiledContentModule>>();
 
 export const Route = createFileRoute("/compiled")({
   loader: () => loadCompiledMdx(),
@@ -40,36 +26,17 @@ export const Route = createFileRoute("/compiled")({
 });
 
 function CompiledRoute(): React.ReactNode {
-  const result = Route.useLoaderData();
-
-  if (result.kind === "invalid") {
-    return (
-      <pre className="border-error text-error rounded border p-4 whitespace-pre-wrap">
-        {result.diagnostics.map(({ code, message }) => `${code}: ${message}`).join("\n")}
-      </pre>
-    );
-  }
-
-  const evaluation = React.use(evaluationFor(result.artifact));
-
-  if (evaluation.kind !== "ok") {
-    return (
-      <pre className="border-error text-error rounded border p-4 whitespace-pre-wrap">
-        {evaluation.diagnostics.map(({ code, message }) => `${code}: ${message}`).join("\n")}
-      </pre>
-    );
-  }
+  const artifact = Route.useLoaderData();
+  const module = React.use(evaluationFor(artifact));
 
   return (
     <article className="typeset">
-      <CompiledContent module={evaluation.module} registry={mdxRegistry} />
+      <CompiledContent module={module} registry={mdxRegistry} />
     </article>
   );
 }
 
-function evaluationFor(
-  artifact: FunctionBodyCompileArtifact,
-): Promise<TrustedMdxEvaluationOutcome> {
+function evaluationFor(artifact: FunctionBodyCompileArtifact): Promise<CompiledContentModule> {
   const existing = evaluations.get(artifact);
 
   if (existing !== undefined) {

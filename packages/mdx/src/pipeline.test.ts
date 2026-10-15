@@ -16,7 +16,7 @@ import {
   type HtmlElementNode,
   type MdxNode,
   type ParseOptions,
-  type ProcessOutcome,
+  type ProcessResult,
 } from "./mod.ts";
 import { HeadingIdPlugin, MathRenderPlugin, RemoveEsmPlugin } from "./plugins/mod.ts";
 
@@ -34,9 +34,9 @@ describe("formatter round trip", () => {
   ];
 
   it.each(fixtures)("reparses formatted %j to the same tree", (source, options) => {
-    const first = expectParsed(parse(source, options)).document;
+    const first = parse(source, options).document;
     const formatted = formatMdx(first, options);
-    const second = expectParsed(parse(formatted, options)).document;
+    const second = parse(formatted, options).document;
 
     expect(withoutOrigins(second)).toBe(withoutOrigins(first));
     expect(formatMdx(second, options)).toBe(formatted);
@@ -45,21 +45,21 @@ describe("formatter round trip", () => {
 
 describe("parser limits", () => {
   it("reports an exceeded source length", () => {
-    const outcome = parse("x".repeat(20), { limits: { maximumSourceLength: 10 } });
-
-    expect(outcome).toMatchObject({ kind: "limitExceeded", limit: "maximumSourceLength" });
+    expect(() => parse("x".repeat(20), { limits: { maximumSourceLength: 10 } })).toThrow(
+      expect.objectContaining({ limit: "maximumSourceLength" }),
+    );
   });
 
   it("reports exceeded nesting depth", () => {
-    const outcome = parse("> ".repeat(20) + "deep", { limits: { maximumNestingDepth: 5 } });
-
-    expect(outcome).toMatchObject({ kind: "limitExceeded", limit: "maximumNestingDepth" });
+    expect(() => parse("> ".repeat(20) + "deep", { limits: { maximumNestingDepth: 5 } })).toThrow(
+      expect.objectContaining({ limit: "maximumNestingDepth" }),
+    );
   });
 
   it("reports an exceeded node count", () => {
-    const outcome = parse("*a* ".repeat(50), { limits: { maximumNodes: 20 } });
-
-    expect(outcome).toMatchObject({ kind: "limitExceeded", limit: "maximumNodes" });
+    expect(() => parse("*a* ".repeat(50), { limits: { maximumNodes: 20 } })).toThrow(
+      expect.objectContaining({ limit: "maximumNodes" }),
+    );
   });
 
   it("rejects invalid limit configuration", () => {
@@ -74,7 +74,7 @@ describe("plugin runner", () => {
       context.rewrite({ text: ({ node }) => ({ ...node, value: "changed" }) }),
   };
 
-  it("discards a plugin result that reports an error diagnostic", () => {
+  it("stops at a plugin that reports an error diagnostic", () => {
     const failing: DocumentPlugin = {
       name: "failing",
       transform: (context) => {
@@ -84,10 +84,14 @@ describe("plugin runner", () => {
       },
     };
 
-    const outcome = new Processor({ documentPlugins: [renamed, failing] }).processSync("text");
-
-    expect(outcome.kind === "ok" ? formatMdx(outcome.document) : "").toBe("changed");
-    expect(outcome.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(["test"]);
+    expect(() =>
+      new Processor({ documentPlugins: [renamed, failing] }).processSync("text"),
+    ).toThrow(
+      expect.objectContaining({
+        issue: { kind: "reported", target: "document", pluginName: "failing" },
+        diagnostics: [expect.objectContaining({ code: "test" })],
+      }),
+    );
   });
 
   it("wraps plugin exceptions with the stage and plugin name", () => {
@@ -98,8 +102,7 @@ describe("plugin runner", () => {
       },
     };
 
-    const run = (): ProcessOutcome =>
-      new Processor({ htmlPlugins: [throwing] }).processSync("text");
+    const run = (): ProcessResult => new Processor({ htmlPlugins: [throwing] }).processSync("text");
 
     expect(run).toThrow(TransformError);
     expect(run).toThrow('Plugin "throwing" failed while transforming html');
@@ -116,7 +119,7 @@ describe("plugin runner", () => {
     expect(() => processor.processSync("text")).toThrow(ConfigurationError);
 
     const outcome = await processor.process("text");
-    expect(outcome.kind === "ok" ? formatMdx(outcome.document) : "").toBe("changed");
+    expect(formatMdx(outcome.document)).toBe("changed");
   });
 
   it("stops at an aborted signal", async () => {
@@ -135,12 +138,9 @@ describe("built-in plugins", () => {
       htmlPlugins: [new HeadingIdPlugin({ prefix: "" })],
     }).processSync("# Same\n\n## Same\n\n### Other");
 
-    const ids =
-      outcome.kind === "ok"
-        ? [...selectHtml(outcome.html, "element")].flatMap(({ node }) =>
-            node.attributes.id === undefined ? [] : [node.attributes.id],
-          )
-        : [];
+    const ids = [...selectHtml(outcome.html, "element")].flatMap(({ node }) =>
+      node.attributes.id === undefined ? [] : [node.attributes.id],
+    );
 
     expect(ids).toEqual(["same", "same-1", "other"]);
   });
@@ -150,9 +150,7 @@ describe("built-in plugins", () => {
       "export const a = 1\n\n# Title",
     );
 
-    expect(outcome.kind === "ok" ? outcome.document.children.map((node) => node.kind) : []).toEqual(
-      ["heading"],
-    );
+    expect(outcome.document.children.map((node) => node.kind)).toEqual(["heading"]);
   });
 
   it("renders math and reports tolerant failures as warnings", () => {
@@ -180,7 +178,7 @@ describe("built-in plugins", () => {
 
     const outcome = processor.processSync("$good$ and $bad$");
 
-    expect(outcome.kind === "ok" ? formatHtml(outcome.html) : "").toContain('class="rendered"');
+    expect(formatHtml(outcome.html)).toContain('class="rendered"');
     expect(outcome.diagnostics.map((diagnostic) => diagnostic.severity)).toEqual(["warning"]);
 
     const strict = new Processor({
@@ -194,7 +192,7 @@ describe("built-in plugins", () => {
 
 describe("public types", () => {
   it("narrows selected nodes by kind", () => {
-    const document = expectParsed(parse("# Title")).document;
+    const document = parse("# Title").document;
     const html = lowerHtml(document);
 
     for (const { node } of selectMdx(document, "heading")) {
@@ -206,16 +204,6 @@ describe("public types", () => {
     }
   });
 });
-
-function expectParsed(
-  outcome: ReturnType<typeof parse>,
-): Extract<ReturnType<typeof parse>, { kind: "ok" }> {
-  if (outcome.kind !== "ok") {
-    throw new Error(`Expected parsed outcome, received ${outcome.kind}`);
-  }
-
-  return outcome;
-}
 
 /** Trees compare structurally when source ranges are ignored. */
 function withoutOrigins(node: MdxNode): string {

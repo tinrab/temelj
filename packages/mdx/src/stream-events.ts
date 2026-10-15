@@ -10,6 +10,7 @@ import type {
   PreviewBlock,
 } from "./stream-types.ts";
 
+import { LimitError, ParseError } from "./errors.ts";
 import { joinBlocks, lowerHtml } from "./html-lower.ts";
 import { MdxStream } from "./stream.ts";
 
@@ -78,13 +79,6 @@ export function completionEvent(
   completion: MdxStreamCompletion,
   html?: HtmlRootNode,
 ): MdxBlockEvent {
-  if (completion.kind !== "ok") {
-    return {
-      kind: "failed",
-      diagnostics: completion.diagnostics.map(eventDiagnostic),
-    };
-  }
-
   return {
     kind: "complete",
     html: html ?? lowerHtml(completion.document, { source: completion.file }),
@@ -112,7 +106,7 @@ export function applyBlockEvent(
 
 export interface StreamBlockEventsOptions extends MdxStreamOptions {
   /** Lowers the completed document, for example through a `Processor` with HTML plugins. */
-  readonly html?: (completion: Extract<MdxStreamCompletion, { kind: "ok" }>) => HtmlRootNode;
+  readonly html?: (completion: MdxStreamCompletion) => HtmlRootNode;
 }
 
 /**
@@ -141,12 +135,21 @@ export async function* streamBlockEvents(
     unsubscribe();
   }
 
-  const completion = stream.complete();
+  let completion: MdxStreamCompletion;
 
-  yield completionEvent(
-    completion,
-    completion.kind === "ok" ? options.html?.(completion) : undefined,
-  );
+  try {
+    completion = stream.complete();
+  } catch (error) {
+    if (!(error instanceof ParseError) && !(error instanceof LimitError)) {
+      throw error;
+    }
+
+    yield { kind: "failed", diagnostics: error.diagnostics.map(eventDiagnostic) };
+
+    return;
+  }
+
+  yield completionEvent(completion, options.html?.(completion));
 }
 
 function eventDiagnostic(diagnostic: Diagnostic): MdxEventDiagnostic {

@@ -8,6 +8,7 @@ import {
   lowerHtml,
   MdxStream,
   parse,
+  SourceFile,
   type FrontmatterNode,
   type FrontmatterTemporal,
   type FrontmatterObject,
@@ -16,15 +17,11 @@ import {
 
 describe("frontmatter", () => {
   it("is opt-in and selects formats by the opening fence", () => {
-    expect(
-      documentFrontmatter(expectParsed(parse("---\ntitle: disabled\n---")).document),
-    ).toBeUndefined();
+    expect(documentFrontmatter(parse("---\ntitle: disabled\n---").document)).toBeUndefined();
 
-    const yaml = expectParsed(parse("---\ntitle: YAML\n---", { syntax: { frontmatter: "auto" } }));
+    const yaml = parse("---\ntitle: YAML\n---", { syntax: { frontmatter: "auto" } });
 
-    const toml = expectParsed(
-      parse('+++\ntitle = "TOML"\n+++', { syntax: { frontmatter: "auto" } }),
-    );
+    const toml = parse('+++\ntitle = "TOML"\n+++', { syntax: { frontmatter: "auto" } });
 
     expect(documentFrontmatter(yaml.document)?.format).toBe("yaml");
     expect(documentFrontmatter(yaml.document)?.data).toEqual({ title: "YAML" });
@@ -33,25 +30,22 @@ describe("frontmatter", () => {
 
     expect(
       documentFrontmatter(
-        expectParsed(parse('+++\ntitle = "excluded"\n+++', { syntax: { frontmatter: "yaml" } }))
-          .document,
+        parse('+++\ntitle = "excluded"\n+++', { syntax: { frontmatter: "yaml" } }).document,
       ),
     ).toBeUndefined();
     expect(
       documentFrontmatter(
-        expectParsed(parse("---\ntitle: excluded\n---", { syntax: { frontmatter: "toml" } }))
-          .document,
+        parse("---\ntitle: excluded\n---", { syntax: { frontmatter: "toml" } }).document,
       ),
     ).toBeUndefined();
     expect(
       documentFrontmatter(
-        expectParsed(parse("---\ntitle: open\n+++", { syntax: { frontmatter: "auto" } })).document,
+        parse("---\ntitle: open\n+++", { syntax: { frontmatter: "auto" } }).document,
       ),
     ).toBeUndefined();
     expect(
       documentFrontmatter(
-        expectParsed(parse("--- \t\ntitle: spaced\n---\t ", { syntax: { frontmatter: "yaml" } }))
-          .document,
+        parse("--- \t\ntitle: spaced\n---\t ", { syntax: { frontmatter: "yaml" } }).document,
       )?.data,
     ).toEqual({ title: "spaced" });
   });
@@ -71,7 +65,7 @@ describe("frontmatter", () => {
     ].join("\n");
 
     const data = documentFrontmatter(
-      expectParsed(parse(source, { syntax: { frontmatter: "yaml" } })).document,
+      parse(source, { syntax: { frontmatter: "yaml" } }).document,
     )?.data;
 
     expect(data).toEqual({
@@ -87,11 +81,9 @@ describe("frontmatter", () => {
 
   it("keeps prototype-looking keys as ordinary metadata", () => {
     const data = documentFrontmatter(
-      expectParsed(
-        parse("---\n__proto__: safe\nconstructor: ordinary\n---", {
-          syntax: { frontmatter: "yaml" },
-        }),
-      ).document,
+      parse("---\n__proto__: safe\nconstructor: ordinary\n---", {
+        syntax: { frontmatter: "yaml" },
+      }).document,
     )?.data;
 
     expect(data?.__proto__).toBe("safe");
@@ -101,13 +93,11 @@ describe("frontmatter", () => {
 
   it("treats empty and comment-only YAML as an empty object", () => {
     expect(
-      documentFrontmatter(
-        expectParsed(parse("---\n---", { syntax: { frontmatter: "yaml" } })).document,
-      )?.data,
+      documentFrontmatter(parse("---\n---", { syntax: { frontmatter: "yaml" } }).document)?.data,
     ).toEqual({});
     expect(
       documentFrontmatter(
-        expectParsed(parse("---\n# comment\n---", { syntax: { frontmatter: "yaml" } })).document,
+        parse("---\n# comment\n---", { syntax: { frontmatter: "yaml" } }).document,
       )?.data,
     ).toEqual({});
   });
@@ -128,7 +118,7 @@ describe("frontmatter", () => {
     ].join("\n");
 
     const data = documentFrontmatter(
-      expectParsed(parse(source, { syntax: { frontmatter: "toml" } })).document,
+      parse(source, { syntax: { frontmatter: "toml" } }).document,
     )?.data;
 
     expect(data?.safe).toBe(42);
@@ -154,103 +144,95 @@ describe("frontmatter", () => {
     });
   });
 
-  it("rejects non-mapping roots, duplicate keys, and invalid syntax without dropping nodes", () => {
+  it("rejects non-mapping roots, duplicate keys, and invalid syntax", () => {
     for (const source of ["---\nvalue\n---", "---\n- value\n---"]) {
-      expect(
-        expectParsed(parse(source, { syntax: { frontmatter: "yaml" } })).diagnostics[0]?.code,
-      ).toBe("mdx.frontmatter.root");
+      expect(() => parse(source, { syntax: { frontmatter: "yaml" } })).toThrow(
+        expect.objectContaining({
+          diagnostics: [expect.objectContaining({ code: "mdx.frontmatter.root" })],
+        }),
+      );
     }
 
-    const duplicate = expectParsed(
-      parse("---\na: 1\na: 2\n---", {
-        syntax: { frontmatter: "yaml" },
+    expect(() => parse("---\na: 1\na: 2\n---", { syntax: { frontmatter: "yaml" } })).toThrow(
+      expect.objectContaining({
+        diagnostics: [expect.objectContaining({ code: "mdx.frontmatter.yaml" })],
       }),
     );
-
-    expect(documentFrontmatter(duplicate.document)?.data).toBeUndefined();
-    expect(duplicate.diagnostics[0]?.code).toBe("mdx.frontmatter.yaml");
-
-    const invalidToml = expectParsed(parse("+++\na = [\n+++", { syntax: { frontmatter: "toml" } }));
-    expect(documentFrontmatter(invalidToml.document)?.value).toBe("a = [");
-    expect(documentFrontmatter(invalidToml.document)?.data).toBeUndefined();
-    expect(invalidToml.diagnostics[0]?.code).toBe("mdx.frontmatter.toml");
+    expect(() => parse("+++\na = [\n+++", { syntax: { frontmatter: "toml" } })).toThrow(
+      expect.objectContaining({
+        diagnostics: [expect.objectContaining({ code: "mdx.frontmatter.toml" })],
+      }),
+    );
   });
 
   it("clones aliases and rejects cyclic aliases", () => {
     const aliases = documentFrontmatter(
-      expectParsed(
-        parse("---\nbase: &base { value: 1 }\ncopy: *base\n---", {
-          syntax: { frontmatter: "yaml" },
-        }),
-      ).document,
+      parse("---\nbase: &base { value: 1 }\ncopy: *base\n---", {
+        syntax: { frontmatter: "yaml" },
+      }).document,
     )?.data;
 
     expect(aliases?.base).toEqual({ value: 1 });
     expect(aliases?.copy).toEqual({ value: 1 });
     expect(aliases?.base).not.toBe(aliases?.copy);
 
-    const cyclic = expectParsed(
-      parse("---\nvalue: &value [*value]\n---", {
-        syntax: { frontmatter: "yaml" },
+    expect(() =>
+      parse("---\nvalue: &value [*value]\n---", { syntax: { frontmatter: "yaml" } }),
+    ).toThrow(
+      expect.objectContaining({
+        diagnostics: [expect.objectContaining({ code: "mdx.frontmatter.value" })],
       }),
     );
-
-    expect(documentFrontmatter(cyclic.document)?.data).toBeUndefined();
-    expect(cyclic.diagnostics.some(({ code }) => code === "mdx.frontmatter.value")).toBe(true);
   });
 
   it("rejects unsupported YAML keys and tags and limits alias expansion", () => {
-    for (const body of ["? [a, b]\n: value", "value: !custom test"]) {
-      expect(
-        expectParsed(parse(`---\n${body}\n---`, { syntax: { frontmatter: "yaml" } })).diagnostics[0]
-          ?.code,
-      ).toBe("mdx.frontmatter.yaml");
-    }
-
+    expect(() => parse("---\n? [a, b]\n: value\n---", { syntax: { frontmatter: "yaml" } })).toThrow(
+      expect.objectContaining({
+        diagnostics: [expect.objectContaining({ code: "mdx.frontmatter.yaml" })],
+      }),
+    );
+    expect(
+      parse("---\nvalue: !custom test\n---", { syntax: { frontmatter: "yaml" } }).diagnostics,
+    ).toMatchObject([{ code: "mdx.frontmatter.yaml", severity: "warning" }]);
     const references = Array.from({ length: 101 }, () => "*item").join(", ");
-
-    const resource = expectParsed(
+    expect(() =>
       parse(`---\nitem: &item [1]\nitems: [${references}]\n---`, {
         syntax: { frontmatter: "yaml" },
       }),
+    ).toThrow(
+      expect.objectContaining({
+        diagnostics: [expect.objectContaining({ code: "mdx.frontmatter.yaml" })],
+      }),
     );
-
-    expect(documentFrontmatter(resource.document)?.data).toBeUndefined();
-    expect(resource.diagnostics[0]?.code).toBe("mdx.frontmatter.yaml");
   });
 
   it("maps parser errors into the shared UTF-16 source with CRLF", () => {
-    const source = "---\r\nemoji: 😀\r\nbad: [\r\n---";
-    const report = expectParsed(parse(source, { syntax: { frontmatter: "yaml" } }));
-    const diagnostic = report.diagnostics[0];
-    expect(diagnostic?.span?.file).toBe(report.file);
-    expect(
-      diagnostic?.span === undefined
-        ? undefined
-        : diagnostic.span.file.location(diagnostic.span.start),
-    ).toEqual({ offset: 22, line: 3, column: 7 });
-    const valueOrigin = documentFrontmatter(report.document)?.valueOrigin;
-    expect(valueOrigin === undefined ? undefined : report.file.slice(valueOrigin)).toBe(
-      "emoji: 😀\r\nbad: [",
+    const file = new SourceFile("---\r\nemoji: 😀\r\nbad: [\r\n---");
+    expect(() => parse(file, { syntax: { frontmatter: "yaml" } })).toThrow(
+      expect.objectContaining({
+        file,
+        diagnostics: [
+          expect.objectContaining({ span: expect.objectContaining({ file, start: 22 }) }),
+        ],
+      }),
     );
-    expect(documentFrontmatter(report.document)?.value).toBe("emoji: 😀\nbad: [");
-
-    const tomlSource = '+++\r\nemoji = "😀"\r\nbad = [\r\n+++';
-    const toml = expectParsed(parse(tomlSource, { syntax: { frontmatter: "toml" } }));
-    const tomlSpan = toml.diagnostics[0]?.span;
-    expect(tomlSpan === undefined ? undefined : tomlSpan.file.location(tomlSpan.start)).toEqual({
-      offset: tomlSource.indexOf("["),
-      line: 3,
-      column: 7,
-    });
+    expect(file.location(22)).toEqual({ offset: 22, line: 3, column: 7 });
+    const tomlFile = new SourceFile('+++\r\nemoji = "😀"\r\nbad = [\r\n+++');
+    expect(() => parse(tomlFile, { syntax: { frontmatter: "toml" } })).toThrow(
+      expect.objectContaining({
+        diagnostics: [
+          expect.objectContaining({
+            span: expect.objectContaining({ file: tomlFile, start: tomlFile.text.indexOf("[") }),
+          }),
+        ],
+      }),
+    );
   });
 
   it("formats from the authored value", () => {
     const source = "---\n# keep this\nvalue: 1.0\n---";
 
-    const node = documentFrontmatter(
-      expectParsed(parse(source, { syntax: { frontmatter: "yaml" } })).document,
-    );
+    const node = documentFrontmatter(parse(source, { syntax: { frontmatter: "yaml" } }).document);
 
     expect(node?.kind).toBe("frontmatter");
 
@@ -260,23 +242,20 @@ describe("frontmatter", () => {
 
     expect(formatMdx(node)).toBe(source);
     expect(
-      documentFrontmatter(
-        expectParsed(parse(formatMdx(node), { syntax: { frontmatter: "auto" } })).document,
-      )?.value,
+      documentFrontmatter(parse(formatMdx(node), { syntax: { frontmatter: "auto" } }).document)
+        ?.value,
     ).toBe("# keep this\nvalue: 1.0");
   });
 
   it("omits frontmatter from HTML and compiled output", async () => {
-    const parsed = expectParsed(
-      parse("---\ntitle: Hidden\n---\n\n# Visible", {
-        syntax: { frontmatter: "yaml" },
-      }),
-    );
+    const parsed = parse("---\ntitle: Hidden\n---\n\n# Visible", {
+      syntax: { frontmatter: "yaml" },
+    });
 
     expect(formatHtml(lowerHtml(parsed.document))).not.toContain("Hidden");
 
     const compiled = await compile(parsed, { outputFormat: "program" });
-    expect(compiled.kind === "ok" ? compiled.artifact.code : "").not.toContain("Hidden");
+    expect(compiled.artifact.code).not.toContain("Hidden");
   });
 
   it("decodes frontmatter when a stream completes", () => {
@@ -290,11 +269,6 @@ describe("frontmatter", () => {
       text: "[]\n---",
     });
     const completed = stream.complete();
-    expect(completed.kind).toBe("ok");
-
-    if (completed.kind !== "ok") {
-      throw new Error(`Expected parsed outcome, received ${completed.kind}`);
-    }
 
     expect(documentFrontmatter(completed.document)?.data).toEqual({ value: [] });
   });
@@ -313,13 +287,3 @@ describe("frontmatter", () => {
     expectTypeOf<FrontmatterNode["data"]>().toEqualTypeOf<FrontmatterObject | undefined>();
   });
 });
-
-function expectParsed(
-  outcome: ReturnType<typeof parse>,
-): Extract<ReturnType<typeof parse>, { kind: "ok" }> {
-  if (outcome.kind !== "ok") {
-    throw new Error(`Expected parsed outcome, received ${outcome.kind}`);
-  }
-
-  return outcome;
-}

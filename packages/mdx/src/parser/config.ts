@@ -36,6 +36,6 @@ export function resolveParserLimits(options: ParserLimits = {}): ResolvedParserL
 
 function validateParserLimit(option: string, value: number, minimum: number): void {
   if (!Number.isSafeInteger(value) || value < minimum) {
-    ConfigurationError.invalidParserLimit(option, value, minimum);
+    throw ConfigurationError.invalidParserLimit(option, value, minimum);
   }
 }

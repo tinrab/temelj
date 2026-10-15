@@ -4,9 +4,9 @@ import type { HtmlCodeBlockNode, HtmlElementNode, HtmlRootNode } from "../html.t
 import type { HtmlPlugin, HtmlPluginContext, PluginFailureMode } from "../plugin.ts";
 import type { CodeBlockMetadata } from "./code-block-metadata.ts";
 
-import { ConfigurationError, InputError } from "../errors.ts";
+import { ConfigurationError } from "../errors.ts";
 import { replaceHtmlNodes } from "../plugin-internal.ts";
-import { parseCodeBlockMetadata } from "./code-block-metadata.ts";
+import { CodeBlockMetadataError, parseCodeBlockMetadata } from "./code-block-metadata.ts";
 
 export interface SyntaxHighlightRequest {
   readonly code: string;
@@ -47,7 +47,7 @@ export class SyntaxHighlightPlugin implements HtmlPlugin {
     const maximum = options.maximumCacheEntries ?? 128;
 
     if (!Number.isSafeInteger(maximum) || maximum < 0) {
-      ConfigurationError.invalidCacheCapacity("syntax-highlight", maximum);
+      throw ConfigurationError.invalidCacheCapacity("syntax-highlight", maximum);
     }
 
     this.highlighter = options.highlighter;
@@ -61,14 +61,18 @@ export class SyntaxHighlightPlugin implements HtmlPlugin {
         return;
       }
 
-      const metadata = parseCodeBlockMetadata(node.meta);
+      let metadata: CodeBlockMetadata;
 
-      if (metadata.kind === "invalid") {
-        if (this.mode === "strict") {
-          InputError.invalidCodeBlockMetadata(metadata.issues.map((issue) => issue.message));
+      try {
+        metadata = parseCodeBlockMetadata(node.meta);
+      } catch (error) {
+        if (!(error instanceof CodeBlockMetadataError) || this.mode === "strict") {
+          throw error;
         }
 
-        for (const issue of metadata.issues) {
+        metadata = error.metadata;
+
+        for (const issue of error.issues) {
           context.diagnostics.add({
             severity: "warning",
             code: "mdx.plugin.syntax-highlight.meta",
@@ -81,7 +85,7 @@ export class SyntaxHighlightPlugin implements HtmlPlugin {
       const request: SyntaxHighlightRequest = {
         code: node.code,
         language: node.language,
-        metadata: metadata.metadata,
+        metadata,
         signal: context.signal,
       };
 

@@ -5,22 +5,23 @@ import { expect, expectTypeOf, test } from "vitest";
 
 import {
   compile,
+  FrontmatterError,
   formatHtml,
   lowerHtml,
   parse,
   Processor,
-  type CompileOutcome,
+  type CompileResult,
   type HtmlRenderOptions,
   type ParseOptions,
 } from "./mod.ts";
 
 test("compiled math accepts a semantic renderer and keeps readable fallbacks", async () => {
   const outcome = await compile(
-    expectParsed(parse("$x$\n\n$$ equation\ny\n$$\n", { syntax: { math: "dollar" } })),
+    parse("$x$\n\n$$ equation\ny\n$$\n", { syntax: { math: "dollar" } }),
     { outputFormat: "program" },
   );
 
-  const code = expectCompiled(outcome).artifact.code;
+  const code = outcome.artifact.code;
   expect(code).toContain("_components.mathFormula ?");
   expect(code).toContain('source:"x", style:"inline"');
   expect(code).toContain('source:"y", style:"display", meta:"equation"');
@@ -34,7 +35,7 @@ test("compile emits a transportable function body from source", async () => {
     outputFormat: "functionBody",
   });
 
-  const compiled = expectCompiled(outcome);
+  const compiled = outcome;
 
   expect(compiled.artifact.format).toBe("functionBody");
   expect(structuredClone(compiled.artifact)).toEqual(compiled.artifact);
@@ -62,8 +63,8 @@ test("compile returns typed validated frontmatter", async () => {
     frontmatterSchema: schema,
   });
 
-  expectTypeOf(outcome).toEqualTypeOf<CompileOutcome<{ readonly title: string }>>();
-  const compiled = expectCompiled(outcome);
+  expectTypeOf(outcome).toEqualTypeOf<CompileResult<{ readonly title: string }, "functionBody">>();
+  const compiled = outcome;
   expect(compiled.frontmatter).toEqual({ title: "Hello" });
   expect(compiled.artifact.frontmatter).toEqual({ title: "Hello" });
 });
@@ -81,12 +82,9 @@ test("compile rejects non-transportable validated frontmatter", async () => {
 
   const processor = new Processor({ syntax: { frontmatter: "yaml" } });
 
-  const outcome = await compile(await processor.transform("---\ntitle: Hello\n---\n"), {
-    frontmatterSchema: schema,
-  });
-
-  expect(outcome.kind).toBe("invalid");
-  expect(outcome.diagnostics[0]).toMatchObject({ code: "mdx.frontmatter.transport" });
+  await expect(
+    compile(processor.transformSync("---\ntitle: Hello\n---\n"), { frontmatterSchema: schema }),
+  ).rejects.toThrow(FrontmatterError);
 });
 
 const parityFixtures: ReadonlyArray<readonly [string, string, ParseOptions]> = [
@@ -109,10 +107,10 @@ const parityFixtures: ReadonlyArray<readonly [string, string, ParseOptions]> = [
 test.each(parityFixtures)(
   "compiled %s render the same HTML as lowering",
   async (_, source, options) => {
-    const parsed = expectParsed(parse(source, options));
+    const parsed = parse(source, options);
     const html: HtmlRenderOptions = { clobberPrefix: "doc-", footnoteLabel: "Notes" };
     const expected = formatHtml(lowerHtml(parsed.document, { ...html, source: parsed.file }));
-    const compiled = expectCompiled(await compile(parsed, html));
+    const compiled = await compile(parsed, html);
 
     expect(normalizeWhitespace(await renderCompiled(compiled.artifact.code))).toBe(
       normalizeWhitespace(expected),
@@ -121,14 +119,14 @@ test.each(parityFixtures)(
 );
 
 test("compiled and lowered output share the URL policy", async () => {
-  const parsed = expectParsed(parse("[docs](/docs) ![logo](/logo.png)\n"));
+  const parsed = parse("[docs](/docs) ![logo](/logo.png)\n");
 
   const html: HtmlRenderOptions = {
     urlTransform: (url, kind, sanitized) =>
       kind === "link" ? `https://site.test${url}` : sanitized,
   };
 
-  const compiled = expectCompiled(await compile(parsed, html));
+  const compiled = await compile(parsed, html);
   const rendered = await renderCompiled(compiled.artifact.code);
 
   expect(rendered).toContain('href="https://site.test/docs"');
@@ -137,7 +135,7 @@ test("compiled and lowered output share the URL policy", async () => {
 });
 
 test("a paragraph of only JSX and expressions renders without a p", async () => {
-  const parsed = expectParsed(parse("<A /> {1}\n\n<B>text</B>\n"));
+  const parsed = parse("<A /> {1}\n\n<B>text</B>\n");
   const html = formatHtml(lowerHtml(parsed.document, { source: parsed.file }));
 
   expect(html).not.toContain("<p>");
@@ -147,12 +145,12 @@ test("function bodies resolve imports and return authored exports", async () => 
   const source =
     'import {value} from "values"\nexport * from "more"\nexport {wrap as default, extra as renamed} from "layout"\nexport const local = value + 1\n\n# Title\n';
 
-  const outcome = await compile(expectParsed(parse(source)), {
+  const outcome = await compile(parse(source), {
     outputFormat: "functionBody",
     providerImportSource: "provider",
   });
 
-  const compiled = expectCompiled(outcome);
+  const compiled = outcome;
 
   if (compiled.artifact.format !== "functionBody") {
     throw new Error("Expected a function body");
@@ -266,24 +264,4 @@ function renderString(value: RenderedValue, fragment: symbol): string {
 
 function normalizeWhitespace(html: string): string {
   return html.replace(/>\s+</gu, "><").trim();
-}
-
-function expectParsed(
-  outcome: ReturnType<typeof parse>,
-): Extract<ReturnType<typeof parse>, { kind: "ok" }> {
-  if (outcome.kind !== "ok") {
-    throw new Error(`Expected parsed outcome, received ${outcome.kind}`);
-  }
-
-  return outcome;
-}
-
-function expectCompiled<TFrontmatter>(
-  outcome: CompileOutcome<TFrontmatter>,
-): Extract<CompileOutcome<TFrontmatter>, { kind: "ok" }> {
-  if (outcome.kind !== "ok") {
-    throw new Error(`Expected compiled outcome, received ${outcome.kind}`);
-  }
-
-  return outcome;
 }

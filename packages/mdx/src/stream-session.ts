@@ -31,6 +31,7 @@ import type {
 import type { SyntaxOptions } from "./syntax-options.ts";
 
 import { createDiagnostic } from "./diagnostics.ts";
+import { LimitError, ParseError } from "./errors.ts";
 import { FootnoteNumbering } from "./footnote-numbering.ts";
 import { createHtmlLoweringCache, lowerFootnoteSection, lowerNodes } from "./html-lower.ts";
 import { mdxChildren } from "./model.ts";
@@ -212,7 +213,7 @@ export class StreamSession {
     const limited = this.limitState();
 
     if (limited !== undefined && limited.limit !== "maximumPendingBlockLength") {
-      return this.limitCompletion(limited);
+      throw this.limitError(limited);
     }
 
     // The tail draft finishes a copy, so a failed completion leaves the stream open.
@@ -247,7 +248,7 @@ export class StreamSession {
       );
 
       if (materialized.kind === "limitExceeded") {
-        return this.limitCompletion({ limit: materialized.limit, offset: origin.end });
+        throw this.limitError({ limit: materialized.limit, offset: origin.end });
       }
 
       if (materialized.kind === "invalid") {
@@ -266,15 +267,11 @@ export class StreamSession {
     const [firstError, ...otherErrors] = errors;
 
     if (firstError !== undefined) {
-      return Object.freeze({
-        kind: "invalid",
-        file: this.#file,
-        diagnostics: Object.freeze([firstError, ...otherErrors] as const),
-      });
+      throw ParseError.invalidSyntax(this.#file, [firstError, ...otherErrors]);
     }
 
     if (nodes > this.#limits.maximumNodes) {
-      return this.limitCompletion({ limit: "maximumNodes", offset: this.#file.length });
+      throw this.limitError({ limit: "maximumNodes", offset: this.#file.length });
     }
 
     const definitions = collectDefinitions(parts.map((part) => part.node));
@@ -286,7 +283,7 @@ export class StreamSession {
     };
 
     return Object.freeze({
-      kind: "ok",
+      kind: "complete",
       file: this.#file,
       document,
       blocks: Object.freeze(
@@ -890,15 +887,19 @@ export class StreamSession {
     });
   }
 
-  private limitCompletion(
-    state: LimitState,
-  ): Extract<MdxStreamCompletion, { kind: "limitExceeded" }> {
-    return Object.freeze({
-      kind: "limitExceeded",
-      file: this.#file,
-      limit: state.limit,
-      diagnostics: Object.freeze([limitDiagnostic(this.#file, state)] as const),
-    });
+  private limitError(state: LimitState): LimitError {
+    const maximum =
+      state.limit === "maximumPendingBlockLength"
+        ? this.#maximumPendingBlockLength
+        : this.#limits[state.limit];
+
+    return LimitError.exceeded(
+      this.#file,
+      state.limit,
+      maximum,
+      { start: state.offset, end: state.offset },
+      state.limit === "maximumSourceLength" ? this.#file.length : undefined,
+    );
   }
 
   /** A block keeps its identity across appends, and across edits that do not touch it. */

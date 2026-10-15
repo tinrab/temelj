@@ -1,5 +1,7 @@
 import { isString, isNumber, isPlainObject } from "@temelj/value";
 
+import { MdxError } from "../errors.ts";
+
 export interface CodeLineRange {
   readonly end: number;
   readonly start: number;
@@ -29,42 +31,70 @@ export interface CodeBlockMetadataIssue {
   readonly message: string;
 }
 
-export type CodeBlockMetadataParseResult =
-  | { readonly kind: "ok"; readonly metadata: CodeBlockMetadata }
-  | {
-      readonly kind: "invalid";
-      readonly issues: readonly CodeBlockMetadataIssue[];
-      readonly metadata: CodeBlockMetadata;
-    };
+export class CodeBlockMetadataError extends MdxError {
+  public readonly issues: readonly CodeBlockMetadataIssue[];
+  public readonly metadata: CodeBlockMetadata;
+
+  private constructor(
+    issues: readonly CodeBlockMetadataIssue[],
+    metadata: CodeBlockMetadata,
+    options: ErrorOptions,
+    context: Function,
+  ) {
+    super(
+      "CodeBlockMetadataError",
+      `Invalid code block metadata: ${issues.map((issue) => issue.message).join("; ")}`,
+      options,
+      context,
+    );
+    this.issues = Object.freeze([...issues]);
+    this.metadata = Object.freeze(metadata);
+  }
+
+  public static invalidJson(this: void, raw: string, cause: unknown): CodeBlockMetadataError {
+    return new CodeBlockMetadataError(
+      [{ message: "Code block metadata must be a valid JSON object" }],
+      { raw },
+      { cause },
+      CodeBlockMetadataError.invalidJson,
+    );
+  }
+
+  public static invalidFields(
+    this: void,
+    issues: readonly CodeBlockMetadataIssue[],
+    metadata: CodeBlockMetadata,
+  ): CodeBlockMetadataError {
+    return new CodeBlockMetadataError(issues, metadata, {}, CodeBlockMetadataError.invalidFields);
+  }
+}
 
 const allLines: CodeLineSelection = { kind: "all" };
 
 const selectorPattern = /^\s*\d+(?:\s*-\s*\d+)?(?:\s*,\s*\d+(?:\s*-\s*\d+)?)*\s*$/u;
 
-/** Parses JSON metadata for fenced code blocks without changing the authored value. */
-export function parseCodeBlockMetadata(raw?: string): CodeBlockMetadataParseResult {
+/**
+ * Parses JSON metadata for fenced code blocks without changing the authored value.
+ * @throws {CodeBlockMetadataError} Invalid metadata, with issues and partial metadata.
+ */
+export function parseCodeBlockMetadata(raw?: string): CodeBlockMetadata {
   if (raw === undefined || raw.trim().length === 0) {
-    return { kind: "ok", metadata: { raw } };
+    return { raw };
   }
 
   let input: unknown;
 
   try {
     input = JSON.parse(raw);
-  } catch {
-    return {
-      kind: "invalid",
-      issues: [{ message: "Code block metadata must be a valid JSON object" }],
-      metadata: { raw },
-    };
+  } catch (cause) {
+    throw CodeBlockMetadataError.invalidJson(raw, cause);
   }
 
   if (!isPlainObject(input)) {
-    return {
-      kind: "invalid",
-      issues: [{ message: "Code block metadata must be a JSON object" }],
-      metadata: { raw },
-    };
+    throw CodeBlockMetadataError.invalidFields(
+      [{ message: "Code block metadata must be a JSON object" }],
+      { raw },
+    );
   }
 
   const issues: CodeBlockMetadataIssue[] = [];
@@ -110,15 +140,11 @@ export function parseCodeBlockMetadata(raw?: string): CodeBlockMetadataParseResu
     metadata.lineNumbers = lineNumbers;
   }
 
-  if (issues.length === 0) {
-    return { kind: "ok", metadata };
+  if (issues.length > 0) {
+    throw CodeBlockMetadataError.invalidFields(issues, metadata);
   }
 
-  return {
-    kind: "invalid",
-    issues,
-    metadata,
-  };
+  return metadata;
 }
 
 export function codeLineSelected(selection: CodeLineSelection, line: number): boolean {

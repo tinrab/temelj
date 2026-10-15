@@ -18,7 +18,7 @@ export class LowerHeadingPlugin implements HtmlPlugin {
     const offset = options.offset ?? 1;
 
     if (!Number.isSafeInteger(offset) || offset < 1) {
-      ConfigurationError.invalidPluginIntegerOption("lower-heading", "offset", offset, 1);
+      throw ConfigurationError.invalidPluginIntegerOption("lower-heading", "offset", offset, 1);
     }
 
     this.offset = offset;

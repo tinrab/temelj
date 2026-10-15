@@ -14,7 +14,7 @@ import type {
 } from "@temelj/mdx";
 import type { HtmlPlugin } from "@temelj/mdx/plugins";
 
-import { MdxStream, Processor } from "@temelj/mdx";
+import { LimitError, MdxStream, ParseError, Processor } from "@temelj/mdx";
 
 import {
   consumeBatched,
@@ -109,9 +109,30 @@ export class MdxStreamStore {
     return snapshot;
   };
 
-  /** Successful completion is terminal. A failed completion keeps the preview editable. */
+  /**
+   * Successful completion is terminal. A failed completion keeps the preview editable.
+   * @throws {ParseError | LimitError} Publishes a failed view before throwing.
+   */
   public readonly complete = (): MdxStreamCompletion => {
-    const completion = this.#stream.complete();
+    let completion: MdxStreamCompletion;
+
+    try {
+      completion = this.#stream.complete();
+    } catch (error) {
+      if (!(error instanceof ParseError) && !(error instanceof LimitError)) {
+        throw error;
+      }
+
+      this.publish(
+        Object.freeze({
+          kind: "failed",
+          generation: this.#view.generation,
+          preview: this.preview(),
+          diagnostics: error.diagnostics,
+        }),
+      );
+      throw error;
+    }
 
     if (this.#view.kind === "complete") {
       return completion;
@@ -119,24 +140,7 @@ export class MdxStreamStore {
 
     const generation = this.#view.generation;
 
-    if (completion.kind !== "ok") {
-      this.publish(
-        Object.freeze({
-          kind: "failed",
-          generation,
-          preview: this.preview(),
-          diagnostics: completion.diagnostics,
-        }),
-      );
-
-      return completion;
-    }
-
     const processed = this.#processor.processSync(completion);
-
-    if (processed.kind !== "ok") {
-      throw new Error("A successful stream completion failed to process");
-    }
 
     this.publish(
       Object.freeze({

@@ -49,9 +49,6 @@ function RootDocument({ children }: { children: React.ReactNode }) {
               <Link className="text-sm underline underline-offset-4" to="/streaming">
                 Streaming
               </Link>
-              <Link className="text-sm underline underline-offset-4" to="/chat">
-                Chat
-              </Link>
               <Link className="text-sm underline underline-offset-4" to="/compiled">
                 Compiled SSR
               </Link>

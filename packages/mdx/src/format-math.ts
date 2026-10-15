@@ -16,11 +16,11 @@ export function formatDisplayMath(
 ): string {
   if (node.format === "tex") {
     if (node.meta !== undefined) {
-      InputError.mathMetadataUnsupported();
+      throw InputError.mathMetadataUnsupported();
     }
 
     if (node.value.includes("\\]")) {
-      InputError.mathDelimiterCollision("displayMath", "\\]");
+      throw InputError.mathDelimiterCollision("displayMath", "\\]");
     }
 
     const exit = context.enter("mathFlow");
@@ -71,7 +71,7 @@ export function formatDisplayMath(
 export function formatInlineMath(context: FormatContext, node: InlineMathNode): string {
   if (node.format === "tex") {
     if (node.value.includes("\\)")) {
-      InputError.mathDelimiterCollision("inlineMath", "\\)");
+      throw InputError.mathDelimiterCollision("inlineMath", "\\)");
     }
 
     return `\\(${node.value}\\)`;

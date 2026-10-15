@@ -45,9 +45,6 @@ export default function RootLayout({
               <Link className="text-sm underline underline-offset-4" href="/server-streaming">
                 Server streaming
               </Link>
-              <Link className="text-sm underline underline-offset-4" href="/chat">
-                Chat
-              </Link>
               <Link className="text-sm underline underline-offset-4" href="/compiled">
                 Compiled SSR
               </Link>

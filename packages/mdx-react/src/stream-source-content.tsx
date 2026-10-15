@@ -2,6 +2,7 @@
 
 import type { Diagnostic } from "@temelj/mdx";
 
+import { LimitError, ParseError } from "@temelj/mdx";
 import React, { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import type { DiagnosticFallback } from "./fallback.ts";
@@ -41,14 +42,14 @@ export function StreamSourceContent({
 }: StreamSourceContentProps): React.ReactNode {
   const [store] = useState(() => {
     const created = new MdxStreamStore({ ...options, source });
-    created.setSource(source, status, { appendOnly });
+    setSource(created, source, status, appendOnly);
 
     return created;
   });
 
   // A layout effect applies the update before paint, so the new text never lags a frame.
   useBrowserLayoutEffect(
-    () => store.setSource(source, status, { appendOnly }),
+    () => setSource(store, source, status, appendOnly),
     [appendOnly, source, status, store],
   );
   const view = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
@@ -73,4 +74,20 @@ function useDiagnostics(
     delivered.current = diagnostics;
     onDiagnostics(diagnostics);
   }, [diagnostics, onDiagnostics]);
+}
+
+/** Content failures already published a failed view for the renderer. */
+function setSource(
+  store: MdxStreamStore,
+  source: string,
+  status: "streaming" | "complete",
+  appendOnly: boolean | undefined,
+): void {
+  try {
+    store.setSource(source, status, { appendOnly });
+  } catch (error) {
+    if (!(error instanceof ParseError) && !(error instanceof LimitError)) {
+      throw error;
+    }
+  }
 }

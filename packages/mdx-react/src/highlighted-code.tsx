@@ -2,9 +2,10 @@
 
 import type { HtmlElementNode } from "@temelj/mdx";
 
-import { htmlFallback, InputError } from "@temelj/mdx";
+import { htmlFallback } from "@temelj/mdx";
 import {
   parseCodeBlockMetadata,
+  CodeBlockMetadataError,
   type SyntaxHighlighter,
   type SyntaxHighlightRequest,
 } from "@temelj/mdx/plugins";
@@ -56,7 +57,20 @@ export function HighlightedCode({
   const stable = lineEnd < 0 ? "" : code.slice(0, lineEnd);
   const tail = lineEnd < 0 ? code : code.slice(lineEnd);
   const normalizedLanguage = normalizeLanguage(language);
-  const metadata = useMemo(() => parseCodeBlockMetadata(meta), [meta]);
+
+  const parsedMetadata = useMemo(() => {
+    try {
+      return { metadata: parseCodeBlockMetadata(meta), error: undefined };
+    } catch (error) {
+      if (!(error instanceof CodeBlockMetadataError)) {
+        throw error;
+      }
+
+      return { metadata: error.metadata, error };
+    }
+  }, [meta]);
+
+  const { metadata } = parsedMetadata;
   const onErrorReference = useRef(onError);
 
   useEffect(() => {
@@ -64,20 +78,16 @@ export function HighlightedCode({
   }, [onError]);
 
   useEffect(() => {
-    if (metadata.kind === "invalid") {
-      try {
-        InputError.invalidCodeBlockMetadata(metadata.issues.map((issue) => issue.message));
-      } catch (cause) {
-        onErrorReference.current?.(cause);
-      }
+    if (parsedMetadata.error !== undefined) {
+      onErrorReference.current?.(parsedMetadata.error);
     }
-  }, [metadata]);
+  }, [parsedMetadata]);
 
   const request = useMemo<SyntaxHighlightRequest | undefined>(
     () =>
       normalizedLanguage === undefined || stable.length === 0
         ? undefined
-        : { code: stable, language: normalizedLanguage, metadata: metadata.metadata },
+        : { code: stable, language: normalizedLanguage, metadata },
     [metadata, normalizedLanguage, stable],
   );
 

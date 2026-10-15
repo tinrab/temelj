@@ -149,7 +149,7 @@ class EsmEmitter {
   /** The default export becomes the layout that wraps the content. */
   private layout(value: string): string {
     if (this.hasLayout) {
-      CompileError.multipleDefaultExports();
+      throw CompileError.multipleDefaultExports();
     }
 
     this.hasLayout = true;
@@ -218,11 +218,11 @@ class EsmEmitter {
     const localName = identifierValue(childNode(nodeValue(layout, "local")));
 
     if (localName === undefined) {
-      CompileError.defaultExportBindingMissing();
+      throw CompileError.defaultExportBindingMissing();
     }
 
     if (this.hasLayout) {
-      CompileError.multipleDefaultExports();
+      throw CompileError.multipleDefaultExports();
     }
 
     this.hasLayout = true;

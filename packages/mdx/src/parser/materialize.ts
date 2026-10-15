@@ -134,7 +134,10 @@ export function materializeDocument(
 
   const diagnostics = context.diagnostics.snapshot();
 
-  if (context.authoredInvalid) {
+  if (
+    context.authoredInvalid ||
+    diagnostics.some((diagnostic) => diagnostic.severity === "error")
+  ) {
     const errors = diagnostics.filter((diagnostic) => diagnostic.severity === "error");
 
     if (errors.length === 0) {

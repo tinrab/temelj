@@ -84,7 +84,7 @@ const source = [
   ":::",
 ].join("\n");
 
-const outcome = parse(source, {
+const result = parse(source, {
   syntax: {
     directives: true,
     frontmatter: "auto",
@@ -131,58 +131,47 @@ attribute values. Acorn ASTs do not enter the public document model.
 
 ## Parse a complete document
 
-`parse()` accepts a string or a `SourceFile` and returns a discriminated
-`ParseOutcome`. Authored syntax errors and parser limits are values, not thrown
-exceptions.
+`parse()` accepts a string or a `SourceFile` and returns a `ParseResult`
+containing the source file, document, and diagnostics. Invalid syntax throws
+`ParseError`; exceeded limits throw `LimitError`.
 
 ```ts
-import { formatDiagnostic, parse, SourceFile } from "@temelj/mdx";
+import { parse, SourceFile } from "@temelj/mdx";
 
 const file = new SourceFile({
   name: "article.mdx",
   text: "# Matrices\n\nMultiply **rows** by columns.",
 });
 
-const outcome = parse(file);
+const result = parse(file);
 
-switch (outcome.kind) {
-  case "ok":
-    console.log(outcome.document.children.length);
-    break;
-  case "invalid":
-  case "limitExceeded":
-    for (const diagnostic of outcome.diagnostics) {
-      console.error(formatDiagnostic(diagnostic));
-    }
-    break;
-}
+console.log(result.document.children.length);
 ```
 
-Every outcome in the package is an `MdxOutcome`: `kind: "ok"` with its result,
-or `kind: "invalid" | "limitExceeded"` with at least one error diagnostic.
-`isOk(outcome)` narrows to the successful case. Invalid configuration, offsets,
-and edit ranges are caller errors and throw.
+Strict operations return successful values or throw errors extending `MdxError`.
+`ParseError` carries `file` and `diagnostics`. `LimitError` also carries the
+`limit`, configured `maximum`, and measured `actual` value when available.
+Successful results retain warning and informational diagnostics.
+Invalid configuration, offsets, and edit ranges also throw structured errors.
 
 ## Work with the tree
 
 Nodes are plain, readonly objects with a `kind` discriminant. They can be
 serialized, cached, or sent from a server to a client. `origin` is a
-`{ start, end }` UTF-16 range in the outcome's `file`.
+`{ start, end }` UTF-16 range in the result's `file`.
 
 ```ts
 import { formatMdx, nodeText, selectMdx } from "@temelj/mdx";
 
-if (outcome.kind === "ok") {
-  for (const { node } of selectMdx(outcome.document, "heading")) {
-    console.log(node.depth, nodeText(node));
+for (const { node } of selectMdx(result.document, "heading")) {
+  console.log(node.depth, nodeText(node));
 
-    if (node.origin !== undefined) {
-      console.log(outcome.file.slice(node.origin));
-    }
+  if (node.origin !== undefined) {
+    console.log(result.file.slice(node.origin));
   }
-
-  console.log(formatMdx(outcome.document, { bullet: "-", emphasis: "_" }));
 }
+
+console.log(formatMdx(result.document, { bullet: "-", emphasis: "_" }));
 ```
 
 - `nodeText()` returns semantic text content.
@@ -220,10 +209,8 @@ it. Pass the source file so inert fallbacks keep authored text.
 ```ts
 import { formatHtml, lowerHtml } from "@temelj/mdx";
 
-if (outcome.kind === "ok") {
-  const html = lowerHtml(outcome.document, { source: outcome.file });
-  console.log(formatHtml(html));
-}
+const html = lowerHtml(result.document, { source: result.file });
+console.log(formatHtml(html));
 ```
 
 The output boundary is inert by default:
@@ -259,24 +246,23 @@ const processor = new Processor({
 
 const result = processor.processSync("# Introduction");
 
-if (result.kind === "ok") {
-  console.log(formatHtml(result.html));
-}
+console.log(formatHtml(result.html));
 ```
 
 - `parse()` parses with the processor's syntax and limits.
 - `transform()` and `transformSync()` parse and run document plugins.
 - `process()` and `processSync()` also lower HTML and run HTML plugins.
 
-Each method accepts a source string, a `SourceFile`, or an existing
-`ParseOutcome`. The asynchronous methods accept an `AbortSignal`. Synchronous
+Transform and process methods accept a source string, a `SourceFile`, or an existing
+`ParseResult`. The asynchronous methods accept an `AbortSignal`. Synchronous
 methods throw a `ConfigurationError` for an asynchronous plugin.
 
 A plugin is an object with a `name` and a `transform(context)` method that
 returns a new tree or a promise of one. The context provides the current tree,
 the source file, a diagnostic reporter, the signal, and a `rewrite()` helper. A
-plugin that reports an error diagnostic has its result discarded. A thrown error
-becomes a `TransformError` that names the stage and plugin.
+plugin that reports an error diagnostic stops the pipeline with `TransformError`.
+The error carries the source file, diagnostics, stage, and plugin name. Thrown
+plugin exceptions become `TransformError` with their original `cause`.
 
 The plugin entry point includes:
 
@@ -287,24 +273,25 @@ The plugin entry point includes:
 - `SyntaxHighlightPlugin` for provider-neutral fenced-code highlighting.
 
 In `tolerant` mode, a provider failure keeps the fallback and adds a warning. In
-`strict` mode, the provider error is thrown.
+`strict` mode, the provider error is thrown. `parseCodeBlockMetadata()` returns
+metadata directly or throws `CodeBlockMetadataError` with field issues and
+partially parsed metadata. Tolerant highlighting uses that partial metadata.
 
 ## Compile MDX without evaluating it
 
-`compile()` takes a parse or transform outcome, validates optional frontmatter,
-and emits JavaScript without executing it. A failed input is returned unchanged.
+`compile()` takes a parse or transform result, validates optional frontmatter,
+and returns a `CompileResult` without executing JavaScript. The artifact type
+follows `outputFormat`, including the default `functionBody` format.
 
 ```ts
 import { compile, Processor } from "@temelj/mdx";
 
 const processor = new Processor({ syntax: { frontmatter: "yaml" } });
-const outcome = await compile(await processor.transform(source), {
+const result = await compile(await processor.transform(source), {
   outputFormat: "functionBody",
 });
 
-if (outcome.kind === "ok") {
-  console.log(outcome.artifact.code, outcome.frontmatter);
-}
+console.log(result.artifact.code, result.frontmatter);
 ```
 
 Compiled content is emitted from the same lowered HTML as `lowerHtml()`, so both
@@ -316,9 +303,10 @@ imports, so it can cross a server-function or loader boundary. Use
 `outputFormat: "program"` for an ESM module intended for a build tool.
 
 Pass `frontmatterSchema` to validate decoded frontmatter with Standard Schema.
-A schema failure returns `kind: "invalid"` with `mdx.frontmatter.schema`
-diagnostics. Values that cannot be transported, such as functions, cyclic data,
-and class instances, return `mdx.frontmatter.transport`.
+Schema failures throw `FrontmatterError` with `mdx.frontmatter.schema`
+diagnostics and the original schema issues. Unsupported transport values, such
+as functions, cyclic data, and class instances, throw `FrontmatterError` with
+`mdx.frontmatter.transport` diagnostics and the reason.
 
 At runtime, compiled content reads components from `props.components`
 (`CompiledComponents`): element overrides by tag name, authored JSX components
@@ -350,9 +338,7 @@ console.log(formatHtml(previewDocument(after)));
 
 const completion = stream.complete();
 
-if (completion.kind === "ok") {
-  console.log(formatMdx(completion.document));
-}
+console.log(formatMdx(completion.document));
 ```
 
 A snapshot has `kind: "preview"`, the current `file`, the top-level `blocks`,
@@ -430,7 +416,8 @@ blocks and sets `limit`. Block identities survive both states.
 `complete()` finishes the tail strictly and assembles the document from the
 settled blocks' nodes. Its blocks list the stream identities each block had. A
 successful completion is cached and terminal; later appends and edits throw. A
-failed completion leaves the stream open, so the source can be repaired.
+failed completion throws `ParseError` or `LimitError` and leaves the stream
+open, so the source can be repaired. Completed snapshots have `kind: "complete"`.
 
 ### Subscribe to changes
 

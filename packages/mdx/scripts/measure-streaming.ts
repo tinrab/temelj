@@ -39,11 +39,7 @@ for (const [name, create] of fixtures) {
     const completeMs = performance.now() - started;
     const batch = parse(source);
 
-    if (
-      completed.kind !== "ok" ||
-      batch.kind !== "ok" ||
-      formatMdx(completed.document) !== formatMdx(batch.document)
-    ) {
+    if (formatMdx(completed.document) !== formatMdx(batch.document)) {
       throw new Error(`Streaming completion diverged: ${name}`);
     }
 

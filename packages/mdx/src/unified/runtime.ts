@@ -66,21 +66,27 @@ function runUnifiedTransform<TDocument>(
   processor.freeze();
 
   if (processor.parser !== undefined || processor.compiler !== undefined) {
-    ConfigurationError.unsupportedUnifiedPlugin();
+    throw ConfigurationError.unsupportedUnifiedPlugin();
   }
+
+  let result: Readonly<{ type: string }> | Promise<Readonly<{ type: string }>>;
 
   try {
-    const result = runPossiblyAsync(processor, codec.encode(original), file, codec.ecosystem);
-
-    return mapPossiblePromise(
-      result,
-      (tree) =>
-        recordMessages(file, context.diagnostics, context.file) ? original : codec.decode(tree),
-      (cause) => recoverFromFailure(original, cause, file, context),
-    );
+    result = runPossiblyAsync(processor, codec.encode(original), file, codec.ecosystem);
   } catch (cause) {
-    return recoverFromFailure(original, cause, file, context);
+    recordMessages(file, context.diagnostics, context.file);
+    throw cause;
   }
+
+  const accept = (tree: Readonly<{ type: string }>): TDocument =>
+    recordMessages(file, context.diagnostics, context.file) ? original : codec.decode(tree);
+
+  return isPromise(result)
+    ? result.then(accept, (cause: unknown) => {
+        recordMessages(file, context.diagnostics, context.file);
+        throw cause;
+      })
+    : accept(result);
 }
 
 function runPossiblyAsync(
@@ -95,7 +101,11 @@ function runPossiblyAsync(
 
   let finish = (error: Error | null | undefined, transformed: unknown): void => {
     failure = error ?? undefined;
-    result = stageRoot(transformed, ecosystem);
+
+    if (error === undefined || error === null) {
+      result = stageRoot(transformed, ecosystem);
+    }
+
     complete = true;
   };
 
@@ -114,33 +124,16 @@ function runPossiblyAsync(
   return new Promise((resolve, reject) => {
     finish = (error, transformed) => {
       if (error === undefined || error === null) {
-        resolve(stageRoot(transformed, ecosystem));
+        try {
+          resolve(stageRoot(transformed, ecosystem));
+        } catch (cause) {
+          reject(cause);
+        }
       } else {
         reject(error);
       }
     };
   });
-}
-
-function mapPossiblePromise<TInput, TOutput>(
-  input: TInput | Promise<TInput>,
-  map: (value: TInput) => TOutput,
-  reject: (cause: unknown) => TOutput,
-): TOutput | Promise<TOutput> {
-  return isPromise(input) ? Promise.resolve(input).then(map).catch(reject) : map(input);
-}
-
-function recoverFromFailure<TDocument>(
-  original: TDocument,
-  cause: unknown,
-  file: VFile,
-  context: UnifiedTransformContext,
-): TDocument {
-  if (recordMessages(file, context.diagnostics, context.file)) {
-    return original;
-  }
-
-  throw cause;
 }
 
 function stageRoot(node: unknown, ecosystem: string): Readonly<{ type: string }> {

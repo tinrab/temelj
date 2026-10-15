@@ -82,10 +82,8 @@ describe("streaming prefix sweep", () => {
     const completion = stream.complete();
     const parsed = parse(source);
 
-    const html = (outcome: typeof parsed): string =>
-      outcome.kind === "ok" ? formatHtml(lowerHtml(outcome.document)) : outcome.kind;
+    const html = (outcome: typeof parsed): string => formatHtml(lowerHtml(outcome.document));
 
-    expect(completion.kind).toBe("ok");
     expect(html(completion)).toBe(html(parsed));
   });
 });
@@ -179,12 +177,12 @@ describe("strict lists and JSX", () => {
   ])("renders %j", (source, html) => {
     const parsed = parse(source);
 
-    expect(parsed.kind === "ok" ? formatHtml(lowerHtml(parsed.document)) : parsed.kind).toBe(html);
+    expect(formatHtml(lowerHtml(parsed.document))).toBe(html);
   });
 
   it("parses multi-line flow JSX children as blocks", () => {
     const parsed = parse("<Note>\n# Head\n\n- a\n\n<B>\ntext\n</B>\n</Note>");
-    const jsx = parsed.kind === "ok" ? parsed.document.children[0] : undefined;
+    const jsx = parsed.document.children[0];
 
     expect(jsx?.kind).toBe("jsxFlowElement");
     expect(jsx?.kind === "jsxFlowElement" ? jsx.children.map((child) => child.kind) : []).toEqual([

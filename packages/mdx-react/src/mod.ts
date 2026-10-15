@@ -43,9 +43,8 @@ export {
   evaluateTrustedMdx,
   type CompileTrustedMdxOptions,
   type CompileTrustedMdxSchemaOptions,
-  type TrustedMdxCompileOutcome,
+  type TrustedMdxCompileResult,
   type TrustedMdxEvaluationOptions,
-  type TrustedMdxEvaluationOutcome,
   type TrustedMdxImportContext,
   type TrustedMdxImportResolver,
 } from "./trusted.ts";
@@ -73,3 +72,5 @@ export type {
 export { useMdxBlocks, type UseMdxBlocksResult } from "./use-mdx-blocks.ts";
 
 export { useMdxStream, type UseMdxStreamResult } from "./use-mdx-stream.ts";
+
+export { EvaluationError, type EvaluationIssue } from "./errors.ts";

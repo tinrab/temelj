@@ -321,20 +321,26 @@ describe("Unified plugin adapters", () => {
     ).toThrow("failed while transforming document");
   });
 
-  it("rolls back a stage after a fatal VFile message", () => {
+  it("throws with diagnostics after a fatal VFile message", () => {
     const fatal: Plugin<[], TestRoot, TestRoot> = () => (tree, file) => {
       tree.children = [];
       file.fail("stop here");
     };
 
-    const report = new Processor({
-      documentPlugins: [new RemarkPluginAdapter(fatal)],
-    }).processSync("original");
-
-    expect(nodeText(processed(report).document)).toBe("original");
-    expect(report.diagnostics).toMatchObject([
-      { code: "mdx.plugin.unified", message: "stop here", severity: "error" },
-    ]);
+    expect(() =>
+      new Processor({ documentPlugins: [new RemarkPluginAdapter(fatal)] }).processSync("original"),
+    ).toThrow(
+      expect.objectContaining({
+        diagnostics: [
+          expect.objectContaining({
+            code: "mdx.plugin.unified",
+            message: "stop here",
+            severity: "error",
+          }),
+        ],
+        cause: expect.objectContaining({ reason: "stop here" }),
+      }),
+    );
   });
 
   it("round-trips owned extension nodes through a remark stage", () => {
@@ -421,9 +427,5 @@ describe("Unified plugin adapters", () => {
 });
 
 function processed(outcome: ReturnType<Processor["processSync"]>) {
-  if (outcome.kind !== "ok") {
-    throw new Error(`Expected processed outcome, received ${outcome.kind}`);
-  }
-
   return { ...outcome, htmlString: formatHtml(outcome.html) };
 }

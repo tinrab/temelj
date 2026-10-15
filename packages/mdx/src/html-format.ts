@@ -107,7 +107,7 @@ class HtmlFormatter {
 
   public element(tagName: string, values: HtmlAttributes, content: string): string {
     if (!tagNamePattern.test(tagName)) {
-      InputError.invalidHtmlTagName(tagName);
+      throw InputError.invalidHtmlTagName(tagName);
     }
 
     const attributes = Object.entries(values)

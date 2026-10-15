@@ -1,10 +1,9 @@
 import type { Diagnostic } from "./diagnostics.ts";
 import type { DocumentNode } from "./model.ts";
-import type { MdxOutcome } from "./outcome.ts";
 import type { ParserLimits } from "./parser/config.ts";
 import type { SyntaxOptions } from "./syntax-options.ts";
 
-import { createDiagnostic } from "./diagnostics.ts";
+import { LimitError, ParseError } from "./errors.ts";
 import { resolveParserLimits } from "./parser/config.ts";
 import { materializeDocument } from "./parser/materialize.ts";
 import { ParserSession } from "./parser/session.ts";
@@ -17,29 +16,30 @@ export interface ParseOptions {
   readonly syntax?: SyntaxOptions;
 }
 
-export type ParseOutcome = MdxOutcome<{ document: DocumentNode }>;
+export interface ParseResult {
+  readonly file: SourceFile;
+  readonly document: DocumentNode;
+  readonly diagnostics: readonly Diagnostic[];
+}
 
-/** Strict parsing is terminal completion of the incremental parser session. */
-export function parse(input: string | SourceFile, options: ParseOptions = {}): ParseOutcome {
+/**
+ * Strict parsing is terminal completion of the incremental parser session.
+ * @throws {ParseError} Invalid authored syntax.
+ * @throws {LimitError} An exceeded parser limit.
+ * @throws {ConfigurationError} Invalid parser options.
+ */
+export function parse(input: string | SourceFile, options: ParseOptions = {}): ParseResult {
   const file = input instanceof SourceFile ? input : new SourceFile(input);
   const limits = resolveParserLimits(options.limits);
 
   if (file.length > limits.maximumSourceLength) {
-    const diagnostic = createDiagnostic({
-      code: "mdx.limit.maximumSourceLength",
-      message: "Parser limit maximumSourceLength exceeded",
-      severity: "error",
-      span: { file, start: 0, end: file.length },
-    });
-
-    const diagnostics: readonly [Diagnostic] = Object.freeze([diagnostic]);
-
-    return Object.freeze({
-      kind: "limitExceeded",
+    throw LimitError.exceeded(
       file,
-      limit: "maximumSourceLength",
-      diagnostics,
-    });
+      "maximumSourceLength",
+      limits.maximumSourceLength,
+      undefined,
+      file.length,
+    );
   }
 
   const session = new ParserSession({ source: file, syntax: options.syntax, limits });
@@ -54,19 +54,15 @@ export function parse(input: string | SourceFile, options: ParseOptions = {}): P
 
   if (materialized.kind === "ok") {
     return Object.freeze({
-      kind: "ok",
       file: draft.file,
       document: materialized.document,
       diagnostics: materialized.diagnostics,
     });
   }
 
-  return materialized.kind === "invalid"
-    ? Object.freeze({ kind: "invalid", file: draft.file, diagnostics: materialized.diagnostics })
-    : Object.freeze({
-        kind: "limitExceeded",
-        file: draft.file,
-        limit: materialized.limit,
-        diagnostics: materialized.diagnostics,
-      });
+  if (materialized.kind === "invalid") {
+    throw ParseError.invalidSyntax(draft.file, materialized.diagnostics);
+  }
+
+  throw LimitError.exceeded(draft.file, materialized.limit, limits[materialized.limit]);
 }

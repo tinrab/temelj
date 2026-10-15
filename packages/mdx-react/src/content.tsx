@@ -1,6 +1,6 @@
 import type { CompiledComponents, HtmlNode, ParseOptions } from "@temelj/mdx";
 
-import { hasErrorDiagnostics, lowerHtml, parse } from "@temelj/mdx";
+import { LimitError, lowerHtml, parse, ParseError } from "@temelj/mdx";
 import React from "react";
 
 import type { DiagnosticFallback } from "./fallback.ts";
@@ -11,7 +11,7 @@ import { renderFallback } from "./fallback.ts";
 import { renderHtmlNode } from "./html-renderer.tsx";
 
 export interface HtmlContentProps {
-  /** Lowered HTML from `lowerHtml`, a processor outcome, or a tree sent from a server. */
+  /** Lowered HTML from `lowerHtml`, a processor result, or a tree sent from a server. */
   readonly tree: HtmlNode;
   readonly registry?: MdxRegistry;
 }
@@ -38,10 +38,16 @@ export function SourceContent({
   syntax,
   limits,
 }: SourceContentProps): React.ReactNode {
-  const parsed = parse(source, { syntax, limits });
+  let parsed: ReturnType<typeof parse>;
 
-  if (parsed.kind !== "ok" || hasErrorDiagnostics(parsed.diagnostics)) {
-    return renderFallback(fallback, parsed.diagnostics);
+  try {
+    parsed = parse(source, { syntax, limits });
+  } catch (error) {
+    if (!(error instanceof ParseError) && !(error instanceof LimitError)) {
+      throw error;
+    }
+
+    return renderFallback(fallback, error.diagnostics);
   }
 
   return (

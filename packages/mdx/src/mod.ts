@@ -1,9 +1,8 @@
 export {
   compile,
   type CompileArtifact,
-  type CompileLimit,
   type CompileOptions,
-  type CompileOutcome,
+  type CompileResult,
   type CompileOutputFormat,
   type CompileSchemaOptions,
   type FunctionBodyCompileArtifact,
@@ -27,6 +26,11 @@ export {
   ConfigurationError,
   InputError,
   MdxError,
+  ParseError,
+  LimitError,
+  FrontmatterError,
+  type CompileLimit,
+  type FrontmatterIssue,
   TransformError,
   type CompilationInvariant,
   type CompilationIssue,
@@ -146,13 +150,11 @@ export {
   type ThematicBreakNode,
 } from "./model.ts";
 
-export { isOk, type MdxFailure, type MdxOutcome } from "./outcome.ts";
-
 export {
   defaultParserLimits,
   parse,
   type ParseOptions,
-  type ParseOutcome,
+  type ParseResult,
   type ParserLimit,
   type ParserLimits,
 } from "./parser.ts";
@@ -161,7 +163,7 @@ export {
   Processor,
   type ProcessInput,
   type ProcessOptions,
-  type ProcessOutcome,
+  type ProcessResult,
   type ProcessorOptions,
 } from "./processor.ts";
 

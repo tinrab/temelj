@@ -1,3 +1,12 @@
+import type { SchemaIssue } from "@temelj/standard-schema";
+
+import type { Diagnostic } from "./diagnostics.ts";
+import type { ParserLimit } from "./parser/config.ts";
+import type { SourceRange } from "./ranges.ts";
+import type { SourceFile } from "./source.ts";
+
+import { createDiagnostic } from "./diagnostics.ts";
+
 export abstract class MdxError extends Error {
   protected constructor(
     name: string,
@@ -25,8 +34,7 @@ export type InputIssue =
   | Readonly<{ kind: "mathMetadata"; format: "tex" }>
   | Readonly<{ kind: "replacementRange"; start: number; end: number; sourceLength: number }>
   | Readonly<{ kind: "sourceOffset"; offset: number; sourceLength: number }>
-  | Readonly<{ kind: "streamCompleted" }>
-  | Readonly<{ kind: "codeBlockMetadata"; messages: readonly string[] }>;
+  | Readonly<{ kind: "streamCompleted" }>;
 
 export class InputError extends MdxError {
   public readonly issue: InputIssue;
@@ -40,24 +48,24 @@ export class InputError extends MdxError {
     this: void,
     nodeKind: "inlineMath" | "displayMath",
     delimiter: "\\)" | "\\]",
-  ): never {
-    throw new InputError(
+  ): InputError {
+    return new InputError(
       `Cannot format ${nodeKind} as TeX because its value contains ${JSON.stringify(delimiter)}`,
       { kind: "mathDelimiterCollision", format: "tex", nodeKind, delimiter },
       InputError.mathDelimiterCollision,
     );
   }
 
-  public static mathMetadataUnsupported(this: void): never {
-    throw new InputError(
+  public static mathMetadataUnsupported(this: void): InputError {
+    return new InputError(
       "TeX display math does not support fence metadata",
       { kind: "mathMetadata", format: "tex" },
       InputError.mathMetadataUnsupported,
     );
   }
 
-  public static invalidHtmlTagName(this: void, name: string): never {
-    throw new InputError(
+  public static invalidHtmlTagName(this: void, name: string): InputError {
+    return new InputError(
       `Invalid HTML tag name: ${name}`,
       { kind: "htmlTagName", name },
       InputError.invalidHtmlTagName,
@@ -69,32 +77,28 @@ export class InputError extends MdxError {
     start: number,
     end: number,
     sourceLength: number,
-  ): never {
-    throw new InputError(
+  ): InputError {
+    return new InputError(
       `Replacement range ${start}..${end} is outside source of length ${sourceLength}`,
       { kind: "replacementRange", start, end, sourceLength },
       InputError.replacementRangeOutsideSource,
     );
   }
 
-  public static sourceOffsetOutsideFile(this: void, offset: number, sourceLength: number): never {
-    throw new InputError(
+  public static sourceOffsetOutsideFile(
+    this: void,
+    offset: number,
+    sourceLength: number,
+  ): InputError {
+    return new InputError(
       `Source offset ${offset} is outside file of length ${sourceLength}`,
       { kind: "sourceOffset", offset, sourceLength },
       InputError.sourceOffsetOutsideFile,
     );
   }
 
-  public static invalidCodeBlockMetadata(this: void, messages: readonly string[]): never {
-    throw new InputError(
-      `Invalid code block metadata: ${messages.join("; ")}`,
-      { kind: "codeBlockMetadata", messages },
-      InputError.invalidCodeBlockMetadata,
-    );
-  }
-
-  public static streamCompleted(this: void): never {
-    throw new InputError(
+  public static streamCompleted(this: void): InputError {
+    return new InputError(
       "A successfully completed MdxStream cannot be changed",
       { kind: "streamCompleted" },
       InputError.streamCompleted,
@@ -125,32 +129,40 @@ export class ConfigurationError extends MdxError {
     this.issue = Object.freeze(issue);
   }
 
-  public static asynchronousPluginInSynchronousProcessor(this: void): never {
-    throw new ConfigurationError(
+  public static asynchronousPluginInSynchronousProcessor(this: void): ConfigurationError {
+    return new ConfigurationError(
       "processSync() cannot run an asynchronous plugin; use process() instead",
       { kind: "asynchronousPluginInSynchronousProcessor" },
       ConfigurationError.asynchronousPluginInSynchronousProcessor,
     );
   }
 
-  public static unsupportedUnifiedPlugin(this: void): never {
-    throw new ConfigurationError(
+  public static unsupportedUnifiedPlugin(this: void): ConfigurationError {
+    return new ConfigurationError(
       "Unified parser and compiler plugins are not supported by the transform adapter",
       { kind: "unifiedPlugin" },
       ConfigurationError.unsupportedUnifiedPlugin,
     );
   }
 
-  public static invalidCacheCapacity(this: void, pluginName: string, capacity: number): never {
-    throw new ConfigurationError(
+  public static invalidCacheCapacity(
+    this: void,
+    pluginName: string,
+    capacity: number,
+  ): ConfigurationError {
+    return new ConfigurationError(
       `Invalid ${pluginName} cache capacity: ${capacity}; expected a non-negative safe integer`,
       { kind: "cacheCapacity", pluginName, capacity },
       ConfigurationError.invalidCacheCapacity,
     );
   }
 
-  public static invalidCompilerLimit(this: void, option: string, value: number): never {
-    throw new ConfigurationError(
+  public static invalidCompilerLimit(
+    this: void,
+    option: string,
+    value: number,
+  ): ConfigurationError {
+    return new ConfigurationError(
       `Invalid compiler ${option}: ${value}; expected a non-negative safe integer`,
       { kind: "compilerLimit", option, value },
       ConfigurationError.invalidCompilerLimit,
@@ -162,8 +174,8 @@ export class ConfigurationError extends MdxError {
     option: string,
     value: number,
     minimum: number,
-  ): never {
-    throw new ConfigurationError(
+  ): ConfigurationError {
+    return new ConfigurationError(
       `Invalid stream ${option}: ${value}; expected a safe integer of at least ${minimum}`,
       { kind: "streamLimit", option, value, minimum },
       ConfigurationError.invalidStreamLimit,
@@ -175,8 +187,8 @@ export class ConfigurationError extends MdxError {
     option: string,
     value: number,
     minimum: number,
-  ): never {
-    throw new ConfigurationError(
+  ): ConfigurationError {
+    return new ConfigurationError(
       `Invalid parser ${option}: ${value}; expected a safe integer of at least ${minimum}`,
       { kind: "parserLimit", option, value, minimum },
       ConfigurationError.invalidParserLimit,
@@ -189,8 +201,8 @@ export class ConfigurationError extends MdxError {
     option: string,
     value: number,
     minimum: number,
-  ): never {
-    throw new ConfigurationError(
+  ): ConfigurationError {
+    return new ConfigurationError(
       `Invalid ${pluginName} ${option}: ${value}; expected a safe integer of at least ${minimum}`,
       { kind: "pluginIntegerOption", pluginName, option, value, minimum },
       ConfigurationError.invalidPluginIntegerOption,
@@ -200,36 +212,65 @@ export class ConfigurationError extends MdxError {
 
 export type TransformTarget = "document" | "html";
 
-export type TransformIssue = Readonly<{
-  kind: "threw";
-  target: TransformTarget;
-  pluginName: string;
-}>;
+export interface TransformIssue {
+  readonly kind: "threw" | "reported";
+  readonly target: TransformTarget;
+  readonly pluginName: string;
+}
 
 export class TransformError extends MdxError {
   public readonly issue: TransformIssue;
+  public readonly file: SourceFile;
+  public readonly diagnostics: readonly Diagnostic[];
 
   private constructor(
-    message: string,
     issue: TransformIssue,
+    file: SourceFile,
+    diagnostics: readonly Diagnostic[],
     options: ErrorOptions,
     context: Function,
   ) {
-    super("TransformError", message, options, context);
+    super(
+      "TransformError",
+      `Plugin "${issue.pluginName}" failed while transforming ${issue.target}`,
+      options,
+      context,
+    );
     this.issue = Object.freeze(issue);
+    this.file = file;
+    this.diagnostics = Object.freeze([...diagnostics]);
   }
 
   public static pluginTransformFailed(
     this: void,
     target: TransformTarget,
     pluginName: string,
+    file: SourceFile,
+    diagnostics: readonly Diagnostic[],
     cause: unknown,
-  ): never {
-    throw new TransformError(
-      `Plugin "${pluginName}" failed while transforming ${target}`,
+  ): TransformError {
+    return new TransformError(
       { kind: "threw", target, pluginName },
+      file,
+      diagnostics,
       { cause },
       TransformError.pluginTransformFailed,
+    );
+  }
+
+  public static pluginReportedErrors(
+    this: void,
+    target: TransformTarget,
+    pluginName: string,
+    file: SourceFile,
+    diagnostics: readonly Diagnostic[],
+  ): TransformError {
+    return new TransformError(
+      { kind: "reported", target, pluginName },
+      file,
+      diagnostics,
+      {},
+      TransformError.pluginReportedErrors,
     );
   }
 }
@@ -250,10 +291,8 @@ export type CompilationInvariant =
 
 export type CompilationIssue =
   | Readonly<{ kind: "generation" }>
-  | Readonly<{ kind: "generatedCodeLimit"; actualBytes: number; maximumBytes: number }>
   | Readonly<{ kind: "generatedProgram" }>
-  | Readonly<{ kind: "invalidDocument"; invariant: CompilationInvariant; detail?: string }>
-  | Readonly<{ kind: "sourceMapLimit"; actualBytes: number; maximumBytes: number }>;
+  | Readonly<{ kind: "invalidDocument"; invariant: CompilationInvariant; detail?: string }>;
 
 export class CompileError extends MdxError {
   public readonly issue: CompilationIssue;
@@ -268,8 +307,8 @@ export class CompileError extends MdxError {
     this.issue = Object.freeze(issue);
   }
 
-  public static generationFailed(this: void, cause: unknown): never {
-    throw new CompileError(
+  public static generationFailed(this: void, cause: unknown): CompileError {
+    return new CompileError(
       "MDX compilation failed",
       { kind: "generation" },
       { cause },
@@ -277,8 +316,8 @@ export class CompileError extends MdxError {
     );
   }
 
-  public static multipleDefaultExports(this: void): never {
-    CompileError.invalidDocument(
+  public static multipleDefaultExports(this: void): CompileError {
+    return CompileError.invalidDocument(
       "multipleDefaultExports",
       "MDX has more than one default export",
       undefined,
@@ -286,8 +325,8 @@ export class CompileError extends MdxError {
     );
   }
 
-  public static defaultExportDeclarationMissing(this: void): never {
-    CompileError.invalidDocument(
+  public static defaultExportDeclarationMissing(this: void): CompileError {
+    return CompileError.invalidDocument(
       "defaultExportDeclarationMissing",
       "Default MDX export has no declaration",
       undefined,
@@ -295,8 +334,8 @@ export class CompileError extends MdxError {
     );
   }
 
-  public static defaultExportBindingMissing(this: void): never {
-    CompileError.invalidDocument(
+  public static defaultExportBindingMissing(this: void): CompileError {
+    return CompileError.invalidDocument(
       "defaultExportBindingMissing",
       "Default MDX export has no local binding",
       undefined,
@@ -304,8 +343,8 @@ export class CompileError extends MdxError {
     );
   }
 
-  public static jsxElementOpeningMissing(this: void): never {
-    CompileError.invalidDocument(
+  public static jsxElementOpeningMissing(this: void): CompileError {
+    return CompileError.invalidDocument(
       "jsxElementOpeningMissing",
       "JSX element has no opening element",
       undefined,
@@ -313,8 +352,8 @@ export class CompileError extends MdxError {
     );
   }
 
-  public static jsxElementNameMissing(this: void): never {
-    CompileError.invalidDocument(
+  public static jsxElementNameMissing(this: void): CompileError {
+    return CompileError.invalidDocument(
       "jsxElementNameMissing",
       "JSX element has no name",
       undefined,
@@ -322,8 +361,8 @@ export class CompileError extends MdxError {
     );
   }
 
-  public static jsxSpreadArgumentMissing(this: void): never {
-    CompileError.invalidDocument(
+  public static jsxSpreadArgumentMissing(this: void): CompileError {
+    return CompileError.invalidDocument(
       "jsxSpreadArgumentMissing",
       "JSX spread has no argument",
       undefined,
@@ -331,8 +370,8 @@ export class CompileError extends MdxError {
     );
   }
 
-  public static jsxAttributeNameMissing(this: void): never {
-    CompileError.invalidDocument(
+  public static jsxAttributeNameMissing(this: void): CompileError {
+    return CompileError.invalidDocument(
       "jsxAttributeNameMissing",
       "JSX attribute has no name",
       undefined,
@@ -340,8 +379,8 @@ export class CompileError extends MdxError {
     );
   }
 
-  public static jsxAttributeExpressionEmpty(this: void): never {
-    CompileError.invalidDocument(
+  public static jsxAttributeExpressionEmpty(this: void): CompileError {
+    return CompileError.invalidDocument(
       "jsxAttributeExpressionEmpty",
       "JSX attribute expression is empty",
       undefined,
@@ -349,8 +388,8 @@ export class CompileError extends MdxError {
     );
   }
 
-  public static jsxIdentifierNameMissing(this: void): never {
-    CompileError.invalidDocument(
+  public static jsxIdentifierNameMissing(this: void): CompileError {
+    return CompileError.invalidDocument(
       "jsxIdentifierNameMissing",
       "JSX identifier has no name",
       undefined,
@@ -358,8 +397,8 @@ export class CompileError extends MdxError {
     );
   }
 
-  public static jsxMemberExpressionIncomplete(this: void): never {
-    CompileError.invalidDocument(
+  public static jsxMemberExpressionIncomplete(this: void): CompileError {
+    return CompileError.invalidDocument(
       "jsxMemberExpressionIncomplete",
       "JSX member expression is incomplete",
       undefined,
@@ -367,8 +406,8 @@ export class CompileError extends MdxError {
     );
   }
 
-  public static jsxNamespaceIncomplete(this: void): never {
-    CompileError.invalidDocument(
+  public static jsxNamespaceIncomplete(this: void): CompileError {
+    return CompileError.invalidDocument(
       "jsxNamespaceIncomplete",
       "JSX namespace is incomplete",
       undefined,
@@ -376,8 +415,8 @@ export class CompileError extends MdxError {
     );
   }
 
-  public static unsupportedJsxName(this: void, nodeType: string): never {
-    CompileError.invalidDocument(
+  public static unsupportedJsxName(this: void, nodeType: string): CompileError {
+    return CompileError.invalidDocument(
       "unsupportedJsxName",
       `Unsupported JSX name node: ${nodeType}`,
       nodeType,
@@ -385,38 +424,12 @@ export class CompileError extends MdxError {
     );
   }
 
-  public static generatedCodeLimitExceeded(
-    this: void,
-    actualBytes: number,
-    maximumBytes: number,
-  ): never {
-    throw new CompileError(
-      `Generated MDX code is ${actualBytes} bytes; configured maximum is ${maximumBytes} bytes`,
-      { kind: "generatedCodeLimit", actualBytes, maximumBytes },
-      {},
-      CompileError.generatedCodeLimitExceeded,
-    );
-  }
-
-  public static generatedProgramInvalid(this: void, cause: unknown): never {
-    throw new CompileError(
+  public static generatedProgramInvalid(this: void, cause: unknown): CompileError {
+    return new CompileError(
       "The generated MDX module is not valid JavaScript",
       { kind: "generatedProgram" },
       { cause },
       CompileError.generatedProgramInvalid,
-    );
-  }
-
-  public static sourceMapLimitExceeded(
-    this: void,
-    actualBytes: number,
-    maximumBytes: number,
-  ): never {
-    throw new CompileError(
-      `Generated MDX source map is ${actualBytes} bytes; configured maximum is ${maximumBytes} bytes`,
-      { kind: "sourceMapLimit", actualBytes, maximumBytes },
-      {},
-      CompileError.sourceMapLimitExceeded,
     );
   }
 
@@ -425,8 +438,8 @@ export class CompileError extends MdxError {
     message: string,
     detail: string | undefined,
     context: Function,
-  ): never {
-    throw new CompileError(
+  ): CompileError {
+    return new CompileError(
       message,
       {
         kind: "invalidDocument",
@@ -435,6 +448,132 @@ export class CompileError extends MdxError {
       },
       {},
       context,
+    );
+  }
+}
+
+export class ParseError extends MdxError {
+  public readonly file: SourceFile;
+  public readonly diagnostics: readonly [Diagnostic, ...Diagnostic[]];
+
+  private constructor(file: SourceFile, diagnostics: readonly [Diagnostic, ...Diagnostic[]]) {
+    super("ParseError", diagnostics[0].message, {}, ParseError.invalidSyntax);
+    this.file = file;
+    this.diagnostics = Object.freeze([...diagnostics]);
+  }
+
+  public static invalidSyntax(
+    this: void,
+    file: SourceFile,
+    diagnostics: readonly [Diagnostic, ...Diagnostic[]],
+  ): ParseError {
+    return new ParseError(file, diagnostics);
+  }
+}
+
+export type CompileLimit = "maximumGeneratedCodeBytes" | "maximumSourceMapBytes";
+
+export class LimitError extends MdxError {
+  public readonly file: SourceFile;
+  public readonly diagnostics: readonly [Diagnostic];
+  public readonly limit: ParserLimit | CompileLimit;
+  public readonly maximum: number;
+  public readonly actual: number | undefined;
+
+  private constructor(
+    file: SourceFile,
+    limit: ParserLimit | CompileLimit,
+    maximum: number,
+    range: SourceRange,
+    actual?: number,
+  ) {
+    const message = `MDX limit ${limit} exceeded: maximum ${maximum}${actual === undefined ? "" : `, actual ${actual}`}`;
+    super("LimitError", message, {}, LimitError.exceeded);
+    this.file = file;
+    this.limit = limit;
+    this.maximum = maximum;
+    this.actual = actual;
+    this.diagnostics = Object.freeze([
+      createDiagnostic({
+        severity: "error",
+        code: `mdx.limit.${limit}`,
+        message,
+        span: { file, ...range },
+      }),
+    ]);
+  }
+
+  public static exceeded(
+    this: void,
+    file: SourceFile,
+    limit: ParserLimit | CompileLimit,
+    maximum: number,
+    range: SourceRange = { start: 0, end: file.length },
+    actual?: number,
+  ): LimitError {
+    return new LimitError(file, limit, maximum, range, actual);
+  }
+}
+
+export type FrontmatterIssue =
+  | Readonly<{ kind: "schema"; issues: readonly SchemaIssue[] }>
+  | Readonly<{ kind: "transport"; reason: string }>;
+
+export class FrontmatterError extends MdxError {
+  public readonly file: SourceFile;
+  public readonly diagnostics: readonly Diagnostic[];
+  public readonly issue: FrontmatterIssue;
+
+  private constructor(
+    file: SourceFile,
+    diagnostics: readonly Diagnostic[],
+    issue: FrontmatterIssue,
+    context: Function,
+  ) {
+    super(
+      "FrontmatterError",
+      diagnostics[0]?.message ?? "Frontmatter schema validation failed",
+      {},
+      context,
+    );
+    this.file = file;
+    this.diagnostics = Object.freeze([...diagnostics]);
+    this.issue = Object.freeze(issue);
+  }
+
+  public static schemaValidationFailed(
+    this: void,
+    file: SourceFile,
+    diagnostics: readonly Diagnostic[],
+    issues: readonly SchemaIssue[],
+  ): FrontmatterError {
+    return new FrontmatterError(
+      file,
+      diagnostics,
+      { kind: "schema", issues: Object.freeze([...issues]) },
+      FrontmatterError.schemaValidationFailed,
+    );
+  }
+
+  public static nonTransportableValue(
+    this: void,
+    file: SourceFile,
+    origin: SourceRange | undefined,
+    reason: string,
+  ): FrontmatterError {
+    const diagnostic = createDiagnostic({
+      severity: "error",
+      code: "mdx.frontmatter.transport",
+      message: "Validated frontmatter must contain transportable values",
+      notes: [reason],
+      span: origin === undefined ? undefined : { file, ...origin },
+    });
+
+    return new FrontmatterError(
+      file,
+      [diagnostic],
+      { kind: "transport", reason },
+      FrontmatterError.nonTransportableValue,
     );
   }
 }

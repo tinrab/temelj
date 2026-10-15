@@ -91,18 +91,16 @@ renderers also work in React Server Components.
 
 ## Render content
 
-`HtmlContent` renders a lowered HTML tree: a `Processor` outcome, a
+`HtmlContent` renders a lowered HTML tree: a `Processor` result, a
 `lowerHtml()` result, or a tree sent from a server as JSON. It is hook-free.
 
 ```tsx
 import { Processor } from "@temelj/mdx";
 import { HtmlContent } from "@temelj/mdx-react";
 
-const outcome = await processor.process(source);
+const result = await processor.process(source);
 
-if (outcome.kind === "ok") {
-  return <HtmlContent registry={registry} tree={outcome.html} />;
-}
+return <HtmlContent registry={registry} tree={result.html} />;
 ```
 
 `SourceContent` parses and lowers source during render without plugins. Parse
@@ -141,7 +139,9 @@ function Answer() {
 Aborting, or calling `reset()`, stops reading and leaves the preview open; the
 promise rejects with the abort reason. The hook also returns `append`, `edit`,
 `complete`, and `reset` for applications that receive text deltas themselves.
-Their identities are stable.
+Their identities are stable. Syntax and limit failures publish a `failed` view
+before `complete()` throws or `consume()` rejects. Declarative source components
+catch those content errors and render their fallback. Other exceptions propagate.
 
 `view` is plain data with a `generation` and one of three kinds:
 
@@ -222,18 +222,17 @@ settles.
 ## Trusted compilation
 
 `compileTrustedMdx()` parses, transforms, compiles, and evaluates once, then
-returns the module. Only call it for code that is allowed to execute.
+returns a `TrustedMdxCompileResult` containing the module and compilation data.
+Only call it for code that is allowed to execute.
 
 ```tsx
-const outcome = await compileTrustedMdx(source, {
+const result = await compileTrustedMdx(source, {
   syntax: { frontmatter: "yaml" },
   resolveImport: (specifier) => trustedModules[specifier],
   scope: { name: "Ada" },
 });
 
-if (outcome.kind === "ok") {
-  return <CompiledContent module={outcome.module} registry={registry} />;
-}
+return <CompiledContent module={result.module} registry={registry} />;
 ```
 
 `CompiledContent` passes the registry to compiled content as `props.components`,
@@ -243,7 +242,9 @@ mapped by `compiledComponents()`: element overrides, JSX components, and the
 In a Next.js Server Component, compile and render there. With TanStack Start,
 call `compile()` in a server function, return the function-body artifact, and
 call `evaluateTrustedMdx()` during SSR and hydration. The artifact is
-transportable; an evaluated module is not. `evaluateTrustedMdx()` uses dynamic
+transportable; an evaluated module is not. `evaluateTrustedMdx()` returns the
+module directly and rejects with `EvaluationError` on failure. Its `sourceName`,
+`issue`, and original `cause` describe the failure. It uses dynamic
 function evaluation, so browser use requires a CSP that permits it.
 
 ## KaTeX

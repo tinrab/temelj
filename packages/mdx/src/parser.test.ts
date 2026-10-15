@@ -11,7 +11,7 @@ function selectNode<TKind extends MdxNode["kind"]>(root: MdxNode, kind: TKind) {
 }
 
 test("materializes direct block syntax into owned nodes", () => {
-  const result = expectParsed(parse("Title\n=====\n\n    const x = 1\n\n---"));
+  const result = parse("Title\n=====\n\n    const x = 1\n\n---");
   expect(Object.isFrozen(result.diagnostics)).toBe(true);
   expect(result.document.children.map((node) => node.kind)).toEqual([
     "heading",
@@ -28,10 +28,8 @@ test("materializes direct block syntax into owned nodes", () => {
 });
 
 test("retains definitions, references, and non-JSX raw HTML in the owned model", () => {
-  const result = expectParsed(
-    parse(
-      '[guide]: https://rabzelj.com "Guide"\n[logo]: /logo\n\n[Read][guide] and ![Logo][logo]\n\n<!-- raw -->',
-    ),
+  const result = parse(
+    '[guide]: https://rabzelj.com "Guide"\n[logo]: /logo\n\n[Read][guide] and ![Logo][logo]\n\n<!-- raw -->',
   );
 
   const document = result.document;
@@ -43,7 +41,7 @@ test("retains definitions, references, and non-JSX raw HTML in the owned model",
 
 test("owns hard breaks and JSX with source provenance", () => {
   const source = "before\\\nafter <span>raw</span>";
-  const result = expectParsed(parse(source));
+  const result = parse(source);
   const hardBreak = selectNode(result.document, "hardBreak");
   const jsx = selectNode(result.document, "jsxTextElement");
   expect(sourceText(result.file, hardBreak)).toBe("\\\n");
@@ -52,7 +50,7 @@ test("owns hard breaks and JSX with source provenance", () => {
 });
 
 test("retains full and collapsed reference spelling", () => {
-  const result = expectParsed(parse("[id]: /id\n[b]: /b\n[c]: /c\n\n[a][id] [b][] [c]"));
+  const result = parse("[id]: /id\n[b]: /b\n[c]: /c\n\n[a][id] [b][] [c]");
   const references = selectNodes(result.document, "linkReference");
   expect(references.map((reference) => reference.referenceKind)).toEqual([
     "full",
@@ -63,13 +61,13 @@ test("retains full and collapsed reference spelling", () => {
 });
 
 test("replaces NUL with the replacement character while retaining source offsets", () => {
-  const result = expectParsed(parse("a\0b"));
+  const result = parse("a\0b");
   expect(nodeText(result.document)).toBe("a\uFFFDb");
   expect(sourceText(result.file, result.document.children[0])).toBe("a\0b");
 });
 
 test("reads JSX attribute expressions with nested braces and quoted delimiters", () => {
-  const result = expectParsed(parse('<A b={{ a: 1 }} s="a}b" {...rest} flag />\n'));
+  const result = parse('<A b={{ a: 1 }} s="a}b" {...rest} flag />\n');
   const element = result.document.children[0];
 
   expect(element?.kind === "jsxFlowElement" ? element.attributes : []).toMatchObject([
@@ -82,14 +80,4 @@ test("reads JSX attribute expressions with nested braces and quoted delimiters",
 
 function sourceText(file: SourceFile, node: MdxNode | undefined): string | undefined {
   return node?.origin === undefined ? undefined : file.slice(node.origin);
-}
-
-function expectParsed(
-  outcome: ReturnType<typeof parse>,
-): Extract<ReturnType<typeof parse>, { kind: "ok" }> {
-  if (outcome.kind !== "ok") {
-    throw new Error(`Expected parsed outcome, received ${outcome.kind}`);
-  }
-
-  return outcome;
 }

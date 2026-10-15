@@ -3,8 +3,7 @@ import { isPromise, isString } from "@temelj/value";
 import type { HtmlRenderOptions } from "./html-lower.ts";
 import type { HtmlRootNode } from "./html.ts";
 import type { DocumentNode } from "./model.ts";
-import type { MdxFailure, MdxOutcome } from "./outcome.ts";
-import type { ParseOptions, ParseOutcome } from "./parser.ts";
+import type { ParseOptions, ParseResult } from "./parser.ts";
 import type { PluginRun } from "./plugin-internal.ts";
 import type { DocumentPlugin, HtmlPlugin } from "./plugin.ts";
 
@@ -22,16 +21,21 @@ export interface ProcessorOptions extends ParseOptions {
   readonly html?: Omit<HtmlRenderOptions, "source">;
 }
 
-export type ProcessOutcome = MdxOutcome<{ document: DocumentNode; html: HtmlRootNode }>;
+export interface ProcessResult extends ParseResult {
+  readonly html: HtmlRootNode;
+}
 
 export interface ProcessOptions {
   readonly signal?: AbortSignal;
 }
 
-/** Strict input: a source string, a `SourceFile`, or an existing parse outcome. */
-export type ProcessInput = string | SourceFile | ParseOutcome;
+/** Strict input: a source string, a `SourceFile`, or an existing parse result. */
+export type ProcessInput = string | SourceFile | ParseResult;
 
-/** Parses, transforms, and lowers MDX with one configuration. */
+/**
+ * Parses, transforms, and lowers MDX with one configuration.
+ * Operations throw ParseError, LimitError, or TransformError on failure.
+ */
 export class Processor {
   public readonly options: ProcessorOptions;
 
@@ -44,29 +48,40 @@ export class Processor {
     };
   }
 
-  public parse(source: string | SourceFile): ParseOutcome {
+  /** @throws {ParseError | LimitError | ConfigurationError} Parsing fails. */
+  public parse(source: string | SourceFile): ParseResult {
     return parse(source, this.options);
   }
 
-  public async process(input: ProcessInput, options: ProcessOptions = {}): Promise<ProcessOutcome> {
+  /** @throws {MdxError} Parsing, transformation, or configuration fails. */
+  public async process(input: ProcessInput, options: ProcessOptions = {}): Promise<ProcessResult> {
     return this.processStages(input, false, options.signal);
   }
 
-  /** Processes synchronously and throws a configuration error for an asynchronous plugin. */
-  public processSync(input: ProcessInput): ProcessOutcome {
+  /**
+   * Processes synchronously.
+   * @throws {MdxError} Parsing, transformation, or configuration fails.
+   * @throws {ConfigurationError} A plugin returns a promise.
+   */
+  public processSync(input: ProcessInput): ProcessResult {
     return settled(this.processStages(input, true));
   }
 
   /**
    * Parses and runs document plugins without lowering. Pass the result to
    * `compile` to emit JavaScript from the transformed document.
+   * @throws {MdxError} Parsing, transformation, or configuration fails.
    */
-  public async transform(input: ProcessInput, options: ProcessOptions = {}): Promise<ParseOutcome> {
+  public async transform(input: ProcessInput, options: ProcessOptions = {}): Promise<ParseResult> {
     return this.transformStage(input, false, options.signal);
   }
 
-  /** Transforms synchronously and throws a configuration error for an asynchronous plugin. */
-  public transformSync(input: ProcessInput): ParseOutcome {
+  /**
+   * Transforms synchronously.
+   * @throws {MdxError} Parsing, transformation, or configuration fails.
+   * @throws {ConfigurationError} A plugin returns a promise.
+   */
+  public transformSync(input: ProcessInput): ParseResult {
     return settled(this.transformStage(input, true));
   }
 
@@ -75,21 +90,22 @@ export class Processor {
     input: ProcessInput,
     synchronous: boolean,
     signal?: AbortSignal,
-  ): Settling<ProcessOutcome> {
+  ): Settling<ProcessResult> {
     return chain(this.documentStage(input, synchronous, signal), (stage) =>
-      stage.kind !== "ok"
-        ? stage
-        : chain(
-            runHtmlPlugins(this.lower(stage.document, stage.file), this.htmlPlugins, stage.run),
-            (html): ProcessOutcome =>
-              Object.freeze({
-                kind: "ok",
-                file: stage.file,
-                document: stage.document,
-                html,
-                diagnostics: stage.run.diagnostics.snapshot(),
-              }),
-          ),
+      chain(
+        runHtmlPlugins(
+          lowerHtml(stage.document, { ...this.options.html, source: stage.file }),
+          this.htmlPlugins,
+          stage.run,
+        ),
+        (html): ProcessResult =>
+          Object.freeze({
+            file: stage.file,
+            document: stage.document,
+            html,
+            diagnostics: stage.run.diagnostics.snapshot(),
+          }),
+      ),
     );
   }
 
@@ -97,16 +113,13 @@ export class Processor {
     input: ProcessInput,
     synchronous: boolean,
     signal?: AbortSignal,
-  ): Settling<ParseOutcome> {
-    return chain(this.documentStage(input, synchronous, signal), (stage): ParseOutcome =>
-      stage.kind !== "ok"
-        ? stage
-        : Object.freeze({
-            kind: "ok",
-            file: stage.file,
-            document: stage.document,
-            diagnostics: stage.run.diagnostics.snapshot(),
-          }),
+  ): Settling<ParseResult> {
+    return chain(this.documentStage(input, synchronous, signal), (stage): ParseResult =>
+      Object.freeze({
+        file: stage.file,
+        document: stage.document,
+        diagnostics: stage.run.diagnostics.snapshot(),
+      }),
     );
   }
 
@@ -115,13 +128,9 @@ export class Processor {
     input: ProcessInput,
     synchronous: boolean,
     signal?: AbortSignal,
-  ): Settling<DocumentStage | MdxFailure> {
+  ): Settling<DocumentStage> {
     signal?.throwIfAborted();
-    const parsed = this.parseInput(input);
-
-    if (parsed.kind !== "ok") {
-      return parsed;
-    }
+    const parsed = input instanceof SourceFile || isString(input) ? this.parse(input) : input;
 
     const run: PluginRun = {
       diagnostics: new DiagnosticBag(parsed.diagnostics),
@@ -133,7 +142,7 @@ export class Processor {
 
     return chain(
       runDocumentPlugins(parsed.document, this.documentPlugins, run),
-      (document): DocumentStage => ({ kind: "ok", file: parsed.file, document, run }),
+      (document): DocumentStage => ({ file: parsed.file, document, run }),
     );
   }
 
@@ -144,18 +153,9 @@ export class Processor {
   private get htmlPlugins(): readonly HtmlPlugin[] {
     return this.options.htmlPlugins ?? [];
   }
-
-  private parseInput(input: ProcessInput): ParseOutcome {
-    return input instanceof SourceFile || isString(input) ? this.parse(input) : input;
-  }
-
-  private lower(document: DocumentNode, file: SourceFile): HtmlRootNode {
-    return lowerHtml(document, { ...this.options.html, source: file });
-  }
 }
 
 interface DocumentStage {
-  readonly kind: "ok";
   readonly file: SourceFile;
   readonly document: DocumentNode;
   readonly run: PluginRun;

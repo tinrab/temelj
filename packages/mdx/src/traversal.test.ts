@@ -18,7 +18,7 @@ import {
 
 describe("tree traversal", () => {
   it("keeps property-only replacements in nested MDX nodes", () => {
-    const document = expectParsed(parse("![alt](before.png)\n")).document;
+    const document = parse("![alt](before.png)\n").document;
 
     const rewritten = rewriteMdx(document, {
       image: ({ node }) => ({ ...node, url: "after.webp" }),
@@ -29,20 +29,20 @@ describe("tree traversal", () => {
   });
 
   it("returns the original tree when nothing changes", () => {
-    const document = expectParsed(parse("# Title\n\n- a\n- b\n")).document;
+    const document = parse("# Title\n\n- a\n- b\n").document;
 
     expect(rewriteMdx(document, { text: () => {} })).toBe(document);
   });
 
   it("removes nodes when a handler returns null", () => {
-    const document = expectParsed(parse("one\n\n---\n\ntwo\n")).document;
+    const document = parse("one\n\n---\n\ntwo\n").document;
     const rewritten = rewriteMdx(document, { thematicBreak: () => null });
 
     expect(rewritten.children.map((node) => node.kind)).toEqual(["paragraph", "paragraph"]);
   });
 
   it("replaces MDX nodes within the same content category", () => {
-    const document = expectParsed(parse("Use `code` here.\n\n---\n")).document;
+    const document = parse("Use `code` here.\n\n---\n").document;
 
     const rewritten = rewriteMdx(document, {
       inlineCode: ({ node }) => ({
@@ -62,7 +62,7 @@ describe("tree traversal", () => {
   });
 
   it("replaces HTML nodes with a different kind", () => {
-    const html = lowerHtml(expectParsed(parse("```ts\nconst a = 1;\n```\n")).document);
+    const html = lowerHtml(parse("```ts\nconst a = 1;\n```\n").document);
 
     const rewritten = rewriteHtml(html, {
       codeBlock: ({ node }) => ({ kind: "raw", value: `<pre>${node.code}</pre>` }),
@@ -72,10 +72,8 @@ describe("tree traversal", () => {
   });
 
   it("supports a collect, process, and rewrite image workflow", async () => {
-    const document = expectParsed(
-      parse(
-        '![direct](photo.png "direct title")\n\n![reference][photo]\n\n[photo]: photo.png "reference title"\n',
-      ),
+    const document = parse(
+      '![direct](photo.png "direct title")\n\n![reference][photo]\n\n[photo]: photo.png "reference title"\n',
     ).document;
 
     const reference = [...selectMdx(document, "imageReference")][0]?.node;
@@ -156,13 +154,3 @@ describe("tree traversal", () => {
     expect(report.diagnostics.map(({ code }) => code)).toEqual(["document", "html"]);
   });
 });
-
-function expectParsed(
-  outcome: ReturnType<typeof parse>,
-): Extract<ReturnType<typeof parse>, { kind: "ok" }> {
-  if (outcome.kind !== "ok") {
-    throw new Error(`Expected parsed outcome, received ${outcome.kind}`);
-  }
-
-  return outcome;
-}

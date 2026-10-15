@@ -19,21 +19,21 @@ import {
 
 function inlineMath(source: string, mode: MathMode): readonly InlineMathNode[] {
   return Array.from(
-    selectMdx(expectParsed(parse(source, { syntax: { math: mode } })).document, "inlineMath"),
+    selectMdx(parse(source, { syntax: { math: mode } }).document, "inlineMath"),
     ({ node }) => node,
   );
 }
 
 function displayMath(source: string, mode: MathMode): readonly DisplayMathNode[] {
   return Array.from(
-    selectMdx(expectParsed(parse(source, { syntax: { math: mode } })).document, "displayMath"),
+    selectMdx(parse(source, { syntax: { math: mode } }).document, "displayMath"),
     ({ node }) => node,
   );
 }
 
 describe("math syntax modes", () => {
   it("is disabled by default", () => {
-    const document = expectParsed(parse("$x$ and \\(y\\)\n\n\\[z\\]\n")).document;
+    const document = parse("$x$ and \\(y\\)\n\n\\[z\\]\n").document;
 
     expect([...selectMdx(document, "inlineMath")]).toHaveLength(0);
     expect([...selectMdx(document, "displayMath")]).toHaveLength(0);
@@ -46,7 +46,7 @@ describe("math syntax modes", () => {
 
   it("parses both delimiter families in auto mode", () => {
     const source = "$a$ and \\(b\\)\n\n$$\nc\n$$\n\n\\[\nd\n\\]\n";
-    const document = expectParsed(parse(source, { syntax: { math: "auto" } })).document;
+    const document = parse(source, { syntax: { math: "auto" } }).document;
 
     expect(
       [...selectMdx(document, "inlineMath")].map(({ node }) => [node.format, node.value]),
@@ -108,9 +108,9 @@ describe("math syntax modes", () => {
 describe("math nodes and formatting", () => {
   it("preserves the resolved delimiter format through formatting", () => {
     const source = "$a$ and \\(b\\)\n\n\\[\nc\n\\]\n";
-    const first = expectParsed(parse(source, { syntax: { math: "auto" } })).document;
+    const first = parse(source, { syntax: { math: "auto" } }).document;
     const formatted = formatMdx(first);
-    const second = expectParsed(parse(formatted, { syntax: { math: "auto" } })).document;
+    const second = parse(formatted, { syntax: { math: "auto" } }).document;
 
     expect([...selectMdx(second, "inlineMath")].map(({ node }) => node.format)).toEqual([
       "dollar",
@@ -196,14 +196,4 @@ function streamingKinds(snapshot: MdxStreamSnapshot): readonly string[] {
   }
 
   return kinds;
-}
-
-function expectParsed(
-  outcome: ReturnType<typeof parse>,
-): Extract<ReturnType<typeof parse>, { kind: "ok" }> {
-  if (outcome.kind !== "ok") {
-    throw new Error(`Expected parsed outcome, received ${outcome.kind}`);
-  }
-
-  return outcome;
 }

@@ -1,17 +1,14 @@
 # MDX React examples
 
-Open `/streaming` to stream a document automatically. Each example passes the
-response to `consume()` from `useMdxStream`, which decodes chunks, batches
-updates per frame, and completes the document at EOF. `StreamContent` renders
+Open `/streaming` and press Start to stream a document. Press Start again to
+abort and restart it. The speed slider adjusts playback from 0.25x to 4x,
+including while the stream is running. Each example passes paced chunks to
+`consume()` from `useMdxStream`, which batches updates per frame and completes
+the document at EOF. `StreamContent` renders
 the view. Navigating away aborts the request and leaves the preview open.
 
 Next.js consumes a `fetch` response. TanStack Start consumes strings from a
 streaming server function. Both show a CSS-only caret while streaming.
-
-Both examples have a `/chat` page: an AI-chat transcript where every answer
-streams into its own `useMdxStream`. "Ask three at once" streams several answers
-concurrently while earlier ones stay settled. Next.js reads each answer from a
-`fetch` response; TanStack Start reads it from a streaming server function.
 
 The Next.js example also has:
 

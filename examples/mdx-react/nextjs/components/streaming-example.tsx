@@ -1,46 +1,88 @@
 "use client";
 
 import { StreamContent, useMdxStream } from "@temelj/mdx-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { mdxRegistry } from "@/components/mdx-registry";
+import { Button } from "@/components/ui/button";
+import { Slider } from "@/components/ui/slider";
 
 import { mdxSyntax } from "../../content.ts";
+import { pacedChunks, responseChunks } from "../../streaming.ts";
 
 export function StreamingExample(): React.ReactNode {
-  const { view, consume } = useMdxStream({ syntax: mdxSyntax });
+  const { view, consume, reset } = useMdxStream({ syntax: mdxSyntax });
   const [error, setError] = useState<string>();
+  const [running, setRunning] = useState(false);
+  const [speed, setSpeed] = useState(1);
+  const playbackSpeed = useRef(speed);
+  const activeStream = useRef<AbortController | undefined>(undefined);
 
-  useEffect(() => {
+  useEffect(() => () => activeStream.current?.abort(), []);
+
+  const start = async (): Promise<void> => {
+    activeStream.current?.abort();
     const controller = new AbortController();
+    activeStream.current = controller;
+    reset();
+    setError(undefined);
+    setRunning(true);
 
-    fetch("/api/mdx", { signal: controller.signal })
-      .then((response) => {
-        if (!response.ok) {
-          throw new Error("Could not load the MDX stream");
-        }
+    try {
+      const response = await fetch("/api/mdx", { signal: controller.signal });
+      const chunks = responseChunks(response);
+      await consume(
+        pacedChunks(chunks, { signal: controller.signal, speed: () => playbackSpeed.current }),
+        { signal: controller.signal },
+      );
+    } catch (cause) {
+      if (!controller.signal.aborted) {
+        setError(cause instanceof Error ? cause.message : "The stream failed");
+      }
+    } finally {
+      if (activeStream.current === controller) {
+        activeStream.current = undefined;
+        setRunning(false);
+      }
+    }
+  };
 
-        return consume(response, { signal: controller.signal });
-      })
-      .catch((cause: unknown) => {
-        if (!controller.signal.aborted) {
-          setError(cause instanceof Error ? cause.message : "The stream failed");
-        }
-      });
-
-    return () => controller.abort();
-  }, [consume]);
+  const changeSpeed = (value: number): void => {
+    playbackSpeed.current = value;
+    setSpeed(value);
+  };
 
   return (
     <>
       <h1 className="text-3xl font-bold">Streaming MDX</h1>
+      <div className="flex flex-wrap items-center gap-6">
+        <Button onPress={() => void start()}>Start</Button>
+        <div className="flex w-56 flex-col gap-3">
+          <div className="flex items-center justify-between text-sm">
+            <span>Speed</span>
+            <output className="text-muted-foreground tabular-nums">{speed}x</output>
+          </div>
+          <Slider
+            aria-label="Stream speed"
+            minValue={0.25}
+            maxValue={4}
+            step={0.25}
+            value={speed}
+            onChange={changeSpeed}
+          />
+        </div>
+      </div>
       <section
-        aria-busy={view.kind === "streaming" && error === undefined}
+        aria-busy={running}
         aria-label="Streamed MDX output"
         className="typeset streaming-caret min-h-80 rounded-lg border p-4"
-        data-streaming={view.kind === "streaming"}
+        data-streaming={running}
       >
-        <StreamContent registry={mdxRegistry} view={view} />
+        {view.generation === 0 ? (
+          <p>Press Start to stream the document.</p>
+        ) : (
+          <StreamContent registry={mdxRegistry} view={view} />
+        )}
       </section>
       {error && <p role="alert">{error}</p>}
     </>

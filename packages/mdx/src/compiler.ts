@@ -2,18 +2,22 @@ import type { Schema, SchemaIssue, SchemaOutput } from "@temelj/standard-schema"
 
 import { isObject, isBoolean, isNumber, isBigInt, isString } from "@temelj/value";
 
-import type { Diagnostic } from "./diagnostics.ts";
 import type { HtmlRenderOptions } from "./html-lower.ts";
 import type { HtmlRootNode } from "./html.ts";
 import type { DocumentNode, FrontmatterObject, SourceRange } from "./model.ts";
-import type { MdxOutcome } from "./outcome.ts";
-import type { ParseOutcome, ParserLimit } from "./parser.ts";
+import type { ParseResult } from "./parser.ts";
 import type { SourceFile } from "./source.ts";
 
 import { analyzeDocument, type CompileAnalysis } from "./compile-analysis.ts";
 import { contentUsesAwait, emitContent } from "./compile-emit.ts";
-import { createDiagnostic, hasErrorDiagnostics } from "./diagnostics.ts";
-import { CompileError, ConfigurationError, MdxError } from "./errors.ts";
+import { createDiagnostic } from "./diagnostics.ts";
+import {
+  CompileError,
+  ConfigurationError,
+  FrontmatterError,
+  LimitError,
+  MdxError,
+} from "./errors.ts";
 import { lowerHtml } from "./html-lower.ts";
 import { javascriptPropertyName } from "./javascript-ast.ts";
 import { parseJavaScriptProgram } from "./javascript.ts";
@@ -87,22 +91,23 @@ export interface FunctionBodyCompileArtifact extends CompileArtifactBase {
 
 export type CompileArtifact = ProgramCompileArtifact | FunctionBodyCompileArtifact;
 
-export type CompileLimit = ParserLimit | "maximumGeneratedCodeBytes" | "maximumSourceMapBytes";
-
 export interface CompileSchemaOptions<TSchema extends Schema> extends CompileOptions {
   /** Standard Schema validation for decoded frontmatter. */
   readonly frontmatterSchema: TSchema;
 }
 
-export type CompileOutcome<TFrontmatter = FrontmatterObject> = MdxOutcome<
-  { document: DocumentNode; artifact: CompileArtifact; frontmatter: TFrontmatter },
-  CompileLimit
->;
+export interface CompileResult<
+  TFrontmatter = FrontmatterObject,
+  TFormat extends CompileOutputFormat = CompileOutputFormat,
+> extends ParseResult {
+  readonly artifact: Extract<CompileArtifact, { readonly format: TFormat }>;
+  readonly frontmatter: TFrontmatter;
+}
 
 /** Emits JavaScript for a strict document. Throws for configuration errors and compiler limits. */
 function emitArtifact(
   document: DocumentNode,
-  options: Readonly<CompileOptions>,
+  options: Readonly<CompileOptions & { readonly source: SourceFile }>,
   frontmatter: MdxTransportValue,
 ): CompileArtifact {
   try {
@@ -111,7 +116,7 @@ function emitArtifact(
       (!Number.isSafeInteger(options.maximumGeneratedCodeBytes) ||
         options.maximumGeneratedCodeBytes < 0)
     ) {
-      ConfigurationError.invalidCompilerLimit(
+      throw ConfigurationError.invalidCompilerLimit(
         "maximumGeneratedCodeBytes",
         options.maximumGeneratedCodeBytes,
       );
@@ -121,7 +126,7 @@ function emitArtifact(
       options.maximumSourceMapBytes !== undefined &&
       (!Number.isSafeInteger(options.maximumSourceMapBytes) || options.maximumSourceMapBytes < 0)
     ) {
-      ConfigurationError.invalidCompilerLimit(
+      throw ConfigurationError.invalidCompilerLimit(
         "maximumSourceMapBytes",
         options.maximumSourceMapBytes,
       );
@@ -146,7 +151,7 @@ function emitArtifact(
     }
 
     const code = writer.toString();
-    enforceGeneratedCodeLimit(code, options.maximumGeneratedCodeBytes);
+    enforceGeneratedCodeLimit(options.source, code, options.maximumGeneratedCodeBytes);
 
     try {
       // The output is valid by construction; parsing it once guards that invariant.
@@ -154,11 +159,11 @@ function emitArtifact(
         format === "program" ? code : `async function __evaluateMdx(){\n${code}\n}`,
       );
     } catch (cause) {
-      CompileError.generatedProgramInvalid(cause);
+      throw CompileError.generatedProgramInvalid(cause);
     }
 
     const map = writer.sourceMap(analysis.scope.sourceName, options.outputName);
-    enforceSourceMapLimit(map, options.maximumSourceMapBytes);
+    enforceSourceMapLimit(options.source, map, options.maximumSourceMapBytes);
 
     return format === "program"
       ? Object.freeze({ format, code, map, frontmatter })
@@ -179,143 +184,69 @@ function emitArtifact(
       throw cause;
     }
 
-    CompileError.generationFailed(cause);
+    throw CompileError.generationFailed(cause);
   }
 }
 
 /**
- * Validates frontmatter and compiles a parsed or transformed document to
- * JavaScript without executing it. Compiled content renders the same elements as
- * `lowerHtml`. A failed input outcome is returned unchanged.
+ * Validates frontmatter and compiles a parsed or transformed document without executing it.
+ * @throws {FrontmatterError} Invalid schema output or unsupported transport data.
+ * @throws {LimitError} Generated code or its source map exceeds a configured limit.
+ * @throws {CompileError} JavaScript generation fails.
+ * @throws {ConfigurationError} Invalid compiler options.
  */
-export function compile<TSchema extends Schema>(
-  input: ParseOutcome,
-  options: Readonly<CompileSchemaOptions<TSchema>>,
-): Promise<CompileOutcome<SchemaOutput<TSchema>>>;
-export function compile(
-  input: ParseOutcome,
-  options?: Readonly<CompileOptions>,
-): Promise<CompileOutcome<FrontmatterObject>>;
+export function compile<
+  TSchema extends Schema,
+  TFormat extends CompileOutputFormat = "functionBody",
+>(
+  input: ParseResult,
+  options: Readonly<CompileSchemaOptions<TSchema> & { readonly outputFormat?: TFormat }>,
+): Promise<CompileResult<SchemaOutput<TSchema>, TFormat>>;
+export function compile<TFormat extends CompileOutputFormat = "functionBody">(
+  input: ParseResult,
+  options?: Readonly<CompileOptions & { readonly outputFormat?: TFormat }>,
+): Promise<CompileResult<FrontmatterObject, TFormat>>;
 export async function compile(
-  input: ParseOutcome,
+  input: ParseResult,
   options: Readonly<CompileOptions & { readonly frontmatterSchema?: Schema }> = {},
-): Promise<CompileOutcome<unknown>> {
-  if (input.kind !== "ok") {
-    return input;
-  }
+): Promise<CompileResult<unknown>> {
+  const frontmatterNode = documentFrontmatter(input.document);
+  let frontmatter: unknown = frontmatterNode?.data ?? Object.freeze({});
 
-  const parsed = input;
-  const document = input.document;
-  const transformedDiagnostics = input.diagnostics;
+  if (options.frontmatterSchema !== undefined) {
+    const validated = await options.frontmatterSchema["~standard"].validate(frontmatter);
 
-  if (hasErrorDiagnostics(transformedDiagnostics)) {
-    return invalidOutcome(parsed.file, transformedDiagnostics);
-  }
+    if (validated.issues !== undefined) {
+      const diagnostics = validated.issues.map((issue) =>
+        createDiagnostic({
+          severity: "error",
+          code: "mdx.frontmatter.schema",
+          message: formatSchemaIssue(issue),
+          span: fileSpan(input.file, frontmatterNode?.origin),
+        }),
+      );
 
-  const frontmatterNode = documentFrontmatter(document);
-  const frontmatterInput = frontmatterNode?.data ?? Object.freeze({});
-
-  const frontmatter = await validateFrontmatter(
-    parsed.file,
-    frontmatterNode?.origin,
-    frontmatterInput,
-    options.frontmatterSchema,
-  );
-
-  if (frontmatter.kind === "invalid") {
-    return frontmatter;
-  }
-
-  try {
-    const transportedFrontmatter = copyTransportValue(
-      frontmatter.value,
-      "frontmatter",
-      new WeakSet<object>(),
-    );
-
-    if (transportedFrontmatter.kind === "unsupported") {
-      const diagnostic = createDiagnostic({
-        severity: "error",
-        code: "mdx.frontmatter.transport",
-        message: "Validated frontmatter must contain transportable values",
-        notes: [transportedFrontmatter.reason],
-        span: fileSpan(parsed.file, frontmatterNode?.origin),
-      });
-
-      return invalidOutcome(parsed.file, [diagnostic]);
+      throw FrontmatterError.schemaValidationFailed(input.file, diagnostics, validated.issues);
     }
 
-    const artifact = emitArtifact(
-      document,
-      { ...options, source: parsed.file },
-      transportedFrontmatter.value,
-    );
-
-    return Object.freeze({
-      kind: "ok",
-      file: parsed.file,
-      document,
-      artifact,
-      frontmatter: frontmatter.value,
-      diagnostics: transformedDiagnostics,
-    });
-  } catch (cause) {
-    if (!(cause instanceof CompileError)) {
-      throw cause;
-    }
-
-    const limit = compilerLimit(cause);
-
-    if (limit === undefined) {
-      throw cause;
-    }
-
-    const diagnostic = createDiagnostic({
-      severity: "error",
-      code: `mdx.limit.${limit}`,
-      message: cause.message,
-      span: fileSpan(parsed.file, document.origin),
-    });
-
-    const diagnostics: readonly [Diagnostic] = Object.freeze([diagnostic]);
-
-    return Object.freeze({
-      kind: "limitExceeded",
-      file: parsed.file,
-      limit,
-      diagnostics,
-    });
-  }
-}
-
-async function validateFrontmatter(
-  file: SourceFile,
-  origin: SourceRange | undefined,
-  value: FrontmatterObject,
-  schema: Schema | undefined,
-): Promise<
-  Readonly<{ kind: "valid"; value: unknown }> | Extract<CompileOutcome<never>, { kind: "invalid" }>
-> {
-  if (schema === undefined) {
-    return Object.freeze({ kind: "valid", value });
+    frontmatter = validated.value;
   }
 
-  const result = await schema["~standard"].validate(value);
+  const transported = copyTransportValue(frontmatter, "frontmatter", {
+    file: input.file,
+    origin: frontmatterNode?.origin,
+    ancestors: new WeakSet(),
+  });
 
-  if (result.issues === undefined) {
-    return Object.freeze({ kind: "valid", value: result.value });
-  }
+  const artifact = emitArtifact(input.document, { ...options, source: input.file }, transported);
 
-  const diagnostics = result.issues.map((issue) =>
-    createDiagnostic({
-      severity: "error",
-      code: "mdx.frontmatter.schema",
-      message: formatSchemaIssue(issue),
-      span: fileSpan(file, origin),
-    }),
-  );
-
-  return invalidOutcome(file, diagnostics);
+  return Object.freeze({
+    file: input.file,
+    document: input.document,
+    diagnostics: input.diagnostics,
+    artifact,
+    frontmatter,
+  });
 }
 
 function formatSchemaIssue(issue: SchemaIssue): string {
@@ -324,28 +255,38 @@ function formatSchemaIssue(issue: SchemaIssue): string {
   return path === undefined || path.length === 0 ? issue.message : `${path}: ${issue.message}`;
 }
 
-type TransportFrontmatterResult =
-  | Readonly<{ kind: "transportable"; value: MdxTransportValue }>
-  | Readonly<{ kind: "unsupported"; reason: string }>;
+interface FrontmatterTransportContext {
+  readonly file: SourceFile;
+  readonly origin: SourceRange | undefined;
+  readonly ancestors: WeakSet<object>;
+}
 
 function copyTransportValue(
   // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Recursively validates external schema output against the MDX transport contract.
   value: unknown,
   path: string,
-  ancestors: WeakSet<object>,
-): TransportFrontmatterResult {
+  context: FrontmatterTransportContext,
+): MdxTransportValue {
+  const { ancestors } = context;
+
   if (value === null || isBoolean(value) || isNumber(value) || isBigInt(value) || isString(value)) {
-    return Object.freeze({ kind: "transportable", value });
+    return value;
   }
 
   if (!isObject(value)) {
-    return unsupportedTransport(
+    throw FrontmatterError.nonTransportableValue(
+      context.file,
+      context.origin,
       `${path} contains unsupported ${Object.prototype.toString.call(value)}`,
     );
   }
 
   if (ancestors.has(value)) {
-    return unsupportedTransport(`${path} contains a cycle`);
+    throw FrontmatterError.nonTransportableValue(
+      context.file,
+      context.origin,
+      `${path} contains a cycle`,
+    );
   }
 
   ancestors.add(value);
@@ -354,34 +295,32 @@ function copyTransportValue(
     const output: MdxTransportValue[] = [];
 
     for (let index = 0; index < value.length; index++) {
-      const item = copyTransportValue(value[index], `${path}[${index}]`, ancestors);
+      const item = copyTransportValue(value[index], `${path}[${index}]`, context);
 
-      if (item.kind === "unsupported") {
-        ancestors.delete(value);
-
-        return item;
-      }
-
-      output.push(item.value);
+      output.push(item);
     }
 
     ancestors.delete(value);
 
-    return Object.freeze({ kind: "transportable", value: Object.freeze(output) });
+    return Object.freeze(output);
   }
 
   const prototype: unknown = Object.getPrototypeOf(value);
 
   if (prototype !== Object.prototype && prototype !== null) {
-    ancestors.delete(value);
-
-    return unsupportedTransport(`${path} contains a non-plain object`);
+    throw FrontmatterError.nonTransportableValue(
+      context.file,
+      context.origin,
+      `${path} contains a non-plain object`,
+    );
   }
 
   if (Object.getOwnPropertySymbols(value).length > 0) {
-    ancestors.delete(value);
-
-    return unsupportedTransport(`${path} contains a symbol property`);
+    throw FrontmatterError.nonTransportableValue(
+      context.file,
+      context.origin,
+      `${path} contains a symbol property`,
+    );
   }
 
   const output: Record<string, MdxTransportValue> = {};
@@ -392,29 +331,21 @@ function copyTransportValue(
     }
 
     if (!("value" in descriptor)) {
-      ancestors.delete(value);
-
-      return unsupportedTransport(`${path}.${key} is an accessor property`);
+      throw FrontmatterError.nonTransportableValue(
+        context.file,
+        context.origin,
+        `${path}.${key} is an accessor property`,
+      );
     }
 
-    const item = copyTransportValue(descriptor.value, `${path}.${key}`, ancestors);
+    const item = copyTransportValue(descriptor.value, `${path}.${key}`, context);
 
-    if (item.kind === "unsupported") {
-      ancestors.delete(value);
-
-      return item;
-    }
-
-    output[key] = item.value;
+    output[key] = item;
   }
 
   ancestors.delete(value);
 
-  return Object.freeze({ kind: "transportable", value: Object.freeze(output) });
-}
-
-function unsupportedTransport(reason: string): TransportFrontmatterResult {
-  return Object.freeze({ kind: "unsupported", reason });
+  return Object.freeze(output);
 }
 
 function fileSpan(
@@ -422,36 +353,6 @@ function fileSpan(
   range: SourceRange | undefined,
 ): Readonly<{ file: SourceFile; start: number; end: number }> | undefined {
   return range === undefined ? undefined : { file, start: range.start, end: range.end };
-}
-
-function invalidOutcome(
-  file: SourceFile,
-  diagnostics: readonly Diagnostic[],
-): Extract<CompileOutcome<never>, { kind: "invalid" }> {
-  const first = diagnostics[0];
-
-  if (first === undefined) {
-    throw new Error("Invalid compilation outcome requires a diagnostic");
-  }
-
-  const nonEmpty: readonly [Diagnostic, ...Diagnostic[]] = Object.freeze([
-    first,
-    ...diagnostics.slice(1),
-  ]);
-
-  return Object.freeze({
-    kind: "invalid",
-    file,
-    diagnostics: nonEmpty,
-  });
-}
-
-function compilerLimit(error: CompileError): CompileLimit | undefined {
-  return error.issue.kind === "generatedCodeLimit"
-    ? "maximumGeneratedCodeBytes"
-    : error.issue.kind === "sourceMapLimit"
-      ? "maximumSourceMapBytes"
-      : undefined;
 }
 
 /**
@@ -581,21 +482,29 @@ function emitMissingReferenceHelper(writer: CodeWriter): void {
   );
 }
 
-function enforceGeneratedCodeLimit(code: string, configuredMaximum: number | undefined): void {
+function enforceGeneratedCodeLimit(
+  file: SourceFile,
+  code: string,
+  configuredMaximum: number | undefined,
+): void {
   const maximum = configuredMaximum ?? defaultMaximumGeneratedCodeBytes;
   const actual = new TextEncoder().encode(code).byteLength;
 
   if (actual > maximum) {
-    CompileError.generatedCodeLimitExceeded(actual, maximum);
+    throw LimitError.exceeded(file, "maximumGeneratedCodeBytes", maximum, undefined, actual);
   }
 }
 
-function enforceSourceMapLimit(map: SourceMap, configuredMaximum: number | undefined): void {
+function enforceSourceMapLimit(
+  file: SourceFile,
+  map: SourceMap,
+  configuredMaximum: number | undefined,
+): void {
   const maximum = configuredMaximum ?? defaultMaximumSourceMapBytes;
   const actual = new TextEncoder().encode(JSON.stringify(map)).byteLength;
 
   if (actual > maximum) {
-    CompileError.sourceMapLimitExceeded(actual, maximum);
+    throw LimitError.exceeded(file, "maximumSourceMapBytes", maximum, undefined, actual);
   }
 }
 

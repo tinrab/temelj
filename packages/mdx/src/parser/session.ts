@@ -122,7 +122,7 @@ export class ParserSession {
       edit.end < edit.start ||
       edit.end > this.#source.length
     ) {
-      InputError.replacementRangeOutsideSource(edit.start, edit.end, this.#source.length);
+      throw InputError.replacementRangeOutsideSource(edit.start, edit.end, this.#source.length);
     }
 
     const nextSource = this.#source.slice(0, edit.start) + edit.text + this.#source.slice(edit.end);

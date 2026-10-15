@@ -1,4 +1,11 @@
-import { formatHtml, htmlText, MdxStream, previewDocument, streamBlockEvents } from "@temelj/mdx";
+import {
+  formatHtml,
+  htmlText,
+  MdxStream,
+  ParseError,
+  previewDocument,
+  streamBlockEvents,
+} from "@temelj/mdx";
 import { act, cleanup, render, renderHook } from "@testing-library/react";
 import React from "react";
 import { hydrateRoot } from "react-dom/client";
@@ -59,7 +66,9 @@ it("appends, edits, completes and explicitly resets with stable methods", () => 
 
 it("can repair unsuccessful completion and applies limits", () => {
   const { result } = renderHook(() => useMdxStream({ source: "<Alert" }));
-  void act(() => result.current.complete());
+  act(() => {
+    expect(() => result.current.complete()).toThrow(ParseError);
+  });
   expect(result.current.view).toMatchObject({
     kind: "failed",
     diagnostics: [{ code: "mdx.jsx.invalid" }],
@@ -202,9 +211,8 @@ it("consumes a transport, batching publishes and completing at EOF", async () =>
     },
   });
 
-  const completion = await store.consume(new Response(body));
+  await store.consume(new Response(body));
 
-  expect(completion.kind).toBe("ok");
   expect(text(store.getSnapshot())).toBe("Title\nBody \u00e9nd");
   // One batched append and one completion.
   expect(listener).toHaveBeenCalledTimes(2);

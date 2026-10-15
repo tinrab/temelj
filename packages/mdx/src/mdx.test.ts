@@ -11,6 +11,7 @@ import {
   MdxStream,
   nodeText,
   parse,
+  ParseError,
   Processor,
   previewDocument,
   rewriteHtml,
@@ -59,7 +60,7 @@ describe("MDX", () => {
       "",
     ].join("\n");
 
-    const report = expectParsed(parse(source));
+    const report = parse(source);
 
     expect(report.document.kind).toBe("document");
     expect(selectNodes(report.document, "table")).toHaveLength(1);
@@ -69,19 +70,17 @@ describe("MDX", () => {
   });
 
   it("enables optional syntax without selecting a language profile", () => {
-    const report = expectParsed(parse("$x$\n", { syntax: { math: "dollar" } }));
+    const report = parse("$x$\n", { syntax: { math: "dollar" } });
     expect(report.document.children[0]?.kind).toBe("paragraph");
   });
 
   it("formats through nodes", () => {
-    const document = expectParsed(parse("# Title\n\nText\n")).document;
-    expect(nodeText(expectParsed(parse(formatMdx(document))).document)).toBe(nodeText(document));
+    const document = parse("# Title\n\nText\n").document;
+    expect(nodeText(parse(formatMdx(document)).document)).toBe(nodeText(document));
   });
 
   it("renders executable source inertly and omits ESM", () => {
-    const document = expectParsed(
-      parse("<Widget>{value}</Widget>\n\nexport const value = 1\n"),
-    ).document;
+    const document = parse("<Widget>{value}</Widget>\n\nexport const value = 1\n").document;
 
     const html = formatHtml(lowerHtml(document));
     expect(html).toContain("&lt;Widget>{value}&lt;/Widget>");
@@ -90,7 +89,7 @@ describe("MDX", () => {
 
   it("renders tables without whitespace in table-only containers", () => {
     const source = ["| Name | Count |", "| - | -: |", "| Alpha | 1 |"].join("\n");
-    const html = formatHtml(lowerHtml(expectParsed(parse(source)).document));
+    const html = formatHtml(lowerHtml(parse(source).document));
 
     expect(html).toBe(
       '<table><thead><tr><th>Name</th><th align="right">Count</th></tr></thead>' +
@@ -100,14 +99,12 @@ describe("MDX", () => {
 
   it("uses the processor for configured parsing and HTML", async () => {
     const processor = new Processor();
-    const parsed = expectParsed(processor.parse("# Hello\n"));
+    const parsed = processor.parse("# Hello\n");
     expect(formatMdx(parsed.document)).toBe("# Hello");
-    expect(formatHtml(expectProcessed(processor.processSync("# Hello\n")).html)).toContain(
-      "<h1>Hello</h1>",
-    );
+    expect(formatHtml(processor.processSync("# Hello\n").html)).toContain("<h1>Hello</h1>");
 
     const compiled = await compile(parsed, { outputFormat: "program" });
-    expect(compiled.kind === "ok" ? compiled.artifact.code : "").toContain("function Content");
+    expect(compiled.artifact.code).toContain("function Content");
   });
 
   it("runs plugins in the supplied order and permits duplicate names", async () => {
@@ -162,8 +159,7 @@ describe("MDX", () => {
       '{"fileName":"kernel.cu","highlightLines":"2,4-6","lineNumbers":{"start":20},"commandLines":"1-3","custom":42}',
     );
 
-    expect(result.kind).toBe("ok");
-    expect(result.metadata).toMatchObject({
+    expect(result).toMatchObject({
       fileName: "kernel.cu",
       highlightedLines: {
         kind: "ranges",
@@ -179,14 +175,17 @@ describe("MDX", () => {
       lineNumbers: { lines: { kind: "all" }, start: 20 },
     });
 
-    const invalid = parseCodeBlockMetadata(
-      '{"highlightLines":"0,3-2","lineNumbers":{"start":0},"fileName":""}',
+    expect(() =>
+      parseCodeBlockMetadata('{"highlightLines":"0,3-2","lineNumbers":{"start":0},"fileName":""}'),
+    ).toThrow(
+      expect.objectContaining({
+        issues: [
+          { field: "fileName", message: expect.any(String) },
+          { field: "highlightLines", message: expect.any(String) },
+          { field: "lineNumbers", message: expect.any(String) },
+        ],
+      }),
     );
-
-    expect(invalid).toMatchObject({
-      kind: "invalid",
-      issues: [{ field: "fileName" }, { field: "highlightLines" }, { field: "lineNumbers" }],
-    });
   });
 
   it("highlights owned code blocks with metadata, caching, and source origins", () => {
@@ -217,11 +216,9 @@ describe("MDX", () => {
       "```",
     ].join("\n");
 
-    const outcome = expectProcessed(
-      new Processor({ htmlPlugins: [new SyntaxHighlightPlugin({ highlighter })] }).processSync(
-        source,
-      ),
-    );
+    const outcome = new Processor({
+      htmlPlugins: [new SyntaxHighlightPlugin({ highlighter })],
+    }).processSync(source);
 
     const blocks = outcome.html.children.filter(
       (node): node is HtmlElementNode =>
@@ -254,11 +251,9 @@ describe("MDX", () => {
         "```",
       ].join("\n");
 
-      const outcome = expectProcessed(
-        new Processor({
-          htmlPlugins: [new SyntaxHighlightPlugin({ highlighter })],
-        }).processSync(source),
-      );
+      const outcome = new Processor({
+        htmlPlugins: [new SyntaxHighlightPlugin({ highlighter })],
+      }).processSync(source);
 
       const html = formatHtml(outcome.html);
 
@@ -292,8 +287,8 @@ describe("MDX", () => {
       state: "pending",
       attributes: [{ kind: "jsxAttribute", name: "title", value: "Info" }],
     });
-    expect(stream.complete().kind).toBe("invalid");
-    expect(parse('<Alert title="Info" ').kind).toBe("invalid");
+    expect(() => stream.complete()).toThrow(ParseError);
+    expect(() => parse('<Alert title="Info" ')).toThrow(ParseError);
   });
 
   it("commits complete JSX before the stream completes", () => {
@@ -344,7 +339,7 @@ describe("MDX", () => {
     }
 
     expect(formatHtml({ kind: "root", children: unresolved.nodes })).toContain("[manual][docs]");
-    expect(stream.complete().kind).toBe("ok");
+    stream.complete();
     expect(() => stream.append("more")).toThrow(InputError);
   });
 
@@ -368,23 +363,3 @@ describe("MDX", () => {
     expect(formatHtml(rewritten)).toBe("<h2>Heading</h2>");
   });
 });
-
-function expectParsed(
-  outcome: ReturnType<typeof parse>,
-): Extract<ReturnType<typeof parse>, { kind: "ok" }> {
-  if (outcome.kind !== "ok") {
-    throw new Error(`Expected parsed outcome, received ${outcome.kind}`);
-  }
-
-  return outcome;
-}
-
-function expectProcessed(
-  outcome: ReturnType<Processor["processSync"]>,
-): Extract<ReturnType<Processor["processSync"]>, { kind: "ok" }> {
-  if (outcome.kind !== "ok") {
-    throw new Error(`Expected processed outcome, received ${outcome.kind}`);
-  }
-
-  return outcome;
-}

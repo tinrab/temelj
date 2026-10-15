@@ -17,10 +17,6 @@ test("locates UTF-16 offsets across every CommonMark line ending", () => {
 test("parses into plain JSON-serializable data", () => {
   const parsed = parse("# Title\n\nSome *text* with [a link](/x).\n\n- [x] done");
 
-  if (parsed.kind !== "ok") {
-    throw new Error("Expected a parsed document");
-  }
-
   expect(JSON.parse(JSON.stringify(parsed.document))).toEqual(parsed.document);
   expect(parsed.document.children[0]).toEqual({
     kind: "heading",

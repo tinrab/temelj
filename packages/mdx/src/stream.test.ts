@@ -119,10 +119,6 @@ describe("streaming regressions", () => {
     const snapshot = preview(source);
     const parsed = parse(source);
 
-    if (parsed.kind !== "ok") {
-      throw new Error("Expected valid fixture");
-    }
-
     expect(html(snapshot)).toBe(formatHtml(lowerHtml(parsed.document)));
   });
 
@@ -200,11 +196,6 @@ describe("stream cache validity", () => {
 
     const final = stream.complete();
     const batch = parse(final.file.text);
-    expect(final.kind).toBe("ok");
-
-    if (final.kind !== "ok" || batch.kind !== "ok") {
-      throw new Error("Expected parsed completion");
-    }
 
     expect(final.document).toEqual(batch.document);
     expect(formatHtml(lowerHtml(final.document))).toBe(formatHtml(lowerHtml(batch.document)));
@@ -269,9 +260,7 @@ describe("long open blocks", () => {
 
       const completion = stream.complete();
       const batch = parse(source);
-      expect(completion.kind === "ok" ? completion.document : completion.kind).toEqual(
-        batch.kind === "ok" ? batch.document : batch.kind,
-      );
+      expect(completion.document).toEqual(batch.document);
     },
   );
 
@@ -422,7 +411,7 @@ it.each([
 ] as const)("uses strict node counting for %s", (source, maximumNodes) => {
   const options = { source, limits: { maximumNodes } };
   expect(status(new MdxStream(options).append(""))).toBe("valid");
-  expect(parse(source, { limits: options.limits }).kind).toBe("ok");
+  parse(source, { limits: options.limits });
 });
 
 it("bounds the whole pending container", () => {

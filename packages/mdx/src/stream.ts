@@ -19,14 +19,14 @@ const defaultMaximumPendingBlockLength = 4 * 1024 * 1024;
 export class MdxStream {
   readonly #session: StreamSession;
   readonly #listeners = new Set<(change: MdxStreamChange) => void>();
-  #completion: Extract<MdxStreamCompletion, { kind: "ok" }> | undefined;
+  #completion: MdxStreamCompletion | undefined;
 
   public constructor(options: MdxStreamOptions = {}) {
     const { maximumPendingBlockLength = defaultMaximumPendingBlockLength, ...limits } =
       options.limits ?? {};
 
     if (!Number.isSafeInteger(maximumPendingBlockLength) || maximumPendingBlockLength < 1) {
-      ConfigurationError.invalidStreamLimit(
+      throw ConfigurationError.invalidStreamLimit(
         "maximumPendingBlockLength",
         maximumPendingBlockLength,
         1,
@@ -61,7 +61,7 @@ export class MdxStream {
       edit.end < edit.start ||
       edit.end > length
     ) {
-      InputError.replacementRangeOutsideSource(edit.start, edit.end, length);
+      throw InputError.replacementRangeOutsideSource(edit.start, edit.end, length);
     }
 
     return this.publish(this.#session.edit(edit));
@@ -74,6 +74,8 @@ export class MdxStream {
   /**
    * Finishes the document strictly. Success is terminal; after a failure the
    * stream stays open, so an edit can repair it.
+   * @throws {ParseError} Invalid authored syntax.
+   * @throws {LimitError} An exceeded parser limit.
    */
   public complete(): MdxStreamCompletion {
     if (this.#completion !== undefined) {
@@ -82,9 +84,7 @@ export class MdxStream {
 
     const completion = this.#session.complete();
 
-    if (completion.kind === "ok") {
-      this.#completion = completion;
-    }
+    this.#completion = completion;
 
     return completion;
   }
@@ -106,7 +106,7 @@ export class MdxStream {
 
   private assertOpen(): void {
     if (this.#completion !== undefined) {
-      InputError.streamCompleted();
+      throw InputError.streamCompleted();
     }
   }
 }

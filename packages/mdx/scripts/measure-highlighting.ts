@@ -11,7 +11,7 @@ const startupMs = performance.now() - started;
 
 try {
   const highlighter = createShikiHighlighter(shiki, { theme: "github-light" });
-  const metadata = parseCodeBlockMetadata("").metadata;
+  const metadata = parseCodeBlockMetadata("");
   const results = [];
 
   for (const lines of [20, 100, 400]) {

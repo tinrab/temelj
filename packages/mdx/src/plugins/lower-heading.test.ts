@@ -35,9 +35,5 @@ describe("LowerHeadingPlugin", () => {
 });
 
 function processed(outcome: ReturnType<Processor["processSync"]>) {
-  if (outcome.kind !== "ok") {
-    throw new Error(`Expected processed outcome, received ${outcome.kind}`);
-  }
-
   return outcome;
 }

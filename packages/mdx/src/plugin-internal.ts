@@ -77,10 +77,21 @@ function runPlugins<TTree, TContext>(
     run.signal?.throwIfAborted();
     const plugin = plugins[index];
     const diagnosticStart = run.diagnostics.size;
-    const previous = current;
 
-    const accept = (result: TTree): TTree =>
-      run.diagnostics.hasErrorsSince(diagnosticStart) ? previous : result;
+    const accept = (result: TTree): TTree => {
+      run.signal?.throwIfAborted();
+
+      if (run.diagnostics.hasErrorsSince(diagnosticStart)) {
+        throw TransformError.pluginReportedErrors(
+          stage,
+          plugin.name,
+          run.file,
+          run.diagnostics.snapshot(),
+        );
+      }
+
+      return result;
+    };
 
     const fail = (cause: unknown): never => {
       run.signal?.throwIfAborted();
@@ -89,14 +100,27 @@ function runPlugins<TTree, TContext>(
         throw cause;
       }
 
-      TransformError.pluginTransformFailed(stage, plugin.name, cause);
+      throw TransformError.pluginTransformFailed(
+        stage,
+        plugin.name,
+        run.file,
+        run.diagnostics.snapshot(),
+        cause,
+      );
     };
 
-    const result = transformWith(plugin, context(current), fail);
+    let result: TTree | Promise<TTree>;
+
+    try {
+      result = plugin.transform(context(current));
+    } catch (cause) {
+      return fail(cause);
+    }
 
     if (isPromise(result)) {
       if (run.synchronous) {
-        ConfigurationError.asynchronousPluginInSynchronousProcessor();
+        void result.catch(() => {});
+        throw ConfigurationError.asynchronousPluginInSynchronousProcessor();
       }
 
       const remaining = plugins.slice(index + 1);
@@ -110,18 +134,6 @@ function runPlugins<TTree, TContext>(
   }
 
   return current;
-}
-
-function transformWith<TTree, TContext>(
-  plugin: Plugin<TTree, TContext>,
-  context: TContext,
-  fail: (cause: unknown) => never,
-): TTree | Promise<TTree> {
-  try {
-    return plugin.transform(context);
-  } catch (cause) {
-    return fail(cause);
-  }
 }
 
 export type HtmlNodeReplacement = HtmlNode | null | undefined;

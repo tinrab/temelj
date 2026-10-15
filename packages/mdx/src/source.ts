@@ -123,7 +123,7 @@ export class SourceFile {
 
   public location(offset: number): SourceLocation {
     if (!Number.isInteger(offset) || offset < 0 || offset > this.length) {
-      InputError.sourceOffsetOutsideFile(offset, this.length);
+      throw InputError.sourceOffsetOutsideFile(offset, this.length);
     }
 
     let low = 0;
@@ -168,7 +168,7 @@ export class SourceFile {
 
   public character(offset: number): string | undefined {
     if (!Number.isSafeInteger(offset) || offset < 0 || offset > this.length) {
-      InputError.sourceOffsetOutsideFile(offset, this.length);
+      throw InputError.sourceOffsetOutsideFile(offset, this.length);
     }
 
     const value = this.#source.char(offset);
@@ -184,7 +184,7 @@ export class SourceFile {
       range.end < range.start ||
       range.end > this.length
     ) {
-      InputError.replacementRangeOutsideSource(range.start, range.end, this.length);
+      throw InputError.replacementRangeOutsideSource(range.start, range.end, this.length);
     }
 
     return this.#source.slice(range.start, range.end);

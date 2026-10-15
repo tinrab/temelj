@@ -1,7 +1,6 @@
 import type { Diagnostic } from "./diagnostics.ts";
 import type { HtmlFootnoteSectionNode, HtmlNode } from "./html.ts";
-import type { DocumentNode } from "./model.ts";
-import type { MdxOutcome } from "./outcome.ts";
+import type { ParseResult } from "./parser.ts";
 import type { ParserLimit, ParserLimits } from "./parser/config.ts";
 import type { SourceRange } from "./ranges.ts";
 import type { SourceFile } from "./source.ts";
@@ -66,11 +65,11 @@ export interface CompletedBlock {
   readonly origin: SourceRange;
 }
 
-export type MdxStreamCompletion = MdxOutcome<{
-  document: DocumentNode;
+export interface MdxStreamCompletion extends ParseResult {
+  readonly kind: "complete";
   /** The stream blocks that make up the document, with the identities they streamed with. */
-  blocks: readonly CompletedBlock[];
-}>;
+  readonly blocks: readonly CompletedBlock[];
+}
 
 export interface MdxStreamLimits extends ParserLimits {
   /** The longest top-level block that can contain open syntax. */
