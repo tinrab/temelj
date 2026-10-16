@@ -23,15 +23,6 @@ export function formatHtml(node: HtmlNode, options: HtmlFormatOptions = {}): str
   return new HtmlFormatter(options).format(node);
 }
 
-/** Serializes already-rendered children using the same element rules as strict HTML. */
-export function formatHtmlElement(
-  tagName: string,
-  attributes: HtmlAttributes,
-  content: string,
-): string {
-  return new HtmlFormatter({}).element(tagName, attributes, content);
-}
-
 const tagNamePattern = /^[A-Za-z][A-Za-z0-9:-]*$/u;
 
 const attributeNamePattern = /[\0\t\n\f\r "&'/<=>`]/gu;

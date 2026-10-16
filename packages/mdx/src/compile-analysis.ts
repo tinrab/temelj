@@ -13,6 +13,7 @@ import {
   type EmittedEsm,
   type ParsedEsm,
 } from "./compile-esm.ts";
+import { CompileNames } from "./compile-names.ts";
 import { htmlChildren, htmlFallback, pendingFallback } from "./html.ts";
 import { analyzeJavaScriptExpression } from "./javascript-jsx.ts";
 import { hasJavaScriptToken } from "./javascript.ts";
@@ -30,6 +31,7 @@ export interface CompileAnalysis {
   readonly esm: EmittedEsm;
   readonly intrinsicTags: ReadonlySet<string>;
   readonly scope: CompileScope;
+  readonly propsName: string;
 }
 
 export function analyzeDocument(
@@ -44,11 +46,13 @@ export function analyzeDocument(
 ): CompileAnalysis {
   const inScope = new Set<string>();
   const authoredEsm: ParsedEsm[] = [];
+  const names = new CompileNames();
 
   for (const child of document.children) {
     if (child.kind === "esm") {
       const parsed = parseEsm(child.code, child.origin);
       collectEsmBindings(parsed.program, inScope);
+      names.reserveJavaScript(parsed.program);
       authoredEsm.push(parsed);
     }
   }
@@ -57,12 +61,16 @@ export function analyzeDocument(
     development: options.development ?? false,
     file: options.source,
     inScope,
+    names,
     missingReferences: new Map(),
     referencedComponents: new Set(),
     sourceName: options.sourceName ?? options.source?.name ?? "source.mdx",
   };
 
-  // ESM may render JSX, but its references never become required content components.
+  const intrinsicTags = new Set<string>();
+  analyzeContent(content, scope, intrinsicTags);
+
+  // Name reservation finishes before emission. ESM JSX never requires content components.
   const esm = emitEsm(
     authoredEsm,
     options.outputFormat ?? "functionBody",
@@ -70,10 +78,12 @@ export function analyzeDocument(
     scope.file,
   );
 
-  const intrinsicTags = new Set<string>();
-  analyzeContent(content, scope, intrinsicTags);
-
-  return { esm, intrinsicTags, scope };
+  return {
+    esm,
+    intrinsicTags,
+    scope,
+    propsName: inScope.has("props") ? names.get("_props") : "props",
+  };
 }
 
 function analyzeContent(node: HtmlNode, scope: CompileScope, intrinsicTags: Set<string>): void {
@@ -87,8 +97,16 @@ function analyzeContent(node: HtmlNode, scope: CompileScope, intrinsicTags: Set<
       }
 
       break;
-    case "jsx":
-      recordJsxReference(resolveJsxName(node.name), scope);
+    case "jsx": {
+      if (node.name !== undefined) {
+        const resolved = resolveJsxName(node.name);
+
+        if (resolved.base !== undefined) {
+          scope.names.reserve(resolved.base);
+        }
+
+        recordJsxReference(resolved, scope);
+      }
 
       for (const attribute of node.attributes) {
         if (attribute.kind === "jsxSpreadAttribute") {
@@ -99,6 +117,8 @@ function analyzeContent(node: HtmlNode, scope: CompileScope, intrinsicTags: Set<
       }
 
       break;
+    }
+
     case "codeBlock":
     case "math":
     case "footnoteReference":

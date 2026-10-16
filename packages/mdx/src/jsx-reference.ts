@@ -7,14 +7,10 @@ export interface JsxReferenceContext {
 export interface ResolvedJsxName {
   readonly base: string | undefined;
   readonly expression: string;
-  readonly name: string | undefined;
+  readonly name: string;
 }
 
-export function resolveJsxName(name: string | undefined): ResolvedJsxName {
-  if (name === undefined) {
-    return { base: undefined, expression: "_Fragment", name };
-  }
-
+export function resolveJsxName(name: string): ResolvedJsxName {
   if (name.includes(":")) {
     return { base: undefined, expression: JSON.stringify(name), name };
   }
@@ -29,7 +25,7 @@ export function resolveJsxName(name: string | undefined): ResolvedJsxName {
 export function recordJsxReference(resolved: ResolvedJsxName, context: JsxReferenceContext): void {
   const { base, name } = resolved;
 
-  if (base === undefined || name === undefined) {
+  if (base === undefined) {
     return;
   }
 

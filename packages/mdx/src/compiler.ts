@@ -143,11 +143,13 @@ function emitArtifact(
     emitPublicComponent(writer, analysis, options, usesAwait, format);
 
     if (analysis.scope.missingReferences.size > 0) {
-      emitMissingReferenceHelper(writer);
+      emitMissingReferenceHelper(writer, analysis);
     }
 
     if (format === "functionBody") {
-      writer.write(`return {${[...analysis.esm.exports, "default: Content"].join(", ")}};\n`);
+      writer.write(
+        `return {${[...analysis.esm.exports, `default: ${analysis.scope.names.get("Content")}`].join(", ")}};\n}\n`,
+      );
     }
 
     const code = writer.toString();
@@ -340,7 +342,10 @@ function copyTransportValue(
 
     const item = copyTransportValue(descriptor.value, `${path}.${key}`, context);
 
-    output[key] = item;
+    Object.defineProperty(output, key, {
+      enumerable: true,
+      value: item,
+    });
   }
 
   ancestors.delete(value);
@@ -366,13 +371,11 @@ function emitModulePreamble(
   options: Readonly<CompileOptions>,
   format: CompileOutputFormat,
 ): void {
-  for (const entry of analysis.esm.blocks) {
-    writer.write(`${entry.code.trimEnd()}\n`, entry.origin);
-  }
+  const names = analysis.scope.names;
 
   const runtime = analysis.scope.development
-    ? "{Fragment: _Fragment, jsxDEV: _jsxDEV}"
-    : "{Fragment: _Fragment, jsx: _jsx, jsxs: _jsxs}";
+    ? `{Fragment: ${names.get("_Fragment")}, jsxDEV: ${names.get("_jsxDEV")}}`
+    : `{Fragment: ${names.get("_Fragment")}, jsx: ${names.get("_jsx")}, jsxs: ${names.get("_jsxs")}}`;
 
   const importSource = `${options.jsxImportSource ?? "react"}/${
     analysis.scope.development ? "jsx-dev-runtime" : "jsx-runtime"
@@ -384,11 +387,24 @@ function emitModulePreamble(
       : `const ${runtime} = __mdxRuntime;\n`,
   );
 
+  if (format === "functionBody") {
+    if (analysis.esm.imports.length > 0 || options.providerImportSource !== undefined) {
+      writer.write(`const ${names.get("_resolveMdxImport")} = __resolveMdxImport;\n`);
+    }
+
+    // Authored lexical bindings may use the evaluator's parameter names.
+    writer.write("{\n");
+  }
+
+  for (const entry of analysis.esm.blocks) {
+    writer.write(`${entry.code.trimEnd()}\n`, entry.origin);
+  }
+
   if (options.providerImportSource !== undefined) {
     writer.write(
       format === "program"
-        ? `import {useMDXComponents as _provideComponents} from ${JSON.stringify(options.providerImportSource)};\n`
-        : `const {useMDXComponents: _provideComponents} = await __resolveMdxImport(${JSON.stringify(options.providerImportSource)});\n`,
+        ? `import {useMDXComponents as ${names.get("_provideComponents")}} from ${JSON.stringify(options.providerImportSource)};\n`
+        : `const {useMDXComponents: ${names.get("_provideComponents")}} = await ${names.get("_resolveMdxImport")}(${JSON.stringify(options.providerImportSource)});\n`,
     );
   }
 }
@@ -400,8 +416,11 @@ function emitContentFunction(
   options: Readonly<CompileOptions>,
   usesAwait: boolean,
 ): void {
-  writer.write(`${usesAwait ? "async " : ""}function _createContent(props) {\n`);
-  writer.write("  const _components = {");
+  const names = analysis.scope.names;
+  const props = analysis.propsName;
+  const componentsName = names.get("_components");
+  writer.write(`${usesAwait ? "async " : ""}function ${names.get("_createContent")}(${props}) {\n`);
+  writer.write(`  const ${componentsName} = {`);
   const tags = [...analysis.intrinsicTags].sort();
   tags.forEach((tag, index) => {
     if (index > 0) {
@@ -412,22 +431,22 @@ function emitContentFunction(
   });
 
   if (options.providerImportSource !== undefined) {
-    writer.write(`${tags.length === 0 ? "" : ", "}..._provideComponents()`);
+    writer.write(`${tags.length === 0 ? "" : ", "}...${names.get("_provideComponents")}()`);
   }
 
   writer.write(
-    `${tags.length === 0 && options.providerImportSource === undefined ? "" : ", "}...props.components};\n`,
+    `${tags.length === 0 && options.providerImportSource === undefined ? "" : ", "}...${props}.components};\n`,
   );
 
   const components = [...analysis.scope.referencedComponents].sort();
 
   for (const component of components) {
-    writer.write(`  const ${component} = _components[${JSON.stringify(component)}];\n`);
+    writer.write(`  const ${component} = ${componentsName}[${JSON.stringify(component)}];\n`);
   }
 
   for (const [reference, component] of analysis.scope.missingReferences) {
     writer.write(
-      `  if (!${reference}) _missingReference(${JSON.stringify(reference)}, ${component});\n`,
+      `  if (!${reference}) ${names.get("_missingReference")}(${JSON.stringify(reference)}, ${component});\n`,
     );
   }
 
@@ -443,41 +462,45 @@ function emitPublicComponent(
   usesAwait: boolean,
   format: CompileOutputFormat,
 ): void {
+  const names = analysis.scope.names;
+  const props = analysis.propsName;
+  const layout = names.get("Layout");
   writer.write(
-    `${format === "program" ? "export default " : ""}${usesAwait ? "async " : ""}function Content(props = {}) {\n`,
+    `${format === "program" ? "export default " : ""}${usesAwait ? "async " : ""}function ${names.get("Content")}(${props} = {}) {\n`,
   );
-  const content = `${usesAwait ? "await " : ""}_createContent(props)`;
+  const content = `${usesAwait ? "await " : ""}${names.get("_createContent")}(${props})`;
 
   if (analysis.esm.hasLayout) {
     writer.write(
-      `  return ${runtimeCall(analysis, "Layout", `{...props, children: ${content}}`)};\n`,
+      `  return ${runtimeCall(analysis, layout, `{...${props}, children: ${content}}`)};\n`,
     );
   } else {
-    writer.write("  const {wrapper: Layout} = {");
+    writer.write(`  const {wrapper: ${layout}} = {`);
 
     if (options.providerImportSource !== undefined) {
-      writer.write("..._provideComponents(), ");
+      writer.write(`...${names.get("_provideComponents")}(), `);
     }
 
-    writer.write("...props.components};\n");
+    writer.write(`...${props}.components};\n`);
     writer.write(
-      `  return Layout ? ${runtimeCall(analysis, "Layout", `{...props, children: ${content}}`)} : ${content};\n`,
+      `  return ${layout} ? ${runtimeCall(analysis, layout, `{...${props}, children: ${content}}`)} : ${content};\n`,
     );
   }
 
   writer.write("}\n");
 }
 
-function emitMissingReferenceHelper(writer: CodeWriter): void {
+function emitMissingReferenceHelper(writer: CodeWriter, analysis: CompileAnalysis): void {
+  const names = analysis.scope.names;
   writer.write(
-    "class ReferenceError extends Error {\n" +
+    `class ${names.get("ReferenceError")} extends Error {\n` +
       "  constructor(id, component) {\n" +
       '    super(`Expected ${component ? "component" : "object"} ${id} to be defined: you likely forgot to import, pass, or provide it.`);\n' +
       '    this.name = "ReferenceError";\n' +
       "  }\n" +
       "}\n" +
-      "function _missingReference(id, component) {\n" +
-      "  throw new ReferenceError(id, component);\n" +
+      `function ${names.get("_missingReference")}(id, component) {\n` +
+      `  throw new ${names.get("ReferenceError")}(id, component);\n` +
       "}\n",
   );
 }
@@ -510,6 +533,6 @@ function enforceSourceMapLimit(
 
 function runtimeCall(analysis: CompileAnalysis, tag: string, properties: string): string {
   return analysis.scope.development
-    ? `_jsxDEV(${tag}, ${properties}, undefined, false, undefined, undefined)`
-    : `_jsx(${tag}, ${properties})`;
+    ? `${analysis.scope.names.get("_jsxDEV")}(${tag}, ${properties}, undefined, false, undefined, undefined)`
+    : `${analysis.scope.names.get("_jsx")}(${tag}, ${properties})`;
 }

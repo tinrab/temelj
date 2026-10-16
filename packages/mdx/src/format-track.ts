@@ -8,33 +8,32 @@ export interface FormatTrackInfo {
   readonly lineShift: number;
 }
 
-export interface FormatTracker {
-  current(): FormatTrackInfo;
-  move(value: string): string;
-  shift(value: number): void;
-}
+export class FormatTracker {
+  #line: number;
+  #column: number;
+  #lineShift: number;
 
-export function createFormatTracker(info: FormatTrackInfo): FormatTracker {
-  let line = info.now.line;
-  let column = info.now.column;
-  let lineShift = info.lineShift;
-
-  return { current, move, shift };
-
-  function current(): FormatTrackInfo {
-    return { now: { line, column }, lineShift };
+  public constructor(info: FormatTrackInfo) {
+    this.#line = info.now.line;
+    this.#column = info.now.column;
+    this.#lineShift = info.lineShift;
   }
 
-  function move(value: string): string {
+  public current(): FormatTrackInfo {
+    return { now: { line: this.#line, column: this.#column }, lineShift: this.#lineShift };
+  }
+
+  public move(value: string): string {
     const lines = value.split(/\r\n?|\n/gu);
     const tail = lines.at(-1) ?? "";
-    line += lines.length - 1;
-    column = lines.length === 1 ? column + tail.length : 1 + tail.length + lineShift;
+    this.#line += lines.length - 1;
+    this.#column =
+      lines.length === 1 ? this.#column + tail.length : 1 + tail.length + this.#lineShift;
 
     return value;
   }
 
-  function shift(value: number): void {
-    lineShift += value;
+  public shift(value: number): void {
+    this.#lineShift += value;
   }
 }

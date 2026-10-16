@@ -16,7 +16,7 @@ import type {
 import type { InlineSegment } from "./inline-input.ts";
 import type { RecognizerResult } from "./recognizer.ts";
 
-import { rangeLength, sourceRange } from "../ranges.ts";
+import { sourceRange } from "../ranges.ts";
 import { PhysicalLineScanner, type PhysicalLine } from "../source.ts";
 import {
   blockQuoteMarker,
@@ -48,8 +48,9 @@ import {
   trimLineEndingOffset,
 } from "./block-leaf-recognizers.ts";
 import { consumeIndent, isAsciiLetter, isBlank, isSpaceOrTab } from "./characters.ts";
-import { ExpressionBoundaryScanner, JsxBoundaryScanner } from "./embedded-scanner.ts";
+import { JsxBoundaryScanner } from "./embedded-scanner.ts";
 import { parseJavaScriptBoundary } from "./javascript-boundary.ts";
+import { JavaScriptScanner } from "./javascript-scanner.ts";
 import { matched, noMatch } from "./recognizer.ts";
 
 export interface BlockParserCheckpoint {
@@ -306,7 +307,7 @@ class LeafParser {
   /** Set on a tail draft: extensions are logged so the parser can undo them. */
   #draftLog: DraftLog | undefined;
   readonly #log: DraftLog = [];
-  #expressionScanner: ExpressionBoundaryScanner | undefined;
+  #expressionScanner: JavaScriptScanner | undefined;
   #jsxScanner: JsxBoundaryScanner | undefined;
 
   public constructor(syntax: ResolvedSyntaxOptions) {
@@ -785,7 +786,7 @@ class LeafParser {
     let result;
 
     if (embedded.value.kind === "expression") {
-      this.#expressionScanner = new ExpressionBoundaryScanner();
+      this.#expressionScanner = new JavaScriptScanner("}");
       result = this.#expressionScanner.append(text);
     } else {
       this.#jsxScanner = new JsxBoundaryScanner();
@@ -1441,10 +1442,6 @@ export function parseFlowRange(
   }
 
   return parser.finish(source);
-}
-
-export function blockLength(block: BlockSyntax): number {
-  return rangeLength(block.range);
 }
 
 /** An embedded flow line from its content to the end of the line, including the ending. */

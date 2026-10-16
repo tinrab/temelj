@@ -3,9 +3,10 @@ import type { InlineInput } from "./inline-input.ts";
 import type { InlineMatch } from "./inline-output.ts";
 import type { InlineSyntax } from "./inline-syntax.ts";
 
-import { ExpressionBoundaryScanner, JsxBoundaryScanner } from "./embedded-scanner.ts";
+import { JsxBoundaryScanner } from "./embedded-scanner.ts";
 import { textNode } from "./inline-output.ts";
 import { parseJavaScriptBoundary } from "./javascript-boundary.ts";
+import { JavaScriptScanner } from "./javascript-scanner.ts";
 
 // Inline JSX, raw HTML, autolinks in angle brackets, and expressions.
 
@@ -25,7 +26,7 @@ export function expressionNode(
   value: SourceText,
   start: number,
 ): OptionalInlineMatch | undefined {
-  const scanner = new ExpressionBoundaryScanner();
+  const scanner = new JavaScriptScanner("}");
   const structural = scanner.append(value.slice(start + 1));
 
   if (structural.kind === "open") {

@@ -277,7 +277,6 @@ export class TransformError extends MdxError {
 
 export type CompilationInvariant =
   | "defaultExportBindingMissing"
-  | "defaultExportDeclarationMissing"
   | "jsxAttributeExpressionEmpty"
   | "jsxAttributeNameMissing"
   | "jsxElementNameMissing"
@@ -322,15 +321,6 @@ export class CompileError extends MdxError {
       "MDX has more than one default export",
       undefined,
       CompileError.multipleDefaultExports,
-    );
-  }
-
-  public static defaultExportDeclarationMissing(this: void): CompileError {
-    return CompileError.invalidDocument(
-      "defaultExportDeclarationMissing",
-      "Default MDX export has no declaration",
-      undefined,
-      CompileError.defaultExportDeclarationMissing,
     );
   }
 

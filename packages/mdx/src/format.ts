@@ -42,7 +42,7 @@ import {
   type FormatUnsafePattern,
 } from "./format-safe.ts";
 import { formatTable, formatTableCell, formatTableRow } from "./format-table.ts";
-import { createFormatTracker } from "./format-track.ts";
+import { FormatTracker } from "./format-track.ts";
 import { normalizeIdentifier } from "./identifier.ts";
 import { mdxChildren } from "./model.ts";
 import {
@@ -220,7 +220,7 @@ class Formatter implements FormatSafetyState, FormatContext {
   }
 
   public flow(nodes: readonly MdxNode[], info: FormatInfo, spread?: boolean): string {
-    const tracker = createFormatTracker(info);
+    const tracker = new FormatTracker(info);
     const output: string[] = [];
 
     for (let index = 0; index < nodes.length; index++) {
@@ -269,7 +269,7 @@ class Formatter implements FormatSafetyState, FormatContext {
   }
 
   public phrasing(nodes: readonly MdxNode[], info: FormatInfo): string {
-    let tracker = createFormatTracker(info);
+    let tracker = new FormatTracker(info);
     const output: string[] = [];
     let before = info.before;
 
@@ -297,7 +297,7 @@ class Formatter implements FormatSafetyState, FormatContext {
           encodeLineEnding(ending),
         );
         before = ";";
-        tracker = createFormatTracker(info);
+        tracker = new FormatTracker(info);
         tracker.move(output.join(""));
       }
 
@@ -342,7 +342,7 @@ class Formatter implements FormatSafetyState, FormatContext {
     const sequence = "#".repeat(node.depth);
     const exit = this.enter("headingAtx");
     const exitPhrasing = this.enter("phrasing");
-    const tracker = createFormatTracker(info);
+    const tracker = new FormatTracker(info);
     tracker.move(`${sequence} `);
 
     let content = this.phrasing(node.children, {
@@ -395,7 +395,7 @@ class Formatter implements FormatSafetyState, FormatContext {
     const marker = this.options.fence ?? "`";
     const suffix = marker === "`" ? "GraveAccent" : "Tilde";
     const sequence = marker.repeat(Math.max(3, longestRun(node.value, marker) + 1));
-    const tracker = createFormatTracker(info);
+    const tracker = new FormatTracker(info);
     let value = tracker.move(sequence);
 
     if (node.language !== undefined && node.language.length > 0) {
@@ -423,7 +423,7 @@ class Formatter implements FormatSafetyState, FormatContext {
 
   private blockQuote(node: BlockQuoteNode, info: FormatInfo): string {
     const exit = this.enter("blockquote");
-    const tracker = createFormatTracker(info);
+    const tracker = new FormatTracker(info);
     tracker.move("> ");
     tracker.shift(2);
 
@@ -482,7 +482,7 @@ class Formatter implements FormatSafetyState, FormatContext {
     }
 
     const prefix = `${marker}${" ".repeat(size - marker.length)}`;
-    const tracker = createFormatTracker(info);
+    const tracker = new FormatTracker(info);
     tracker.move(prefix);
     tracker.shift(size);
     const exit = this.enter("listItem");
@@ -510,7 +510,7 @@ class Formatter implements FormatSafetyState, FormatContext {
 
   private definition(node: DefinitionNode, info: FormatInfo): string {
     const exit = this.enter("definition");
-    const tracker = createFormatTracker(info);
+    const tracker = new FormatTracker(info);
     const exitLabel = this.enter("label");
     let value = tracker.move("[");
     value += tracker.move(formatAssociationIdentifier(node.identifier));
@@ -529,7 +529,7 @@ class Formatter implements FormatSafetyState, FormatContext {
 
   private footnoteDefinition(node: FootnoteDefinitionNode, info: FormatInfo): string {
     const exit = this.enter("footnoteDefinition");
-    const tracker = createFormatTracker(info);
+    const tracker = new FormatTracker(info);
     const exitLabel = this.enter("label");
     let value = tracker.move("[^");
     value += tracker.move(this.safe(node.label, { before: value, after: "]" }));
@@ -576,7 +576,7 @@ class Formatter implements FormatSafetyState, FormatContext {
   ): string {
     const sequence = strong ? marker + marker : marker;
     const exit = this.enter(strong ? "strong" : "emphasis");
-    const tracker = createFormatTracker(info);
+    const tracker = new FormatTracker(info);
     const before = tracker.move(sequence);
 
     const content = tracker.move(
@@ -598,7 +598,7 @@ class Formatter implements FormatSafetyState, FormatContext {
 
   private strikethrough(children: readonly MdxNode[], info: FormatInfo): string {
     const exit = this.enter("strikethrough");
-    const tracker = createFormatTracker(info);
+    const tracker = new FormatTracker(info);
     const before = tracker.move("~~");
 
     const content = tracker.move(
@@ -612,7 +612,7 @@ class Formatter implements FormatSafetyState, FormatContext {
 
   private link(node: LinkNode, info: FormatInfo): string {
     const exit = this.enter("link");
-    const tracker = createFormatTracker(info);
+    const tracker = new FormatTracker(info);
     const exitLabel = this.enter("label");
     let value = tracker.move("[");
     value += tracker.move(
@@ -633,7 +633,7 @@ class Formatter implements FormatSafetyState, FormatContext {
 
   private image(node: ImageNode, info: FormatInfo): string {
     const exit = this.enter("image");
-    const tracker = createFormatTracker(info);
+    const tracker = new FormatTracker(info);
     const exitLabel = this.enter("label");
     let value = tracker.move("![");
     value += tracker.move(this.safe(node.alt, { before: value, after: "]" }));

@@ -4,7 +4,7 @@ import type { MathFormat } from "./syntax-options.ts";
 
 import { InputError } from "./errors.ts";
 import { longestRun } from "./format-context.ts";
-import { createFormatTracker } from "./format-track.ts";
+import { FormatTracker } from "./format-track.ts";
 import { mdxChildren } from "./model.ts";
 
 // Inline and display math.
@@ -24,7 +24,7 @@ export function formatDisplayMath(
     }
 
     const exit = context.enter("mathFlow");
-    const tracker = createFormatTracker(info);
+    const tracker = new FormatTracker(info);
     let value = tracker.move("\\[");
     value += tracker.move("\n");
 
@@ -40,7 +40,7 @@ export function formatDisplayMath(
 
   const sequence = "$".repeat(Math.max(2, longestRun(node.value, "$") + 1));
   const exit = context.enter("mathFlow");
-  const tracker = createFormatTracker(info);
+  const tracker = new FormatTracker(info);
   let value = tracker.move(sequence);
 
   if (node.meta !== undefined && node.meta.length > 0) {

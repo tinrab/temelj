@@ -4,6 +4,7 @@ import type { JsxAttributeLike } from "../model.ts";
 import type { SourceRange } from "../ranges.ts";
 import type { SourceFile } from "../source.ts";
 
+import { CompileError } from "../errors.ts";
 import { childNode, nodeArray, nodeValue, type JavaScriptNode } from "../javascript-ast.ts";
 import { parseJavaScriptExpression } from "../javascript.ts";
 
@@ -19,93 +20,52 @@ export interface JsxParts {
 }
 
 export function jsxParts(authored: string, sourceOffset: number): JsxParts {
-  if (authored.startsWith("<>")) {
-    const close = authored.lastIndexOf("</>");
+  const element = parseJavaScriptExpression(authored);
+  const fragment = element.type === "JSXFragment";
+  const opening = childNode(nodeValue(element, fragment ? "openingFragment" : "openingElement"));
+  const closing = childNode(nodeValue(element, fragment ? "closingFragment" : "closingElement"));
 
-    return {
-      attributes: [],
-      children: close < 2 ? undefined : { start: sourceOffset + 2, end: sourceOffset + close },
-      name: undefined,
-    };
+  if (opening === undefined) {
+    throw CompileError.jsxElementOpeningMissing();
   }
 
-  const name = /^<([A-Za-z_$][\w$:.-]*)/u.exec(authored)?.[1];
-  const openingEnd = jsxOpeningEnd(authored);
-  const selfClosing = authored.slice(0, openingEnd).trimEnd().endsWith("/>");
-  const closingStart = name === undefined ? -1 : authored.lastIndexOf(`</${name}`);
+  const name = fragment ? undefined : childNode(nodeValue(opening, "name"));
+
+  if (!fragment && name === undefined) {
+    throw CompileError.jsxElementNameMissing();
+  }
 
   return {
-    attributes: jsxAttributes(authored, sourceOffset, openingEnd),
+    attributes: nodeArray(opening, "attributes").map((attribute) =>
+      jsxAttribute(attribute, authored, sourceOffset),
+    ),
     children:
-      selfClosing || closingStart < openingEnd
+      closing === undefined
         ? undefined
-        : { start: sourceOffset + openingEnd, end: sourceOffset + closingStart },
-    name,
+        : range(sourceOffset + opening.end, sourceOffset + closing.start),
+    name: name === undefined ? undefined : authored.slice(name.start, name.end),
   };
-}
-
-function jsxOpeningEnd(authored: string): number {
-  let quote: "'" | '"' | undefined;
-  let braces = 0;
-
-  for (let offset = 1; offset < authored.length; offset++) {
-    const character = authored[offset];
-
-    if (quote !== undefined) {
-      if (character === quote && !escapedAt(authored, offset)) {
-        quote = undefined;
-      }
-    } else if (character === "'" || character === '"') {
-      quote = character;
-    } else if (character === "{") {
-      braces++;
-    } else if (character === "}") {
-      braces--;
-    } else if (character === ">" && braces === 0) {
-      return offset + 1;
-    }
-  }
-
-  return authored.length;
-}
-
-/** Reads attributes from the opening tag with the same JSX grammar that validated it. */
-function jsxAttributes(
-  authored: string,
-  sourceOffset: number,
-  openingEnd: number,
-): JsxAttributeLike[] {
-  const opening = authored.slice(0, openingEnd).replace(/\/?\s*>$/u, "/>");
-  let element: JavaScriptNode;
-
-  try {
-    element = parseJavaScriptExpression(opening);
-  } catch {
-    return [];
-  }
-
-  const attributes = childNode(nodeValue(element, "openingElement"));
-
-  return attributes === undefined
-    ? []
-    : nodeArray(attributes, "attributes").flatMap((attribute) =>
-        jsxAttribute(attribute, opening, sourceOffset),
-      );
 }
 
 function jsxAttribute(
   attribute: JavaScriptNode,
   opening: string,
   sourceOffset: number,
-): JsxAttributeLike[] {
+): JsxAttributeLike {
   const origin = range(sourceOffset + attribute.start, sourceOffset + attribute.end);
 
   if (attribute.type === "JSXSpreadAttribute") {
     const argument = childNode(nodeValue(attribute, "argument"));
 
-    return argument === undefined
-      ? []
-      : [{ kind: "jsxSpreadAttribute", code: opening.slice(argument.start, argument.end), origin }];
+    if (argument === undefined) {
+      throw CompileError.jsxSpreadArgumentMissing();
+    }
+
+    return {
+      kind: "jsxSpreadAttribute",
+      code: opening.slice(argument.start, argument.end),
+      origin,
+    };
   }
 
   const nameNode = childNode(nodeValue(attribute, "name"));
@@ -113,44 +73,40 @@ function jsxAttribute(
   const value = childNode(nodeValue(attribute, "value"));
 
   if (name === undefined) {
-    return [];
+    throw CompileError.jsxAttributeNameMissing();
   }
 
   if (value === undefined) {
-    return [{ kind: "jsxAttribute", name, origin }];
+    return { kind: "jsxAttribute", name, origin };
   }
 
   if (value.type === "JSXExpressionContainer") {
     const expression = childNode(nodeValue(value, "expression"));
 
-    return [
-      {
-        kind: "jsxAttribute",
-        name,
-        value: {
-          kind: "jsxAttributeValueExpression",
-          code: expression === undefined ? "" : opening.slice(expression.start, expression.end),
-          origin: range(sourceOffset + value.start, sourceOffset + value.end),
-        },
-        origin,
+    if (expression === undefined || expression.type === "JSXEmptyExpression") {
+      throw CompileError.jsxAttributeExpressionEmpty();
+    }
+
+    return {
+      kind: "jsxAttribute",
+      name,
+      value: {
+        kind: "jsxAttributeValueExpression",
+        code: opening.slice(expression.start, expression.end),
+        origin: range(sourceOffset + value.start, sourceOffset + value.end),
       },
-    ];
+      origin,
+    };
   }
 
   // String literals keep JSX semantics, including decoded character references.
   const literal = nodeValue(value, "value");
 
-  return [{ kind: "jsxAttribute", name, value: isString(literal) ? literal : "", origin }];
-}
-
-function escapedAt(value: string, offset: number): boolean {
-  let slashes = 0;
-
-  for (let index = offset - 1; index >= 0 && value[index] === "\\"; index--) {
-    slashes++;
+  if (!isString(literal)) {
+    throw CompileError.jsxAttributeExpressionEmpty();
   }
 
-  return slashes % 2 === 1;
+  return { kind: "jsxAttribute", name, value: literal, origin };
 }
 
 function range(start: number, end: number): SourceRange {

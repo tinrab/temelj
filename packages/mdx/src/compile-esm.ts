@@ -1,5 +1,6 @@
 import { isString } from "@temelj/value";
 
+import type { CompileNames } from "./compile-names.ts";
 import type { CompileOutputFormat } from "./compiler.ts";
 import type { JavaScriptJsxContext } from "./javascript-jsx.ts";
 import type { SourceRange } from "./model.ts";
@@ -66,7 +67,7 @@ export function emitEsm(
   context: JavaScriptJsxContext,
   file: SourceFile | undefined,
 ): EmittedEsm {
-  const emitter = new EsmEmitter(format);
+  const emitter = new EsmEmitter(format, context.names);
 
   const blocks = entries.map((entry): CompiledEsm => ({
     code: emitter.block(
@@ -96,6 +97,7 @@ type Transform = (node: JavaScriptNode) => string;
 /** Rewrites ESM statements for one output format. */
 class EsmEmitter {
   readonly #format: CompileOutputFormat;
+  readonly #names: CompileNames;
   readonly imports: string[] = [];
   readonly exports: string[] = [];
   /** Star re-exports spread first, so explicit exports win. */
@@ -103,8 +105,9 @@ class EsmEmitter {
   hasLayout = false;
   #modules = 0;
 
-  public constructor(format: CompileOutputFormat) {
+  public constructor(format: CompileOutputFormat, names: CompileNames) {
     this.#format = format;
+    this.#names = names;
   }
 
   public block(entry: ParsedEsm, transform: Transform): string {
@@ -154,7 +157,7 @@ class EsmEmitter {
 
     this.hasLayout = true;
 
-    return `const Layout = ${value};`;
+    return `const ${this.#names.get("Layout")} = ${value};`;
   }
 
   private namedExport(statement: JavaScriptNode, code: string, transform: Transform): string {
@@ -226,11 +229,12 @@ class EsmEmitter {
     }
 
     this.hasLayout = true;
+    const layoutName = this.#names.get("Layout");
 
     const layoutDeclaration =
       from === undefined
-        ? `const Layout = ${localName};`
-        : `import {${localName} as Layout} from ${code.slice(from.start, from.end)};`;
+        ? `const ${layoutName} = ${localName};`
+        : `import {${localName} as ${layoutName}} from ${code.slice(from.start, from.end)};`;
 
     if (remaining.length === 0) {
       return layoutDeclaration;
@@ -251,10 +255,11 @@ class EsmEmitter {
 
     return this.resolve(moduleSpecifier(statement), (module) => {
       if (exported === undefined) {
-        const star = `__mdxStar${this.#modules}`;
+        const star = this.#names.get(`__mdxStar${this.#modules}`);
+        const ignored = this.#names.get(`__mdxIgnored${this.#modules}`);
         this.stars.push(`...${star}`);
 
-        return `const {default: __mdxIgnored${this.#modules}, ...${star}} = ${module};`;
+        return `const {default: ${ignored}, ...${star}} = ${module};`;
       }
 
       this.exports.push(`${JSON.stringify(requiredIdentifierNode(exported))}:${module}`);
@@ -265,13 +270,13 @@ class EsmEmitter {
 
   /** Resolves a module through the evaluator, then binds names from it. */
   private resolve(specifier: string, bind: (module: string) => string): string {
-    const module = `__mdxModule${this.#modules++}`;
+    const module = this.#names.get(`__mdxModule${this.#modules++}`);
 
     if (!this.imports.includes(specifier)) {
       this.imports.push(specifier);
     }
 
-    return `const ${module} = await __resolveMdxImport(${JSON.stringify(specifier)});${bind(module)}`;
+    return `const ${module} = await ${this.#names.get("_resolveMdxImport")}(${JSON.stringify(specifier)});${bind(module)}`;
   }
 }
 

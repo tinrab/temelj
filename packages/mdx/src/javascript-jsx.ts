@@ -1,5 +1,6 @@
 import { isString } from "@temelj/value";
 
+import type { CompileNames } from "./compile-names.ts";
 import type { SourceFile } from "./source.ts";
 
 import { CompileError } from "./errors.ts";
@@ -12,20 +13,19 @@ import {
   nodeValue,
   type JavaScriptNode,
 } from "./javascript-ast.ts";
-import { parseJavaScriptExpression, parseJavaScriptProgram } from "./javascript.ts";
+import { parseJavaScriptExpression } from "./javascript.ts";
 import { recordJsxReference, resolveJsxName, type JsxReferenceContext } from "./jsx-reference.ts";
 
 export interface JavaScriptJsxContext extends JsxReferenceContext {
   readonly development: boolean;
+  readonly names: CompileNames;
   readonly sourceName: string;
 }
 
 export function analyzeJavaScriptExpression(source: string, context: JavaScriptJsxContext): void {
-  analyzeJsxReferences(parseJavaScriptExpression(source), context);
-}
-
-export function analyzeJavaScriptProgram(source: string, context: JavaScriptJsxContext): void {
-  analyzeJsxReferences(parseJavaScriptProgram(source), context);
+  const expression = parseJavaScriptExpression(source);
+  context.names.reserveJavaScript(expression);
+  analyzeJsxReferences(expression, context);
 }
 
 export interface JavaScriptSourceOrigin {
@@ -101,7 +101,7 @@ function emitJsx(
 ): string {
   if (node.type === "JSXFragment") {
     return emitCall(
-      "_Fragment",
+      context.names.get("_Fragment"),
       jsxChildren(nodeArray(node, "children"), source, context),
       [],
       node,
@@ -146,8 +146,8 @@ function emitCall(
   const propertiesCode = `{${entries.join(", ")}}`;
 
   return context.development
-    ? `_jsxDEV(${tag}, ${propertiesCode}, undefined, ${children.length > 1}, ${javascriptSource(node, context)}, undefined)`
-    : `${children.length > 1 ? "_jsxs" : "_jsx"}(${tag}, ${propertiesCode})`;
+    ? `${context.names.get("_jsxDEV")}(${tag}, ${propertiesCode}, undefined, ${children.length > 1}, ${javascriptSource(node, context)}, undefined)`
+    : `${context.names.get(children.length > 1 ? "_jsxs" : "_jsx")}(${tag}, ${propertiesCode})`;
 }
 
 function jsxAttributes(

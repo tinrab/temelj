@@ -8,7 +8,7 @@ import type {
   TextDirectiveNode,
 } from "./model.ts";
 
-import { createFormatTracker } from "./format-track.ts";
+import { FormatTracker } from "./format-track.ts";
 import { mdxChildren } from "./model.ts";
 
 // Directives, their labels, and their attributes.
@@ -20,7 +20,7 @@ export function formatDirective(
   sequence: ":" | "::",
 ): string {
   const exit = context.enter(node.kind);
-  const tracker = createFormatTracker(info);
+  const tracker = new FormatTracker(info);
   let value = tracker.move(`${sequence}${node.name}`);
 
   if (node.label !== undefined) {
@@ -45,7 +45,7 @@ export function formatContainerDirective(
   info: FormatInfo,
 ): string {
   const exit = context.enter("containerDirective");
-  const tracker = createFormatTracker(info);
+  const tracker = new FormatTracker(info);
   const sequence = ":".repeat(containerDirectiveFenceSize(node));
   let value = tracker.move(`${sequence}${node.name}`);
 
@@ -85,7 +85,7 @@ export function formatDirectiveLabel(
 ): string {
   const exit = context.enter("directiveLabel");
   const exitLabel = context.enter("label");
-  const tracker = createFormatTracker(info);
+  const tracker = new FormatTracker(info);
   const opening = tracker.move("[");
 
   const content = tracker.move(

@@ -49,7 +49,14 @@ export function emitContent(
   if (children.length === 1) {
     emitNode(writer, children[0], analysis.scope);
   } else {
-    emitCall(writer, "_Fragment", [], content.origin, analysis.scope, children);
+    emitCall(
+      writer,
+      analysis.scope.names.get("_Fragment"),
+      [],
+      content.origin,
+      analysis.scope,
+      children,
+    );
   }
 }
 
@@ -99,7 +106,14 @@ function emitNode(writer: CodeWriter, node: HtmlNode, scope: CompileScope): void
 
       return;
     case "root":
-      emitCall(writer, "_Fragment", [], node.origin, scope, emittedChildren(node.children, false));
+      emitCall(
+        writer,
+        scope.names.get("_Fragment"),
+        [],
+        node.origin,
+        scope,
+        emittedChildren(node.children, false),
+      );
 
       return;
     case "codeBlock":
@@ -124,7 +138,7 @@ function emitNode(writer: CodeWriter, node: HtmlNode, scope: CompileScope): void
     case "unresolvedReference":
       emitCall(
         writer,
-        "_Fragment",
+        scope.names.get("_Fragment"),
         [],
         node.origin,
         scope,
@@ -143,7 +157,7 @@ function emitNode(writer: CodeWriter, node: HtmlNode, scope: CompileScope): void
 function emitElement(writer: CodeWriter, node: HtmlElementNode, scope: CompileScope): void {
   emitCall(
     writer,
-    `_components[${JSON.stringify(node.tagName)}]`,
+    `${scope.names.get("_components")}[${JSON.stringify(node.tagName)}]`,
     elementProperties(node.attributes),
     node.origin,
     scope,
@@ -154,7 +168,7 @@ function emitElement(writer: CodeWriter, node: HtmlElementNode, scope: CompileSc
 function emitJsx(writer: CodeWriter, node: HtmlJsxNode, scope: CompileScope): void {
   emitCall(
     writer,
-    resolveJsxName(node.name).expression,
+    node.name === undefined ? scope.names.get("_Fragment") : resolveJsxName(node.name).expression,
     jsxProperties(node.attributes, scope),
     node.origin,
     scope,
@@ -171,10 +185,11 @@ function emitCodeBlock(writer: CodeWriter, node: HtmlCodeBlockNode, scope: Compi
     origin: node.origin,
   });
 
-  writer.write("(_components.codeBlock ? ");
+  const component = `${scope.names.get("_components")}.codeBlock`;
+  writer.write(`(${component} ? `);
   emitCall(
     writer,
-    "_components.codeBlock",
+    component,
     [
       ["code", JSON.stringify(node.code)],
       ["language", JSON.stringify(node.language)],
@@ -192,10 +207,11 @@ function emitCodeBlock(writer: CodeWriter, node: HtmlCodeBlockNode, scope: Compi
 }
 
 function emitMath(writer: CodeWriter, node: HtmlMathNode, scope: CompileScope): void {
-  writer.write("(_components.mathFormula ? ");
+  const component = `${scope.names.get("_components")}.mathFormula`;
+  writer.write(`(${component} ? `);
   emitCall(
     writer,
-    "_components.mathFormula",
+    component,
     [
       ["source", JSON.stringify(node.source)],
       ["style", JSON.stringify(node.style)],
@@ -220,7 +236,10 @@ function emitCall(
 ): void {
   const multiple = children.length > 1;
 
-  writer.write(scope.development ? "_jsxDEV(" : multiple ? "_jsxs(" : "_jsx(", origin);
+  writer.write(
+    `${scope.names.get(scope.development ? "_jsxDEV" : multiple ? "_jsxs" : "_jsx")}(`,
+    origin,
+  );
   writer.write(`${tag}, {`);
 
   properties.forEach(([name, value], index) => {
