@@ -20,19 +20,11 @@ export function createCloudflareWorkflowEntrypoint<TEnv = unknown>(
 ): typeof WorkflowEntrypoint<TEnv, unknown> {
   return class TemeljCloudflareWorkflowEntrypoint extends WorkflowEntrypoint<TEnv, unknown> {
     async run(event: CloudflareWorkflowEvent, step: CloudflareWorkflowStep): Promise<string> {
-      const result = { registry: options.registry } satisfies Partial<RunCloudflareWorkflowOptions>;
-
-      if (options.logger !== undefined) {
-        Object.assign(result, {
-          logger: options.logger,
-        } satisfies Partial<RunCloudflareWorkflowOptions>);
-      }
-
-      const result1 = Object.assign(result, {
+      const runOptions: RunCloudflareWorkflowOptions = {
+        registry: options.registry,
+        logger: options.logger,
         nonRetryableError: NonRetryableError,
-      } satisfies Partial<RunCloudflareWorkflowOptions>);
-
-      const runOptions: RunCloudflareWorkflowOptions = result1;
+      };
 
       return await runCloudflareWorkflow(runOptions, event, step);
     }

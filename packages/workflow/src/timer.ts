@@ -1,15 +1,18 @@
-import type { TimerDelay } from "./types/common.ts";
-
+import { WorkflowErrorCode } from "./errors/codes.ts";
 import { WorkflowOptionsError } from "./errors/mod.ts";
 import { durationTotal } from "./temporal.ts";
-import { isNonNegativeSafeInteger, isPositiveSafeInteger } from "./utility.ts";
+import { isNonNegativeSafeInteger, isPositiveSafeInteger } from "./values.ts";
+
+/** Timer delay after validation and runtime clamping. */
+interface TimerDelay {
+  readonly duration: Temporal.Duration;
+  readonly clampedDelay: number;
+}
 
 export const MAX_TIMER_DELAY = 2 ** 31 - 1;
 
-/** Runtime timer handle returned by setTimeout. */
 export type TimeoutHandle = ReturnType<typeof setTimeout>;
 
-/** Runtime interval handle returned by setInterval. */
 export type IntervalHandle = ReturnType<typeof setInterval>;
 
 export function nonNegativeTimerDelay(
@@ -20,7 +23,10 @@ export function nonNegativeTimerDelay(
   const delay = durationTotal(duration);
 
   if (!isNonNegativeSafeInteger(delay)) {
-    WorkflowOptionsError.nonNegativeDuration(label);
+    throw new WorkflowOptionsError(`${label} must be non-negative`, {
+      code: WorkflowErrorCode.OPTIONS_EXPECTED_NON_NEGATIVE_DURATION,
+      details: { label: label },
+    });
   }
 
   return {
@@ -37,7 +43,10 @@ export function positiveTimerDelay(
   const delay = durationTotal(duration);
 
   if (!isPositiveSafeInteger(delay)) {
-    WorkflowOptionsError.positiveDuration(label);
+    throw new WorkflowOptionsError(`${label} must be greater than zero`, {
+      code: WorkflowErrorCode.OPTIONS_EXPECTED_POSITIVE_DURATION,
+      details: { label: label },
+    });
   }
 
   return {

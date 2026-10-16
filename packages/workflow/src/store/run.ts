@@ -1,56 +1,60 @@
 import { deepEquals } from "@temelj/value";
 
 import type { EventRecord } from "../types/events.ts";
+import type { RunId, WorkerId } from "../types/ids.ts";
 import type { WorkflowPage } from "../types/pagination.ts";
-import type { WorkflowListRunsOptions, WorkflowListRunsPageOptions } from "../types/run-list.ts";
-import type { RunId, WorkflowRunRecord } from "../types/run.ts";
-import type { WorkflowClaimRunOptions, WorkflowStorage } from "../types/store.ts";
+import type { ListRunsOptions, ListRunsPageOptions } from "../types/run-list.ts";
+import type { RunRecord } from "../types/run.ts";
+import type { ClaimRunOptions, WorkflowStorage } from "../types/store.ts";
 
-import { omitUndefined } from "../collection.ts";
+import { omitUndefined, limitItems } from "../collection.ts";
+import { WorkflowErrorCode } from "../errors/codes.ts";
 import { WorkflowStateError } from "../errors/mod.ts";
 import { WorkflowRunNotFoundError } from "../errors/run.ts";
-import { makeWorkflowRunCursorKey, pageItems } from "../pagination.ts";
-import { makeRunKey } from "../store-keys.ts";
-import { WorkerId } from "../types/worker-id.ts";
+import { makeRunCursorKey, pageItems } from "../pagination.ts";
 import {
-  isTerminalWorkflowLifecycleEventForRun,
-  isTerminalWorkflowRunStatus,
-  limitWorkflowItems,
+  CLEARED_LEASE,
+  CLEARED_RETRY,
+  isTerminalEventForRun,
+  isTerminalRunStatus,
   nextRunAttempt,
-} from "../utility.ts";
-import { supportsWorkflowConditionalWrite } from "./capabilities.ts";
-import { compactWorkflowStoreRecord } from "./compaction.ts";
-import { rollbackAppendedEventIfCurrent } from "./event-history.ts";
-import { matchesWorkflowRunListOptions } from "./query.ts";
-import { queryWorkflowRuns } from "./query.ts";
+  UNFINISHED,
+} from "../run-status.ts";
+import { makeRunKey } from "../store-keys.ts";
+import { supportsConditionalWrite } from "./capabilities.ts";
+import { rollbackAppendedEventIfCurrent } from "./events.ts";
+import { matchesRunListOptions, queryRuns } from "./query.ts";
 import { toStorageValue } from "./storage-value.ts";
 import {
-  isReadableWorkflowRunRecord,
-  parseStoredWorkflowRunRecord,
+  isReadableRunRecord,
+  parseStoredRunRecord,
   requireReadableStoreRun,
   requireValidRunTransition,
 } from "./validation.ts";
 
-interface WorkflowRunReader {
-  getRun(runId: RunId): Promise<WorkflowRunRecord | undefined>;
+interface RunReader {
+  getRun(runId: RunId): Promise<RunRecord | undefined>;
 }
 
-interface WorkflowRunClaimReader extends WorkflowRunReader {
-  listRuns(options?: WorkflowListRunsOptions): Promise<readonly WorkflowRunRecord[]>;
+interface RunClaimReader extends RunReader {
+  listRuns(options?: ListRunsOptions): Promise<readonly RunRecord[]>;
 }
 
 export async function updateRunIfCurrent(
   storage: WorkflowStorage,
   namespace: string,
-  store: WorkflowRunReader,
-  current: WorkflowRunRecord,
-  next: WorkflowRunRecord,
-): Promise<WorkflowRunRecord | undefined> {
+  store: RunReader,
+  current: RunRecord,
+  next: RunRecord,
+): Promise<RunRecord | undefined> {
   const runId = current.id;
   const nextRunId = next.id;
 
   if (runId !== nextRunId) {
-    WorkflowStateError.runIdMismatch(runId, nextRunId);
+    throw new WorkflowStateError(`Workflow store runId mismatch: ${runId} !== ${nextRunId}`, {
+      code: WorkflowErrorCode.STATE_RUN_ID_MISMATCH,
+      details: { actual: runId, expected: nextRunId },
+    });
   }
 
   requireReadableStoreRun(current, namespace);
@@ -59,7 +63,7 @@ export async function updateRunIfCurrent(
     WorkflowStateError.runNamespaceMismatch(String(next.namespace), namespace);
   }
 
-  if (!supportsWorkflowConditionalWrite(storage)) {
+  if (!supportsConditionalWrite(storage)) {
     const latest = await store.getRun(runId);
 
     if (latest === undefined || !deepEquals(omitUndefined(latest), omitUndefined(current))) {
@@ -67,14 +71,14 @@ export async function updateRunIfCurrent(
     }
 
     requireValidRunTransition(current, next);
-    const compact = compactWorkflowStoreRecord(next);
+    const compact = omitUndefined(next);
     await storage.set(makeRunKey(namespace, runId), toStorageValue(compact));
 
     return compact;
   }
 
   requireValidRunTransition(current, next);
-  const compact = compactWorkflowStoreRecord(next);
+  const compact = omitUndefined(next);
 
   const updated = await storage.compareAndSet(
     makeRunKey(namespace, runId),
@@ -89,33 +93,33 @@ export async function getWorkflowRun(
   storage: WorkflowStorage,
   namespace: string,
   runId: RunId,
-): Promise<WorkflowRunRecord | undefined> {
+): Promise<RunRecord | undefined> {
   const run = await storage.get(makeRunKey(namespace, runId));
 
   // Workflow run keys are written only by this store.
   // @temelj/storage cannot narrow by key.
-  return isReadableWorkflowRunRecord(run, namespace) ? run : undefined;
+  return isReadableRunRecord(run, namespace) ? run : undefined;
 }
 
 export async function listWorkflowRuns(
   storage: WorkflowStorage,
   namespace: string,
-  options?: WorkflowListRunsOptions,
-): Promise<readonly WorkflowRunRecord[]> {
-  const runs = await queryWorkflowRuns(storage, namespace, options, {
+  options?: ListRunsOptions,
+): Promise<readonly RunRecord[]> {
+  const runs = await queryRuns(storage, namespace, options, {
     label: "Workflow run list options",
     sort: true,
   });
 
-  return limitWorkflowItems(runs, options?.limit);
+  return limitItems(runs, options?.limit);
 }
 
 export async function listWorkflowRunsPage(
   storage: WorkflowStorage,
   namespace: string,
-  options?: WorkflowListRunsPageOptions,
-): Promise<WorkflowPage<WorkflowRunRecord>> {
-  const runs = await queryWorkflowRuns(
+  options?: ListRunsPageOptions,
+): Promise<WorkflowPage<RunRecord>> {
+  const runs = await queryRuns(
     storage,
     namespace,
     { ...options, limit: undefined },
@@ -125,17 +129,17 @@ export async function listWorkflowRunsPage(
     },
   );
 
-  return pageItems(runs, options, "Workflow run page", makeWorkflowRunCursorKey);
+  return pageItems(runs, options, "Workflow run page", makeRunCursorKey);
 }
 
 export async function countWorkflowRuns(
   storage: WorkflowStorage,
   namespace: string,
-  options?: WorkflowListRunsOptions,
+  options?: ListRunsOptions,
 ): Promise<number> {
   // Generic storage has no portable count primitive, so count the filtered query result.
   return (
-    await queryWorkflowRuns(storage, namespace, options, {
+    await queryRuns(storage, namespace, options, {
       label: "Workflow run list options",
       sort: false,
     })
@@ -145,9 +149,9 @@ export async function countWorkflowRuns(
 export async function updateWorkflowRun(
   storage: WorkflowStorage,
   namespace: string,
-  store: WorkflowRunReader,
-  run: WorkflowRunRecord,
-): Promise<WorkflowRunRecord> {
+  store: RunReader,
+  run: RunRecord,
+): Promise<RunRecord> {
   const runId = run.id;
 
   if (run.namespace !== namespace) {
@@ -160,7 +164,7 @@ export async function updateWorkflowRun(
     requireValidRunTransition(current, run);
   }
 
-  const compact = compactWorkflowStoreRecord(run);
+  const compact = omitUndefined(run);
   await storage.set(makeRunKey(namespace, runId), toStorageValue(compact));
 
   return compact;
@@ -169,10 +173,10 @@ export async function updateWorkflowRun(
 export async function claimWorkflowRun(
   storage: WorkflowStorage,
   namespace: string,
-  store: WorkflowRunClaimReader,
-  options: WorkflowClaimRunOptions,
-): Promise<WorkflowRunRecord | undefined> {
-  const listOptions = claimableWorkflowRunListOptions(options);
+  store: RunClaimReader,
+  options: ClaimRunOptions,
+): Promise<RunRecord | undefined> {
+  const listOptions = claimableRunListOptions(options);
 
   const run =
     options.runId === undefined
@@ -195,7 +199,7 @@ export async function claimWorkflowRun(
 export async function extendWorkflowRunLease(
   storage: WorkflowStorage,
   namespace: string,
-  store: WorkflowRunReader,
+  store: RunReader,
   options: {
     readonly runId: RunId;
     readonly workerId: string;
@@ -203,10 +207,10 @@ export async function extendWorkflowRunLease(
     readonly now: Temporal.Instant;
     readonly leaseDuration: Temporal.Duration;
   },
-): Promise<WorkflowRunRecord | undefined> {
+): Promise<RunRecord | undefined> {
   const run = await store.getRun(options.runId);
 
-  if (!isWorkflowRunLeaseHeldByWorker(run, options)) {
+  if (!isRunLeaseHeldByWorker(run, options)) {
     return undefined;
   }
 
@@ -222,17 +226,17 @@ export async function extendWorkflowRunLease(
 export async function releaseWorkflowRunLease(
   storage: WorkflowStorage,
   namespace: string,
-  store: WorkflowRunReader,
+  store: RunReader,
   options: {
     readonly runId: RunId;
     readonly workerId: string;
     readonly attempts?: number;
     readonly now: Temporal.Instant;
   },
-): Promise<WorkflowRunRecord | undefined> {
+): Promise<RunRecord | undefined> {
   const run = await store.getRun(options.runId);
 
-  if (!isWorkflowRunLeaseHeldByWorker(run, options)) {
+  if (!isRunLeaseHeldByWorker(run, options)) {
     return undefined;
   }
 
@@ -245,55 +249,45 @@ export async function releaseWorkflowRunLease(
   );
 }
 
-export function isSameReadableWorkflowRunRevision(
-  latest: WorkflowRunRecord | undefined,
-  current: WorkflowRunRecord,
+function isSameReadableRunRevision(
+  latest: RunRecord | undefined,
+  current: RunRecord,
   namespace: string,
 ): boolean {
   return (
     latest !== undefined &&
-    isReadableWorkflowRunRecord(latest, namespace) &&
+    isReadableRunRecord(latest, namespace) &&
     deepEquals(omitUndefined(latest), omitUndefined(current))
   );
 }
 
-export async function isStoredWorkflowRunRevisionCurrent(
+export async function isStoredRunRevisionCurrent(
   storage: WorkflowStorage,
   namespace: string,
-  currentRun: WorkflowRunRecord,
+  currentRun: RunRecord,
 ): Promise<boolean> {
-  const latestRun = await getReadableStoredWorkflowRunValue(storage, namespace, currentRun.id);
+  const latestRun = await getWorkflowRun(storage, namespace, currentRun.id);
 
-  return isSameReadableWorkflowRunRevision(latestRun, currentRun, namespace);
+  return isSameReadableRunRevision(latestRun, currentRun, namespace);
 }
 
-export async function getReadableStoredWorkflowRun(
+export async function getReadableStoredRun(
   storage: WorkflowStorage,
   namespace: string,
   runId: RunId,
-): Promise<WorkflowRunRecord | undefined> {
+): Promise<RunRecord | undefined> {
   const runValue = await storage.get(makeRunKey(namespace, runId));
-  const run = parseStoredWorkflowRunRecord(runValue);
+  const run = parseStoredRunRecord(runValue);
 
-  return isReadableWorkflowRunRecord(run, namespace) ? run : undefined;
+  return isReadableRunRecord(run, namespace) ? run : undefined;
 }
 
-async function getReadableStoredWorkflowRunValue(
+export async function requireReadableStoredRun(
   storage: WorkflowStorage,
   namespace: string,
   runId: RunId,
-): Promise<WorkflowRunRecord | undefined> {
-  const run = await storage.get(makeRunKey(namespace, runId));
-
-  return isReadableWorkflowRunRecord(run, namespace) ? run : undefined;
-}
-
-export async function requireReadableStoredWorkflowRun(
-  storage: WorkflowStorage,
-  namespace: string,
-  runId: RunId,
-): Promise<WorkflowRunRecord> {
-  const run = await getReadableStoredWorkflowRun(storage, namespace, runId);
+): Promise<RunRecord> {
+  const run = await getReadableStoredRun(storage, namespace, runId);
 
   if (run === undefined) {
     WorkflowRunNotFoundError.notFound(runId);
@@ -302,28 +296,20 @@ export async function requireReadableStoredWorkflowRun(
   return run;
 }
 
-export function shouldRollbackAppendedEventForRun(
+function shouldRollbackAppendedEventForRun(
   namespace: string,
-  run: WorkflowRunRecord | undefined,
+  run: RunRecord | undefined,
   event: EventRecord,
 ): boolean {
-  if (run === undefined || !isReadableWorkflowRunRecord(run, namespace)) {
+  if (run === undefined || !isReadableRunRecord(run, namespace)) {
     return true;
   }
 
-  return (
-    isTerminalWorkflowRunStatus(run.status) && !isTerminalWorkflowLifecycleEventForRun(run, event)
-  );
+  return isTerminalRunStatus(run.status) && !isTerminalEventForRun(run, event);
 }
 
-export function isWorkflowRunStaleForAppend(
-  currentRun: WorkflowRunRecord,
-  event: EventRecord,
-): boolean {
-  return (
-    isTerminalWorkflowRunStatus(currentRun.status) &&
-    !isTerminalWorkflowLifecycleEventForRun(currentRun, event)
-  );
+export function isRunStaleForAppend(currentRun: RunRecord, event: EventRecord): boolean {
+  return isTerminalRunStatus(currentRun.status) && !isTerminalEventForRun(currentRun, event);
 }
 
 export async function rollbackAppendedEventIfRunStale(
@@ -333,7 +319,7 @@ export async function rollbackAppendedEventIfRunStale(
   event: EventRecord,
   events: readonly EventRecord[],
 ): Promise<boolean> {
-  const run = await getReadableStoredWorkflowRunValue(storage, namespace, runId);
+  const run = await getWorkflowRun(storage, namespace, runId);
 
   if (!shouldRollbackAppendedEventForRun(namespace, run, event)) {
     return false;
@@ -344,122 +330,72 @@ export async function rollbackAppendedEventIfRunStale(
   return true;
 }
 
-export function claimedRunPatch(
-  run: WorkflowRunRecord,
+function claimedRunPatch(
+  run: RunRecord,
   workerId: WorkerId,
   now: Temporal.Instant,
   leaseDuration: Temporal.Duration,
-): WorkflowRunRecord {
-  const timestamp = now;
+): RunRecord {
   const lastTransitionReason = isStaleLeaseClaim(run, now) ? "reclaimed" : "claimed";
 
   return {
     ...run,
     status: "running",
     attempts: nextRunAttempt(run.attempts),
-    idempotencyKey: run.idempotencyKey,
-    parentRunId: run.parentRunId,
-    parentStepId: run.parentStepId,
-    parentStepName: run.parentStepName,
-    parentStepAttempt: run.parentStepAttempt,
     workerId,
-    createdAt: run.createdAt,
-    updatedAt: timestamp,
-    lastTransitionAt: timestamp,
+    updatedAt: now,
+    lastTransitionAt: now,
     lastTransitionReason,
-    startedAt: run.startedAt ?? timestamp,
+    startedAt: run.startedAt ?? now,
     leaseExpiresAt: now.add(leaseDuration),
-    deadlineAt: run.deadlineAt,
     availableAt: undefined,
-    retryAt: undefined,
-    retryReason: undefined,
-    retryAttempt: undefined,
-    retryStepId: undefined,
-    retryStepName: undefined,
-    error: undefined,
-    output: undefined,
-    finishedAt: undefined,
+    ...CLEARED_RETRY,
+    ...UNFINISHED,
   };
 }
 
-export function extendedRunLeasePatch(
-  run: WorkflowRunRecord,
+function extendedRunLeasePatch(
+  run: RunRecord,
   now: Temporal.Instant,
   leaseDuration: Temporal.Duration,
-): WorkflowRunRecord {
-  const timestamp = now;
-
+): RunRecord {
   return {
     ...run,
-    idempotencyKey: run.idempotencyKey,
-    parentRunId: run.parentRunId,
-    parentStepId: run.parentStepId,
-    parentStepName: run.parentStepName,
-    parentStepAttempt: run.parentStepAttempt,
-    createdAt: run.createdAt,
-    updatedAt: timestamp,
-    lastTransitionAt: run.lastTransitionAt ?? timestamp,
-    deadlineAt: run.deadlineAt,
-    startedAt: run.startedAt ?? timestamp,
+    updatedAt: now,
+    lastTransitionAt: run.lastTransitionAt ?? now,
+    startedAt: run.startedAt ?? now,
     leaseExpiresAt: now.add(leaseDuration),
-    retryAt: undefined,
-    retryReason: undefined,
-    retryAttempt: undefined,
-    retryStepId: undefined,
-    retryStepName: undefined,
-    error: undefined,
-    output: undefined,
-    finishedAt: undefined,
+    ...CLEARED_RETRY,
+    ...UNFINISHED,
   };
 }
 
-export function releaseRunLeasePatch(
-  run: WorkflowRunRecord,
-  now: Temporal.Instant,
-): WorkflowRunRecord {
-  const timestamp = now;
-
+function releaseRunLeasePatch(run: RunRecord, now: Temporal.Instant): RunRecord {
   return {
     ...run,
     status: "waiting",
-    idempotencyKey: run.idempotencyKey,
-    parentRunId: run.parentRunId,
-    parentStepId: run.parentStepId,
-    parentStepName: run.parentStepName,
-    parentStepAttempt: run.parentStepAttempt,
-    availableAt: timestamp,
-    createdAt: run.createdAt,
-    updatedAt: timestamp,
-    lastTransitionAt: timestamp,
+    availableAt: now,
+    updatedAt: now,
+    lastTransitionAt: now,
     lastTransitionReason: "waiting",
-    deadlineAt: run.deadlineAt,
-    startedAt: run.startedAt ?? timestamp,
-    retryAt: undefined,
-    retryReason: undefined,
-    retryAttempt: undefined,
-    retryStepId: undefined,
-    retryStepName: undefined,
-    error: undefined,
-    output: undefined,
-    finishedAt: undefined,
-    workerId: undefined,
-    leaseExpiresAt: undefined,
+    startedAt: run.startedAt ?? now,
+    ...CLEARED_RETRY,
+    ...UNFINISHED,
+    ...CLEARED_LEASE,
   };
 }
 
-export async function firstClaimableRun(
-  store: WorkflowRunClaimReader,
-  options: WorkflowClaimRunOptions,
-  listOptions: WorkflowListRunsOptions,
-): Promise<WorkflowRunRecord | undefined> {
+async function firstClaimableRun(
+  store: RunClaimReader,
+  options: ClaimRunOptions,
+  listOptions: ListRunsOptions,
+): Promise<RunRecord | undefined> {
   const runs = await store.listRuns(listOptions);
 
   return runs.find((run) => canClaimRun(run, options, listOptions));
 }
 
-function claimableWorkflowRunListOptions(
-  options: WorkflowClaimRunOptions,
-): WorkflowListRunsOptions {
+function claimableRunListOptions(options: ClaimRunOptions): ListRunsOptions {
   return {
     ...options,
     workerId: undefined,
@@ -472,12 +408,12 @@ function claimableWorkflowRunListOptions(
   };
 }
 
-export function canClaimRun(
-  run: WorkflowRunRecord,
-  options: WorkflowClaimRunOptions,
-  listOptions: WorkflowListRunsOptions,
+function canClaimRun(
+  run: RunRecord,
+  options: ClaimRunOptions,
+  listOptions: ListRunsOptions,
 ): boolean {
-  if (!matchesClaimableWorkflowRunListOptions(run, listOptions)) {
+  if (!matchesClaimableRunListOptions(run, listOptions)) {
     return false;
   }
 
@@ -502,14 +438,14 @@ export function canClaimRun(
   return Temporal.Instant.compare(run.leaseExpiresAt, options.now) <= 0;
 }
 
-function isWorkflowRunLeaseHeldByWorker(
-  run: WorkflowRunRecord | undefined,
+function isRunLeaseHeldByWorker(
+  run: RunRecord | undefined,
   options: {
     readonly workerId: string;
     readonly attempts?: number;
     readonly now: Temporal.Instant;
   },
-): run is WorkflowRunRecord {
+): run is RunRecord {
   return (
     run !== undefined &&
     run.status === "running" &&
@@ -520,17 +456,14 @@ function isWorkflowRunLeaseHeldByWorker(
   );
 }
 
-function matchesClaimableWorkflowRunListOptions(
-  run: WorkflowRunRecord,
-  listOptions: WorkflowListRunsOptions,
-): boolean {
+function matchesClaimableRunListOptions(run: RunRecord, listOptions: ListRunsOptions): boolean {
   return (
-    matchesWorkflowRunListOptions(run, listOptions) &&
+    matchesRunListOptions(run, listOptions) &&
     (listOptions.retryReason !== undefined || run.retryReason === undefined)
   );
 }
 
-export function isStaleLeaseClaim(run: WorkflowRunRecord, now: Temporal.Instant): boolean {
+function isStaleLeaseClaim(run: RunRecord, now: Temporal.Instant): boolean {
   if (run.status !== "running") {
     return false;
   }

@@ -1,367 +1,15 @@
 import type { StorageValue } from "@temelj/storage";
 
-import { z } from "zod";
-
 import type { WorkflowErrorRecord } from "./error.ts";
-import type { MessageId } from "./message-id.ts";
-import type { RunId, WorkflowAttributeValue, WorkflowStepType } from "./run.ts";
-import type { StepId } from "./step-id.ts";
-import type { WorkflowChildWorkflowCancellationPolicy } from "./step.ts";
-import type { StreamId } from "./stream-id.ts";
+import type { MessageId, RunId, StepId, StreamId } from "./ids.ts";
+import type { WorkflowAttributeValue, StepType } from "./run.ts";
+import type { ChildWorkflowCancellationPolicy } from "./step.ts";
 import type { TelemetryContext } from "./telemetry.ts";
-
-import {
-  temporalInstantSchema,
-  nonBlankStringListSchema,
-  nonBlankStringSchema,
-  temporalNonNegativeDurationSchema,
-  nonNegativeSafeIntegerSchema,
-  positiveSafeIntegerSchema,
-} from "./common.ts";
-import { workflowErrorRecordSchema } from "./error.ts";
-import { messageIdSchema } from "./message-id.ts";
-import { runIdSchema } from "./run-id.ts";
-import { workflowAttributeValueSchema, workflowPersistedValueSchema } from "./run.ts";
-import { stepIdSchema } from "./step-id.ts";
-import { workflowChildWorkflowCancellationPolicySchema } from "./step.ts";
-import { streamIdSchema } from "./stream-id.ts";
-import { workflowTelemetryContextSchema } from "./telemetry.ts";
-
-export const workflowMessageWaitSourceSchema = z.enum(["hook", "webhook"]);
-
-export const workflowRunEventKindSchema = z.enum([
-  "workflow_started",
-  "workflow_completed",
-  "workflow_failed",
-]);
-
-export const workflowStepEventKindSchema = z.enum([
-  "step_started",
-  "step_completed",
-  "step_failed",
-]);
-
-export const workflowSleepEventKindSchema = z.enum(["sleep_started", "sleep_completed"]);
-
-export const workflowChildWorkflowEventKindSchema = z.enum([
-  "child_workflow_started",
-  "child_workflow_completed",
-  "child_workflow_failed",
-]);
-
-export const workflowMessageEventKindSchema = z.enum([
-  "message_sent",
-  "message_send_started",
-  "message_send_completed",
-  "message_send_failed",
-  "message_wait_started",
-  "message_wait_completed",
-  "message_wait_failed",
-]);
-
-export const workflowStreamEventKindSchema = z.enum([
-  "stream_started",
-  "stream_chunk",
-  "stream_closed",
-  "stream_failed",
-]);
-
-export const workflowDataEventKindSchema = z.enum(["metadata_set", "attributes_set"]);
-
-export const workflowDeterministicEventKindSchema = z.literal("deterministic_value_recorded");
-
-export const workflowEventKindSchema = z.union([
-  workflowRunEventKindSchema,
-  workflowStepEventKindSchema,
-  workflowSleepEventKindSchema,
-  workflowChildWorkflowEventKindSchema,
-  workflowMessageEventKindSchema,
-  workflowStreamEventKindSchema,
-  workflowDataEventKindSchema,
-  workflowDeterministicEventKindSchema,
-]);
-
-const persistedValueSchema = workflowPersistedValueSchema;
-
-const runAttributesSchema = z.record(z.string(), workflowAttributeValueSchema);
-
-const eventBaseFields = {
-  timestamp: temporalInstantSchema,
-};
-
-const stepIdentityFields = {
-  stepId: stepIdSchema,
-  stepName: nonBlankStringSchema,
-};
-
-const countFields = {
-  count: positiveSafeIntegerSchema,
-};
-
-const attemptFields = {
-  attempt: positiveSafeIntegerSchema,
-};
-
-export const workflowMessageWaiterStepIdsSchema = nonBlankStringListSchema.refine(
-  (items) => new Set(items).size === items.length,
-  {
-    error: "Expected unique step ids",
-  },
-);
-
-export const workflowStartedEventSchema = z.object({
-  ...eventBaseFields,
-  kind: z.literal("workflow_started"),
-});
-
-export const workflowCompletedEventSchema = z.object({
-  ...eventBaseFields,
-  kind: z.literal("workflow_completed"),
-});
-
-export const workflowFailedEventSchema = z.object({
-  ...eventBaseFields,
-  kind: z.literal("workflow_failed"),
-});
-
-export const workflowStepStartedEventSchema = z.object({
-  ...eventBaseFields,
-  ...stepIdentityFields,
-  ...countFields,
-  ...attemptFields,
-  kind: z.literal("step_started"),
-  timeoutAt: temporalInstantSchema.optional(),
-});
-
-export const workflowStepCompletedEventSchema = z.object({
-  ...eventBaseFields,
-  ...stepIdentityFields,
-  ...attemptFields,
-  kind: z.literal("step_completed"),
-  result: persistedValueSchema.optional(),
-});
-
-export const workflowStepFailedEventSchema = z.object({
-  ...eventBaseFields,
-  ...stepIdentityFields,
-  ...attemptFields,
-  kind: z.literal("step_failed"),
-  error: workflowErrorRecordSchema,
-});
-
-export const workflowSleepStartedEventSchema = z.object({
-  ...eventBaseFields,
-  ...stepIdentityFields,
-  ...countFields,
-  kind: z.literal("sleep_started"),
-  until: temporalInstantSchema,
-  duration: temporalNonNegativeDurationSchema.optional(),
-});
-
-export const workflowSleepCompletedEventSchema = z.object({
-  ...eventBaseFields,
-  ...stepIdentityFields,
-  kind: z.literal("sleep_completed"),
-});
-
-export const workflowChildWorkflowStartedEventSchema = z.object({
-  ...eventBaseFields,
-  ...stepIdentityFields,
-  ...countFields,
-  ...attemptFields,
-  kind: z.literal("child_workflow_started"),
-  childRunId: runIdSchema,
-  workflowName: nonBlankStringSchema,
-  workflowVersion: nonBlankStringSchema.optional(),
-  cancellation: workflowChildWorkflowCancellationPolicySchema.optional(),
-  input: persistedValueSchema.optional(),
-  idempotencyKey: nonBlankStringSchema.optional(),
-  timeoutAt: temporalInstantSchema.optional(),
-});
-
-export const workflowChildWorkflowCompletedEventSchema = z.object({
-  ...eventBaseFields,
-  ...stepIdentityFields,
-  ...attemptFields,
-  kind: z.literal("child_workflow_completed"),
-  childRunId: runIdSchema,
-  result: persistedValueSchema.optional(),
-});
-
-export const workflowChildWorkflowFailedEventSchema = z.object({
-  ...eventBaseFields,
-  ...stepIdentityFields,
-  ...attemptFields,
-  kind: z.literal("child_workflow_failed"),
-  childRunId: runIdSchema,
-  error: workflowErrorRecordSchema,
-});
-
-export const workflowMessageSentEventSchema = z.object({
-  ...eventBaseFields,
-  kind: z.literal("message_sent"),
-  messageId: messageIdSchema,
-  payload: persistedValueSchema.optional(),
-  waiterStepIds: workflowMessageWaiterStepIdsSchema.optional(),
-  idempotencyKey: nonBlankStringSchema.optional(),
-  telemetryContext: workflowTelemetryContextSchema.optional(),
-});
-
-export const workflowMessageSendStartedEventSchema = z.object({
-  ...eventBaseFields,
-  ...stepIdentityFields,
-  ...countFields,
-  kind: z.literal("message_send_started"),
-  targetRunId: runIdSchema,
-  messageId: messageIdSchema,
-  payload: persistedValueSchema.optional(),
-  idempotencyKey: nonBlankStringSchema.optional(),
-});
-
-export const workflowMessageSendCompletedEventSchema = z.object({
-  ...eventBaseFields,
-  ...stepIdentityFields,
-  kind: z.literal("message_send_completed"),
-  targetRunId: runIdSchema,
-  messageId: messageIdSchema,
-});
-
-export const workflowMessageSendFailedEventSchema = z.object({
-  ...eventBaseFields,
-  ...stepIdentityFields,
-  kind: z.literal("message_send_failed"),
-  targetRunId: runIdSchema,
-  messageId: messageIdSchema,
-  error: workflowErrorRecordSchema,
-});
-
-export const workflowMessageWaitStartedEventSchema = z.object({
-  ...eventBaseFields,
-  ...stepIdentityFields,
-  ...countFields,
-  kind: z.literal("message_wait_started"),
-  messageId: messageIdSchema,
-  source: workflowMessageWaitSourceSchema.optional(),
-  timeoutAt: temporalInstantSchema.optional(),
-});
-
-export const workflowMessageWaitCompletedEventSchema = z.object({
-  ...eventBaseFields,
-  ...stepIdentityFields,
-  kind: z.literal("message_wait_completed"),
-  messageId: messageIdSchema,
-  payload: persistedValueSchema.optional(),
-  messageTimestamp: temporalInstantSchema,
-  telemetryContext: workflowTelemetryContextSchema.optional(),
-});
-
-export const workflowMessageWaitFailedEventSchema = z.object({
-  ...eventBaseFields,
-  ...stepIdentityFields,
-  kind: z.literal("message_wait_failed"),
-  messageId: messageIdSchema,
-  error: workflowErrorRecordSchema,
-});
-
-export const workflowMetadataSetEventSchema = z.object({
-  ...eventBaseFields,
-  ...stepIdentityFields,
-  ...countFields,
-  kind: z.literal("metadata_set"),
-  metadata: persistedValueSchema,
-});
-
-export const workflowAttributesSetEventSchema = z.object({
-  ...eventBaseFields,
-  ...stepIdentityFields,
-  ...countFields,
-  kind: z.literal("attributes_set"),
-  attributes: runAttributesSchema.optional(),
-  removeAttributes: z.array(nonBlankStringSchema).readonly().optional(),
-});
-
-export const workflowStreamStartedEventSchema = z.object({
-  ...eventBaseFields,
-  ...stepIdentityFields,
-  ...countFields,
-  kind: z.literal("stream_started"),
-  streamId: streamIdSchema,
-  contentType: nonBlankStringSchema.optional(),
-  metadata: persistedValueSchema.optional(),
-});
-
-export const workflowStreamChunkEventSchema = z.object({
-  ...eventBaseFields,
-  ...stepIdentityFields,
-  kind: z.literal("stream_chunk"),
-  streamId: streamIdSchema,
-  index: nonNegativeSafeIntegerSchema,
-  chunk: persistedValueSchema.optional(),
-});
-
-export const workflowStreamClosedEventSchema = z.object({
-  ...eventBaseFields,
-  ...stepIdentityFields,
-  kind: z.literal("stream_closed"),
-  streamId: streamIdSchema,
-});
-
-export const workflowStreamFailedEventSchema = z.object({
-  ...eventBaseFields,
-  ...stepIdentityFields,
-  kind: z.literal("stream_failed"),
-  streamId: streamIdSchema,
-  error: workflowErrorRecordSchema,
-});
-
-export const workflowDeterministicValueRecordedEventSchema = z.object({
-  ...eventBaseFields,
-  ...stepIdentityFields,
-  ...countFields,
-  kind: z.literal("deterministic_value_recorded"),
-  value: persistedValueSchema,
-});
-
-export const workflowEventRecordSchema = z.discriminatedUnion("kind", [
-  workflowStartedEventSchema,
-  workflowCompletedEventSchema,
-  workflowFailedEventSchema,
-  workflowStepStartedEventSchema,
-  workflowStepCompletedEventSchema,
-  workflowStepFailedEventSchema,
-  workflowSleepStartedEventSchema,
-  workflowSleepCompletedEventSchema,
-  workflowChildWorkflowStartedEventSchema,
-  workflowChildWorkflowCompletedEventSchema,
-  workflowChildWorkflowFailedEventSchema,
-  workflowMessageSentEventSchema,
-  workflowMessageSendStartedEventSchema,
-  workflowMessageSendCompletedEventSchema,
-  workflowMessageSendFailedEventSchema,
-  workflowMessageWaitStartedEventSchema,
-  workflowMessageWaitCompletedEventSchema,
-  workflowMessageWaitFailedEventSchema,
-  workflowMetadataSetEventSchema,
-  workflowAttributesSetEventSchema,
-  workflowStreamStartedEventSchema,
-  workflowStreamChunkEventSchema,
-  workflowStreamClosedEventSchema,
-  workflowStreamFailedEventSchema,
-  workflowDeterministicValueRecordedEventSchema,
-]);
-
-export const workflowEventRecordListSchema = z.array(workflowEventRecordSchema);
-
-/** Type used for workflow message sent event payloads. */
-export type MessageSentPayload = StorageValue;
-
-/** Type used for workflow stream failure event errors. */
-export type StreamFailedError = WorkflowErrorRecord;
 
 /** Discriminant values for every durable workflow event record. */
 export type EventKind =
-  | WorkflowRunEventKind
-  | WorkflowStepEventKind
+  | RunEventKind
+  | StepEventKind
   | SleepEventKind
   | ChildWorkflowEventKind
   | MessageEventKind
@@ -384,7 +32,7 @@ export interface EventDescriptor {
   readonly kind: EventKind;
   readonly category: EventDescriptorCategory;
   readonly cleanup: boolean;
-  readonly stepType?: WorkflowStepType;
+  readonly stepType?: StepType;
   readonly stepAttempt?: EventDescriptorStepAttempt;
   readonly terminalStepAttempt?: boolean;
   readonly startedEventType?: EventKind;
@@ -394,8 +42,7 @@ export interface EventDescriptor {
   readonly stringListIdentityFields?: readonly EventFieldName[];
 }
 
-/** Event descriptor category values. */
-export type EventDescriptorCategory =
+type EventDescriptorCategory =
   | "workflow"
   | "step"
   | "sleep"
@@ -406,15 +53,14 @@ export type EventDescriptorCategory =
   | "metadata";
 
 /** How an event maps to a materialized step attempt. */
-export type EventDescriptorStepAttempt = "event" | "single";
+type EventDescriptorStepAttempt = "event" | "single";
 
 /** Event kinds emitted for workflow lifecycle transitions. */
-export type WorkflowRunEventKind = "workflow_started" | "workflow_completed" | "workflow_failed";
+export type RunEventKind = "workflow_started" | "workflow_completed" | "workflow_failed";
 
 /** Event kinds emitted for durable task attempts. */
-export type WorkflowStepEventKind = "step_started" | "step_completed" | "step_failed";
+export type StepEventKind = "step_started" | "step_completed" | "step_failed";
 
-/** Event kinds emitted for durable sleeps. */
 export type SleepEventKind = "sleep_started" | "sleep_completed";
 
 /** Event kinds emitted while starting and observing child workflows. */
@@ -433,7 +79,6 @@ export type MessageEventKind =
   | "message_wait_completed"
   | "message_wait_failed";
 
-/** Event kinds emitted for durable workflow streams. */
 export type StreamEventKind = "stream_started" | "stream_chunk" | "stream_closed" | "stream_failed";
 
 /** Event kinds emitted when workflow metadata or attributes change. */
@@ -447,9 +92,9 @@ export type EventRecord =
   | WorkflowStartedEvent
   | WorkflowCompletedEvent
   | WorkflowFailedEvent
-  | WorkflowStepStartedEvent
-  | WorkflowStepCompletedEvent
-  | WorkflowStepFailedEvent
+  | StepStartedEvent
+  | StepCompletedEvent
+  | StepFailedEvent
   | SleepStartedEvent
   | SleepCompletedEvent
   | ChildWorkflowStartedEvent
@@ -470,80 +115,69 @@ export type EventRecord =
   | StreamFailedEvent
   | DeterministicValueRecordedEvent;
 
-/** Workflow event record narrowed by a workflow event kind. */
-export type WorkflowEvent = Extract<EventRecord, { readonly kind: EventKind }>;
-
-/** Workflow lifecycle event record. */
-export type WorkflowRunEvent = Extract<EventRecord, { readonly kind: WorkflowRunEventKind }>;
-
 /** Event recorded when a durable task attempt starts. */
-export interface WorkflowStepStartedEvent extends WorkflowCountedAttemptedStepEvent {
+export interface StepStartedEvent extends CountedAttemptedStepEvent {
   readonly kind: "step_started";
   readonly timeoutAt?: Temporal.Instant;
 }
 
 /** Event recorded when a durable task attempt completes. */
-export interface WorkflowStepCompletedEvent extends WorkflowAttemptedStepEvent {
+export interface StepCompletedEvent extends AttemptedStepEvent {
   readonly kind: "step_completed";
   readonly result?: StorageValue;
 }
 
 /** Event recorded when a durable task attempt fails. */
-export interface WorkflowStepFailedEvent extends WorkflowAttemptedStepEvent {
+export interface StepFailedEvent extends AttemptedStepEvent {
   readonly kind: "step_failed";
   readonly error: WorkflowErrorRecord;
 }
 
-/** Event recorded when a durable sleep starts. */
-export interface SleepStartedEvent extends WorkflowCountedStepEvent {
+export interface SleepStartedEvent extends CountedStepEvent {
   readonly kind: "sleep_started";
   readonly until: Temporal.Instant;
   readonly duration?: Temporal.Duration;
 }
 
-/** Event recorded when a durable sleep completes. */
-export interface SleepCompletedEvent extends WorkflowStepEvent {
+export interface SleepCompletedEvent extends StepEvent {
   readonly kind: "sleep_completed";
 }
 
-/** Event recorded when a child workflow is started. */
-export interface ChildWorkflowStartedEvent extends WorkflowCountedAttemptedStepEvent {
+export interface ChildWorkflowStartedEvent extends CountedAttemptedStepEvent {
   readonly kind: "child_workflow_started";
   readonly childRunId: RunId;
   readonly workflowName: string;
   readonly workflowVersion?: string;
-  readonly cancellation?: WorkflowChildWorkflowCancellationPolicy;
+  readonly cancellation?: ChildWorkflowCancellationPolicy;
   readonly input?: StorageValue;
   readonly idempotencyKey?: string;
   readonly timeoutAt?: Temporal.Instant;
 }
 
-/** Event recorded when a child workflow completes. */
-export interface ChildWorkflowCompletedEvent extends WorkflowAttemptedStepEvent {
+export interface ChildWorkflowCompletedEvent extends AttemptedStepEvent {
   readonly kind: "child_workflow_completed";
   readonly childRunId: RunId;
   readonly result?: StorageValue;
 }
 
-/** Event recorded when a child workflow fails. */
-export interface ChildWorkflowFailedEvent extends WorkflowAttemptedStepEvent {
+export interface ChildWorkflowFailedEvent extends AttemptedStepEvent {
   readonly kind: "child_workflow_failed";
   readonly childRunId: RunId;
   readonly error: WorkflowErrorRecord;
 }
 
 /** Event recorded when an external messageId is accepted for a run. */
-export interface MessageSentEvent extends WorkflowTimestampedEvent {
+export interface MessageSentEvent extends TimestampedEvent {
   readonly kind: "message_sent";
   readonly messageId: MessageId;
-  readonly payload?: MessageSentPayload;
+  readonly payload?: StorageValue;
   readonly waiterStepIds?: readonly StepId[];
   readonly idempotencyKey?: string;
   readonly telemetryContext?: TelemetryContext;
 }
 
 /** Event recorded when a workflow starts sending a messageId to another run. */
-export interface MessageSendStartedEvent extends WorkflowCountedStepEvent {
+export interface MessageSendStartedEvent extends CountedStepEvent {
   readonly kind: "message_send_started";
   readonly targetRunId: RunId;
   readonly messageId: MessageId;
@@ -551,31 +185,27 @@ export interface MessageSendStartedEvent extends WorkflowCountedStepEvent {
   readonly idempotencyKey?: string;
 }
 
-/** Event recorded when a workflow message send completes. */
-export interface MessageSendCompletedEvent extends WorkflowStepEvent {
+export interface MessageSendCompletedEvent extends StepEvent {
   readonly kind: "message_send_completed";
   readonly targetRunId: RunId;
   readonly messageId: MessageId;
 }
 
-/** Event recorded when a workflow message send fails. */
-export interface MessageSendFailedEvent extends WorkflowStepEvent {
+export interface MessageSendFailedEvent extends StepEvent {
   readonly kind: "message_send_failed";
   readonly targetRunId: RunId;
   readonly messageId: MessageId;
   readonly error: WorkflowErrorRecord;
 }
 
-/** Event recorded when a workflow starts waiting for a messageId. */
-export interface MessageWaitStartedEvent extends WorkflowCountedStepEvent {
+export interface MessageWaitStartedEvent extends CountedStepEvent {
   readonly kind: "message_wait_started";
   readonly messageId: MessageId;
   readonly source?: MessageWaitSource;
   readonly timeoutAt?: Temporal.Instant;
 }
 
-/** Event recorded when a waiting workflow receives a messageId. */
-export interface MessageWaitCompletedEvent extends WorkflowStepEvent {
+export interface MessageWaitCompletedEvent extends StepEvent {
   readonly kind: "message_wait_completed";
   readonly messageId: MessageId;
   readonly payload?: StorageValue;
@@ -583,92 +213,85 @@ export interface MessageWaitCompletedEvent extends WorkflowStepEvent {
   readonly telemetryContext?: TelemetryContext;
 }
 
-/** Event recorded when a message wait fails or times out. */
-export interface MessageWaitFailedEvent extends WorkflowStepEvent {
+export interface MessageWaitFailedEvent extends StepEvent {
   readonly kind: "message_wait_failed";
   readonly messageId: MessageId;
   readonly error: WorkflowErrorRecord;
 }
 
 /** Event recorded when workflow run metadata is replaced. */
-export interface MetadataSetEvent extends WorkflowCountedStepEvent {
+export interface MetadataSetEvent extends CountedStepEvent {
   readonly kind: "metadata_set";
   readonly metadata: StorageValue;
 }
 
-/** Event recorded when workflow run attributes are patched. */
-export interface AttributesSetEvent extends WorkflowCountedStepEvent {
+export interface AttributesSetEvent extends CountedStepEvent {
   readonly kind: "attributes_set";
   readonly attributes?: Readonly<Record<string, WorkflowAttributeValue>>;
   readonly removeAttributes?: readonly string[];
 }
 
 /** Event recorded when a durable stream is opened. */
-export interface StreamStartedEvent extends WorkflowCountedStepEvent {
+export interface StreamStartedEvent extends CountedStepEvent {
   readonly kind: "stream_started";
   readonly streamId: StreamId;
   readonly contentType?: string;
   readonly metadata?: StorageValue;
 }
 
-/** Event recorded for a durable stream chunk. */
-export interface StreamChunkEvent extends WorkflowStepEvent {
+export interface StreamChunkEvent extends StepEvent {
   readonly kind: "stream_chunk";
   readonly streamId: StreamId;
   readonly index: number;
   readonly chunk?: StorageValue;
 }
 
-/** Event recorded when a durable stream closes normally. */
-export interface StreamClosedEvent extends WorkflowStepEvent {
+export interface StreamClosedEvent extends StepEvent {
   readonly kind: "stream_closed";
   readonly streamId: StreamId;
 }
 
-/** Event recorded when a durable stream fails. */
-export interface StreamFailedEvent extends WorkflowStepEvent {
+export interface StreamFailedEvent extends StepEvent {
   readonly kind: "stream_failed";
   readonly streamId: StreamId;
-  readonly error: StreamFailedError;
+  readonly error: WorkflowErrorRecord;
 }
 
 /** Event recorded when a replay-safe value is captured for deterministic reuse. */
-export interface DeterministicValueRecordedEvent extends WorkflowCountedStepEvent {
+export interface DeterministicValueRecordedEvent extends CountedStepEvent {
   readonly kind: "deterministic_value_recorded";
   readonly value: StorageValue;
 }
 
-/** Source that resumed a workflow message wait. */
 export type MessageWaitSource = "hook" | "webhook";
 
-interface WorkflowTimestampedEvent {
+interface TimestampedEvent {
   readonly timestamp: Temporal.Instant;
 }
 
-interface WorkflowStartedEvent extends WorkflowTimestampedEvent {
+interface WorkflowStartedEvent extends TimestampedEvent {
   readonly kind: "workflow_started";
 }
 
-interface WorkflowCompletedEvent extends WorkflowTimestampedEvent {
+interface WorkflowCompletedEvent extends TimestampedEvent {
   readonly kind: "workflow_completed";
 }
 
-interface WorkflowFailedEvent extends WorkflowTimestampedEvent {
+interface WorkflowFailedEvent extends TimestampedEvent {
   readonly kind: "workflow_failed";
 }
 
-interface WorkflowStepEvent extends WorkflowTimestampedEvent {
+interface StepEvent extends TimestampedEvent {
   readonly stepId: StepId;
   readonly stepName: string;
 }
 
-interface WorkflowCountedStepEvent extends WorkflowStepEvent {
+interface CountedStepEvent extends StepEvent {
   readonly count: number;
 }
 
-interface WorkflowAttemptedStepEvent extends WorkflowStepEvent {
+interface AttemptedStepEvent extends StepEvent {
   readonly attempt: number;
 }
 
-interface WorkflowCountedAttemptedStepEvent
-  extends WorkflowCountedStepEvent, WorkflowAttemptedStepEvent {}
+interface CountedAttemptedStepEvent extends CountedStepEvent, AttemptedStepEvent {}

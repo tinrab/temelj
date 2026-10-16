@@ -1,15 +1,9 @@
-import type { WorkflowListRunsOptions } from "../types/run-list.ts";
-import type { RunId, WorkflowRunRecord } from "../types/run.ts";
+import type { RunId } from "../types/ids.ts";
+import type { ListRunsOptions } from "../types/run-list.ts";
+import type { RunRecord } from "../types/run.ts";
 import type { ListSchedulesOptions, ScheduleRecord } from "../types/schedule.ts";
-import type {
-  WorkflowListStepAttemptsOptions,
-  WorkflowStepAttemptRecord,
-} from "../types/step-attempts.ts";
-import type {
-  WorkflowEventReader,
-  WorkflowRunReaderRepository,
-  WorkflowStorage,
-} from "../types/store.ts";
+import type { ListStepAttemptsOptions, StepAttemptRecord } from "../types/step-attempts.ts";
+import type { WorkflowStore, WorkflowStorage } from "../types/store.ts";
 
 import { matchesOptionalValue, uniqueBy } from "../collection.ts";
 import { WorkflowRunNotFoundError } from "../errors/mod.ts";
@@ -21,22 +15,20 @@ import {
   matchesTimestampRange,
 } from "../temporal.ts";
 import { reconcileStepAttempts } from "./materialization.ts";
-import { isListableWorkflowRunRecord, isReadableScheduleRecord } from "./validation.ts";
+import { isListableRunRecord, isReadableScheduleRecord } from "./validation.ts";
 
-type WorkflowStepAttemptQueryStore = WorkflowRunReaderRepository & WorkflowEventReader;
-
-export async function queryWorkflowRuns(
+export async function queryRuns(
   storage: WorkflowStorage,
   namespace: string,
-  options: WorkflowListRunsOptions | undefined,
+  options: ListRunsOptions | undefined,
   query: { readonly label: string; readonly sort: boolean },
-): Promise<readonly WorkflowRunRecord[]> {
+): Promise<readonly RunRecord[]> {
   // This intentionally scans the workflow namespace.
   // Indexed queries should be in @temelj/storage.
   const runs = (await storage.entries({ prefix: makeRunKeyPrefix(namespace) }))
     .map((entry: { readonly value: unknown }) => entry.value)
-    .filter((run): run is WorkflowRunRecord => isListableWorkflowRunRecord(run, namespace))
-    .filter((run) => matchesWorkflowRunListOptions(run, options));
+    .filter((run): run is RunRecord => isListableRunRecord(run, namespace))
+    .filter((run) => matchesRunListOptions(run, options));
 
   const uniqueRuns = uniqueBy(runs, (run) => run.id);
 
@@ -44,18 +36,18 @@ export async function queryWorkflowRuns(
     return uniqueRuns;
   }
 
-  return [...uniqueRuns].sort(compareWorkflowRunsForQuery);
+  return [...uniqueRuns].sort(compareRunsForQuery);
 }
 
-export async function queryWorkflowStepAttempts(
+export async function queryStepAttempts(
   storage: WorkflowStorage,
   namespace: string,
-  store: WorkflowStepAttemptQueryStore,
+  store: WorkflowStore,
   runId: RunId,
-  options: WorkflowListStepAttemptsOptions | undefined,
+  options: ListStepAttemptsOptions | undefined,
   _query: { readonly label: string },
-): Promise<readonly WorkflowStepAttemptRecord[]> {
-  await getRequiredStoreRun(store, runId);
+): Promise<readonly StepAttemptRecord[]> {
+  await getRequiredRun(store, runId);
 
   const attempts = await reconcileStepAttempts(
     storage,
@@ -64,7 +56,7 @@ export async function queryWorkflowStepAttempts(
     await store.getEvents(runId),
   );
 
-  return attempts.filter((attempt) => matchesWorkflowStepAttemptListOptions(attempt, options));
+  return attempts.filter((attempt) => matchesStepAttemptListOptions(attempt, options));
 }
 
 export async function querySchedules(
@@ -82,7 +74,7 @@ export async function querySchedules(
   return uniqueBy(schedules, (schedule) => schedule.id);
 }
 
-function compareWorkflowRunsForQuery(left: WorkflowRunRecord, right: WorkflowRunRecord): number {
+function compareRunsForQuery(left: RunRecord, right: RunRecord): number {
   const createdOrder = compareOptionalTimestamps(left.createdAt, right.createdAt);
 
   if (createdOrder !== 0) {
@@ -100,10 +92,7 @@ function compareSchedulesForQuery(left: ScheduleRecord, right: ScheduleRecord): 
   );
 }
 
-export async function getRequiredStoreRun(
-  store: WorkflowRunReaderRepository,
-  runId: RunId,
-): Promise<WorkflowRunRecord> {
+export async function getRequiredRun(store: WorkflowStore, runId: RunId): Promise<RunRecord> {
   const run = await store.getRun(runId);
 
   if (run === undefined) {
@@ -113,9 +102,9 @@ export async function getRequiredStoreRun(
   return run;
 }
 
-export function matchesWorkflowRunListOptions(
-  run: WorkflowRunRecord,
-  options: WorkflowListRunsOptions | undefined,
+export function matchesRunListOptions(
+  run: RunRecord,
+  options: ListRunsOptions | undefined,
 ): boolean {
   if (options?.status !== undefined && !matchesOptionalValue(run.status, options.status)) {
     return false;
@@ -193,9 +182,9 @@ export function matchesWorkflowRunListOptions(
   );
 }
 
-export function matchesWorkflowStepAttemptListOptions(
-  attempt: WorkflowStepAttemptRecord,
-  options: WorkflowListStepAttemptsOptions | undefined,
+function matchesStepAttemptListOptions(
+  attempt: StepAttemptRecord,
+  options: ListStepAttemptsOptions | undefined,
 ): boolean {
   if (options?.status !== undefined && !matchesOptionalValue(attempt.status, options.status)) {
     return false;
@@ -263,7 +252,7 @@ export function matchesWorkflowStepAttemptListOptions(
   );
 }
 
-export function matchesScheduleListOptions(
+function matchesScheduleListOptions(
   schedule: ScheduleRecord,
   options: ListSchedulesOptions | undefined,
 ): boolean {
@@ -285,10 +274,7 @@ export function matchesScheduleListOptions(
   return true;
 }
 
-function matchesRunAttributeFilters(
-  run: WorkflowRunRecord,
-  options: WorkflowListRunsOptions | undefined,
-): boolean {
+function matchesRunAttributeFilters(run: RunRecord, options: ListRunsOptions | undefined): boolean {
   if (options === undefined) {
     return true;
   }

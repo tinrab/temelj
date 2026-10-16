@@ -28,7 +28,7 @@ export default {
         return input;
       }
 
-      const handle = await runtime.start(greetingWorkflow, input);
+      const handle = await runtime.runs.start(greetingWorkflow, input);
 
       return Response.json(
         {

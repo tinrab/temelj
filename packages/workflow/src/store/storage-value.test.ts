@@ -1,11 +1,14 @@
+// Installs Temporal when the runtime lacks it, before any module uses it.
 import "temporal-polyfill/global";
+import { ss } from "@temelj/standard-schema";
 import { describe, expect, expectTypeOf, test } from "vitest";
 
 import { omitUndefined } from "../collection.ts";
 import { serializeError } from "../engine/serialization.ts";
 import { WorkflowImplementationNotFoundError } from "../errors/implementation.ts";
 import { workflowErrorFromRecord } from "../errors/records.ts";
-import { workflowErrorDetailsSchema, workflowErrorRecordSchema } from "../types/error.ts";
+import { parse } from "../schema/common.ts";
+import { errorDetailsSchema, errorRecordSchema } from "../schema/error.ts";
 import { toStorageValue } from "./storage-value.ts";
 
 interface CyclicRecord {
@@ -43,7 +46,7 @@ describe("workflow storage boundaries", () => {
       { [Symbol("hidden")]: 42 },
       new Date(NaN),
     ]) {
-      expect(() => toStorageValue(value)).toThrow(/Circular|Invalid|Symbol/);
+      expect(() => toStorageValue(value)).toThrow(/Circular|Invalid|Symbol|not supported|must be/);
     }
 
     const shared = { value: 42 };
@@ -61,7 +64,7 @@ describe("workflow storage boundaries", () => {
   });
 
   test("reconstructs known errors and treats unregistered prototype names as ordinary errors", () => {
-    const original = WorkflowImplementationNotFoundError.create("workflow", "v1");
+    const original = new WorkflowImplementationNotFoundError("workflow", "v1");
     const restored = workflowErrorFromRecord(serializeError(original));
     expect(restored).toBeInstanceOf(WorkflowImplementationNotFoundError);
     expect(restored).toMatchObject({ workflowName: "workflow", workflowVersion: "v1" });
@@ -79,10 +82,10 @@ describe("workflow storage boundaries", () => {
       field = "value";
     }
 
-    expect(workflowErrorDetailsSchema.safeParse(new Details()).success).toBe(false);
-    expect(workflowErrorDetailsSchema.safeParse({ field: "value", count: 2 }).success).toBe(true);
+    expect(ss.safeParseSync(errorDetailsSchema, new Details()).success).toBe(false);
+    expect(ss.safeParseSync(errorDetailsSchema, { field: "value", count: 2 }).success).toBe(true);
     expect(
-      workflowErrorRecordSchema.parse({ name: "Error", message: "failure", unsupported: () => {} }),
+      parse(errorRecordSchema, { name: "Error", message: "failure", unsupported: () => {} }),
     ).toEqual({ name: "Error", message: "failure" });
   });
 });

@@ -1,45 +1,36 @@
+import type { RunId } from "../types/ids.ts";
 import type { WorkflowPage } from "../types/pagination.ts";
-import type { WorkflowListStepAttemptsPageOptions } from "../types/run-list.ts";
-import type { RunId } from "../types/run.ts";
-import type {
-  WorkflowListStepAttemptsOptions,
-  WorkflowStepAttemptRecord,
-} from "../types/step-attempts.ts";
-import type {
-  WorkflowEventReader,
-  WorkflowRunReaderRepository,
-  WorkflowStorage,
-} from "../types/store.ts";
+import type { ListStepAttemptsPageOptions } from "../types/run-list.ts";
+import type { ListStepAttemptsOptions, StepAttemptRecord } from "../types/step-attempts.ts";
+import type { WorkflowStore, WorkflowStorage } from "../types/store.ts";
 
-import { makeWorkflowStepAttemptCursorKey, pageItems } from "../pagination.ts";
-import { limitWorkflowItems } from "../utility.ts";
+import { limitItems } from "../collection.ts";
+import { makeStepAttemptCursorKey, pageItems } from "../pagination.ts";
 import { reconcileStepAttempts } from "./materialization.ts";
-import { getRequiredStoreRun, queryWorkflowStepAttempts } from "./query.ts";
-
-type WorkflowStepAttemptReadStore = WorkflowRunReaderRepository & WorkflowEventReader;
+import { getRequiredRun, queryStepAttempts } from "./query.ts";
 
 export async function listWorkflowStepAttempts(
   storage: WorkflowStorage,
   namespace: string,
-  store: WorkflowStepAttemptReadStore,
+  store: WorkflowStore,
   runId: RunId,
-  options?: WorkflowListStepAttemptsOptions,
-): Promise<readonly WorkflowStepAttemptRecord[]> {
-  const attempts = await queryWorkflowStepAttempts(storage, namespace, store, runId, options, {
+  options?: ListStepAttemptsOptions,
+): Promise<readonly StepAttemptRecord[]> {
+  const attempts = await queryStepAttempts(storage, namespace, store, runId, options, {
     label: "Workflow step attempt list options",
   });
 
-  return limitWorkflowItems(attempts, options?.limit);
+  return limitItems(attempts, options?.limit);
 }
 
 export async function listWorkflowStepAttemptsPage(
   storage: WorkflowStorage,
   namespace: string,
-  store: WorkflowStepAttemptReadStore,
+  store: WorkflowStore,
   runId: RunId,
-  options?: WorkflowListStepAttemptsPageOptions,
-): Promise<WorkflowPage<WorkflowStepAttemptRecord>> {
-  const attempts = await queryWorkflowStepAttempts(
+  options?: ListStepAttemptsPageOptions,
+): Promise<WorkflowPage<StepAttemptRecord>> {
+  const attempts = await queryStepAttempts(
     storage,
     namespace,
     store,
@@ -48,23 +39,18 @@ export async function listWorkflowStepAttemptsPage(
     { label: "Workflow step attempt page options" },
   );
 
-  return pageItems(
-    attempts,
-    options,
-    "Workflow step attempt page",
-    makeWorkflowStepAttemptCursorKey,
-  );
+  return pageItems(attempts, options, "Workflow step attempt page", makeStepAttemptCursorKey);
 }
 
 export async function countWorkflowStepAttempts(
   storage: WorkflowStorage,
   namespace: string,
-  store: WorkflowStepAttemptReadStore,
+  store: WorkflowStore,
   runId: RunId,
-  options?: WorkflowListStepAttemptsOptions,
+  options?: ListStepAttemptsOptions,
 ): Promise<number> {
   return (
-    await queryWorkflowStepAttempts(storage, namespace, store, runId, options, {
+    await queryStepAttempts(storage, namespace, store, runId, options, {
       label: "Workflow step attempt list options",
     })
   ).length;
@@ -73,10 +59,10 @@ export async function countWorkflowStepAttempts(
 export async function repairWorkflowStepAttempts(
   storage: WorkflowStorage,
   namespace: string,
-  store: WorkflowStepAttemptReadStore,
+  store: WorkflowStore,
   runId: RunId,
-): Promise<readonly WorkflowStepAttemptRecord[]> {
-  await getRequiredStoreRun(store, runId);
+): Promise<readonly StepAttemptRecord[]> {
+  await getRequiredRun(store, runId);
 
   return await reconcileStepAttempts(storage, namespace, runId, await store.getEvents(runId));
 }

@@ -37,127 +37,215 @@ $ pnpm add @temelj/workflow
 $ deno add jsr:@temelj/workflow # or jsr add @temelj/workflow
 ```
 
-## Persisted values
+## Overview
 
-Run, hook, and stream metadata accept `StorageValue` from `@temelj/storage`.
-Workflow persistence validates rich values before writing history, including
-finite numbers, dates, Temporal values, byte arrays, maps, and sets. Functions,
-symbol values, symbol keys, sparse arrays, and cycles are rejected.
+A workflow is a function whose progress is recorded as durable events. When a run
+stops, for a sleep, a message wait, a retry, or a crash, a worker later replays
+the recorded events and continues where the run left off. Completed steps are not
+executed again; their recorded results are returned instead.
 
-The storage adapter removes undefined optional record fields before encoding,
-including fields inside event arrays. It validates the remaining values instead
-of casting records to a storage dictionary. Cloudflare transport encoding and
-decoding apply the same value validation; a top-level `undefined` represents
-absent input or a void result.
+Runs, events, schedules, and locks live in any `@temelj/storage` backend. The
+default is in-memory storage.
 
-Cloudflare preserves the original workflow input in its transport envelope.
-The input must be serializable, and the entrypoint validates it against the
-workflow schema before execution. Schema transforms receive the original input.
-Cloudflare starts require the registered definition for the requested version.
-Result envelopes include the workflow name and version, and lookups reject a
-result produced by a different workflow contract.
+## Quick start
 
-## Message and hook payloads
+```ts
+import { createWorkflowClient, implementWorkflow } from "@temelj/workflow";
 
-A message wait or hook without a schema returns `StorageValue | undefined`.
-Supply a Standard Schema validator to infer a narrower payload type. Message
-channels require a schema. Channel sends accept the schema input type; waits
-return its output type. A schema whose input type is `unknown` validates the payload
-at runtime. Caller-selected payload type arguments are not supported
-for raw waits or hooks.
+const greet = implementWorkflow<{ readonly name: string }, string>(
+  { name: "greet", version: "v1" },
+  async ({ input, step }) => {
+    return await step.run({ name: "build-greeting" }, () => `Hello, ${input.name}`);
+  },
+);
 
-Each channel has a concrete message ID. Use a typed factory when the ID depends
-on a key, then pass the resulting channel to `send`, `broadcast`, or `wait`:
+const client = createWorkflowClient();
+client.register(greet);
+
+const handle = await client.runs.start(greet, { name: "Ada" });
+await client.workers.processRun(handle.runId);
+console.log(await handle.result()); // "Hello, Ada"
+```
+
+`client.workers.processRun` executes one run in place. A long-running process
+starts a worker instead, which claims and executes runs until stopped:
+
+```ts
+const worker = client.workers.create();
+await worker.run({ concurrency: 8 });
+```
+
+## Writing workflows
+
+There are two ways to write a workflow.
+
+**Definitions.** `implementWorkflow` takes a name, an optional version, an
+optional input schema, and a handler. The handler receives the input and `step`,
+which records every durable command:
+
+| Command                                                  | Records                                |
+| -------------------------------------------------------- | -------------------------------------- |
+| `step.run`, `step.call`                                  | a step's result, with retries          |
+| `step.sleep`, `step.sleepUntil`                          | a timer                                |
+| `step.workflow.start`, `step.workflow.run`               | a child run                            |
+| `step.message.send`, `step.message.wait`                 | a message between runs                 |
+| `step.hook.create`, `step.hook.createWebhook`            | a wait for an external resume token    |
+| `step.stream.create`                                     | a stream of chunks readers can follow  |
+| `step.lock.acquire`, `step.lock.with`                    | a lease on a named lock                |
+| `step.deterministic.now`, `.uuid`, `.random`, ...        | a value that must not change on replay |
+| `step.runData.setMetadata`, `step.runData.setAttributes` | run metadata and searchable attributes |
+
+`defineWorkflowStep` declares a reusable step. Its handler receives a step
+context first, then the arguments passed to `step.call`:
+
+```ts
+const charge = defineWorkflowStep({ name: "charge" }, ({ log }, amount: number) => {
+  log.info("charging", { amount });
+  return amount;
+});
+
+const charged = await step.call(charge, 1299);
+```
+
+**Directives.** With a bundler plugin, plain async functions become workflows and
+steps:
+
+```ts
+export async function chargeOrder(amount: number): Promise<number> {
+  "use step";
+  return amount;
+}
+
+export async function checkout(amount: number): Promise<number> {
+  "use workflow";
+  return await chargeOrder(amount);
+}
+```
+
+`client.runs.start(checkout, 1299)` registers and starts a compiled workflow. Plugins are available for Vite, Rollup, Rolldown, esbuild, webpack,
+and Rspack:
+
+```ts
+import { workflow } from "@temelj/workflow/vite";
+
+export default { plugins: [workflow()] };
+```
+
+A workflow name and version identify its input, output, and recorded commands.
+Use a new version when they change, since replay restores the results recorded
+for a run's version.
+
+## Messages and hooks
+
+A message channel pairs a name with a payload schema. Sends accept the schema's
+input type, and waits return its output type:
 
 ```ts
 import { ss } from "@temelj/standard-schema";
 import { defineMessageChannel } from "@temelj/workflow";
 
-const approvalFor = (requestId: string) =>
-  defineMessageChannel({
-    name: `approval.${requestId}`,
-    schema: ss.object({ approved: ss.boolean() }),
-  });
-
-await client.messages.send(runId, approvalFor("123"), {
-  payload: { approved: true },
-});
-```
-
-```ts
-import { ss } from "@temelj/standard-schema";
-
-const approval = step.hook.create({
+const approval = defineMessageChannel({
   name: "approval",
   schema: ss.object({ approved: ss.boolean() }),
 });
-const { approved } = await approval;
+
+// Inside a workflow:
+const { approved } = await step.message.wait(approval);
+
+// From outside:
+await client.messages.send(runId, approval, { payload: { approved: true } });
 ```
 
-Completed message waits retain the original payload in history. Replay validates
-that input again, so a schema transform receives the same input on every execution.
+Hooks wait for an external system. `step.hook.create` returns a hook whose
+`token` you hand out; `client.hooks.resume(token, { payload })` resumes the run.
+Webhooks are created with `step.hook.createWebhook` and resumed the same way: the token
+records which kind it is. `parseHookToken(token)` decodes a token without resuming it.
 
-## Stored results and stream chunks
+A recorded payload is validated again on every replay, so a schema transform
+always receives the same input.
 
-`runtime.runs.getHandle(runId)` returns a handle whose result is
-`StorageValue | undefined`. A run ID does not establish an application output
-type; validate the result with a schema before using it as one. The `run` field
-in an execution result also remains a persisted record.
+## Observing runs
 
-Schedule creation and updates validate input with the workflow schema before
-persisting it. Schedule records expose this prepared value as
-`StorageValue | undefined`; recurring runs reuse it without repeating the transform.
-
-Stream readers return persisted chunks as `StorageValue | undefined`.
-A stream ID alone does not establish a chunk's application type. Validate each
-chunk before passing it to a consumer that requires a narrower type:
+The client emits lifecycle and operation events in process:
 
 ```ts
-import { ss, validateStandardSchema } from "@temelj/standard-schema";
+const unsubscribe = client.on("workflow:run-completed", ({ run }) => {
+  console.log("completed", run.id);
+});
+```
 
-const updateSchema = ss.object({ text: ss.string() });
-const stream = await client.streams.read(runId, "updates");
+## Errors
 
-for (const chunk of stream.chunks) {
-  const update = await validateStandardSchema(updateSchema, chunk.value);
-  console.log(update.text);
+Workflow, step, and option failures are `WorkflowError`s with a `code` from
+`WorkflowErrorCode`. A failed run stores its error as a record, so check codes with
+`matchesWorkflowError`, which accepts live errors and stored records alike:
+
+```ts
+import { matchesWorkflowError, WorkflowErrorCode } from "@temelj/workflow";
+
+if (matchesWorkflowError(run.error, WorkflowErrorCode.LOCK_ALREADY_HELD, { key: "invoice:1" })) {
+  // ...
 }
 ```
 
-## Reusable steps and registration
+Throw `WorkflowRetryableError` from a step or workflow to retry it, optionally with
+`retryAt` or `retryDelay`, and `WorkflowNonRetryableError` to fail it without retries.
 
-Reusable step handlers receive context first, followed by the arguments passed to
-`step.task.call`. Argument and output types are inferred directly from the handler.
+## Stored values
+
+Inputs, outputs, metadata, payloads, and stream chunks are stored as
+`StorageValue` from `@temelj/storage`: JSON-like data plus dates, Temporal
+values, byte arrays, maps, and sets. Functions, symbols, sparse arrays, and
+cycles are rejected before anything is written.
+
+A run ID alone does not say what type a run returns, so
+`client.runs.getHandle(runId)` and stream readers return `StorageValue`.
+Validate such values with a schema before using them as an application type.
+
+## Storage
+
+Pass any `@temelj/storage` backend to the client:
 
 ```ts
-const greet = defineWorkflowStep({ name: "greet" }, ({ log }, name: string) => {
-  log.info("greeting", { name });
-  return `Hello, ${name}`;
-});
-const greeting = await step.task.call(greet, "Ada");
+import { createStorage } from "@temelj/storage";
+import { createWorkflowClient } from "@temelj/workflow";
+
+const client = createWorkflowClient({ storage: createStorage(/* backend */) });
 ```
 
-Compiled functions carry their definition as immutable, non-enumerable metadata.
-A function can be attached to the same definition again, but cannot be reassigned
-to another definition. Typed registry lookups require the original definition
-object. Use `getByName` for lookups by name and version.
+The engine adapts to what the storage supports, such as conditional writes, and
+`@temelj/workflow/store` exposes the store contract for custom adapters.
 
-A workflow name and version identify its persistent input, output, and command
-contracts. Use a new version when those contracts change. Replay restores the
-validated results recorded for that version instead of executing completed
-commands again.
+## Cloudflare Workflows
 
-`new Registry(entries)` accepts implementations and compiled functions together.
-Bundles and Cloudflare hosts use the same registration checks.
+`@temelj/workflow/cloudflare` runs the same workflow definitions on Cloudflare
+Workflows:
 
-## Client worker support
+```ts
+import { createCloudflareWorkflowHost } from "@temelj/workflow/cloudflare";
 
-`createWorkflowEngine()` exposes its worker operations through `workerEngine`.
-Clients use that capability when present. Custom client adapters can expose a
-`workerEngine` or supply it in `createWorkflowClient` options. Without either,
-client worker operations report that worker support is unavailable.
+const cloudflare = createCloudflareWorkflowHost<Env>({ workflows });
 
-Telemetry observation arguments pair the event name with its payload type.
-Forward observations with `observe: (...event) => target.observe?.(...event)`
-to preserve that pairing. Run execution telemetry wraps an `ExecutionResult`;
-step and storage telemetry can wrap other return values.
+export class TemeljWorkflow extends cloudflare.Entrypoint {}
+
+const runtime = cloudflare.createRuntime(env.TEMELJ_WORKFLOW);
+const handle = await runtime.runs.start(greetingWorkflow, { name: "Ada" });
+```
+
+The Cloudflare runtime and the local client share the `WorkflowRuntime` interface:
+`runs.start`, `register`, and `close`, with handles that report `status`, wait for `result`,
+and `cancel`. Code written against it runs on either host. Each host adds what it supports:
+the local client has schedules, locks, workers, streams, and run history, and the Cloudflare
+runtime has `runs.get(workflow, runId)` and `messages.send`. Inputs travel in a serialized envelope and are validated against the workflow's
+schema before execution.
+
+## OpenTelemetry
+
+```ts
+import { createOpenTelemetryTelemetry } from "@temelj/workflow/otel";
+
+const client = createWorkflowClient({ telemetry: createOpenTelemetryTelemetry() });
+```
+
+Runs, steps, messages, and storage operations produce spans and metrics, and
+workflow logs carry the run and step identity.

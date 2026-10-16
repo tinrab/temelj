@@ -1,15 +1,14 @@
-import type {
-  CompiledWorkflowFunction,
-  WorkflowClient,
-  WorkflowRunHandle,
-} from "./types/client.ts";
+import type { CompiledWorkflowFunction } from "./types/client.ts";
 import type { WorkflowImplementation, RegistryLike } from "./types/definition.ts";
-import type { WorkflowStepApi, WorkflowStepDefinition } from "./types/step.ts";
+import type { StepApi, StepDefinition } from "./types/step.ts";
 
-import { COMPILED_WORKFLOW, COMPILED_STEP } from "./compiled-symbols.ts";
 import { WorkflowDefinitionError } from "./errors/mod.ts";
 
-type AnyCompiledWorkflowImplementation = WorkflowImplementation<
+export const COMPILED_WORKFLOW = Symbol("temelj.workflow.definition");
+
+export const COMPILED_STEP = Symbol("temelj.workflow.step");
+
+type AnyCompiledImplementation = WorkflowImplementation<
   readonly unknown[],
   unknown,
   readonly unknown[]
@@ -20,12 +19,8 @@ export function attachWorkflowDefinition<TArgs extends readonly unknown[], TOutp
   fn: CompiledWorkflowFunction<TArgs, TOutput>,
   definition: WorkflowImplementation<NoInfer<TArgs>, Awaited<NoInfer<TOutput>>, NoInfer<TArgs>>,
 ): CompiledWorkflowFunction<TArgs, TOutput> {
-  Object.defineProperty(fn, COMPILED_WORKFLOW, {
-    value: definition,
-    writable: false,
-    configurable: false,
-    enumerable: false,
-  });
+  // Non-writable, non-configurable and non-enumerable by default.
+  Object.defineProperty(fn, COMPILED_WORKFLOW, { value: definition });
 
   return fn;
 }
@@ -33,14 +28,10 @@ export function attachWorkflowDefinition<TArgs extends readonly unknown[], TOutp
 /** Attaches compiled step metadata to a directive-authored function. */
 export function attachWorkflowStepDefinition<TArgs extends readonly unknown[], TOutput>(
   fn: CompiledWorkflowFunction<TArgs, TOutput>,
-  definition: WorkflowStepDefinition<NoInfer<TArgs>, Awaited<NoInfer<TOutput>>>,
+  definition: StepDefinition<NoInfer<TArgs>, Awaited<NoInfer<TOutput>>>,
 ): CompiledWorkflowFunction<TArgs, TOutput> {
-  Object.defineProperty(fn, COMPILED_STEP, {
-    value: definition,
-    writable: false,
-    configurable: false,
-    enumerable: false,
-  });
+  // Non-writable, non-configurable and non-enumerable by default.
+  Object.defineProperty(fn, COMPILED_STEP, { value: definition });
 
   return fn;
 }
@@ -55,28 +46,25 @@ export function getWorkflowFunctionDefinition<TArgs extends readonly unknown[], 
 /** Reads step metadata previously attached to a compiled step function. */
 export function getWorkflowStepFunctionDefinition<TArgs extends readonly unknown[], TOutput>(
   fn: CompiledWorkflowFunction<TArgs, TOutput>,
-): WorkflowStepDefinition<TArgs, Awaited<TOutput>> | undefined {
+): StepDefinition<TArgs, Awaited<TOutput>> | undefined {
   return fn[COMPILED_STEP];
 }
 
 /** Reads compiler-owned metadata for heterogeneous workflow registration. */
-export function getCompiledWorkflowDefinition(
-  fn: Function,
-): AnyCompiledWorkflowImplementation | undefined {
+export function getCompiledDefinition(fn: Function): AnyCompiledImplementation | undefined {
   // SAFETY: Only attachWorkflowDefinition writes this private, immutable symbol property.
   // This registry view erases the tuple type; execution uses the matching definition's persisted input.
   return Object.getOwnPropertyDescriptor(fn, COMPILED_WORKFLOW)?.value as
-    | AnyCompiledWorkflowImplementation
+    | AnyCompiledImplementation
     | undefined;
 }
 
-/** Registers compiled workflow functions with a workflow registry. */
 export function registerWorkflowFunctions(
   registry: RegistryLike,
   workflows: readonly Function[],
 ): void {
   for (const workflow of workflows) {
-    const definition = getCompiledWorkflowDefinition(workflow);
+    const definition = getCompiledDefinition(workflow);
 
     if (definition === undefined) {
       WorkflowDefinitionError.compiledMetadataMissing();
@@ -86,26 +74,9 @@ export function registerWorkflowFunctions(
   }
 }
 
-/** Starts a compiled workflow function through a workflow client. */
-export async function runWorkflowFunction<TArgs extends readonly unknown[], TOutput>(
-  client: WorkflowClient,
-  workflow: CompiledWorkflowFunction<TArgs, TOutput>,
-  ...args: TArgs
-): Promise<WorkflowRunHandle<Awaited<TOutput>>> {
-  const definition = getWorkflowFunctionDefinition(workflow);
-
-  if (definition === undefined) {
-    WorkflowDefinitionError.compiledMetadataMissing();
-  }
-
-  client.register(definition);
-
-  return await client.runs.start(definition.definition, args);
-}
-
 /** Calls a compiled step function through the durable step API when metadata is present. */
 export async function callWorkflowStepFunction<TArgs extends readonly unknown[], TOutput>(
-  step: WorkflowStepApi,
+  step: StepApi,
   fn: CompiledWorkflowFunction<TArgs, TOutput>,
   ...args: TArgs
 ): Promise<Awaited<TOutput>> {
@@ -115,5 +86,5 @@ export async function callWorkflowStepFunction<TArgs extends readonly unknown[],
     return await fn(...args);
   }
 
-  return await step.task.call(definition, ...args);
+  return await step.call(definition, ...args);
 }

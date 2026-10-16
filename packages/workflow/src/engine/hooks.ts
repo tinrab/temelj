@@ -3,8 +3,7 @@ import type { StorageValue } from "@temelj/storage";
 
 import { encodeBase64UrlString } from "@temelj/string";
 
-import type { WorkflowExecutionLimits } from "../types/engine-options.ts";
-import type { WorkflowExecutionEnvironment } from "../types/engine.ts";
+import type { ExecutionEnvironment } from "../types/engine.ts";
 import type { WorkflowErrorRecord } from "../types/error.ts";
 import type { EventRecord } from "../types/events.ts";
 import type {
@@ -14,70 +13,36 @@ import type {
   HookInspectionStatus,
   HookKind,
   HookInspection,
-  ParsedWorkflowHookToken,
   HookTokenPayload,
   ResumeHookOptions,
   Webhook as WebhookContract,
 } from "../types/hook.ts";
-import type { RunId, WorkflowRunRecord } from "../types/run.ts";
-import type { WorkflowStepHookApi } from "../types/step.ts";
-import type {
-  WorkflowConditionalEventAppender,
-  WorkflowEventReader,
-  WorkflowMessageIdempotencyIndexLookup,
-  WorkflowRunConditionalWriterRepository,
-  WorkflowRunReaderRepository,
-} from "../types/store.ts";
-import type { Telemetry, TelemetryContext } from "../types/telemetry.ts";
+import type { RunId, MessageId } from "../types/ids.ts";
+import type { RunRecord } from "../types/run.ts";
+import type { StepHookApi } from "../types/step.ts";
+import type { WorkflowStore } from "../types/store.ts";
+import type { EngineContext } from "./context.ts";
 
-import { WorkflowHookDisposedError, WorkflowHookError } from "../errors/mod.ts";
-import { WorkflowHistory } from "../history/mod.ts";
-import { captureTelemetryContext } from "../telemetry.ts";
+import { WorkflowErrorCode } from "../errors/codes.ts";
+import {
+  WorkflowHookDisposedError,
+  WorkflowHookError,
+  matchesWorkflowError,
+} from "../errors/mod.ts";
+import { History } from "../history/replay.ts";
 import {
   WORKFLOW_HOOK_TOKEN_PREFIX,
   WORKFLOW_HOOK_TOKEN_VERSION,
   parseHookToken,
-  parseWebhookToken,
-} from "../types/hook.ts";
-import { MessageId } from "../types/message-id.ts";
-import { sendWorkflowMessage, waitForWorkflowMessage } from "./message.ts";
-import { enforceWorkflowEventHistoryNextLimit } from "./retry.ts";
+} from "../hook-token.ts";
+import { captureTelemetryContext } from "../telemetry.ts";
+import { sendWorkflowMessage, waitForMessage } from "./message.ts";
+import { enforceEventHistoryNextLimit } from "./retry.ts";
 import { serializeError, toOptionalPersistedValue, toPersistedValue } from "./serialization.ts";
 
 const MAX_HOOK_DISPOSAL_APPEND_ATTEMPTS = 16;
 
-type WorkflowHookStore = WorkflowMessageIdempotencyIndexLookup &
-  WorkflowRunReaderRepository &
-  WorkflowEventReader &
-  WorkflowConditionalEventAppender &
-  WorkflowRunConditionalWriterRepository;
-
-interface WorkflowHookServiceOptions {
-  readonly store: WorkflowHookStore;
-  readonly now: () => Temporal.Instant;
-  readonly limits: WorkflowExecutionLimits;
-  readonly emitMessageSent: (
-    runId: RunId,
-    event: Extract<EventRecord, { readonly kind: "message_sent" }>,
-  ) => void;
-  readonly emitHookResumed: (
-    runId: RunId,
-    messageId: MessageId,
-    payload: StorageValue | undefined,
-    traceContext: TelemetryContext | undefined,
-  ) => void;
-  readonly emitWebhookResumed: (
-    runId: RunId,
-    messageId: MessageId,
-    payload: StorageValue | undefined,
-    traceContext: TelemetryContext | undefined,
-  ) => void;
-  readonly telemetry?: Telemetry;
-}
-
-export function createWorkflowStepHookApi(
-  environment: WorkflowExecutionEnvironment,
-): WorkflowStepHookApi {
+export function createStepHookApi(environment: ExecutionEnvironment): StepHookApi {
   const { runId } = environment;
   const tokens = new Set<string>();
 
@@ -91,7 +56,7 @@ export function createWorkflowStepHookApi(
     options: CreateHookOptions<Schema<unknown, TPayload> | undefined>,
   ): HookContract<TPayload | StorageValue | undefined> {
     const hook = new Hook(runId, options, () =>
-      waitForWorkflowMessage(environment, {
+      waitForMessage(environment, {
         commandId: options.commandId ?? options.name,
         messageId: options.messageId ?? options.name,
         source: "hook",
@@ -100,7 +65,7 @@ export function createWorkflowStepHookApi(
       }),
     );
 
-    requireUniqueWorkflowStepHookToken(tokens, "hook", hook.name, hook.token);
+    requireUniqueStepHookToken(tokens, "hook", hook.name, hook.token);
 
     return hook;
   }
@@ -115,7 +80,7 @@ export function createWorkflowStepHookApi(
     options: CreateWebhookOptions<Schema<unknown, TPayload> | undefined>,
   ): WebhookContract<TPayload | StorageValue | undefined> {
     const webhook = new Webhook(runId, options, () =>
-      waitForWorkflowMessage(environment, {
+      waitForMessage(environment, {
         commandId: options.commandId ?? options.name,
         messageId: options.messageId ?? options.name,
         source: "webhook",
@@ -124,7 +89,7 @@ export function createWorkflowStepHookApi(
       }),
     );
 
-    requireUniqueWorkflowStepHookToken(tokens, "webhook", webhook.name, webhook.token);
+    requireUniqueStepHookToken(tokens, "webhook", webhook.name, webhook.token);
 
     return webhook;
   }
@@ -149,7 +114,8 @@ export class Hook<TPayload> implements HookContract<TPayload> {
     this.token = formatHookToken({
       runId,
       name: options.name,
-      messageId: messageId,
+      messageId,
+      kind: "hook",
     });
     this.runId = runId;
     this.name = options.name;
@@ -170,14 +136,18 @@ export class Hook<TPayload> implements HookContract<TPayload> {
   }
 }
 
-function requireUniqueWorkflowStepHookToken(
+function requireUniqueStepHookToken(
   tokens: Set<string>,
   kind: "hook" | "webhook",
   name: string,
   token: string,
 ): void {
   if (tokens.has(token)) {
-    WorkflowHookError.tokenNotUnique(kind, name);
+    throw new WorkflowHookError(
+      `Workflow ${kind} token must be unique within a run: ${name}`,
+      WorkflowErrorCode.HOOK_TOKEN_NOT_UNIQUE,
+      { kind: kind, name: name },
+    );
   }
 
   tokens.add(token);
@@ -207,13 +177,10 @@ export class Webhook<TPayload> implements WebhookContract<TPayload> {
     const token: HookTokenPayload = {
       runId,
       name: options.name,
-      messageId: messageId,
+      messageId,
       kind: "webhook",
+      metadata,
     };
-
-    if (metadata !== undefined) {
-      Object.assign(token, { metadata } satisfies Partial<HookTokenPayload>);
-    }
 
     this.token = formatHookToken(token);
     this.runId = runId;
@@ -243,70 +210,49 @@ export class Webhook<TPayload> implements WebhookContract<TPayload> {
 export async function resumeHook(
   token: string,
   options: ResumeHookOptions | undefined,
-  service: WorkflowHookServiceOptions,
+  context: EngineContext,
 ): Promise<void> {
   const hook = parseHookToken(token);
-  const payload = toOptionalPersistedValue(options?.payload, "hook payload", service.limits);
-  const telemetryContext = captureTelemetryContext(service.telemetry);
+
+  const payload = toOptionalPersistedValue(
+    options?.payload,
+    `${hook.kind} payload`,
+    context.limits,
+  );
+
+  const telemetryContext = captureTelemetryContext(context.telemetry);
+
   await sendWorkflowMessage(
-    service.store,
+    context.store,
     hook.runId,
     {
       messageId: hook.messageId,
       payload,
       idempotencyKey: options?.idempotencyKey,
     },
-    service.now,
-    service.limits,
-    service.emitMessageSent,
-    service.telemetry,
+    context.now,
+    context.limits,
+    context.observation.emitMessageSent,
+    context.telemetry,
     telemetryContext,
   );
-  service.emitHookResumed(hook.runId, hook.messageId, payload, telemetryContext);
-}
 
-export async function resumeWebhook(
-  token: string,
-  options: ResumeHookOptions | undefined,
-  service: WorkflowHookServiceOptions,
-): Promise<void> {
-  const webhook = parseWebhookToken(token);
-  const payload = toOptionalPersistedValue(options?.payload, "webhook payload", service.limits);
-  const telemetryContext = captureTelemetryContext(service.telemetry);
-  await sendWorkflowMessage(
-    service.store,
-    webhook.runId,
-    {
-      messageId: webhook.messageId,
-      payload,
-      idempotencyKey: options?.idempotencyKey,
-    },
-    service.now,
-    service.limits,
-    service.emitMessageSent,
-    service.telemetry,
+  context.observation.emitHookResumed(
+    hook.kind,
+    hook.runId,
+    hook.messageId,
+    payload,
     telemetryContext,
   );
-  service.emitWebhookResumed(webhook.runId, webhook.messageId, payload, telemetryContext);
 }
 
-export async function disposeHook(
-  token: string,
-  service: WorkflowHookServiceOptions,
-): Promise<HookInspection> {
-  return await disposeHookToken(token, parseHookToken(token), service);
-}
-
-export async function disposeWebhook(
-  token: string,
-  service: WorkflowHookServiceOptions,
-): Promise<HookInspection> {
-  return await disposeHookToken(token, parseWebhookToken(token), service);
+export async function disposeHook(token: string, context: EngineContext): Promise<HookInspection> {
+  return await disposeHookToken(token, parseHookToken(token), context);
 }
 
 export async function getHookByToken(
   token: string,
-  store: WorkflowRunReaderRepository & WorkflowEventReader,
+  store: WorkflowStore,
   now: Temporal.Instant,
 ): Promise<HookInspection> {
   const hook = parseHookToken(token);
@@ -321,15 +267,15 @@ export async function getHookByToken(
 
 async function disposeHookToken(
   token: string,
-  hook: ParsedWorkflowHookToken,
-  service: WorkflowHookServiceOptions,
+  hook: HookTokenPayload,
+  context: EngineContext,
 ): Promise<HookInspection> {
   let timestamp: Temporal.Instant | undefined;
 
   for (let attempt = 0; attempt < MAX_HOOK_DISPOSAL_APPEND_ATTEMPTS; attempt++) {
-    const run = await service.store.getRun(hook.runId);
-    const events = run === undefined ? [] : await service.store.getEvents(hook.runId);
-    const inspection = inspectHookToken(token, run, events, service.now());
+    const run = await context.store.getRun(hook.runId);
+    const events = run === undefined ? [] : await context.store.getEvents(hook.runId);
+    const inspection = inspectHookToken(token, run, events, context.now());
 
     if (inspection.status !== "waiting") {
       return inspection;
@@ -340,20 +286,24 @@ async function disposeHookToken(
     }
 
     if (inspection.stepId === undefined) {
-      WorkflowHookError.waitingStepMissing();
+      throw new WorkflowHookError(
+        "Workflow hook inspection is missing a waiting step id",
+        WorkflowErrorCode.HOOK_WAITING_STEP_MISSING,
+        undefined,
+      );
     }
 
-    timestamp ??= service.now();
-    enforceWorkflowEventHistoryNextLimit(events, service.limits);
+    timestamp ??= context.now();
+    enforceEventHistoryNextLimit(events, context.limits);
 
-    const appendedEvents = await service.store.appendEventIfRunCurrent(run, {
+    const appendedEvents = await context.store.appendEventIfRunCurrent(run, {
       kind: "message_wait_failed",
       timestamp,
       stepId: inspection.stepId,
       stepName: hook.name,
       messageId: hook.messageId,
       error: serializeError(
-        WorkflowHookDisposedError.create({
+        new WorkflowHookDisposedError({
           runId: hook.runId,
           stepId: inspection.stepId,
           stepName: hook.name,
@@ -367,7 +317,7 @@ async function disposeHookToken(
     }
 
     if (run.status === "waiting") {
-      await service.store.updateRunIfCurrent(run, {
+      await context.store.updateRunIfCurrent(run, {
         ...run,
         availableAt:
           run.availableAt !== undefined && Temporal.Instant.compare(run.availableAt, timestamp) <= 0
@@ -376,30 +326,28 @@ async function disposeHookToken(
         updatedAt: timestamp,
         lastTransitionAt: timestamp,
         lastTransitionReason: "waiting",
-        deadlineAt: run.deadlineAt,
-        retryAt: run.retryAt,
         error: undefined,
         output: undefined,
         finishedAt: undefined,
       });
     }
 
-    return inspectHookToken(token, run, appendedEvents, service.now());
+    return inspectHookToken(token, run, appendedEvents, context.now());
   }
 
-  const run = await service.store.getRun(hook.runId);
+  const run = await context.store.getRun(hook.runId);
 
   return inspectHookToken(
     token,
     run,
-    run === undefined ? [] : await service.store.getEvents(hook.runId),
-    service.now(),
+    run === undefined ? [] : await context.store.getEvents(hook.runId),
+    context.now(),
   );
 }
 
-export function inspectHookToken(
+function inspectHookToken(
   token: string,
-  run: WorkflowRunRecord | undefined,
+  run: RunRecord | undefined,
   events: readonly EventRecord[],
   now: Temporal.Instant,
 ): HookInspection {
@@ -409,7 +357,7 @@ export function inspectHookToken(
     return hookInspection(token, hook, "not-found");
   }
 
-  const history = new WorkflowHistory(events);
+  const history = new History(events);
   const started = history.latestMessageWaitStartedByNameAndMessageId(hook.name, hook.messageId);
 
   if (started === undefined) {
@@ -427,7 +375,9 @@ export function inspectHookToken(
   }
 
   if (terminal?.kind === "message_wait_failed") {
-    const status = WorkflowHookDisposedError.isDisposed(terminal.error) ? "disposed" : "failed";
+    const status = matchesWorkflowError(terminal.error, WorkflowErrorCode.HOOK_DISPOSED)
+      ? "disposed"
+      : "failed";
 
     return hookInspection(token, hook, status, {
       stepId: started.stepId,
@@ -458,50 +408,33 @@ export function inspectHookToken(
 
 function hookInspection(
   token: string,
-  hook: ParsedWorkflowHookToken,
+  hook: HookTokenPayload,
   status: HookInspectionStatus,
-  state: WorkflowHookInspectionState = {},
+  state: HookInspectionState = {},
 ): HookInspection {
-  const summary: HookInspection = {
+  return {
     token,
     runId: hook.runId,
     name: hook.name,
     messageId: hook.messageId,
     kind: hook.kind,
     status,
+    metadata: hook.metadata,
+    stepId: state.stepId,
+    timeoutAt: state.timeoutAt,
+    payload: state.payload,
+    error: state.error,
   };
-
-  if (hook.metadata !== undefined) {
-    Object.assign(summary, { metadata: hook.metadata } satisfies Partial<HookInspection>);
-  }
-
-  if (state.stepId !== undefined) {
-    Object.assign(summary, { stepId: state.stepId } satisfies Partial<HookInspection>);
-  }
-
-  if (state.timeoutAt !== undefined) {
-    Object.assign(summary, { timeoutAt: state.timeoutAt } satisfies Partial<HookInspection>);
-  }
-
-  if (state.payload !== undefined) {
-    Object.assign(summary, { payload: state.payload } satisfies Partial<HookInspection>);
-  }
-
-  if (state.error !== undefined) {
-    Object.assign(summary, { error: state.error } satisfies Partial<HookInspection>);
-  }
-
-  return summary;
 }
 
-interface WorkflowHookInspectionState {
+interface HookInspectionState {
   readonly stepId?: string;
   readonly timeoutAt?: Temporal.Instant;
   readonly payload?: StorageValue;
   readonly error?: WorkflowErrorRecord;
 }
 
-interface WorkflowHookTokenFormatInput {
+interface HookTokenFormatInput {
   readonly runId: RunId;
   readonly name: string;
   readonly messageId: string;
@@ -510,10 +443,8 @@ interface WorkflowHookTokenFormatInput {
 }
 
 // The token carries hook metadata only; resumed payloads are persisted through messages.
-function formatHookToken(hook: WorkflowHookTokenFormatInput): string {
-  const payload: HookTokenPayload = { v: 1, ...hook };
-
+function formatHookToken(hook: HookTokenFormatInput): string {
   return `${WORKFLOW_HOOK_TOKEN_PREFIX}${WORKFLOW_HOOK_TOKEN_VERSION}:${encodeBase64UrlString(
-    JSON.stringify(payload),
+    JSON.stringify(hook),
   )}`;
 }

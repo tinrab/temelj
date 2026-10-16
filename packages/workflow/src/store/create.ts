@@ -6,33 +6,31 @@ import type {
   CleanupRunsResult,
 } from "../types/cleanup.ts";
 import type { EventRecord } from "../types/events.ts";
+import type { RunId } from "../types/ids.ts";
 import type { LockRecord } from "../types/lock.ts";
 import type { WorkflowPage } from "../types/pagination.ts";
 import type {
-  WorkflowListRunsOptions,
-  WorkflowListRunsPageOptions,
-  WorkflowListStepAttemptsPageOptions,
+  ListRunsOptions,
+  ListRunsPageOptions,
+  ListStepAttemptsPageOptions,
 } from "../types/run-list.ts";
-import type { RunId, WorkflowRunRecord } from "../types/run.ts";
+import type { RunRecord } from "../types/run.ts";
 import type {
   ListSchedulesOptions,
   ListSchedulesPageOptions,
   ScheduleRecord,
 } from "../types/schedule.ts";
-import type {
-  WorkflowListStepAttemptsOptions,
-  WorkflowStepAttemptRecord,
-} from "../types/step-attempts.ts";
+import type { ListStepAttemptsOptions, StepAttemptRecord } from "../types/step-attempts.ts";
 import type {
   CreateWorkflowStoreOptions,
-  WorkflowClaimRunOptions,
+  ClaimRunOptions,
   WorkflowEventHistoryChangeWaitOptions,
-  WorkflowExtendRunLeaseOptions,
-  WorkflowIdempotencyKeyOptions,
-  WorkflowReleaseRunLeaseOptions,
+  ExtendRunLeaseOptions,
+  IdempotencyKeyOptions,
+  ReleaseRunLeaseOptions,
   WorkflowStore as WorkflowStoreContract,
-  WorkflowStoreCapabilities,
-  WorkflowMessageIdempotencyIndex,
+  StoreCapabilities,
+  MessageIdempotencyIndex,
   WorkflowStorage,
 } from "../types/store.ts";
 
@@ -43,13 +41,14 @@ import {
   appendWorkflowEvent,
   appendWorkflowEventIfRunCurrent,
   getWorkflowEvents,
-} from "./event.ts";
-import { createRunWithIdempotency, getRunByIdempotencyKey } from "./idempotency.ts";
-import { getReadableLock, listReadableLocks, updateLockIfCurrent } from "./lock.ts";
+} from "./events.ts";
 import {
+  createRunWithIdempotency,
+  getRunByIdempotencyKey,
   hasMessageIdempotencyKey as hasWorkflowMessageIdempotencyKey,
   repairMessageIdempotencyIndexes as repairWorkflowMessageIdempotencyIndexes,
-} from "./message-index.ts";
+} from "./indexes.ts";
+import { getReadableLock, listReadableLocks, updateLockIfCurrent } from "./lock.ts";
 import {
   claimWorkflowRun,
   countWorkflowRuns,
@@ -85,7 +84,7 @@ export function createWorkflowStore(
 export class WorkflowStore implements WorkflowStoreContract {
   readonly storage: WorkflowStorage;
   readonly namespace: string;
-  readonly capabilities: WorkflowStoreCapabilities;
+  readonly capabilities: StoreCapabilities;
 
   constructor(options: CreateWorkflowStoreOptions = {}) {
     this.storage = options.storage ?? createStorage();
@@ -93,58 +92,47 @@ export class WorkflowStore implements WorkflowStoreContract {
     this.capabilities = getWorkflowStoreCapabilities(this.storage);
   }
 
-  async createRun(run: WorkflowRunRecord): Promise<WorkflowRunRecord> {
+  async createRun(run: RunRecord): Promise<RunRecord> {
     return createRunWithIdempotency(this.storage, this.namespace, this, run);
   }
 
-  async getRun(runId: RunId): Promise<WorkflowRunRecord | undefined> {
+  async getRun(runId: RunId): Promise<RunRecord | undefined> {
     return getWorkflowRun(this.storage, this.namespace, runId);
   }
 
-  async getRunByIdempotencyKey(
-    options: WorkflowIdempotencyKeyOptions,
-  ): Promise<WorkflowRunRecord | undefined> {
+  async getRunByIdempotencyKey(options: IdempotencyKeyOptions): Promise<RunRecord | undefined> {
     return getRunByIdempotencyKey(this.storage, this.namespace, this, options);
   }
 
-  async updateRun(run: WorkflowRunRecord): Promise<WorkflowRunRecord> {
+  async updateRun(run: RunRecord): Promise<RunRecord> {
     return updateWorkflowRun(this.storage, this.namespace, this, run);
   }
 
-  async updateRunIfCurrent(
-    current: WorkflowRunRecord,
-    next: WorkflowRunRecord,
-  ): Promise<WorkflowRunRecord | undefined> {
+  async updateRunIfCurrent(current: RunRecord, next: RunRecord): Promise<RunRecord | undefined> {
     return updateRunIfCurrent(this.storage, this.namespace, this, current, next);
   }
 
-  async listRuns(options?: WorkflowListRunsOptions): Promise<readonly WorkflowRunRecord[]> {
+  async listRuns(options?: ListRunsOptions): Promise<readonly RunRecord[]> {
     return listWorkflowRuns(this.storage, this.namespace, options);
   }
 
-  async listRunsPage(
-    options?: WorkflowListRunsPageOptions,
-  ): Promise<WorkflowPage<WorkflowRunRecord>> {
+  async listRunsPage(options?: ListRunsPageOptions): Promise<WorkflowPage<RunRecord>> {
     return listWorkflowRunsPage(this.storage, this.namespace, options);
   }
 
-  async countRuns(options?: WorkflowListRunsOptions): Promise<number> {
+  async countRuns(options?: ListRunsOptions): Promise<number> {
     return countWorkflowRuns(this.storage, this.namespace, options);
   }
 
-  async claimRun(options: WorkflowClaimRunOptions): Promise<WorkflowRunRecord | undefined> {
+  async claimRun(options: ClaimRunOptions): Promise<RunRecord | undefined> {
     return claimWorkflowRun(this.storage, this.namespace, this, options);
   }
 
-  async extendRunLease(
-    options: WorkflowExtendRunLeaseOptions,
-  ): Promise<WorkflowRunRecord | undefined> {
+  async extendRunLease(options: ExtendRunLeaseOptions): Promise<RunRecord | undefined> {
     return extendWorkflowRunLease(this.storage, this.namespace, this, options);
   }
 
-  async releaseRunLease(
-    options: WorkflowReleaseRunLeaseOptions,
-  ): Promise<WorkflowRunRecord | undefined> {
+  async releaseRunLease(options: ReleaseRunLeaseOptions): Promise<RunRecord | undefined> {
     return releaseWorkflowRunLease(this.storage, this.namespace, this, options);
   }
 
@@ -153,7 +141,7 @@ export class WorkflowStore implements WorkflowStoreContract {
   }
 
   async appendEventIfRunCurrent(
-    current: WorkflowRunRecord,
+    current: RunRecord,
     event: EventRecord,
   ): Promise<readonly EventRecord[] | undefined> {
     return appendWorkflowEventIfRunCurrent(this.storage, this.namespace, current, event);
@@ -174,7 +162,7 @@ export class WorkflowStore implements WorkflowStoreContract {
     const key = makeEventsKey(this.namespace, runId);
     await new Promise<void>((resolve) => {
       let settled = false;
-      let unwatch: WorkflowStoreWatcherDisposer | undefined;
+      let unwatch: StoreWatcherDisposer | undefined;
 
       const finish = () => {
         if (settled) {
@@ -183,14 +171,14 @@ export class WorkflowStore implements WorkflowStoreContract {
 
         settled = true;
         options.signal?.removeEventListener("abort", finish);
-        disposeWorkflowStoreWatcher(unwatch);
+        disposeStoreWatcher(unwatch);
         resolve();
       };
 
       options.signal?.addEventListener("abort", finish, { once: true });
       void this.storage
         .watch((event) => {
-          if (isWorkflowStorageChangeForKey(event, key)) {
+          if (isStorageChangeForKey(event, key)) {
             finish();
           }
         })
@@ -198,7 +186,7 @@ export class WorkflowStore implements WorkflowStoreContract {
           unwatch = unsubscribe;
 
           if (settled) {
-            disposeWorkflowStoreWatcher(unwatch);
+            disposeStoreWatcher(unwatch);
           }
         })
         .catch(() => {
@@ -209,32 +197,27 @@ export class WorkflowStore implements WorkflowStoreContract {
 
   async listStepAttempts(
     runId: RunId,
-    options?: WorkflowListStepAttemptsOptions,
-  ): Promise<readonly WorkflowStepAttemptRecord[]> {
+    options?: ListStepAttemptsOptions,
+  ): Promise<readonly StepAttemptRecord[]> {
     return listWorkflowStepAttempts(this.storage, this.namespace, this, runId, options);
   }
 
   async listStepAttemptsPage(
     runId: RunId,
-    options?: WorkflowListStepAttemptsPageOptions,
-  ): Promise<WorkflowPage<WorkflowStepAttemptRecord>> {
+    options?: ListStepAttemptsPageOptions,
+  ): Promise<WorkflowPage<StepAttemptRecord>> {
     return listWorkflowStepAttemptsPage(this.storage, this.namespace, this, runId, options);
   }
 
-  async countStepAttempts(
-    runId: RunId,
-    options?: WorkflowListStepAttemptsOptions,
-  ): Promise<number> {
+  async countStepAttempts(runId: RunId, options?: ListStepAttemptsOptions): Promise<number> {
     return countWorkflowStepAttempts(this.storage, this.namespace, this, runId, options);
   }
 
-  async repairStepAttempts(runId: RunId): Promise<readonly WorkflowStepAttemptRecord[]> {
+  async repairStepAttempts(runId: RunId): Promise<readonly StepAttemptRecord[]> {
     return repairWorkflowStepAttempts(this.storage, this.namespace, this, runId);
   }
 
-  async repairMessageIdempotencyIndexes(
-    runId: RunId,
-  ): Promise<readonly WorkflowMessageIdempotencyIndex[]> {
+  async repairMessageIdempotencyIndexes(runId: RunId): Promise<readonly MessageIdempotencyIndex[]> {
     return repairWorkflowMessageIdempotencyIndexes(this.storage, this.namespace, runId);
   }
 
@@ -291,17 +274,17 @@ export class WorkflowStore implements WorkflowStoreContract {
   }
 }
 
-type WorkflowStoreWatcherDisposer = () => void | Promise<void>;
+type StoreWatcherDisposer = () => void | Promise<void>;
 
-function disposeWorkflowStoreWatcher(unwatch: WorkflowStoreWatcherDisposer | undefined): void {
+function disposeStoreWatcher(unwatch: StoreWatcherDisposer | undefined): void {
   if (unwatch === undefined) {
     return;
   }
 
-  ignoreWorkflowStoreWatcherDisposal(unwatch());
+  ignoreStoreWatcherDisposal(unwatch());
 }
 
-function ignoreWorkflowStoreWatcherDisposal(result: void | Promise<void>): void {
+function ignoreStoreWatcherDisposal(result: void | Promise<void>): void {
   if (result === undefined) {
     return;
   }
@@ -309,7 +292,7 @@ function ignoreWorkflowStoreWatcherDisposal(result: void | Promise<void>): void 
   void result.catch(() => {});
 }
 
-function isWorkflowStorageChangeForKey(event: StorageChangeEvent, key: string): boolean {
+function isStorageChangeForKey(event: StorageChangeEvent, key: string): boolean {
   switch (event.type) {
     case "set":
     case "delete":

@@ -1,9 +1,7 @@
 import type { StorageValue } from "@temelj/storage";
 
 import type { WorkflowErrorRecord } from "./error.ts";
-import type { WorkflowPage, PageOptions } from "./pagination.ts";
-import type { RunId } from "./run.ts";
-import type { StreamId } from "./stream-id.ts";
+import type { RunId, StreamId } from "./ids.ts";
 
 /** Writable durable stream created by workflow code and persisted in run history. */
 export interface Stream<TChunk = unknown> {
@@ -37,9 +35,6 @@ export interface ReadStreamOptions {
   readonly fromTail?: number;
   readonly maxChunks?: number;
 }
-
-/** Paginated stream read options combining stream offsets with cursor paging. */
-export type ReadStreamPageOptions = ReadStreamOptions & PageOptions;
 
 /** Options for following stream updates until cancellation or a terminal stream event. */
 export interface FollowStreamOptions extends ReadStreamOptions {
@@ -94,22 +89,6 @@ export interface StreamInfo {
   readonly chunkCount: number;
   readonly lastIndex?: number;
   readonly error?: WorkflowErrorRecord;
-}
-
-/** Paginated durable stream state where chunks are returned as a page. */
-export interface StreamPage<TChunk = StorageValue | undefined> {
-  readonly runId: RunId;
-  readonly id: StreamId;
-  readonly name: string;
-  readonly status: StreamStatus;
-  readonly createdAt: Temporal.Instant;
-  readonly updatedAt: Temporal.Instant;
-  readonly contentType?: string;
-  readonly metadata?: StorageValue;
-  readonly chunkCount: number;
-  readonly lastIndex?: number;
-  readonly error?: WorkflowErrorRecord;
-  readonly chunks: WorkflowPage<StreamChunk<TChunk>>;
 }
 
 /** Incremental update emitted when a durable stream chunk is written. */

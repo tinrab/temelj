@@ -1,78 +1,79 @@
 import type { StorageValue } from "@temelj/storage";
 
+import { ss, type SchemaOutput } from "@temelj/standard-schema";
 import { createSuperJsonStorageCodec } from "@temelj/storage";
-import { z } from "zod";
 
 import type { WorkflowDefinition } from "../types/definition.ts";
 import type { CloudflareWorkflowInstanceStatus } from "./types.ts";
 
-import { workflowPersistedValueSchema } from "../types/run.ts";
+import { parse } from "../schema/common.ts";
+import { persistedValueSchema } from "../schema/persisted-value.ts";
+import { durationTotal } from "../temporal.ts";
 
-const cloudflareWorkflowCodec = createSuperJsonStorageCodec<StorageValue | undefined, "string">({
+const cloudflareCodec = createSuperJsonStorageCodec<StorageValue | undefined, "string">({
   format: "string",
 });
 
-const cloudflareWorkflowEnvelopeSchema = z.object({
-  kind: z.literal("temelj-workflow"),
-  version: z.literal(1),
-  workflowName: z.string().min(1),
-  workflowVersion: z.string().min(1).optional(),
-  input: z.string(),
+const nonEmptyStringSchema = ss.nonEmptyString();
+
+const cloudflareEnvelopeSchema = ss.object({
+  kind: ss.literal("temelj-workflow"),
+  version: ss.literal(1),
+  workflowName: nonEmptyStringSchema,
+  workflowVersion: ss.optional(nonEmptyStringSchema),
+  input: ss.string(),
 });
 
 /** Serialized payload dispatched through the generic Cloudflare entrypoint. */
-export type CloudflareWorkflowEnvelope = z.infer<typeof cloudflareWorkflowEnvelopeSchema>;
+export type CloudflareEnvelope = SchemaOutput<typeof cloudflareEnvelopeSchema>;
 
 // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Caller-defined workflow values are validated before crossing the Cloudflare transport boundary.
-export function encodeCloudflareWorkflowValue(value: unknown): string {
-  return cloudflareWorkflowCodec.encode(workflowPersistedValueSchema.optional().parse(value));
+export function encodeCloudflareValue(value: unknown): string {
+  return cloudflareCodec.encode(parse(ss.optional(persistedValueSchema), value));
 }
 
-export function decodeCloudflareWorkflowValue(
+export function decodeCloudflareValue(
   // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Provider output is untrusted until the encoded string and decoded workflow value both validate.
   value: unknown,
   label: string,
 ): StorageValue | undefined {
-  const encoded = z.string().safeParse(value);
+  const encoded = ss.safeParseSync(ss.string(), value);
 
   if (!encoded.success) throw new TypeError(`${label} must be an encoded string`);
 
-  return workflowPersistedValueSchema
-    .optional()
-    .parse(cloudflareWorkflowCodec.decode(encoded.data));
+  return parse(ss.optional(persistedValueSchema), cloudflareCodec.decode(encoded.value));
 }
 
 // oxlint-disable-next-line anti-slop/no-unknown-parameters -- The native Cloudflare event payload enters through this envelope schema parser.
-export function parseCloudflareWorkflowEnvelope(value: unknown): CloudflareWorkflowEnvelope {
-  const parsed = cloudflareWorkflowEnvelopeSchema.safeParse(value);
+export function parseCloudflareEnvelope(value: unknown): CloudflareEnvelope {
+  const parsed = ss.safeParseSync(cloudflareEnvelopeSchema, value);
 
   if (!parsed.success) {
     throw new TypeError("Cloudflare Workflow payload is not a valid Temelj workflow envelope");
   }
 
-  return parsed.data;
+  return parsed.value;
 }
 
-const cloudflareWorkflowResultEnvelopeSchema = z.object({
-  kind: z.literal("temelj-workflow-result"),
-  version: z.literal(1),
-  workflowName: z.string().min(1),
-  workflowVersion: z.string().min(1).optional(),
-  output: z.string(),
+const cloudflareResultEnvelopeSchema = ss.object({
+  kind: ss.literal("temelj-workflow-result"),
+  version: ss.literal(1),
+  workflowName: nonEmptyStringSchema,
+  workflowVersion: ss.optional(nonEmptyStringSchema),
+  output: ss.string(),
 });
 
 /** Serialized result coupled to the workflow contract that produced it. */
-export type CloudflareWorkflowResultEnvelope = z.infer<
-  typeof cloudflareWorkflowResultEnvelopeSchema
->;
+export type CloudflareResultEnvelope = SchemaOutput<typeof cloudflareResultEnvelopeSchema>;
 
 /** Validates the provider result and its workflow identity before decoding the output. */
-export function decodeCloudflareWorkflowResult(
+export function decodeCloudflareResult(
   state: CloudflareWorkflowInstanceStatus,
   definition: WorkflowDefinition,
 ): StorageValue | undefined {
-  const envelope = cloudflareWorkflowResultEnvelopeSchema.parse(
-    JSON.parse(z.string().parse(state.output)),
+  const envelope = parse(
+    cloudflareResultEnvelopeSchema,
+    JSON.parse(parse(ss.string(), state.output)),
   );
 
   if (
@@ -84,5 +85,15 @@ export function decodeCloudflareWorkflowResult(
     );
   }
 
-  return decodeCloudflareWorkflowValue(envelope.output, "Cloudflare Workflow result output");
+  return decodeCloudflareValue(envelope.output, "Cloudflare Workflow result output");
+}
+
+export function durationMilliseconds(duration: Temporal.Duration, label: string): number {
+  const milliseconds = durationTotal(duration);
+
+  if (!Number.isSafeInteger(milliseconds) || milliseconds < 0) {
+    throw new RangeError(`${label} must resolve to non-negative whole milliseconds`);
+  }
+
+  return milliseconds;
 }

@@ -8,7 +8,7 @@ import {
   type CompiledWorkflowFunction,
   type WorkflowImplementation,
   type WorkflowRunHandle,
-  type WorkflowStartOptions,
+  type StartOptions,
 } from "@temelj/workflow";
 import { createOpenTelemetryTelemetry } from "@temelj/workflow/otel";
 import { performance } from "node:perf_hooks";
@@ -267,7 +267,7 @@ function attributesForScenario(name: string): Attributes {
 async function startCompiledWorkflow<TArgs extends readonly unknown[], TOutput>(
   workflow: CompiledWorkflowFunction<TArgs, TOutput>,
   args: TArgs,
-  options?: WorkflowStartOptions,
+  options?: StartOptions,
 ): Promise<WorkflowRunHandle<Awaited<TOutput>>> {
   const implementation = requireCompiledWorkflowDefinition(workflow);
   client.register(implementation);

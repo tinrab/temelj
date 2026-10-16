@@ -1,13 +1,15 @@
+import type { ExecutionLimits } from "../types/engine-options.ts";
+import type { EventRecord } from "../types/events.ts";
+import type { RunId } from "../types/ids.ts";
 import type {
-  WorkflowMissingImplementationRetryConfig,
-  WorkflowMissingImplementationRetryDefaults,
-  WorkflowResolvedMissingImplementationRetryConfig,
-  WorkflowResolvedRetryConfig,
-  WorkflowResolvedRetryDefaults,
-  WorkflowResolvedStepRetryConfig,
-  WorkflowRetryConfig,
+  MissingImplementationRetryConfig,
+  MissingImplementationRetryDefaults,
+  ResolvedMissingImplementationRetryConfig,
+  ResolvedRetryConfig,
+  ResolvedRetryDefaults,
+  RetryConfig,
 } from "../types/retry.ts";
-import type { WorkflowStepRunWorkflowOptions } from "../types/step.ts";
+import type { StepRunWorkflowOptions } from "../types/step.ts";
 
 import {
   WorkflowDurationError,
@@ -16,36 +18,29 @@ import {
   WorkflowSerializationError,
   WorkflowStepAttemptLimitError,
 } from "../errors/mod.ts";
-import { WorkflowHistory } from "../history/mod.ts";
-import { EventRecord } from "../types/events.ts";
-import { RunId } from "../types/run.ts";
+import { History } from "../history/replay.ts";
 import {
-  durationAmount,
   isPositiveSafeInteger,
   nextPositiveSafeInteger,
+  durationAmount,
   resolveSafeRetryDelay,
-} from "../utility.ts";
+} from "../values.ts";
 
-const DEFAULT_STEP_RETRY_CONFIG: WorkflowResolvedStepRetryConfig = {
+const DEFAULT_STEP_RETRY_CONFIG: ResolvedRetryConfig = {
   maximumAttempts: 10,
   backoffCoefficient: 2,
 };
 
-interface WorkflowEngineRetryLimits {
-  readonly maximumEventHistoryEvents?: number;
-}
-
-type WorkflowResolvedMissingImplementationRetryInput =
-  Partial<WorkflowMissingImplementationRetryDefaults> & {
-    readonly maximumInterval?: Temporal.Duration;
-  };
+type ResolvedMissingImplementationRetryInput = Partial<MissingImplementationRetryDefaults> & {
+  readonly maximumInterval?: Temporal.Duration;
+};
 
 /** Resolves retry options and merges them with defaults used by workflow or step execution. */
-export function resolveWorkflowRetryConfig(
-  config: WorkflowRetryConfig | undefined,
-  defaults: WorkflowResolvedRetryDefaults,
+export function resolveRetryConfig(
+  config: RetryConfig | undefined,
+  defaults: ResolvedRetryDefaults,
   label: string,
-): WorkflowResolvedRetryConfig {
+): ResolvedRetryConfig {
   const input = config ?? {};
 
   if (
@@ -56,36 +51,21 @@ export function resolveWorkflowRetryConfig(
     WorkflowOptionsError.retryMaximumIntervalTooSmall(label);
   }
 
-  const result = {
+  return {
     maximumAttempts: input.maximumAttempts ?? defaults.maximumAttempts,
-  } satisfies Partial<WorkflowResolvedRetryConfig>;
-
-  if (input.initialInterval !== undefined) {
-    Object.assign(result, {
-      initialInterval: input.initialInterval,
-    } satisfies Partial<WorkflowResolvedRetryConfig>);
-  }
-
-  const result1 = Object.assign(result, {
+    initialInterval: input.initialInterval,
     backoffCoefficient: input.backoffCoefficient ?? defaults.backoffCoefficient,
-  } satisfies Partial<WorkflowResolvedRetryConfig>);
-
-  if (input.maximumInterval !== undefined) {
-    Object.assign(result1, {
-      maximumInterval: input.maximumInterval,
-    } satisfies Partial<WorkflowResolvedRetryConfig>);
-  }
-
-  return result1;
+    maximumInterval: input.maximumInterval,
+  };
 }
 
 /** Resolves missing-implementation retry options and merges them with worker defaults. */
 export function resolveMissingImplementationRetryConfig(
-  config: WorkflowMissingImplementationRetryConfig | undefined,
-  defaults: WorkflowMissingImplementationRetryDefaults,
+  config: MissingImplementationRetryConfig | undefined,
+  defaults: MissingImplementationRetryDefaults,
   label: string,
-): WorkflowResolvedMissingImplementationRetryConfig {
-  const input: WorkflowResolvedMissingImplementationRetryInput = config === undefined ? {} : config;
+): ResolvedMissingImplementationRetryConfig {
+  const input: ResolvedMissingImplementationRetryInput = config === undefined ? {} : config;
   const initialInterval = input.initialInterval ?? defaults.initialInterval;
   const maximumInterval = input.maximumInterval;
 
@@ -96,24 +76,17 @@ export function resolveMissingImplementationRetryConfig(
     WorkflowOptionsError.retryMaximumIntervalTooSmall(label);
   }
 
-  const summary: WorkflowResolvedMissingImplementationRetryConfig = {
+  return {
     initialInterval,
     backoffCoefficient: input.backoffCoefficient ?? defaults.backoffCoefficient,
     maximumAttempts: input.maximumAttempts ?? defaults.maximumAttempts,
+    maximumInterval,
   };
-
-  if (maximumInterval !== undefined) {
-    Object.assign(summary, {
-      maximumInterval,
-    } satisfies Partial<WorkflowResolvedMissingImplementationRetryConfig>);
-  }
-
-  return summary;
 }
 
 export function resolveChildWorkflowRetryConfig(
-  options: WorkflowStepRunWorkflowOptions | undefined,
-): WorkflowResolvedStepRetryConfig {
+  options: StepRunWorkflowOptions | undefined,
+): ResolvedRetryConfig {
   if (options?.retry === undefined) {
     return {
       maximumAttempts: 1,
@@ -121,21 +94,14 @@ export function resolveChildWorkflowRetryConfig(
     };
   }
 
-  return resolveWorkflowRetryConfig(
-    options.retry,
-    DEFAULT_STEP_RETRY_CONFIG,
-    "Workflow step retry",
-  );
+  return resolveRetryConfig(options.retry, DEFAULT_STEP_RETRY_CONFIG, "Workflow step retry");
 }
 
-export function shouldRetryWorkflowAttempt(
-  retry: WorkflowResolvedRetryConfig,
-  failedAttempt: number,
-): boolean {
+export function shouldRetryAttempt(retry: ResolvedRetryConfig, failedAttempt: number): boolean {
   return retry.maximumAttempts === 0 || failedAttempt < retry.maximumAttempts;
 }
 
-export function nextWorkflowRetryAttempt(failedAttempt: number): number {
+export function nextRetryAttempt(failedAttempt: number): number {
   const nextAttempt = nextPositiveSafeInteger(failedAttempt);
 
   if (nextAttempt === undefined) {
@@ -147,7 +113,7 @@ export function nextWorkflowRetryAttempt(failedAttempt: number): number {
 
 export function enforceStepAttemptBudget(
   runId: RunId,
-  history: WorkflowHistory,
+  history: History,
   maximumStepAttemptsPerRun: number,
 ): void {
   if (history.totalStartedStepCount() >= maximumStepAttemptsPerRun) {
@@ -155,9 +121,9 @@ export function enforceStepAttemptBudget(
   }
 }
 
-export function enforceWorkflowEventHistoryNextLimit(
+export function enforceEventHistoryNextLimit(
   events: readonly EventRecord[],
-  limits: WorkflowEngineRetryLimits,
+  limits: ExecutionLimits,
 ): void {
   if (
     limits.maximumEventHistoryEvents !== undefined &&
@@ -172,7 +138,7 @@ export function enforceWorkflowEventHistoryNextLimit(
 
 export function nextRetryAt(
   failedAt: Temporal.Instant,
-  retry: WorkflowResolvedRetryConfig,
+  retry: ResolvedRetryConfig,
   failedAttempt: number,
   label: string,
 ): Temporal.Instant | undefined {
@@ -208,7 +174,7 @@ export function retryClassificationRetryAt(
 
   if (cause.retryAt !== undefined) {
     if (!(cause.retryAt instanceof Temporal.Instant)) {
-      WorkflowDurationError.retryAtInstant(label);
+      throw new WorkflowDurationError(`${label} retryAt must be a Temporal.Instant`);
     }
 
     return cause.retryAt;

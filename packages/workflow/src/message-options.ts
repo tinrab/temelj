@@ -12,7 +12,7 @@ import type {
   WaitForMessageChannelOptions,
   WaitForMessageOptions,
 } from "./types/message.ts";
-import type { WorkflowStepMessageApi } from "./types/step.ts";
+import type { StepMessageApi } from "./types/step.ts";
 
 import { resolveMessageChannelSend, resolveMessageChannelWait } from "./definition.ts";
 
@@ -42,38 +42,28 @@ export async function resolveBroadcastMessageInput<TPayload, TRawPayload>(
   if ("channel" in messageInput) {
     const send = await resolveMessageChannelSend(messageInput.channel, messageInput);
 
-    const summary: Awaited<Promise<BroadcastMessageOptions>> = { ...send };
-
-    if (messageInput.target !== undefined) {
-      Object.assign(summary, { target: messageInput.target });
-    }
-
-    return summary;
+    return {
+      ...send,
+      target: messageInput.target,
+    };
   }
 
   const send = await resolveMessageChannelSend(messageInput, channelOptions);
 
-  const result1: Awaited<Promise<BroadcastMessageOptions>> = { ...send };
-
-  if (channelOptions?.target !== undefined) {
-    Object.assign(result1, { target: channelOptions.target } satisfies Partial<
-      Awaited<Promise<BroadcastMessageOptions>>
-    >);
-  }
-
-  return result1;
+  return {
+    ...send,
+    target: channelOptions?.target,
+  };
 }
 
-interface WorkflowMessageWaitExecutor {
+interface MessageWaitExecutor {
   <TPayload>(
     options: WaitForMessageOptions<Schema<unknown, TPayload> | undefined>,
   ): Promise<TPayload | StorageValue | undefined>;
 }
 
 /** Dispatches raw and schema-validated waits without erasing the schema output type. */
-export function createWorkflowMessageWait(
-  execute: WorkflowMessageWaitExecutor,
-): WorkflowStepMessageApi["wait"] {
+export function createMessageWait(execute: MessageWaitExecutor): StepMessageApi["wait"] {
   function wait(options: WaitForMessageOptions): Promise<StorageValue | undefined>;
   function wait<TPayload>(
     options: WaitForMessageOptions<Schema<unknown, TPayload>> & {

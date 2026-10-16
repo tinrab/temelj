@@ -1,101 +1,73 @@
 import type { StorageValue } from "@temelj/storage";
 
+import type {
+  CleanupRunsOptions,
+  CleanupRunsResult,
+  RetentionPolicyOptions,
+} from "../types/cleanup.ts";
 import type { WorkflowDefinition } from "../types/definition.ts";
-import type { WorkflowRunStarter } from "../types/engine.ts";
-import type { WorkflowHandle } from "../types/result.ts";
+import type { RunId } from "../types/ids.ts";
 import type {
-  WorkflowMarkRunPermanentlyFailedOptions,
-  WorkflowReleaseStaleLeaseOptions,
-  WorkflowRerunOptions,
-  WorkflowRescheduleRunOptions,
-  WorkflowRetryFailedRunOptions,
-  WorkflowStartOptions,
+  MarkRunPermanentlyFailedOptions,
+  ReleaseStaleLeaseOptions,
+  RerunOptions,
+  RescheduleRunOptions,
+  RetryFailedRunOptions,
+  StartOptions,
 } from "../types/run-options.ts";
-import type {
-  RunId,
-  WorkflowAttributePatch,
-  WorkflowRunRecord,
-  WorkflowRunWorkflowName,
-  WorkflowRunWorkflowVersion,
-} from "../types/run.ts";
-import type {
-  WorkflowEventReader,
-  WorkflowLockConditionalWriterRepository,
-  WorkflowLockListerRepository,
-  WorkflowRunReaderRepository,
-  WorkflowRunWriterRepository,
-  WorkflowStepAttemptLookup,
-} from "../types/store.ts";
+import type { AttributePatch, RunRecord } from "../types/run.ts";
+import type { EngineContext } from "./context.ts";
+import type { WorkflowEngine } from "./create.ts";
+import type { RunRef } from "./start.ts";
 
-import { normalizeWorkflowAttributePatch } from "../attributes.ts";
-import { defineWorkflowFromName } from "../definition.ts";
+import { normalizeAttributePatch } from "../attributes.ts";
+import { defineFromName } from "../definition.ts";
+import { WorkflowErrorCode } from "../errors/codes.ts";
 import { WorkflowPermanentFailureError, WorkflowStateError } from "../errors/mod.ts";
-import { isScheduledWorkflowRunStatus, nextRunAttempt } from "../utility.ts";
-import { MAX_CONCURRENT_RUN_UPDATE_ATTEMPTS } from "./retry-policy.ts";
+import { isScheduledRunStatus, nextRunAttempt } from "../run-status.ts";
+import { getRequiredRun } from "../store/query.ts";
+import { retentionCleanupOptions } from "./run-utils.ts";
 import { serializeError, toPersistedValue } from "./serialization.ts";
 import {
   cancelRunWithChildren,
-  getRequiredRun,
+  MAX_RUN_UPDATE_ATTEMPTS,
   transitionRunToManualRetry,
-  transitionRunToPermanentFailure,
   releaseLocksForRun,
   transitionRunToRescheduled,
   setRunAttributesIfCurrent,
   transitionRunAfterStaleLeaseRelease,
   updateRunMetadataIfCurrent,
+  transitionRunToFailed,
 } from "./state.ts";
 
-type WorkflowRunServiceStore = WorkflowRunReaderRepository &
-  WorkflowRunWriterRepository &
-  WorkflowEventReader &
-  WorkflowStepAttemptLookup &
-  WorkflowLockListerRepository &
-  WorkflowLockConditionalWriterRepository;
-
-interface WorkflowRunServiceOptions {
-  readonly store: WorkflowRunServiceStore;
-  readonly now: () => Temporal.Instant;
-  readonly limits: {
-    readonly maximumPersistedValueBytes?: number;
-  };
+interface RunLifecycleEmitter {
+  readonly emitLifecycleEvent: (next: RunRecord, previous: RunRecord) => void | Promise<void>;
 }
 
-interface WorkflowRunLifecycleEmitter {
-  readonly emitLifecycleEvent: (
-    next: WorkflowRunRecord,
-    previous: WorkflowRunRecord,
-  ) => void | Promise<void>;
+interface RunMetadataUpdateEmitter {
+  readonly emitRunMetadataUpdated: (next: RunRecord, previous: RunRecord) => void;
 }
 
-interface WorkflowRunMetadataUpdateEmitter {
-  readonly emitRunMetadataUpdated: (next: WorkflowRunRecord, previous: WorkflowRunRecord) => void;
-}
-
-export async function rerunWorkflowRun(
-  service: WorkflowRunServiceOptions,
-  startWorkflow: WorkflowRunStarter["startWorkflow"],
+export async function rerunRun(
+  context: EngineContext,
+  startWorkflow: WorkflowEngine["startWorkflow"],
   runId: RunId,
-  rerunOptions: WorkflowRerunOptions | undefined,
-): Promise<WorkflowHandle<unknown>> {
-  const sourceRun = await getRequiredRun(service.store, runId);
-  const options = rerunOptions;
-  const definition = await resolveRerunWorkflowDefinition(sourceRun, options);
-  const start = options?.start;
+  rerunOptions: RerunOptions | undefined,
+): Promise<RunRef<unknown>> {
+  const sourceRun = await getRequiredRun(context.store, runId);
+  const definition = await resolveRerunDefinition(sourceRun, rerunOptions);
+  const start = rerunOptions?.start;
 
-  const contextOptions: WorkflowStartOptions = {};
-
-  if (sourceRun.context !== undefined) {
-    Object.assign(contextOptions, {
-      context: sourceRun.context,
-    } satisfies Partial<WorkflowStartOptions>);
-  }
+  const contextOptions: StartOptions = {
+    context: sourceRun.context,
+  };
 
   return await startWorkflow(definition, sourceRun.input, { ...contextOptions, ...start });
 }
 
-export async function resolveRerunWorkflowDefinition(
-  sourceRun: WorkflowRerunSourceRun,
-  options: WorkflowRerunOptions | undefined,
+async function resolveRerunDefinition(
+  sourceRun: RerunSourceRun,
+  options: RerunOptions | undefined,
 ): Promise<WorkflowDefinition<unknown, unknown, unknown>> {
   const workflowName = options?.workflowName ?? sourceRun.workflowName;
 
@@ -104,211 +76,248 @@ export async function resolveRerunWorkflowDefinition(
       ? options.workflowVersion
       : sourceRun.workflowVersion;
 
-  const resolvedWorkflowVersion = await resolveWorkflowVersion(
+  const resolvedWorkflowVersion = await resolveVersion(
     workflowName,
     workflowVersion,
     options?.workflowVersionResolver,
   );
 
-  return defineWorkflowFromName(workflowName, resolvedWorkflowVersion);
+  return defineFromName(workflowName, resolvedWorkflowVersion);
 }
 
-interface WorkflowRerunSourceRun {
-  readonly workflowName: WorkflowRunWorkflowName;
-  readonly workflowVersion?: WorkflowRunWorkflowVersion;
+interface RerunSourceRun {
+  readonly workflowName: string;
+  readonly workflowVersion?: string;
+}
+
+interface RunOperation {
+  /**
+   * The record to write, or `undefined` when the run already has the requested state. Throws
+   * when the run cannot take the change.
+   */
+  readonly next: (current: RunRecord) => RunRecord | undefined;
+  readonly failureMessage: string;
+  readonly failureCode: WorkflowErrorCode;
+  readonly afterUpdate?: (updated: RunRecord) => Promise<void>;
+}
+
+/** Applies an operator change to a run, retrying when another writer updates the run first. */
+async function applyRunOperation(
+  context: EngineContext,
+  lifecycle: RunLifecycleEmitter,
+  runId: RunId,
+  operation: RunOperation,
+): Promise<RunRecord> {
+  for (let attempt = 0; attempt < MAX_RUN_UPDATE_ATTEMPTS; attempt++) {
+    const current = await getRequiredRun(context.store, runId);
+    const next = operation.next(current);
+
+    if (next === undefined) {
+      return current;
+    }
+
+    const updated = await context.store.updateRunIfCurrent(current, next);
+
+    if (updated !== undefined) {
+      await operation.afterUpdate?.(updated);
+      await lifecycle.emitLifecycleEvent(updated, current);
+
+      return updated;
+    }
+  }
+
+  throw new WorkflowStateError(operation.failureMessage, {
+    code: operation.failureCode,
+    details: { runId },
+  });
+}
+
+function stateError(message: string, code: WorkflowErrorCode, runId: RunId): WorkflowStateError {
+  return new WorkflowStateError(message, { code, details: { runId } });
 }
 
 export async function rescheduleWorkflowRun(
-  service: WorkflowRunServiceOptions,
-  lifecycle: WorkflowRunLifecycleEmitter,
+  context: EngineContext,
+  lifecycle: RunLifecycleEmitter,
   runId: RunId,
-  rescheduleOptions: WorkflowRescheduleRunOptions | undefined,
-): Promise<WorkflowRunRecord> {
-  const options = rescheduleOptions;
-  const now = service.now();
-  const availableAt = options?.availableAt ?? now;
+  rescheduleOptions: RescheduleRunOptions | undefined,
+): Promise<RunRecord> {
+  const now = context.now();
+  const availableAt = rescheduleOptions?.availableAt ?? now;
 
-  for (let attempt = 0; attempt < MAX_CONCURRENT_RUN_UPDATE_ATTEMPTS; attempt++) {
-    const current = await getRequiredRun(service.store, runId);
+  return await applyRunOperation(context, lifecycle, runId, {
+    next: (current) => {
+      if (!isScheduledRunStatus(current.status)) {
+        throw stateError(
+          `Workflow run cannot be rescheduled unless pending or waiting: ${runId}`,
+          WorkflowErrorCode.STATE_RUN_CANNOT_BE_RESCHEDULED,
+          runId,
+        );
+      }
 
-    if (!isScheduledWorkflowRunStatus(current.status)) {
-      WorkflowStateError.runCannotBeRescheduled(runId);
-    }
+      const unchanged =
+        current.availableAt !== undefined &&
+        Temporal.Instant.compare(current.availableAt, availableAt) === 0 &&
+        current.lastTransitionReason === "rescheduled";
 
-    if (
-      current.availableAt !== undefined &&
-      Temporal.Instant.compare(current.availableAt, availableAt) === 0 &&
-      current.lastTransitionReason === "rescheduled"
-    ) {
-      return current;
-    }
-
-    const updated = await service.store.updateRunIfCurrent(
-      current,
-      transitionRunToRescheduled(current, now, availableAt),
-    );
-
-    if (updated !== undefined) {
-      await releaseLocksForRun(service.store, updated.id, now);
-      await lifecycle.emitLifecycleEvent(updated, current);
-
-      return updated;
-    }
-  }
-
-  WorkflowStateError.failedRunReschedule(runId);
+      return unchanged ? undefined : transitionRunToRescheduled(current, now, availableAt);
+    },
+    afterUpdate: async (updated) => {
+      await releaseLocksForRun(context.store, updated.id, now);
+    },
+    failureMessage: `Failed to reschedule workflow run ${runId}`,
+    failureCode: WorkflowErrorCode.STATE_RUN_RESCHEDULE_FAILED,
+  });
 }
 
 export async function releaseStaleWorkflowRunLease(
-  service: WorkflowRunServiceOptions,
-  lifecycle: WorkflowRunLifecycleEmitter,
+  context: EngineContext,
+  lifecycle: RunLifecycleEmitter,
   runId: RunId,
-  releaseOptions: WorkflowReleaseStaleLeaseOptions | undefined,
-): Promise<WorkflowRunRecord> {
-  const options = releaseOptions;
-  const now = service.now();
-  const availableAt = options?.availableAt ?? now;
+  releaseOptions: ReleaseStaleLeaseOptions | undefined,
+): Promise<RunRecord> {
+  const now = context.now();
+  const availableAt = releaseOptions?.availableAt ?? now;
 
-  for (let attempt = 0; attempt < MAX_CONCURRENT_RUN_UPDATE_ATTEMPTS; attempt++) {
-    const current = await getRequiredRun(service.store, runId);
+  return await applyRunOperation(context, lifecycle, runId, {
+    next: (current) => {
+      if (isScheduledRunStatus(current.status)) {
+        return undefined;
+      }
 
-    if (isScheduledWorkflowRunStatus(current.status)) {
-      return current;
-    }
+      if (current.status !== "running") {
+        throw stateError(
+          `Workflow run stale lease cannot be released unless running: ${runId}`,
+          WorkflowErrorCode.STATE_STALE_LEASE_RELEASE_REQUIRES_RUNNING,
+          runId,
+        );
+      }
 
-    if (current.status !== "running") {
-      WorkflowStateError.staleLeaseReleaseRequiresRunning(runId);
-    }
+      if (
+        current.workerId !== undefined &&
+        current.workerId.trim() !== "" &&
+        current.leaseExpiresAt !== undefined &&
+        Temporal.Instant.compare(current.leaseExpiresAt, now) > 0
+      ) {
+        throw stateError(
+          `Workflow run lease is still active: ${runId}`,
+          WorkflowErrorCode.STATE_RUN_LEASE_STILL_ACTIVE,
+          runId,
+        );
+      }
 
-    if (
-      current.workerId !== undefined &&
-      current.workerId.trim() !== "" &&
-      current.leaseExpiresAt !== undefined &&
-      Temporal.Instant.compare(current.leaseExpiresAt, now) > 0
-    ) {
-      WorkflowStateError.runLeaseStillActive(runId);
-    }
-
-    const updated = await service.store.updateRunIfCurrent(
-      current,
-      transitionRunAfterStaleLeaseRelease(current, now, availableAt),
-    );
-
-    if (updated !== undefined) {
-      await lifecycle.emitLifecycleEvent(updated, current);
-
-      return updated;
-    }
-  }
-
-  WorkflowStateError.failedStaleRunLeaseRelease(runId);
+      return transitionRunAfterStaleLeaseRelease(current, now, availableAt);
+    },
+    failureMessage: `Failed to release stale workflow run lease ${runId}`,
+    failureCode: WorkflowErrorCode.STATE_STALE_RUN_LEASE_RELEASE_FAILED,
+  });
 }
 
 export async function retryFailedWorkflowRun(
-  service: WorkflowRunServiceOptions,
-  lifecycle: WorkflowRunLifecycleEmitter,
+  context: EngineContext,
+  lifecycle: RunLifecycleEmitter,
   runId: RunId,
-  retryOptions: WorkflowRetryFailedRunOptions | undefined,
-): Promise<WorkflowRunRecord> {
-  const options = retryOptions;
-  const now = service.now();
-  const availableAt = options?.availableAt ?? now;
+  retryOptions: RetryFailedRunOptions | undefined,
+): Promise<RunRecord> {
+  const now = context.now();
+  const availableAt = retryOptions?.availableAt ?? now;
+  const force = retryOptions?.force === true;
 
-  for (let attempt = 0; attempt < MAX_CONCURRENT_RUN_UPDATE_ATTEMPTS; attempt++) {
-    const current = await getRequiredRun(service.store, runId);
+  return await applyRunOperation(context, lifecycle, runId, {
+    next: (current) => {
+      if (isScheduledRunStatus(current.status)) {
+        return undefined;
+      }
 
-    if (isScheduledWorkflowRunStatus(current.status)) {
-      return current;
-    }
+      if (current.status !== "failed") {
+        throw stateError(
+          `Workflow run cannot be retried unless failed: ${runId}`,
+          WorkflowErrorCode.STATE_RUN_RETRY_REQUIRES_FAILED,
+          runId,
+        );
+      }
 
-    if (current.status !== "failed") {
-      WorkflowStateError.runRetryRequiresFailed(runId);
-    }
+      if (current.lastTransitionReason === "permanent_failure" && !force) {
+        throw stateError(
+          `Workflow run cannot be retried after permanent failure without force: ${runId}`,
+          WorkflowErrorCode.STATE_RUN_RETRY_REQUIRES_FORCE_AFTER_PERMANENT_FAILURE,
+          runId,
+        );
+      }
 
-    if (current.lastTransitionReason === "permanent_failure" && options?.force !== true) {
-      WorkflowStateError.runRetryRequiresForceAfterPermanentFailure(runId);
-    }
+      if (!force && current.retryReason === undefined && current.retryAt === undefined) {
+        throw stateError(
+          `Workflow failed run retry requires force when no retry metadata exists: ${runId}`,
+          WorkflowErrorCode.STATE_FAILED_RUN_RETRY_REQUIRES_FORCE,
+          runId,
+        );
+      }
 
-    if (
-      options?.force !== true &&
-      current.retryReason === undefined &&
-      current.retryAt === undefined
-    ) {
-      WorkflowStateError.failedRunRetryRequiresForce(runId);
-    }
-
-    const retryAttempt = nextRunAttempt(current.retryAttempt);
-
-    const updated = await service.store.updateRunIfCurrent(
-      current,
-      transitionRunToManualRetry(current, now, availableAt, retryAttempt),
-    );
-
-    if (updated !== undefined) {
-      await lifecycle.emitLifecycleEvent(updated, current);
-
-      return updated;
-    }
-  }
-
-  WorkflowStateError.failedRunRetry(runId);
+      return transitionRunToManualRetry(
+        current,
+        now,
+        availableAt,
+        nextRunAttempt(current.retryAttempt),
+      );
+    },
+    failureMessage: `Failed to retry workflow run ${runId}`,
+    failureCode: WorkflowErrorCode.STATE_RUN_RETRY_FAILED,
+  });
 }
 
 export async function markWorkflowRunPermanentlyFailed(
-  service: WorkflowRunServiceOptions,
-  lifecycle: WorkflowRunLifecycleEmitter,
+  context: EngineContext,
+  lifecycle: RunLifecycleEmitter,
   runId: RunId,
-  permanentFailureOptions: WorkflowMarkRunPermanentlyFailedOptions,
-): Promise<WorkflowRunRecord> {
-  const now = service.now();
+  permanentFailureOptions: MarkRunPermanentlyFailedOptions,
+): Promise<RunRecord> {
+  const now = context.now();
   const reason = permanentFailureOptions.reason;
 
-  for (let attempt = 0; attempt < MAX_CONCURRENT_RUN_UPDATE_ATTEMPTS; attempt++) {
-    const current = await getRequiredRun(service.store, runId);
+  return await applyRunOperation(context, lifecycle, runId, {
+    next: (current) => {
+      if (current.status === "completed" || current.status === "canceled") {
+        throw new WorkflowStateError(
+          `Workflow run cannot be marked permanently failed from ${current.status}: ${runId}`,
+          {
+            code: WorkflowErrorCode.STATE_PERMANENT_FAILURE_STATUS_INVALID,
+            details: { runId, status: current.status },
+          },
+        );
+      }
 
-    if (current.status === "completed" || current.status === "canceled") {
-      WorkflowStateError.permanentFailureInvalidStatus(runId, current.status);
-    }
+      if (
+        current.status === "failed" &&
+        current.lastTransitionReason === "permanent_failure" &&
+        current.error?.details?.reason === reason
+      ) {
+        return undefined;
+      }
 
-    if (
-      current.status === "failed" &&
-      current.lastTransitionReason === "permanent_failure" &&
-      current.error?.details?.reason === reason
-    ) {
-      return current;
-    }
-
-    const updated = await service.store.updateRunIfCurrent(
-      current,
-      transitionRunToPermanentFailure(
+      return transitionRunToFailed(
         current,
-        serializeError(WorkflowPermanentFailureError.create({ runId, reason })),
+        serializeError(new WorkflowPermanentFailureError({ runId, reason })),
         now,
-      ),
-    );
-
-    if (updated !== undefined) {
-      await lifecycle.emitLifecycleEvent(updated, current);
-
-      return updated;
-    }
-  }
-
-  WorkflowStateError.failedPermanentRunFailure(runId);
+        "permanent_failure",
+      );
+    },
+    failureMessage: `Failed to mark workflow run permanently failed ${runId}`,
+    failureCode: WorkflowErrorCode.STATE_PERMANENT_RUN_FAILURE_FAILED,
+  });
 }
 
 export async function updateWorkflowRunMetadata(
-  service: WorkflowRunServiceOptions,
-  lifecycle: WorkflowRunMetadataUpdateEmitter,
+  context: EngineContext,
+  lifecycle: RunMetadataUpdateEmitter,
   runId: RunId,
   metadata: StorageValue,
-): Promise<WorkflowRunRecord> {
-  const persistedMetadata = toPersistedValue(metadata, "workflow run metadata", service.limits);
-  const timestamp = service.now();
-  const previousRun = await getRequiredRun(service.store, runId);
+): Promise<RunRecord> {
+  const persistedMetadata = toPersistedValue(metadata, "workflow run metadata", context.limits);
+  const timestamp = context.now();
+  const previousRun = await getRequiredRun(context.store, runId);
 
   const updatedRun = await updateRunMetadataIfCurrent(
-    service.store,
+    context.store,
     runId,
     persistedMetadata,
     timestamp,
@@ -319,24 +328,24 @@ export async function updateWorkflowRunMetadata(
   return updatedRun;
 }
 
-export async function setWorkflowRunAttributes(
-  service: WorkflowRunServiceOptions,
+export async function setRunAttributes(
+  context: EngineContext,
   runId: RunId,
-  attributes: WorkflowAttributePatch,
-): Promise<WorkflowRunRecord> {
-  const normalized = normalizeWorkflowAttributePatch(attributes);
-  const timestamp = service.now();
+  attributes: AttributePatch,
+): Promise<RunRecord> {
+  const normalized = normalizeAttributePatch(attributes);
+  const timestamp = context.now();
 
-  return await setRunAttributesIfCurrent(service.store, runId, normalized, timestamp);
+  return await setRunAttributesIfCurrent(context.store, runId, normalized, timestamp);
 }
 
 export async function cancelWorkflowRun(
-  service: WorkflowRunServiceOptions,
-  lifecycle: WorkflowRunLifecycleEmitter,
+  context: EngineContext,
+  lifecycle: RunLifecycleEmitter,
   runId: RunId,
-): Promise<WorkflowRunRecord> {
-  const previousRun = await getRequiredRun(service.store, runId);
-  const canceledRun = await cancelRunWithChildren(service.store, runId, service.now());
+): Promise<RunRecord> {
+  const previousRun = await getRequiredRun(context.store, runId);
+  const canceledRun = await cancelRunWithChildren(context.store, runId, context.now());
 
   if (previousRun.status !== "canceled") {
     await lifecycle.emitLifecycleEvent(canceledRun, previousRun);
@@ -345,7 +354,7 @@ export async function cancelWorkflowRun(
   return canceledRun;
 }
 
-export async function resolveWorkflowVersion(
+async function resolveVersion(
   workflowName: string,
   fallbackVersion: string | undefined,
   resolver:
@@ -359,19 +368,16 @@ export async function resolveWorkflowVersion(
     return fallbackVersion;
   }
 
-  const resolved = await resolver(
-    workflowName,
-    defineWorkflowFromName(workflowName, fallbackVersion),
-  );
+  const resolved = await resolver(workflowName, defineFromName(workflowName, fallbackVersion));
 
   return resolved !== undefined && resolved.trim() !== "" ? resolved : fallbackVersion;
 }
 
-export async function resolveWorkflowStartSpec<TInput, TOutput, TRawInput>(
+export async function resolveStartSpec<TInput, TOutput, TRawInput>(
   definition: WorkflowDefinition<TInput, TOutput, TRawInput>,
-  options: WorkflowStartOptions | undefined,
+  options: StartOptions | undefined,
 ): Promise<WorkflowDefinition<TInput, TOutput, TRawInput>> {
-  const version = await resolveWorkflowVersion(
+  const version = await resolveVersion(
     definition.name,
     options?.workflowVersion ?? definition.version,
     options?.workflowVersionResolver,
@@ -386,7 +392,27 @@ export async function resolveWorkflowStartSpec<TInput, TOutput, TRawInput>(
     version,
     config: {
       ...definition.config,
-      ...(version === undefined ? { version: undefined } : { version }),
+      version,
     },
   };
+}
+
+export async function cleanupRuns(
+  context: EngineContext,
+  options: CleanupRunsOptions,
+): Promise<CleanupRunsResult> {
+  const result = await context.store.cleanupRuns(options);
+  context.observation.emitCleanupCompleted(result);
+
+  return result;
+}
+
+export async function applyRetentionPolicy(
+  context: EngineContext,
+  options: RetentionPolicyOptions,
+): Promise<CleanupRunsResult> {
+  const result = await context.store.cleanupRuns(retentionCleanupOptions(options, context.now));
+  context.observation.emitRetentionApplied(result);
+
+  return result;
 }

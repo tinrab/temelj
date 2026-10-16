@@ -1,20 +1,17 @@
+import type { Unsubscribe } from "@temelj/event";
 import type { StorageValue } from "@temelj/storage";
 
-import type { COMPILED_WORKFLOW, COMPILED_STEP } from "../compiled-symbols.ts";
+import type { COMPILED_WORKFLOW, COMPILED_STEP } from "../compiled-function.ts";
 import type {
   CleanupMarkerRecord,
   CleanupRunsOptions,
   CleanupRunsResult,
   RetentionPolicyOptions,
 } from "./cleanup.ts";
-import type {
-  WorkflowDefinition,
-  WorkflowHandler,
-  WorkflowImplementation,
-  WorkflowStartTarget,
-} from "./definition.ts";
+import type { WorkflowDefinition, WorkflowImplementation, StartTarget } from "./definition.ts";
 import type { EventRecord } from "./events.ts";
-import type { HookInspection, ResumeHookOptions, ResumeWebhookOptions } from "./hook.ts";
+import type { HookInspection, ResumeHookOptions } from "./hook.ts";
+import type { RunId, StreamIdOrName, WorkerId } from "./ids.ts";
 import type {
   AcquireLockOptions,
   LockRecord,
@@ -25,33 +22,32 @@ import type {
   BroadcastMessageChannelOptions,
   BroadcastMessageInput,
   BroadcastMessageResult,
-  SendMessageChannelOptions,
-  SendMessageInput,
   MessageChannel,
+  MessageSender,
 } from "./message.ts";
-import type { WorkflowPage, PageOptions } from "./pagination.ts";
-import type { ResultOptions } from "./result.ts";
-import type { WorkflowMissingImplementationRetryConfig } from "./retry.ts";
+import type { ObservationEventHandler, ObservationEventPattern } from "./observation.ts";
+import type { WorkflowPage } from "./pagination.ts";
+import type { MissingImplementationRetryConfig } from "./retry.ts";
 import type {
-  WorkflowListRunsOptions,
-  WorkflowListRunsPageOptions,
-  WorkflowListStepAttemptsPageOptions,
+  ListRunsOptions,
+  ListRunsPageOptions,
+  ListStepAttemptsPageOptions,
 } from "./run-list.ts";
 import type {
-  WorkflowBatchStartItem,
-  WorkflowMarkRunPermanentlyFailedOptions,
-  WorkflowReleaseStaleLeaseOptions,
-  WorkflowRerunOptions,
-  WorkflowRescheduleRunOptions,
-  WorkflowRetryFailedRunOptions,
-  WorkflowRunArguments,
-  WorkflowStartOptions,
+  BatchStartItem,
+  MarkRunPermanentlyFailedOptions,
+  ReleaseStaleLeaseOptions,
+  RerunOptions,
+  RescheduleRunOptions,
+  RetryFailedRunOptions,
+  RunArguments,
   ScheduleNextOptions,
+  StartOptions,
 } from "./run-options.ts";
-import type { RunId, WorkflowAttributePatch, WorkflowRunRecord, WorkflowRunStatus } from "./run.ts";
+import type { AttributePatch, RunRecord } from "./run.ts";
+import type { RunHandle, RuntimeRunsApi, WorkflowRuntime } from "./runtime.ts";
 import type {
   ScheduleId,
-  ListSchedulesOptions,
   ListSchedulesPageOptions,
   ScheduleConfig,
   ScheduleRecord,
@@ -59,263 +55,193 @@ import type {
   TickSchedulesResult,
 } from "./schedule.ts";
 import type {
-  WorkflowListStepAttemptsOptions,
-  WorkflowStepAttemptRecord,
-  WorkflowStepAttemptSummary,
+  ListStepAttemptsOptions,
+  StepAttemptRecord,
+  StepAttemptSummary,
 } from "./step-attempts.ts";
-import type { WorkflowStepDefinition } from "./step.ts";
-import type { StreamIdOrName } from "./stream-id.ts";
+import type { StepDefinition } from "./step.ts";
 import type {
   FollowStreamOptions,
-  ReadStreamPageOptions,
   ReadStreamOptions,
   StreamChunk,
   StreamInfo,
-  StreamPage,
   StreamState,
   StreamUpdate,
   WaitStreamOptions,
 } from "./stream.ts";
-import type {
-  WorkflowRecoverySummary,
-  WorkflowRecoverySummaryOptions,
-  WorkflowRunSummary,
-  WorkflowRunSummaryOptions,
-} from "./summary.ts";
+import type { RecoverySummary, RunSummary } from "./summary.ts";
 import type { Timeline } from "./timeline.ts";
-import type { WorkerId } from "./worker-id.ts";
 import type {
-  WorkflowWakeDueRunsOptions,
+  WakeDueRunsOptions,
   WorkflowWorker,
-  WorkflowWorkerRunFilterOptions,
-  WorkflowWorkerRunResult,
+  WorkerRunFilterOptions,
+  WorkerRunResult,
 } from "./worker.ts";
-
 /** Function shape emitted by the directive compiler for workflow and step functions. */
+
 export type CompiledWorkflowFunction<TArgs extends readonly unknown[], TOutput> = ((
   ...args: TArgs
 ) => Promise<TOutput> | TOutput) & {
   readonly [COMPILED_WORKFLOW]?: WorkflowImplementation<TArgs, Awaited<TOutput>, TArgs>;
-  readonly [COMPILED_STEP]?: WorkflowStepDefinition<TArgs, Awaited<TOutput>>;
+  readonly [COMPILED_STEP]?: StepDefinition<TArgs, Awaited<TOutput>>;
 };
 
-/** Client-level handle for awaiting output and inspecting a workflow run. */
-export interface WorkflowRunHandle<TOutput = unknown> {
-  /** ID of the workflow run represented by this handle. */
-  readonly runId: RunId;
-  /** Workflow definition name stored on the run. */
-  readonly workflowName: string;
-  /** Workflow version stored on the run, when one was resolved. */
-  readonly workflowVersion?: string;
-  /** Returns the latest run record. */
-  getRun(): Promise<WorkflowRunRecord>;
-  /** Returns the latest run status. */
-  status(): Promise<WorkflowRunStatus>;
+/** A local run handle: the portable operations plus history, streams, metadata, and attributes. */
+export interface WorkflowRunHandle<TOutput = unknown> extends RunHandle<TOutput> {
   /** Returns all durable events recorded for the run. */
   events(): Promise<readonly EventRecord[]>;
   /** Returns a timeline projection of the run's event history. */
   timeline(): Promise<Timeline>;
-  /** Waits for and returns the completed workflow output. */
-  result(options?: ResultOptions): Promise<TOutput>;
-  /** Returns metadata for a durable stream on this run. */
-  getStreamInfo(streamIdOrName: StreamIdOrName): Promise<StreamInfo>;
-  /** Follows durable stream updates from this run. */
-  followStream(
+  /** Durable stream reads for this run. */
+  readonly streams: RunStreamsApi;
+  /** Replaces this run's metadata value. */
+  setMetadata(metadata: StorageValue): Promise<RunRecord>;
+  /** Applies an attribute patch to this run. */
+  setAttributes(attributes: AttributePatch): Promise<RunRecord>;
+}
+
+/** Durable stream reads for one run: the operations of `client.streams`, without the run ID. */
+export interface RunStreamsApi {
+  getInfo(streamIdOrName: StreamIdOrName): Promise<StreamInfo>;
+  follow(
     streamIdOrName: StreamIdOrName,
     options?: FollowStreamOptions,
   ): AsyncIterable<StreamUpdate>;
-  /** Waits until a durable stream exists on this run. */
-  waitForStream(
+  wait(
     streamIdOrName: StreamIdOrName,
     options?: WaitStreamOptions,
   ): Promise<StreamInfo | undefined>;
-  /** Waits for the next durable stream chunk after an index. */
-  waitForStreamChunk(
+  waitForChunk(
     streamIdOrName: StreamIdOrName,
     afterIndex: number,
     options?: WaitStreamOptions,
   ): Promise<StreamChunk | undefined>;
-  /** Waits until a durable stream is closed or failed. */
-  waitForStreamTerminal(
+  waitForTerminal(
     streamIdOrName: StreamIdOrName,
     options?: WaitStreamOptions,
   ): Promise<StreamInfo | undefined>;
-  /** Reads all currently stored chunks for a durable stream. */
-  readStream(streamIdOrName: StreamIdOrName, options?: ReadStreamOptions): Promise<StreamState>;
-  /** Reads one page of currently stored chunks for a durable stream. */
-  readStreamPage(
-    streamIdOrName: StreamIdOrName,
-    options?: ReadStreamPageOptions,
-  ): Promise<StreamPage>;
-  /** Moves the run back to pending at an optional new availability time. */
-  reschedule(options?: WorkflowRescheduleRunOptions): Promise<WorkflowRunRecord>;
-  /** Releases this run's worker lease when it is stale. */
-  releaseStaleLease(options?: WorkflowReleaseStaleLeaseOptions): Promise<WorkflowRunRecord>;
-  /** Retries this failed run. */
-  retryFailed(options?: WorkflowRetryFailedRunOptions): Promise<WorkflowRunRecord>;
-  /** Marks this run as permanently failed with an operator reason. */
-  markPermanentlyFailed(
-    options: WorkflowMarkRunPermanentlyFailedOptions,
-  ): Promise<WorkflowRunRecord>;
-  /** Replaces this run's metadata value. */
-  setMetadata(metadata: StorageValue): Promise<WorkflowRunRecord>;
-  /** Applies an attribute patch to this run. */
-  setAttributes(attributes: WorkflowAttributePatch): Promise<WorkflowRunRecord>;
-  /** Cancels this run if it has not already reached a terminal status. */
-  cancel(): Promise<WorkflowRunRecord>;
+  read(streamIdOrName: StreamIdOrName, options?: ReadStreamOptions): Promise<StreamState>;
 }
 
-/** Runnable wrapper that starts a workflow definition through a bound client. */
-export interface WorkflowRunnable<TInput = unknown, TOutput = unknown, TRawInput = TInput> {
-  /** Workflow definition that will be started by run. */
-  readonly definition: WorkflowDefinition<TInput, TOutput, TRawInput>;
-  /** Starts the workflow through the bound client and returns a run handle. */
-  run(
-    ...args: WorkflowRunArguments<TRawInput, WorkflowStartOptions>
-  ): Promise<WorkflowRunHandle<TOutput>>;
-}
-
-/** Describes the workflow client contract. */
-export interface WorkflowClient {
-  /** Grouped run inspection and history operations. */
-  readonly runs: WorkflowClientRunsApi;
-  /** Grouped administrative run maintenance operations. */
-  readonly admin: WorkflowClientAdminApi;
-  /** Grouped schedule management operations. */
-  readonly schedules: WorkflowClientSchedulesApi;
-  /** Grouped workflow lock operations. */
-  readonly locks: WorkflowClientLocksApi;
-  /** Grouped external resume hook operations. */
-  readonly hooks: WorkflowClientHooksApi;
-  /** Grouped durable stream read operations. */
-  readonly streams: WorkflowClientStreamsApi;
-  /** Grouped message send operations. */
-  readonly messages: WorkflowClientMessagesApi;
-  /** Grouped worker creation and wake operations. */
-  readonly workers: WorkflowClientWorkersApi;
-  /** Flushes resources owned by the underlying engine when it supports explicit shutdown. */
-  close(): Promise<void>;
-  /** Registers a workflow implementation in the client's registry. */
-  implementWorkflow<TInput, TOutput, TRawInput = TInput>(
-    definition: WorkflowDefinition<TInput, TOutput, TRawInput>,
-    handler: WorkflowHandler<TInput, TOutput>,
-  ): WorkflowImplementation<TInput, TOutput, TRawInput>;
-  /** Registers an existing workflow implementation in the client's registry. */
-  register<TInput, TOutput, TRawInput = TInput>(
-    implementation: WorkflowImplementation<TInput, TOutput, TRawInput>,
+export interface WorkflowClient extends WorkflowRuntime {
+  /** Subscribes to run lifecycle and operation events, such as `workflow:run-completed`. */
+  on<Pattern extends ObservationEventPattern>(
+    pattern: Pattern,
+    handler: ObservationEventHandler<Pattern>,
+  ): Unsubscribe;
+  once<Pattern extends ObservationEventPattern>(
+    pattern: Pattern,
+    handler: ObservationEventHandler<Pattern>,
+  ): Unsubscribe;
+  off<Pattern extends ObservationEventPattern>(
+    pattern: Pattern,
+    handler: ObservationEventHandler<Pattern>,
   ): void;
-  /** Registers a workflow implementation and returns a client-bound runnable. */
-  workflow<TInput, TOutput, TRawInput = TInput>(
-    definition: WorkflowDefinition<TInput, TOutput, TRawInput>,
-    handler: WorkflowHandler<TInput, TOutput>,
-  ): WorkflowRunnable<TInput, TOutput, TRawInput>;
+  /** Grouped run inspection and history operations. */
+  readonly runs: ClientRunsApi;
+  /** Grouped administrative run maintenance operations. */
+  readonly admin: ClientAdminApi;
+  /** Grouped schedule management operations. */
+  readonly schedules: ClientSchedulesApi;
+  readonly locks: ClientLocksApi;
+  /** Grouped external resume hook operations. */
+  readonly hooks: ClientHooksApi;
+  /** Grouped durable stream read operations. */
+  readonly streams: ClientStreamsApi;
+  /** Grouped message send operations. */
+  readonly messages: ClientMessagesApi;
+  /** Grouped worker creation and wake operations. */
+  readonly workers: ClientWorkersApi;
 }
 
-/** Describes the workflow client runs API contract. */
-export interface WorkflowClientRunsApi {
-  /** Starts one workflow run and returns a typed handle. */
+export interface ClientRunsApi extends RuntimeRunsApi {
+  /** Starts a run of a definition. */
   start<TInput, TOutput, TRawInput = TInput>(
-    workflow: WorkflowStartTarget<TInput, TOutput, TRawInput>,
-    ...args: WorkflowRunArguments<TRawInput, WorkflowStartOptions>
+    workflow: WorkflowDefinition<TInput, TOutput, TRawInput>,
+    ...args: RunArguments<TRawInput, StartOptions>
   ): Promise<WorkflowRunHandle<TOutput>>;
+  /** Registers an implementation when needed, then starts a run of it. */
+  start<TInput, TOutput, TRawInput = TInput>(
+    workflow: WorkflowImplementation<TInput, TOutput, TRawInput>,
+    ...args: RunArguments<TRawInput, StartOptions>
+  ): Promise<WorkflowRunHandle<TOutput>>;
+  /** Starts a compiled workflow function produced by the workflow transform. */
+  start<TArgs extends readonly unknown[], TOutput>(
+    workflow: CompiledWorkflowFunction<TArgs, TOutput>,
+    ...args: TArgs
+  ): Promise<WorkflowRunHandle<Awaited<TOutput>>>;
+  /** A handle for an existing run. A run ID does not establish its output type, so validate the result. */
+  getHandle(runId: RunId): Promise<WorkflowRunHandle<StorageValue | undefined>>;
+  list(options?: ListRunsPageOptions): Promise<WorkflowPage<RunRecord>>;
   /** Starts multiple workflow runs for the same definition. */
   startBatch<TInput, TOutput, TRawInput = TInput>(
-    workflow: WorkflowStartTarget<TInput, TOutput, TRawInput>,
-    items: readonly WorkflowBatchStartItem<TRawInput>[],
+    workflow: StartTarget<TInput, TOutput, TRawInput>,
+    items: readonly BatchStartItem<TRawInput>[],
   ): Promise<readonly WorkflowRunHandle<TOutput>[]>;
   /** Returns a workflow run by ID, if it exists. */
-  get(runId: RunId): Promise<WorkflowRunRecord | undefined>;
+  get(runId: RunId): Promise<RunRecord | undefined>;
   /** Returns all durable events recorded for a run. */
   events(runId: RunId): Promise<readonly EventRecord[]>;
-  /** Lists one page of durable events recorded for a run. */
-  eventsPage(runId: RunId, options?: PageOptions): Promise<WorkflowPage<EventRecord>>;
-  /** Lists workflow runs matching optional filters. */
-  list(options?: WorkflowListRunsOptions): Promise<readonly WorkflowRunRecord[]>;
-  /** Lists one page of workflow runs matching optional filters. */
-  page(options?: WorkflowListRunsPageOptions): Promise<WorkflowPage<WorkflowRunRecord>>;
   /** Counts workflow runs matching optional filters. */
-  count(options?: WorkflowListRunsOptions): Promise<number>;
+  count(options?: ListRunsOptions): Promise<number>;
   /** Returns aggregate run metrics for runs matching optional filters. */
-  summary(options?: WorkflowRunSummaryOptions): Promise<WorkflowRunSummary>;
+  summary(options?: ListRunsOptions): Promise<RunSummary>;
   /** Returns recovery-oriented aggregate metrics for runs matching optional filters. */
-  recovery(options?: WorkflowRecoverySummaryOptions): Promise<WorkflowRecoverySummary>;
-  /** Returns a timeline projection for one run. */
+  recoverySummary(options?: ListRunsOptions): Promise<RecoverySummary>;
   timeline(runId: RunId): Promise<Timeline>;
-  /** Lists materialized step attempts for a run. */
   listStepAttempts(
     runId: RunId,
-    options?: WorkflowListStepAttemptsOptions,
-  ): Promise<readonly WorkflowStepAttemptRecord[]>;
-  /** Lists one page of materialized step attempts for a run. */
-  listStepAttemptsPage(
-    runId: RunId,
-    options?: WorkflowListStepAttemptsPageOptions,
-  ): Promise<WorkflowPage<WorkflowStepAttemptRecord>>;
-  /** Counts materialized step attempts for a run. */
-  countStepAttempts(runId: RunId, options?: WorkflowListStepAttemptsOptions): Promise<number>;
+    options?: ListStepAttemptsPageOptions,
+  ): Promise<WorkflowPage<StepAttemptRecord>>;
+  countStepAttempts(runId: RunId, options?: ListStepAttemptsOptions): Promise<number>;
   /** Returns aggregate step-attempt metrics for a run. */
-  stepAttemptSummary(
-    runId: RunId,
-    options?: WorkflowListStepAttemptsOptions,
-  ): Promise<WorkflowStepAttemptSummary>;
+  stepAttemptSummary(runId: RunId, options?: ListStepAttemptsOptions): Promise<StepAttemptSummary>;
 }
 
-/** Describes the workflow client admin API contract. */
-export interface WorkflowClientAdminApi {
+export interface ClientAdminApi {
   /** Deletes terminal run data according to cleanup options. */
   cleanup(options: CleanupRunsOptions): Promise<CleanupRunsResult>;
-  /** Lists cleanup marker records. */
   cleanupMarkers(): Promise<readonly CleanupMarkerRecord[]>;
   /** Deletes terminal run data according to a retention policy. */
   applyRetentionPolicy(options: RetentionPolicyOptions): Promise<CleanupRunsResult>;
   /** Creates a new run from an existing run record and returns its handle. */
-  rerun(runId: RunId, options?: WorkflowRerunOptions): Promise<WorkflowRunHandle<unknown>>;
+  rerun(runId: RunId, options?: RerunOptions): Promise<WorkflowRunHandle<unknown>>;
   /** Moves a run back to pending at an optional new availability time. */
-  reschedule(runId: RunId, options?: WorkflowRescheduleRunOptions): Promise<WorkflowRunRecord>;
+  reschedule(runId: RunId, options?: RescheduleRunOptions): Promise<RunRecord>;
   /** Releases a run's worker lease when it is stale. */
-  releaseStaleLease(
-    runId: RunId,
-    options?: WorkflowReleaseStaleLeaseOptions,
-  ): Promise<WorkflowRunRecord>;
-  /** Retries a failed workflow run. */
-  retryFailed(runId: RunId, options?: WorkflowRetryFailedRunOptions): Promise<WorkflowRunRecord>;
+  releaseStaleLease(runId: RunId, options?: ReleaseStaleLeaseOptions): Promise<RunRecord>;
+  retryFailed(runId: RunId, options?: RetryFailedRunOptions): Promise<RunRecord>;
   /** Marks a workflow run as permanently failed with an operator reason. */
-  markPermanentlyFailed(
-    runId: RunId,
-    options: WorkflowMarkRunPermanentlyFailedOptions,
-  ): Promise<WorkflowRunRecord>;
+  markPermanentlyFailed(runId: RunId, options: MarkRunPermanentlyFailedOptions): Promise<RunRecord>;
   /** Replaces a workflow run's metadata value. */
-  updateMetadata(runId: RunId, metadata: StorageValue): Promise<WorkflowRunRecord>;
+  setMetadata(runId: RunId, metadata: StorageValue): Promise<RunRecord>;
   /** Applies an attribute patch to a workflow run. */
-  setAttributes(runId: RunId, attributes: WorkflowAttributePatch): Promise<WorkflowRunRecord>;
+  setAttributes(runId: RunId, attributes: AttributePatch): Promise<RunRecord>;
   /** Cancels a workflow run if it has not already reached a terminal status. */
-  cancel(runId: RunId): Promise<WorkflowRunRecord>;
+  cancel(runId: RunId): Promise<RunRecord>;
 }
 
-/** Describes the workflow client schedules API contract. */
-export interface WorkflowClientSchedulesApi {
+export interface ClientSchedulesApi {
   /** Schedules one workflow run at the next interval boundary. */
   next<TInput, TOutput, TRawInput = TInput>(
-    workflow: WorkflowStartTarget<TInput, TOutput, TRawInput>,
+    workflow: StartTarget<TInput, TOutput, TRawInput>,
     input: TRawInput,
     options: ScheduleNextOptions,
   ): Promise<WorkflowRunHandle<TOutput>>;
   /** Creates a recurring workflow schedule. */
   create<TInput, TOutput, TRawInput = TInput>(
-    workflow: WorkflowStartTarget<TInput, TOutput, TRawInput>,
+    workflow: StartTarget<TInput, TOutput, TRawInput>,
     options: ScheduleConfig<TInput, TRawInput>,
   ): Promise<ScheduleRecord>;
   /** Creates or updates a recurring workflow schedule. */
   upsert<TInput, TOutput, TRawInput = TInput>(
-    workflow: WorkflowStartTarget<TInput, TOutput, TRawInput>,
+    workflow: StartTarget<TInput, TOutput, TRawInput>,
     options: ScheduleConfig<TInput, TRawInput>,
   ): Promise<ScheduleRecord>;
   /** Returns a schedule by ID, if it exists. */
   get(scheduleId: ScheduleId): Promise<ScheduleRecord | undefined>;
   /** Lists schedules matching optional filters. */
-  list(options?: ListSchedulesOptions): Promise<readonly ScheduleRecord[]>;
-  /** Lists one page of schedules matching optional filters. */
-  page(options?: ListSchedulesPageOptions): Promise<WorkflowPage<ScheduleRecord>>;
+  list(options?: ListSchedulesPageOptions): Promise<WorkflowPage<ScheduleRecord>>;
   /** Pauses an active schedule. */
   pause(scheduleId: ScheduleId): Promise<ScheduleRecord>;
   /** Resumes a paused or archived schedule. */
@@ -328,13 +254,10 @@ export interface WorkflowClientSchedulesApi {
   tick(options?: TickSchedulesOptions): Promise<TickSchedulesResult>;
 }
 
-/** Describes the workflow client locks API contract. */
-export interface WorkflowClientLocksApi {
-  /** Acquires a workflow lock. */
+export interface ClientLocksApi {
   acquire(key: string, options: AcquireLockOptions): Promise<LockRecord>;
   /** Returns a workflow lock by key, if it exists. */
   get(key: string): Promise<LockRecord | undefined>;
-  /** Lists workflow locks. */
   list(): Promise<readonly LockRecord[]>;
   /** Releases a workflow lock held by the supplied holder. */
   release(key: string, options: ReleaseLockOptions): Promise<LockRecord>;
@@ -342,22 +265,16 @@ export interface WorkflowClientLocksApi {
   releaseStale(key: string, options?: ReleaseStaleLockOptions): Promise<LockRecord>;
 }
 
-/** Describes the workflow client external hook API contract. */
-export interface WorkflowClientHooksApi {
+export interface ClientHooksApi {
   /** Completes a pending message-backed external resume hook. */
   resume(token: string, options?: ResumeHookOptions): Promise<void>;
-  /** Completes a pending webhook-labeled external resume hook. */
-  resumeWebhook(token: string, options?: ResumeWebhookOptions): Promise<void>;
   /** Disposes a pending message-backed external resume hook. */
   dispose(token: string): Promise<HookInspection>;
-  /** Disposes a pending webhook-labeled external resume hook. */
-  disposeWebhook(token: string): Promise<HookInspection>;
   /** Returns inspection data for an external resume hook token. */
   getByToken(token: string): Promise<HookInspection>;
 }
 
-/** Describes the workflow client streams API contract. */
-export interface WorkflowClientStreamsApi {
+export interface ClientStreamsApi {
   /** Returns metadata for a durable stream on a run. */
   getInfo(runId: RunId, streamIdOrName: StreamIdOrName): Promise<StreamInfo>;
   /** Follows durable stream updates from a run. */
@@ -391,24 +308,9 @@ export interface WorkflowClientStreamsApi {
     streamIdOrName: StreamIdOrName,
     options?: ReadStreamOptions,
   ): Promise<StreamState>;
-  /** Reads one page of currently stored chunks for a durable stream. */
-  readPage(
-    runId: RunId,
-    streamIdOrName: StreamIdOrName,
-    options?: ReadStreamPageOptions,
-  ): Promise<StreamPage>;
 }
 
-/** Describes the workflow client messages API contract. */
-export interface WorkflowClientMessagesApi {
-  /** Sends a named message to a workflow run. */
-  send(runId: RunId, options: SendMessageInput): Promise<void>;
-  /** Sends a typed message channel payload to a workflow run. */
-  send<TPayload, TRawPayload = TPayload>(
-    runId: RunId,
-    channel: MessageChannel<TPayload, TRawPayload>,
-    options?: SendMessageChannelOptions<TRawPayload>,
-  ): Promise<void>;
+export interface ClientMessagesApi extends MessageSender {
   /** Broadcasts a named message to runs matching the target options. */
   broadcast(options: BroadcastMessageInput): Promise<BroadcastMessageResult>;
   /** Broadcasts a typed message channel payload to runs matching the target options. */
@@ -418,31 +320,30 @@ export interface WorkflowClientMessagesApi {
   ): Promise<BroadcastMessageResult>;
 }
 
-/** Describes the workflow client worker API contract. */
-export interface WorkflowClientWorkersApi {
+export interface ClientWorkersApi {
   /** Creates a worker bound to this client engine and registry. */
-  create(options?: WorkflowClientWorkerOptions): WorkflowWorker;
+  create(options?: ClientWorkerOptions): WorkflowWorker;
   /** Processes a specific run once by ID. */
-  processRun(runId: RunId, options?: WorkflowClientProcessRunOptions): Promise<void>;
+  processRun(runId: RunId, options?: ClientProcessRunOptions): Promise<void>;
   /** Processes currently due runs matching optional filters. */
-  wakeDueRuns(options?: WorkflowWakeDueRunsOptions): Promise<WorkflowWorkerRunResult>;
+  wakeDueRuns(options?: WakeDueRunsOptions): Promise<WorkerRunResult>;
 }
 
 /** Options for creating a worker from the grouped client worker API. */
-export interface WorkflowClientWorkerOptions {
+export interface ClientWorkerOptions {
   readonly workerId?: WorkerId;
   readonly leaseDuration?: Temporal.Duration;
   readonly pollInterval?: Temporal.Duration;
   readonly heartbeatInterval?: Temporal.Duration;
   readonly stopDrainTimeout?: Temporal.Duration;
-  readonly missingImplementationRetry?: WorkflowMissingImplementationRetryConfig;
+  readonly missingImplementationRetry?: MissingImplementationRetryConfig;
 }
 
 /** Options for processing one run through a client worker facet. */
-export interface WorkflowClientProcessRunOptions extends WorkflowWorkerRunFilterOptions {
+export interface ClientProcessRunOptions extends WorkerRunFilterOptions {
   readonly workerId?: string;
   readonly leaseDuration?: Temporal.Duration;
   readonly heartbeatInterval?: Temporal.Duration;
-  readonly missingImplementationRetry?: WorkflowMissingImplementationRetryConfig;
+  readonly missingImplementationRetry?: MissingImplementationRetryConfig;
   readonly signal?: AbortSignal;
 }

@@ -6,16 +6,17 @@ import type {
   MessageWaitStartedEvent,
   MetadataSetEvent,
   SleepStartedEvent,
-  WorkflowStepStartedEvent,
+  StepStartedEvent,
   StreamStartedEvent,
 } from "../types/events.ts";
-import type { WorkflowStepIdentity, WorkflowStepType } from "../types/run.ts";
+import type { StepIdentity, StepType } from "../types/run.ts";
 
+import { WorkflowErrorCode } from "../errors/codes.ts";
 import { WorkflowReplayDivergenceError, WorkflowStateError } from "../errors/mod.ts";
 import { getEventDescriptor, isWorkflowRecordedStepEventKind } from "../events/descriptors.ts";
 
-export type WorkflowRecordedStepEvent =
-  | WorkflowStepStartedEvent
+export type RecordedStepEvent =
+  | StepStartedEvent
   | SleepStartedEvent
   | ChildWorkflowStartedEvent
   | MessageSendStartedEvent
@@ -24,20 +25,20 @@ export type WorkflowRecordedStepEvent =
   | DeterministicValueRecordedEvent
   | MetadataSetEvent;
 
-export function createWorkflowStepSequencer(events: readonly EventRecord[]): WorkflowStepSequencer {
-  return new WorkflowStepSequencer(distinctRecordedStepEvents(events));
+export function createStepSequencer(events: readonly EventRecord[]): StepSequencer {
+  return new StepSequencer(distinctRecordedStepEvents(events));
 }
 
-export class WorkflowStepSequencer {
+export class StepSequencer {
   readonly #counts = new Map<string, number>();
-  readonly #recordedSteps: readonly WorkflowRecordedStepEvent[];
+  readonly #recordedSteps: readonly RecordedStepEvent[];
   #cursor = 0;
 
-  constructor(recordedSteps: readonly WorkflowRecordedStepEvent[]) {
+  constructor(recordedSteps: readonly RecordedStepEvent[]) {
     this.#recordedSteps = recordedSteps;
   }
 
-  next<TType extends WorkflowStepType>(type: TType, name: string): WorkflowStepIdentity<TType> {
+  next<TType extends StepType>(type: TType, name: string): StepIdentity<TType> {
     const key = `${type}:${name}`;
     const count = (this.#counts.get(key) ?? 0) + 1;
     this.#counts.set(key, count);
@@ -74,7 +75,7 @@ export class WorkflowStepSequencer {
     return this.#recordedSteps[this.#cursor] === undefined;
   }
 
-  #requireNextRecordedStepMatches(identity: WorkflowStepIdentity): void {
+  #requireNextRecordedStepMatches(identity: StepIdentity): void {
     const recorded = this.#recordedSteps[this.#cursor];
 
     if (recorded === undefined) {
@@ -122,19 +123,23 @@ export class WorkflowStepSequencer {
   }
 }
 
-export function workflowRecordedStepEventType(event: WorkflowRecordedStepEvent): WorkflowStepType {
+export function workflowRecordedStepEventType(event: RecordedStepEvent): StepType {
   const stepType = getEventDescriptor(event.kind).stepType;
 
   if (stepType === undefined) {
-    WorkflowStateError.unsupportedRecordedStepEventType(event.kind);
+    throw new WorkflowStateError(
+      `Workflow recorded step event type is not supported: ${event.kind}`,
+      {
+        code: WorkflowErrorCode.STATE_RECORDED_STEP_EVENT_UNSUPPORTED,
+        details: { kind: event.kind },
+      },
+    );
   }
 
   return stepType;
 }
 
-export function isWorkflowRecordedStepEvent(
-  event: EventRecord,
-): event is WorkflowRecordedStepEvent {
+export function isRecordedStepEvent(event: EventRecord): event is RecordedStepEvent {
   return (
     isWorkflowRecordedStepEventKind(event.kind) &&
     "stepId" in event &&
@@ -143,14 +148,12 @@ export function isWorkflowRecordedStepEvent(
   );
 }
 
-function distinctRecordedStepEvents(
-  events: readonly EventRecord[],
-): readonly WorkflowRecordedStepEvent[] {
-  const recorded: WorkflowRecordedStepEvent[] = [];
+function distinctRecordedStepEvents(events: readonly EventRecord[]): readonly RecordedStepEvent[] {
+  const recorded: RecordedStepEvent[] = [];
   const seen = new Set<string>();
 
   for (const event of events) {
-    if (!isWorkflowRecordedStepEvent(event)) {
+    if (!isRecordedStepEvent(event)) {
       continue;
     }
 

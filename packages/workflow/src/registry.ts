@@ -1,3 +1,5 @@
+// Installs Temporal when the runtime lacks it, before any module uses it.
+import "temporal-polyfill/global";
 import { isFunction } from "@temelj/value";
 
 import type {
@@ -7,22 +9,21 @@ import type {
   Registry as RegistryContract,
 } from "./types/definition.ts";
 
-import { getCompiledWorkflowDefinition } from "./compiled-function.ts";
+import { getCompiledDefinition } from "./compiled-function.ts";
 import { WorkflowDefinitionError } from "./errors/mod.ts";
 
 /** A compiled function or implementation accepted by a heterogeneous registry. */
-export type WorkflowRegistryEntry =
+export type RegistryEntry =
   | Function
   | (Omit<WorkflowImplementation, "handler"> & { readonly handler: Function });
 
-/** In-memory workflow registry implementation. */
 export class Registry implements RegistryContract {
   private readonly implementations = new Map<string, WorkflowImplementation<unknown, unknown>>();
 
-  constructor(entries: readonly WorkflowRegistryEntry[] = []) {
+  constructor(entries: readonly RegistryEntry[] = []) {
     for (const entry of entries) {
       if (isFunction(entry)) {
-        const implementation = getCompiledWorkflowDefinition(entry);
+        const implementation = getCompiledDefinition(entry);
 
         if (implementation === undefined) {
           WorkflowDefinitionError.compiledMetadataMissing();
@@ -42,41 +43,32 @@ export class Registry implements RegistryContract {
     definition: WorkflowDefinition<TInput, TOutput, TRawInput>,
     handler: WorkflowHandler<TInput, TOutput>,
   ): WorkflowImplementation<TInput, TOutput, TRawInput> => {
-    const result = {
+    const implementation: WorkflowImplementation<TInput, TOutput, TRawInput> = {
       kind: "implementation",
       definition,
       config: definition.config,
       name: definition.name,
-    } satisfies Partial<WorkflowImplementation<TInput, TOutput, TRawInput>>;
-
-    if (definition.version !== undefined) {
-      Object.assign(result, { version: definition.version } satisfies Partial<
-        WorkflowImplementation<TInput, TOutput, TRawInput>
-      >);
-    }
-
-    const result1 = Object.assign(result, { handler } satisfies Partial<
-      WorkflowImplementation<TInput, TOutput, TRawInput>
-    >);
-
-    const implementation: WorkflowImplementation<TInput, TOutput, TRawInput> = result1;
+      version: definition.version,
+      handler,
+    };
 
     this.register(implementation);
 
     return implementation;
   };
 
-  /** Registers a workflow implementation. */
   readonly register = <TInput, TOutput, TRawInput = TInput>(
     implementation: WorkflowImplementation<TInput, TOutput, TRawInput>,
   ): void => {
-    const key = makeWorkflowImplementationKey(implementation.name, implementation.version);
+    const key = makeImplementationKey(implementation.name, implementation.version);
 
     if (this.implementations.has(key)) {
-      WorkflowDefinitionError.implementationAlreadyRegistered(
-        implementation.version === undefined
-          ? implementation.name
-          : `${implementation.name}@${implementation.version}`,
+      throw new WorkflowDefinitionError(
+        `Workflow implementation already registered: ${
+          implementation.version === undefined
+            ? implementation.name
+            : `${implementation.name}@${implementation.version}`
+        }`,
       );
     }
 
@@ -90,7 +82,7 @@ export class Registry implements RegistryContract {
     definition: WorkflowDefinition<TInput, TOutput, TRawInput>,
   ): WorkflowImplementation<TInput, TOutput, TRawInput> | undefined => {
     const implementation = this.implementations.get(
-      makeWorkflowImplementationKey(definition.name, definition.version),
+      makeImplementationKey(definition.name, definition.version),
     );
 
     if (implementation?.definition !== definition) {
@@ -106,7 +98,7 @@ export class Registry implements RegistryContract {
     name: string,
     version?: string,
   ): WorkflowImplementation<unknown, unknown> | undefined =>
-    this.implementations.get(makeWorkflowImplementationKey(name, version));
+    this.implementations.get(makeImplementationKey(name, version));
 
   /** Returns the last registered workflow implementation for a name. */
   readonly latest = (name: string): WorkflowImplementation<unknown, unknown> | undefined => {
@@ -129,7 +121,6 @@ export class Registry implements RegistryContract {
   ];
 }
 
-/** Builds the internal registry key for a workflow implementation. */
-function makeWorkflowImplementationKey(name: string, version: string | undefined): string {
+function makeImplementationKey(name: string, version: string | undefined): string {
   return JSON.stringify([name, version ?? null]);
 }

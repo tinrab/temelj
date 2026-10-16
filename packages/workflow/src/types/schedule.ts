@@ -1,56 +1,7 @@
 import type { StorageValue } from "@temelj/storage";
 
-import { z } from "zod";
-
+import type { RunId } from "./ids.ts";
 import type { PageOptions } from "./pagination.ts";
-import type { RunId } from "./run.ts";
-
-import {
-  temporalDurationSchema,
-  temporalInstantSchema,
-  nonBlankStringSchema,
-  positiveSafeIntegerSchema,
-} from "./common.ts";
-import { runIdSchema } from "./run-id.ts";
-import { workflowPersistedValueSchema } from "./run.ts";
-
-export const scheduleIdSchema = z
-  .string()
-  .refine((value) => value.trim().length > 0, "Expected an ID");
-
-export const workflowScheduleStatusSchema = z.enum(["active", "paused", "archived", "deleted"]);
-
-export const workflowScheduleCatchUpPolicySchema = z.enum(["skip", "one", "all"]);
-
-export const workflowScheduleOverlapPolicySchema = z.enum(["allow", "skip", "buffer", "cancel"]);
-
-export const workflowSchedulePositiveDurationSchema = temporalDurationSchema.refine(
-  (value) => value.total({ unit: "millisecond" }) > 0,
-  { error: "Expected a positive duration" },
-);
-
-export const workflowScheduleRecordSchema = z.object({
-  id: scheduleIdSchema,
-  namespace: nonBlankStringSchema,
-  workflowName: nonBlankStringSchema,
-  workflowVersion: nonBlankStringSchema.optional(),
-  input: workflowPersistedValueSchema.optional(),
-  context: workflowPersistedValueSchema.optional(),
-  status: workflowScheduleStatusSchema,
-  every: workflowSchedulePositiveDurationSchema,
-  catchUp: workflowScheduleCatchUpPolicySchema,
-  maxCatchUpRuns: positiveSafeIntegerSchema.optional(),
-  maxLateness: workflowSchedulePositiveDurationSchema.optional(),
-  overlap: workflowScheduleOverlapPolicySchema,
-  createdAt: temporalInstantSchema,
-  updatedAt: temporalInstantSchema,
-  nextFireAt: temporalInstantSchema,
-  endAt: temporalInstantSchema.optional(),
-  bufferedFireAt: temporalInstantSchema.optional(),
-  lastFireAt: temporalInstantSchema.optional(),
-  lastRunId: runIdSchema.optional(),
-  tickCount: z.union([positiveSafeIntegerSchema, z.literal(0)]),
-});
 
 export type ScheduleId = string;
 
@@ -101,7 +52,6 @@ export interface ScheduleConfig<TInput = unknown, TRawInput = TInput> {
   readonly overlap?: ScheduleOverlapPolicy;
 }
 
-/** Filters for listing recurring workflow schedules. */
 export interface ListSchedulesOptions {
   readonly status?: ScheduleStatus | readonly ScheduleStatus[];
   readonly workflowName?: string;

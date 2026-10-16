@@ -1,69 +1,65 @@
-import type { WorkflowIdempotencyKeyOptions } from "./types/store.ts";
+import type { RunId, StepId } from "./types/ids.ts";
+import type { ScheduleId } from "./types/schedule.ts";
+import type { StepAttemptRecord } from "./types/step-attempts.ts";
+import type { IdempotencyKeyOptions } from "./types/store.ts";
 
-import { makeWorkflowStepAttemptKey } from "./history/attempt-key.ts";
-import { RunId } from "./types/run.ts";
-import { ScheduleId } from "./types/schedule.ts";
+/** The key of one step attempt within a run, such as `run:step_1:2`. */
+export function stepAttemptKey(stepId: StepId, attempt: number): string {
+  return `run:${stepId}:${attempt}`;
+}
 
-export type WorkflowIdempotencyKey = `workflow:${string}:idempotency:${string}:${string}`;
+export type IdempotencyKey = `workflow:${string}:idempotency:${string}:${string}`;
 
 export type MessageIdempotencyKey = `workflow:${string}:message-idempotency:${string}:${string}`;
 
-export type WorkflowRunKey = `workflow:${string}:run:${string}`;
+type RunKey = `workflow:${string}:run:${string}`;
 
-export type WorkflowEventsKey = `workflow:${string}:events:${string}`;
+export type EventsKey = `workflow:${string}:events:${string}`;
 
-export type WorkflowStepAttemptKey = `workflow:${string}:step-attempt:${string}:${string}`;
+type StepAttemptKey = `workflow:${string}:step-attempt:${string}:${string}`;
 
-export type WorkflowScheduleKey = `workflow:${string}:schedule:${string}`;
+type ScheduleKey = `workflow:${string}:schedule:${string}`;
 
-export type WorkflowLockKey = `workflow:${string}:lock:${string}`;
+type LockKey = `workflow:${string}:lock:${string}`;
 
-export type WorkflowCleanupMarkerKey = `workflow:${string}:cleanup:${string}`;
+type CleanupMarkerKey = `workflow:${string}:cleanup:${string}`;
 
-export type WorkflowNamespacePrefix = `workflow:${string}:`;
+type NamespacePrefix = `workflow:${string}:`;
 
-export type WorkflowRunKeyPrefix = `workflow:${string}:run:`;
+type RunKeyPrefix = `workflow:${string}:run:`;
 
-export type WorkflowStepAttemptKeyPrefix = `workflow:${string}:step-attempt:${string}:`;
+type StepAttemptKeyPrefix = `workflow:${string}:step-attempt:${string}:`;
 
-export type WorkflowScheduleKeyPrefix = `workflow:${string}:schedule:`;
+type ScheduleKeyPrefix = `workflow:${string}:schedule:`;
 
-export type WorkflowLockKeyPrefix = `workflow:${string}:lock:`;
+type LockKeyPrefix = `workflow:${string}:lock:`;
 
-export type WorkflowCleanupMarkerKeyPrefix = `workflow:${string}:cleanup:`;
+type CleanupMarkerKeyPrefix = `workflow:${string}:cleanup:`;
 
-/** Builds a validated workflow idempotency storage key. */
 export function makeWorkflowIdempotencyKey(
   namespace: string,
-  options: WorkflowIdempotencyKeyOptions,
-): WorkflowIdempotencyKey {
+  options: IdempotencyKeyOptions,
+): IdempotencyKey {
   return makeIdempotencyKey(namespace, options);
 }
 
-/** Builds a workflow run storage key. */
-export function makeRunKey(namespace: string, runId: RunId): WorkflowRunKey {
+export function makeRunKey(namespace: string, runId: RunId): RunKey {
   return `${namespacePrefix(namespace)}run:${runId}`;
 }
 
-/** Builds a workflow event-history storage key. */
-export function makeEventsKey(namespace: string, runId: RunId): WorkflowEventsKey {
+export function makeEventsKey(namespace: string, runId: RunId): EventsKey {
   return `${namespacePrefix(namespace)}events:${runId}`;
 }
 
-/** Builds a workflow step-attempt storage key. */
 export function makeStepAttemptKey(
   namespace: string,
   runId: RunId,
   attemptKey: string,
-): WorkflowStepAttemptKey {
+): StepAttemptKey {
   return `${makeStepAttemptKeyPrefix(namespace, runId)}${encodeURIComponent(attemptKey)}`;
 }
 
-/** Builds a workflow step-attempt storage key prefix. */
-export function makeStepAttemptKeyPrefix(
-  namespace: string,
-  runId: RunId,
-): WorkflowStepAttemptKeyPrefix {
+export function makeStepAttemptKeyPrefix(namespace: string, runId: RunId): StepAttemptKeyPrefix {
   return `${namespacePrefix(namespace)}step-attempt:${runId}:`;
 }
 
@@ -90,7 +86,7 @@ export function isStepAttemptKey(key: string, namespace: string, runId: RunId): 
   const attempt = Number(attemptKey.slice(separator + 1));
 
   try {
-    return makeWorkflowStepAttemptKey(stepId, attempt) === attemptKey;
+    return stepAttemptKey(stepId, attempt) === attemptKey;
   } catch {
     return false;
   }
@@ -104,7 +100,6 @@ function decodeStepAttemptKey(key: string, prefix: string): string | undefined {
   }
 }
 
-/** Builds a workflow message idempotency storage key. */
 export function makeMessageIdempotencyKey(
   namespace: string,
   runId: RunId,
@@ -115,41 +110,34 @@ export function makeMessageIdempotencyKey(
   )}:${encodeURIComponent(idempotencyKey)}`;
 }
 
-/** Builds a workflow schedule storage key. */
-export function makeScheduleKey(namespace: string, scheduleId: ScheduleId): WorkflowScheduleKey {
+export function makeScheduleKey(namespace: string, scheduleId: ScheduleId): ScheduleKey {
   return `${namespacePrefix(namespace)}schedule:${encodeURIComponent(scheduleId)}`;
 }
 
-/** Builds a workflow schedule storage key prefix. */
-export function makeScheduleKeyPrefix(namespace: string): WorkflowScheduleKeyPrefix {
+export function makeScheduleKeyPrefix(namespace: string): ScheduleKeyPrefix {
   return `${namespacePrefix(namespace)}schedule:`;
 }
 
-/** Builds a workflow lock storage key. */
-export function makeLockKey(namespace: string, key: string): WorkflowLockKey {
+export function makeLockKey(namespace: string, key: string): LockKey {
   return `${namespacePrefix(namespace)}lock:${encodeURIComponent(key)}`;
 }
 
-/** Builds a workflow cleanup marker storage key. */
-export function makeCleanupMarkerKey(namespace: string, runId: RunId): WorkflowCleanupMarkerKey {
+export function makeCleanupMarkerKey(namespace: string, runId: RunId): CleanupMarkerKey {
   return `${namespacePrefix(namespace)}cleanup:${encodeURIComponent(runId)}`;
 }
 
-/** Builds a workflow cleanup marker storage key prefix. */
-export function makeCleanupMarkerKeyPrefix(namespace: string): WorkflowCleanupMarkerKeyPrefix {
+export function makeCleanupMarkerKeyPrefix(namespace: string): CleanupMarkerKeyPrefix {
   return `${namespacePrefix(namespace)}cleanup:`;
 }
 
-/** Builds a workflow lock storage key prefix. */
-export function makeLockKeyPrefix(namespace: string): WorkflowLockKeyPrefix {
+export function makeLockKeyPrefix(namespace: string): LockKeyPrefix {
   return `${namespacePrefix(namespace)}lock:`;
 }
 
-/** Builds a workflow idempotency storage key. */
 export function makeIdempotencyKey(
   namespace: string,
-  options: WorkflowIdempotencyKeyOptions,
-): WorkflowIdempotencyKey {
+  options: IdempotencyKeyOptions,
+): IdempotencyKey {
   const versionedName =
     options.workflowVersion === undefined
       ? options.workflowName
@@ -160,11 +148,14 @@ export function makeIdempotencyKey(
   )}:${encodeURIComponent(options.idempotencyKey)}`;
 }
 
-/** Builds a workflow run storage key prefix. */
-export function makeRunKeyPrefix(namespace: string): WorkflowRunKeyPrefix {
+export function makeRunKeyPrefix(namespace: string): RunKeyPrefix {
   return `${namespacePrefix(namespace)}run:`;
 }
 
-function namespacePrefix(namespace: string): WorkflowNamespacePrefix {
+function namespacePrefix(namespace: string): NamespacePrefix {
   return `workflow:${encodeURIComponent(namespace)}:`;
+}
+
+export function runStepAttemptKey(runId: RunId, attempt: StepAttemptRecord): string {
+  return `${runId}:${stepAttemptKey(attempt.stepId, attempt.attempt)}`;
 }

@@ -1,74 +1,45 @@
 import type { StorageValue } from "@temelj/storage";
 
 import type { WorkflowDefinition } from "../types/definition.ts";
+import type { ExecutionLimits } from "../types/engine-options.ts";
 import type { WorkflowErrorRecord } from "../types/error.ts";
 import type { EventRecord } from "../types/events.ts";
+import type { RunId } from "../types/ids.ts";
 import type { ExecutionResult } from "../types/result.ts";
 import type {
-  RunId,
-  WorkflowAttributePatch,
-  WorkflowRunRetryReason,
-  WorkflowRunRecord,
-  WorkflowStepIdentity,
+  AttributePatch,
+  RunRecord,
+  RunRetryReason,
+  RunTransitionReason,
+  TerminalRunStatus,
 } from "../types/run.ts";
-import type { WorkflowStepAttemptRecord } from "../types/step-attempts.ts";
-import type {
-  WorkflowConditionalEventAppender,
-  WorkflowEventReader,
-  WorkflowLockConditionalWriterRepository,
-  WorkflowLockListerRepository,
-  WorkflowRunConditionalWriterRepository,
-  WorkflowRunReaderRepository,
-  WorkflowRunUnconditionalWriterRepository,
-  WorkflowRunWriterRepository,
-  WorkflowStepAttemptLookup,
-} from "../types/store.ts";
+import type { StepAttemptRecord } from "../types/step-attempts.ts";
+import type { WorkflowStore } from "../types/store.ts";
 
-import { applyWorkflowAttributePatch } from "../attributes.ts";
+import { applyAttributePatch } from "../attributes.ts";
 import { WorkflowStateError } from "../errors/base.ts";
+import { WorkflowErrorCode } from "../errors/codes.ts";
 import {
   WorkflowRunCanceledError,
   WorkflowRunCancellationError,
   WorkflowRunDeadlineExceededError,
   WorkflowRunMismatchError,
 } from "../errors/run.ts";
-import { WorkflowHistory } from "../history/mod.ts";
-import { getRequiredRun, isPositiveSafeInteger } from "../utility.ts";
-import { MAX_CONCURRENT_RUN_UPDATE_ATTEMPTS } from "./retry-policy.ts";
-import { enforceWorkflowEventHistoryNextLimit } from "./retry.ts";
+import { History } from "../history/replay.ts";
+import { CLEARED_LEASE, CLEARED_RETRY, UNFINISHED } from "../run-status.ts";
+import { getRequiredRun } from "../store/query.ts";
+import { isPositiveSafeInteger } from "../values.ts";
+import { enforceEventHistoryNextLimit } from "./retry.ts";
 import { readRunResult } from "./run-utils.ts";
 import { serializeError } from "./serialization.ts";
+import { StaleExecutionError } from "./signals.ts";
 
-export { getRequiredRun } from "../utility.ts";
-
-interface WorkflowEngineStateLimits {
-  readonly maximumEventHistoryEvents?: number;
-}
-
-type WorkflowRunLookup = WorkflowRunReaderRepository;
-
-type WorkflowRunWriter = WorkflowRunUnconditionalWriterRepository;
-
-type WorkflowRunConditionalWriter = WorkflowRunConditionalWriterRepository;
-
-type WorkflowRunStateStore = WorkflowRunLookup & WorkflowRunWriter & WorkflowRunWriterRepository;
-
-type WorkflowCurrentEventAppender = WorkflowConditionalEventAppender & WorkflowRunLookup;
-
-type WorkflowLockReleaseStore = WorkflowLockListerRepository &
-  WorkflowLockConditionalWriterRepository;
-
-type WorkflowChildWakeStore = WorkflowRunStateStore &
-  WorkflowEventReader &
-  WorkflowStepAttemptLookup;
-
-type WorkflowChildCascadeStore = WorkflowChildWakeStore & WorkflowLockReleaseStore;
-
-type WorkflowChildRunStateStore = WorkflowChildCascadeStore & WorkflowCurrentEventAppender;
+// Run updates retry bounded optimistic conflicts, so a hot run cannot monopolize a worker.
+export const MAX_RUN_UPDATE_ATTEMPTS = 16;
 
 export function requireDefinitionMatchesRun<TInput, TOutput, TRawInput = TInput>(
   definition: WorkflowDefinition<TInput, TOutput, TRawInput>,
-  run: WorkflowRunRecord,
+  run: RunRecord,
 ): void {
   if (definition.name !== run.workflowName) {
     WorkflowRunMismatchError.mismatch({
@@ -94,24 +65,24 @@ export function requireDefinitionMatchesRun<TInput, TOutput, TRawInput = TInput>
 }
 
 export async function appendEventIfCurrentExecution(
-  store: WorkflowCurrentEventAppender,
-  history: WorkflowHistory,
+  store: WorkflowStore,
+  history: History,
   event: EventRecord,
-  executionOwner: WorkflowRunRecord,
-  limits: WorkflowEngineStateLimits,
+  executionOwner: RunRecord,
+  limits: ExecutionLimits,
   beforeAppend?: () => void,
   afterAppend?: (event: EventRecord, events: readonly EventRecord[]) => void,
 ): Promise<void> {
   let appendedEvents: readonly EventRecord[] | undefined;
   await history.append(async () => {
     beforeAppend?.();
-    enforceWorkflowEventHistoryNextLimit(history.events, limits);
+    enforceEventHistoryNextLimit(history.events, limits);
 
-    for (let attempt = 0; attempt < MAX_CONCURRENT_RUN_UPDATE_ATTEMPTS; attempt++) {
+    for (let attempt = 0; attempt < MAX_RUN_UPDATE_ATTEMPTS; attempt++) {
       const current = await store.getRun(executionOwner.id);
 
       if (current === undefined || !isCurrentExecutionOwner(current, executionOwner)) {
-        WorkflowStaleExecutionError.stale(executionOwner.id);
+        StaleExecutionError.stale(executionOwner.id);
       }
 
       const events = await store.appendEventIfRunCurrent(current, event);
@@ -123,7 +94,7 @@ export async function appendEventIfCurrentExecution(
       }
     }
 
-    WorkflowStaleExecutionError.stale(executionOwner.id);
+    StaleExecutionError.stale(executionOwner.id);
   });
 
   if (appendedEvents !== undefined) {
@@ -132,23 +103,32 @@ export async function appendEventIfCurrentExecution(
 }
 
 export async function requireCurrentExecutionOwner(
-  store: WorkflowRunLookup,
-  runId: RunId,
-  executionOwner: WorkflowRunRecord,
+  store: WorkflowStore,
+  executionOwner: RunRecord,
 ): Promise<void> {
-  const current = await store.getRun(runId);
-
-  if (current === undefined || !isCurrentExecutionOwner(current, executionOwner)) {
-    WorkflowStaleExecutionError.stale(runId);
+  if ((await currentExecution(store, executionOwner)) === undefined) {
+    StaleExecutionError.stale(executionOwner.id);
   }
 }
 
+/** The stored run, while `executionOwner` still holds its lease; otherwise `undefined`. */
+async function currentExecution(
+  store: WorkflowStore,
+  executionOwner: RunRecord,
+): Promise<RunRecord | undefined> {
+  const current = await store.getRun(executionOwner.id);
+
+  return current !== undefined && isCurrentExecutionOwner(current, executionOwner)
+    ? current
+    : undefined;
+}
+
 export async function patchRun(
-  store: WorkflowRunWriter,
-  current: WorkflowRunRecord,
-  patch: Partial<WorkflowRunRecord>,
-): Promise<WorkflowRunRecord> {
-  const next: WorkflowRunRecord = {
+  store: WorkflowStore,
+  current: RunRecord,
+  patch: Partial<RunRecord>,
+): Promise<RunRecord> {
+  const next: RunRecord = {
     ...current,
     ...patch,
   };
@@ -157,10 +137,10 @@ export async function patchRun(
 }
 
 export async function patchRunIfCurrent(
-  store: WorkflowRunConditionalWriter,
-  current: WorkflowRunRecord,
-  patch: Partial<WorkflowRunRecord>,
-): Promise<WorkflowRunRecord | undefined> {
+  store: WorkflowStore,
+  current: RunRecord,
+  patch: Partial<RunRecord>,
+): Promise<RunRecord | undefined> {
   return await store.updateRunIfCurrent(current, {
     ...current,
     ...patch,
@@ -168,57 +148,71 @@ export async function patchRunIfCurrent(
 }
 
 export async function updateRunMetadataIfCurrent(
-  store: WorkflowRunLookup & WorkflowRunConditionalWriter,
+  store: WorkflowStore,
   runId: RunId,
   metadata: StorageValue,
   timestamp: Temporal.Instant,
-): Promise<WorkflowRunRecord> {
-  for (let attempt = 0; attempt < MAX_CONCURRENT_RUN_UPDATE_ATTEMPTS; attempt++) {
-    const current = await getRequiredRun(store, runId);
-
-    const updated = await patchRunIfCurrent(store, current, {
-      metadata,
-      updatedAt: timestamp,
-    });
-
-    if (updated !== undefined) {
-      return updated;
-    }
-  }
-
-  WorkflowStateError.failedRunMetadataUpdate(runId);
+): Promise<RunRecord> {
+  return await patchRunWithRetry(
+    store,
+    runId,
+    () => ({ metadata, updatedAt: timestamp }),
+    `Failed to update workflow run metadata for run ${runId}`,
+    WorkflowErrorCode.STATE_RUN_METADATA_UPDATE_FAILED,
+  );
 }
 
 export async function setRunAttributesIfCurrent(
-  store: WorkflowRunLookup & WorkflowRunConditionalWriter,
+  store: WorkflowStore,
   runId: RunId,
-  attributes: WorkflowAttributePatch,
+  attributes: AttributePatch,
   timestamp: Temporal.Instant,
-): Promise<WorkflowRunRecord> {
-  for (let attempt = 0; attempt < MAX_CONCURRENT_RUN_UPDATE_ATTEMPTS; attempt++) {
-    const current = await getRequiredRun(store, runId);
+): Promise<RunRecord> {
+  return await patchRunWithRetry(
+    store,
+    runId,
+    (current) => attributesPatch(current, attributes, timestamp),
+    `Failed to update workflow run attributes for run ${runId}`,
+    WorkflowErrorCode.STATE_RUN_ATTRIBUTES_UPDATE_FAILED,
+  );
+}
 
-    const updated = await patchRunIfCurrent(store, current, {
-      attributes: applyWorkflowAttributePatch(current.attributes, attributes),
-      updatedAt: timestamp,
-    });
+/** Patches a run, retrying when another writer updates the run first. */
+async function patchRunWithRetry(
+  store: WorkflowStore,
+  runId: RunId,
+  patch: (current: RunRecord) => Partial<RunRecord>,
+  failureMessage: string,
+  failureCode: WorkflowErrorCode,
+): Promise<RunRecord> {
+  for (let attempt = 0; attempt < MAX_RUN_UPDATE_ATTEMPTS; attempt++) {
+    const current = await getRequiredRun(store, runId);
+    const updated = await patchRunIfCurrent(store, current, patch(current));
 
     if (updated !== undefined) {
       return updated;
     }
   }
 
-  WorkflowStateError.failedRunAttributesUpdate(runId);
+  throw new WorkflowStateError(failureMessage, { code: failureCode, details: { runId } });
+}
+
+function attributesPatch(
+  current: RunRecord,
+  attributes: AttributePatch,
+  timestamp: Temporal.Instant,
+): Partial<RunRecord> {
+  return { attributes: applyAttributePatch(current.attributes, attributes), updatedAt: timestamp };
 }
 
 export async function patchCurrentExecutionRun(
-  store: WorkflowRunLookup & WorkflowRunConditionalWriter,
-  executionOwner: WorkflowRunRecord,
-  patch: Partial<WorkflowRunRecord>,
-): Promise<WorkflowRunRecord | undefined> {
-  const current = await store.getRun(executionOwner.id);
+  store: WorkflowStore,
+  executionOwner: RunRecord,
+  patch: Partial<RunRecord>,
+): Promise<RunRecord | undefined> {
+  const current = await currentExecution(store, executionOwner);
 
-  if (current === undefined || !isCurrentExecutionOwner(current, executionOwner)) {
+  if (current === undefined) {
     return undefined;
   }
 
@@ -226,328 +220,212 @@ export async function patchCurrentExecutionRun(
 }
 
 export async function patchCurrentExecutionRunAttributes(
-  store: WorkflowRunLookup & WorkflowRunConditionalWriter,
-  executionOwner: WorkflowRunRecord,
-  attributes: WorkflowAttributePatch,
+  store: WorkflowStore,
+  executionOwner: RunRecord,
+  attributes: AttributePatch,
   timestamp: Temporal.Instant,
-): Promise<WorkflowRunRecord | undefined> {
-  const current = await store.getRun(executionOwner.id);
+): Promise<RunRecord | undefined> {
+  const current = await currentExecution(store, executionOwner);
 
-  if (current === undefined || !isCurrentExecutionOwner(current, executionOwner)) {
+  if (current === undefined) {
     return undefined;
   }
 
-  return await patchRunIfCurrent(store, current, {
-    attributes: applyWorkflowAttributePatch(current.attributes, attributes),
-    updatedAt: timestamp,
-  });
+  return await patchRunIfCurrent(store, current, attributesPatch(current, attributes, timestamp));
 }
 
-export function transitionRunToMissingImplementationWait(
-  run: WorkflowRunRecord,
-  error: WorkflowErrorRecord,
+/** The run with the transition stamped on it; every transition starts here. */
+function moved(
+  run: RunRecord,
   timestamp: Temporal.Instant,
-  availableAt: Temporal.Instant,
-  retryAttempt: number,
-): WorkflowRunRecord {
+  reason: RunTransitionReason,
+): RunRecord {
   return {
     ...run,
-    status: "waiting",
-    error,
     updatedAt: timestamp,
     lastTransitionAt: timestamp,
-    lastTransitionReason: "missing_implementation",
-    availableAt,
-    retryAt: availableAt,
-    retryReason: "missing_implementation",
-    retryAttempt,
-    retryStepId: undefined,
-    retryStepName: undefined,
-    workerId: undefined,
-    leaseExpiresAt: undefined,
-    deadlineAt: run.deadlineAt,
-    output: undefined,
-    finishedAt: undefined,
+    lastTransitionReason: reason,
   };
 }
 
-export function transitionRunToFailed(
-  run: WorkflowRunRecord,
-  error: WorkflowErrorRecord,
+/** A terminal run: no lease, no retry, nothing left to schedule. */
+function finished(
+  run: RunRecord,
   timestamp: Temporal.Instant,
-  lastTransitionReason: "deadline" | "failed",
-  deadlineAt?: Temporal.Instant,
-): WorkflowRunRecord {
+  status: TerminalRunStatus,
+  reason: RunTransitionReason,
+  result: { readonly output?: StorageValue; readonly error?: WorkflowErrorRecord },
+): RunRecord {
   return {
-    ...run,
-    status: "failed",
-    error,
-    updatedAt: timestamp,
-    lastTransitionAt: timestamp,
-    lastTransitionReason,
+    ...moved(run, timestamp, reason),
+    status,
+    output: result.output,
+    error: result.error,
     finishedAt: timestamp,
-    output: undefined,
     availableAt: undefined,
-    retryAt: undefined,
-    retryReason: undefined,
-    retryAttempt: undefined,
-    retryStepId: undefined,
-    retryStepName: undefined,
-    workerId: undefined,
-    leaseExpiresAt: undefined,
-    deadlineAt: deadlineAt ?? run.deadlineAt,
+    ...CLEARED_LEASE,
+    ...CLEARED_RETRY,
   };
 }
 
 export function transitionRunToRunning(
-  run: WorkflowRunRecord,
+  run: RunRecord,
   timestamp: Temporal.Instant,
   attempts: number | undefined,
-): WorkflowRunRecord {
+): RunRecord {
   return {
-    ...run,
+    ...moved(run, timestamp, "started"),
+    ...UNFINISHED,
+    ...CLEARED_RETRY,
     status: "running",
     attempts,
-    updatedAt: timestamp,
-    lastTransitionAt: timestamp,
-    lastTransitionReason: "started",
     startedAt: run.startedAt ?? timestamp,
     availableAt: undefined,
-    error: undefined,
-    output: undefined,
-    finishedAt: undefined,
-    retryAt: undefined,
-    retryReason: undefined,
-    retryAttempt: undefined,
-    retryStepId: undefined,
-    retryStepName: undefined,
   };
 }
 
 export function transitionRunToCompleted(
-  run: WorkflowRunRecord,
+  run: RunRecord,
   output: StorageValue | undefined,
   timestamp: Temporal.Instant,
-): WorkflowRunRecord {
+): RunRecord {
+  return finished(run, timestamp, "completed", "completed", { output });
+}
+
+export function transitionRunToFailed(
+  run: RunRecord,
+  error: WorkflowErrorRecord,
+  timestamp: Temporal.Instant,
+  reason: "deadline" | "failed" | "permanent_failure",
+  deadlineAt?: Temporal.Instant,
+): RunRecord {
   return {
-    ...run,
-    status: "completed",
-    ...(output === undefined ? { output: undefined } : { output }),
-    error: undefined,
-    updatedAt: timestamp,
-    lastTransitionAt: timestamp,
-    lastTransitionReason: "completed",
-    finishedAt: timestamp,
-    availableAt: undefined,
-    workerId: undefined,
-    leaseExpiresAt: undefined,
-    retryAt: undefined,
-    retryReason: undefined,
-    retryAttempt: undefined,
-    retryStepId: undefined,
-    retryStepName: undefined,
+    ...finished(run, timestamp, "failed", reason, { error }),
+    deadlineAt: deadlineAt ?? run.deadlineAt,
   };
 }
 
+export function transitionRunToCanceled(
+  run: RunRecord,
+  error: WorkflowErrorRecord,
+  timestamp: Temporal.Instant,
+): RunRecord {
+  return finished(run, timestamp, "canceled", "canceled", { error });
+}
+
+export function transitionRunToWaiting(
+  run: RunRecord,
+  timestamp: Temporal.Instant,
+  availableAt: Temporal.Instant,
+): RunRecord {
+  return {
+    ...moved(run, timestamp, "waiting"),
+    ...UNFINISHED,
+    ...CLEARED_LEASE,
+    status: "waiting",
+    availableAt,
+  };
+}
+
+/** Waits after an execution suspended, optionally to retry a failed step or workflow. */
 export function transitionRunToExecutionWait(
-  run: WorkflowRunRecord,
+  run: RunRecord,
   timestamp: Temporal.Instant,
   availableAt: Temporal.Instant,
   options: {
     readonly retryAt?: Temporal.Instant;
-    readonly retryReason?: WorkflowRunRetryReason;
+    readonly retryReason?: RunRetryReason;
     readonly retryAttempt?: number;
     readonly retryStepId?: string;
     readonly retryStepName?: string;
     readonly error?: WorkflowErrorRecord;
   } = {},
-): WorkflowRunRecord {
+): RunRecord {
   return {
-    ...run,
-    status: "waiting",
-    availableAt,
-    updatedAt: timestamp,
-    lastTransitionAt: timestamp,
+    ...transitionRunToWaiting(run, timestamp, availableAt),
     lastTransitionReason: options.retryReason === undefined ? "waiting" : "retry",
-    workerId: undefined,
-    leaseExpiresAt: undefined,
     retryAt: options.retryAt,
     retryReason: options.retryReason,
     retryAttempt: options.retryAttempt,
     retryStepId: options.retryStepId,
     retryStepName: options.retryStepName,
     error: options.error,
-    output: undefined,
-    finishedAt: undefined,
   };
 }
 
-export function transitionRunToWaiting(
-  run: WorkflowRunRecord,
+export function transitionRunToMissingImplementationWait(
+  run: RunRecord,
+  error: WorkflowErrorRecord,
   timestamp: Temporal.Instant,
   availableAt: Temporal.Instant,
-): WorkflowRunRecord {
+  retryAttempt: number,
+): RunRecord {
   return {
-    ...run,
-    status: "waiting",
-    availableAt,
-    updatedAt: timestamp,
-    lastTransitionAt: timestamp,
-    lastTransitionReason: "waiting",
-    deadlineAt: run.deadlineAt,
-    workerId: undefined,
-    leaseExpiresAt: undefined,
-    error: undefined,
-    output: undefined,
-    finishedAt: undefined,
-  };
-}
-
-export function transitionRunToRescheduled(
-  run: WorkflowRunRecord,
-  timestamp: Temporal.Instant,
-  availableAt: Temporal.Instant,
-): WorkflowRunRecord {
-  return {
-    ...run,
-    availableAt,
-    updatedAt: timestamp,
-    lastTransitionAt: timestamp,
-    lastTransitionReason: "rescheduled",
-    deadlineAt: run.deadlineAt,
-    leaseExpiresAt: undefined,
-    workerId: undefined,
-    retryAt: run.retryReason === undefined ? undefined : availableAt,
-    retryReason: run.retryReason,
-    retryAttempt: run.retryAttempt,
-    retryStepId: run.retryStepId,
-    retryStepName: run.retryStepName,
-    error: undefined,
-    output: undefined,
-    finishedAt: undefined,
+    ...transitionRunToWaiting(run, timestamp, availableAt),
+    ...CLEARED_RETRY,
+    lastTransitionReason: "missing_implementation",
+    retryAt: availableAt,
+    retryReason: "missing_implementation",
+    retryAttempt,
+    error,
   };
 }
 
 export function transitionRunAfterStaleLeaseRelease(
-  run: WorkflowRunRecord,
+  run: RunRecord,
   timestamp: Temporal.Instant,
   availableAt: Temporal.Instant,
-): WorkflowRunRecord {
+): RunRecord {
   return {
     ...transitionRunToWaiting(run, timestamp, availableAt),
+    ...CLEARED_RETRY,
     lastTransitionReason: "lease_released",
-    retryAt: undefined,
-    retryReason: undefined,
-    retryAttempt: undefined,
-    retryStepId: undefined,
-    retryStepName: undefined,
-    deadlineAt: run.deadlineAt,
-    updatedAt: timestamp,
-    lastTransitionAt: timestamp,
+  };
+}
+
+/** Moves the run's next attempt to `availableAt`, keeping its status and retry details. */
+export function transitionRunToRescheduled(
+  run: RunRecord,
+  timestamp: Temporal.Instant,
+  availableAt: Temporal.Instant,
+): RunRecord {
+  return {
+    ...moved(run, timestamp, "rescheduled"),
+    ...UNFINISHED,
+    ...CLEARED_LEASE,
+    availableAt,
+    retryAt: run.retryReason === undefined ? undefined : availableAt,
   };
 }
 
 export function transitionRunToManualRetry(
-  run: WorkflowRunRecord,
+  run: RunRecord,
   timestamp: Temporal.Instant,
   availableAt: Temporal.Instant,
   retryAttempt: number,
-): WorkflowRunRecord {
+): RunRecord {
   return {
-    ...run,
+    ...moved(run, timestamp, "manual_retry"),
+    ...UNFINISHED,
+    ...CLEARED_LEASE,
     status: "pending",
     availableAt,
-    updatedAt: timestamp,
-    lastTransitionAt: timestamp,
-    lastTransitionReason: "manual_retry",
-    deadlineAt: run.deadlineAt,
-    workerId: undefined,
-    leaseExpiresAt: undefined,
     retryAt: availableAt,
     retryReason: run.retryReason ?? "workflow",
     retryAttempt,
-    retryStepId: run.retryStepId,
-    retryStepName: run.retryStepName,
-    error: undefined,
-    output: undefined,
-    finishedAt: undefined,
   };
 }
 
-export function transitionRunToPermanentFailure(
-  run: WorkflowRunRecord,
-  error: WorkflowErrorRecord,
-  timestamp: Temporal.Instant,
-): WorkflowRunRecord {
+function transitionRunAfterParentWake(run: RunRecord, timestamp: Temporal.Instant): RunRecord {
   return {
-    ...run,
-    status: "failed",
-    error,
-    output: undefined,
-    availableAt: undefined,
-    updatedAt: timestamp,
-    lastTransitionAt: timestamp,
-    lastTransitionReason: "permanent_failure",
-    deadlineAt: run.deadlineAt,
-    workerId: undefined,
-    leaseExpiresAt: undefined,
-    retryAt: undefined,
-    retryReason: undefined,
-    retryAttempt: undefined,
-    retryStepId: undefined,
-    retryStepName: undefined,
-    finishedAt: timestamp,
-  };
-}
-
-export function transitionRunToCanceled(
-  run: WorkflowRunRecord,
-  error: WorkflowErrorRecord,
-  timestamp: Temporal.Instant,
-): WorkflowRunRecord {
-  return {
-    ...run,
-    status: "canceled",
-    error,
-    updatedAt: timestamp,
-    lastTransitionAt: timestamp,
-    lastTransitionReason: "canceled",
-    finishedAt: timestamp,
-    availableAt: undefined,
-    output: undefined,
-    workerId: undefined,
-    leaseExpiresAt: undefined,
-    retryAt: undefined,
-    retryReason: undefined,
-    retryAttempt: undefined,
-    retryStepId: undefined,
-    retryStepName: undefined,
-  };
-}
-
-export function transitionRunAfterParentWake(
-  run: WorkflowRunRecord,
-  timestamp: Temporal.Instant,
-): WorkflowRunRecord {
-  return {
-    ...run,
+    ...moved(run, timestamp, "waiting"),
+    ...UNFINISHED,
     availableAt: timestamp,
-    updatedAt: timestamp,
-    lastTransitionAt: timestamp,
-    lastTransitionReason: "waiting",
-    deadlineAt: run.deadlineAt,
-    retryAt: run.retryAt,
     startedAt: run.startedAt ?? timestamp,
-    error: undefined,
-    output: undefined,
-    finishedAt: undefined,
   };
 }
 
-export function isCurrentExecutionOwner(
-  current: WorkflowRunRecord,
-  execution: WorkflowRunRecord,
-): boolean {
+export function isCurrentExecutionOwner(current: RunRecord, execution: RunRecord): boolean {
   // Worker ownership is the pair of workerId and execution attempt.
   // A stale worker with the same run id must not append events or patch state after another worker has reclaimed the run.
   return (
@@ -558,10 +436,10 @@ export function isCurrentExecutionOwner(
 }
 
 export async function cancelRunWithChildren(
-  store: WorkflowChildCascadeStore,
+  store: WorkflowStore,
   runId: RunId,
   canceledAt: Temporal.Instant,
-): Promise<WorkflowRunRecord> {
+): Promise<RunRecord> {
   const run = await getRequiredRun(store, runId);
 
   if (run.status === "completed" || run.status === "failed") {
@@ -575,11 +453,7 @@ export async function cancelRunWithChildren(
   const canceledRun = await patchRunIfCurrent(
     store,
     run,
-    transitionRunToCanceled(
-      run,
-      serializeError(WorkflowRunCanceledError.create(runId)),
-      canceledAt,
-    ),
+    transitionRunToCanceled(run, serializeError(new WorkflowRunCanceledError(runId)), canceledAt),
   );
 
   if (canceledRun === undefined) {
@@ -598,13 +472,13 @@ export async function cancelRunWithChildren(
 
   await releaseLocksForRun(store, run.id, canceledAt);
   await cancelActiveChildRuns(store, run.id, canceledAt);
-  await wakeParentRunForTerminalChild(store, canceledRun, canceledAt);
+  await wakeParentRun(store, canceledRun, canceledAt);
 
   return canceledRun;
 }
 
-export async function cancelActiveChildRuns(
-  store: WorkflowChildCascadeStore,
+async function cancelActiveChildRuns(
+  store: WorkflowStore,
   parentRunId: RunId,
   canceledAt: Temporal.Instant,
 ): Promise<void> {
@@ -644,10 +518,11 @@ export async function cancelActiveChildRuns(
   }
 }
 
-export async function wakeParentRunForTerminalChild(
-  store: WorkflowChildWakeStore,
-  childRun: WorkflowRunRecord,
-  timestamp: Temporal.Instant,
+/** Makes a waiting parent run available by `at` when one of its child workflow steps changes. */
+export async function wakeParentRun(
+  store: WorkflowStore,
+  childRun: RunRecord,
+  at: Temporal.Instant,
 ): Promise<void> {
   if (childRun.parentRunId === undefined) {
     return;
@@ -663,53 +538,20 @@ export async function wakeParentRunForTerminalChild(
     return;
   }
 
-  const wakeAt = timestamp;
-
   if (
     parentRun.availableAt !== undefined &&
-    Temporal.Instant.compare(parentRun.availableAt, wakeAt) <= 0
+    Temporal.Instant.compare(parentRun.availableAt, at) <= 0
   ) {
     return;
   }
 
-  await patchRun(store, parentRun, transitionRunAfterParentWake(parentRun, timestamp));
+  await patchRun(store, parentRun, transitionRunAfterParentWake(parentRun, at));
 }
 
-export async function wakeParentRunForWaitingChild(
-  store: WorkflowChildWakeStore,
-  childRun: WorkflowRunRecord,
-  availableAt: Temporal.Instant,
-): Promise<void> {
-  if (childRun.parentRunId === undefined) {
-    return;
-  }
-
-  const parentRun = await store.getRun(childRun.parentRunId);
-
-  if (parentRun === undefined || parentRun.status !== "waiting") {
-    return;
-  }
-
-  if (!(await parentHasActiveChildWorkflowAttemptForRun(store, parentRun.id, childRun))) {
-    return;
-  }
-
-  const wakeAt = availableAt;
-
-  if (
-    parentRun.availableAt !== undefined &&
-    Temporal.Instant.compare(parentRun.availableAt, wakeAt) <= 0
-  ) {
-    return;
-  }
-
-  await patchRun(store, parentRun, transitionRunAfterParentWake(parentRun, availableAt));
-}
-
-export async function parentHasActiveChildWorkflowAttemptForRun(
-  store: WorkflowChildWakeStore,
+async function parentHasActiveChildWorkflowAttemptForRun(
+  store: WorkflowStore,
   parentRunId: RunId,
-  childRun: WorkflowRunRecord,
+  childRun: RunRecord,
 ): Promise<boolean> {
   if (childRun.parentRunId !== parentRunId) {
     return false;
@@ -739,17 +581,17 @@ export async function parentHasActiveChildWorkflowAttemptForRun(
   return false;
 }
 
-export async function parentHasActiveChildWorkflowEventForAttempt(
-  store: WorkflowEventReader,
+async function parentHasActiveChildWorkflowEventForAttempt(
+  store: WorkflowStore,
   parentRunId: RunId,
-  attempt: WorkflowStepAttemptRecord,
+  attempt: StepAttemptRecord,
 ): Promise<boolean> {
   if (attempt.childRunId === undefined) {
     return false;
   }
 
   const events = await store.getEvents(parentRunId);
-  const lifecycle = new WorkflowHistory(events).childWorkflowLifecycleForAttempt(attempt);
+  const lifecycle = new History(events).childWorkflowLifecycleForAttempt(attempt);
 
   if (lifecycle.started === undefined) {
     return false;
@@ -765,14 +607,14 @@ export async function parentHasActiveChildWorkflowEventForAttempt(
 }
 
 export async function failRunForDeadline<TOutput>(
-  store: WorkflowChildRunStateStore,
+  store: WorkflowStore,
   definition: WorkflowDefinition<unknown, TOutput, unknown>,
-  run: WorkflowRunRecord,
+  run: RunRecord,
   deadlineAt: Temporal.Instant,
   failedAt: Temporal.Instant,
-  executionOwner?: WorkflowRunRecord,
+  executionOwner?: RunRecord,
 ): Promise<ExecutionResult<TOutput>> {
-  const serialized = serializeError(WorkflowRunDeadlineExceededError.create(run.id, deadlineAt));
+  const serialized = serializeError(new WorkflowRunDeadlineExceededError(run.id, deadlineAt));
 
   if (executionOwner !== undefined) {
     const current = await store.getRun(run.id);
@@ -807,7 +649,7 @@ export async function failRunForDeadline<TOutput>(
   }
 
   await releaseLocksForRun(store, run.id, failedAt);
-  await wakeParentRunForTerminalChild(store, failedRun, failedAt);
+  await wakeParentRun(store, failedRun, failedAt);
 
   return {
     kind: "failed",
@@ -817,11 +659,10 @@ export async function failRunForDeadline<TOutput>(
 }
 
 export async function releaseLocksForRun(
-  store: WorkflowLockReleaseStore,
+  store: WorkflowStore,
   runId: RunId,
   releasedAt: Temporal.Instant,
 ): Promise<void> {
-  const timestamp = releasedAt;
   const locks = await store.listLocks();
   await Promise.all(
     locks
@@ -829,61 +670,8 @@ export async function releaseLocksForRun(
       .map(async (lock) => {
         await store.updateLockIfCurrent(lock, {
           ...lock,
-          releasedAt: timestamp,
+          releasedAt: releasedAt,
         });
       }),
   );
-}
-
-export class WorkflowSuspended extends Error {
-  public readonly availableAt: Temporal.Instant;
-  public readonly retryAt?: Temporal.Instant;
-  public readonly retryReason?: "step";
-  public readonly retryAttempt?: number;
-  public readonly retryStep?: WorkflowStepIdentity;
-
-  constructor(availableAt: Temporal.Instant, context?: Function) {
-    super(`Workflow suspended until ${availableAt.toString()}`);
-    this.name = "WorkflowSuspended";
-    this.availableAt = availableAt;
-
-    if (Error.captureStackTrace !== undefined) {
-      Error.captureStackTrace(this, context ?? this.constructor);
-    }
-  }
-
-  static until(this: void, availableAt: Temporal.Instant): never {
-    throw new WorkflowSuspended(availableAt, WorkflowSuspended.until);
-  }
-
-  static forStepRetry(
-    this: void,
-    retryAt: Temporal.Instant,
-    retryStep: WorkflowStepIdentity,
-    retryAttempt: number,
-  ): never {
-    const suspended = new WorkflowSuspended(retryAt, WorkflowSuspended.forStepRetry);
-    Object.defineProperties(suspended, {
-      retryAt: { value: retryAt, enumerable: true },
-      retryReason: { value: "step", enumerable: true },
-      retryAttempt: { value: retryAttempt, enumerable: true },
-      retryStep: { value: retryStep, enumerable: true },
-    });
-    throw suspended;
-  }
-}
-
-export class WorkflowStaleExecutionError extends Error {
-  constructor(runId: RunId, context?: Function) {
-    super(`Workflow execution no longer owns run: ${runId}`);
-    this.name = "WorkflowStaleExecutionError";
-
-    if (Error.captureStackTrace !== undefined) {
-      Error.captureStackTrace(this, context ?? this.constructor);
-    }
-  }
-
-  static stale(this: void, runId: RunId): never {
-    throw new WorkflowStaleExecutionError(runId, WorkflowStaleExecutionError.stale);
-  }
 }

@@ -4,7 +4,8 @@ import { createPubSub } from "@temelj/event";
 
 import type { CleanupRunsResult } from "../types/cleanup.ts";
 import type { EventRecord, MessageSentEvent } from "../types/events.ts";
-import type { MessageId } from "../types/message-id.ts";
+import type { HookKind } from "../types/hook.ts";
+import type { MessageId, RunId } from "../types/ids.ts";
 import type {
   ChildWorkflowStartedObservationEvent,
   ObservationEmitter as ObservationEmitterContract,
@@ -12,20 +13,19 @@ import type {
   ObservationEventMap,
   ObservationEventArgs,
   ObservationEventPattern,
-  RunObservationEvent,
   ScheduleRunCreatedObservationEvent,
   ScheduleTickObservationEvent,
   WorkerOperationObservationEvent,
 } from "../types/observation.ts";
-import type { RunId, WorkflowRunRecord } from "../types/run.ts";
+import type { RunRecord, WorkflowLifecycleEvent } from "../types/run.ts";
 import type { Telemetry, TelemetryContext } from "../types/telemetry.ts";
 
 import { getWorkflowEventStepAttemptKey } from "../events/descriptors.ts";
-import { workflowStepAttemptKey } from "../history/mod.ts";
-import { createWorkflowStepAttempts } from "../history/step-attempts.ts";
+import { createStepAttempts } from "../history/step-attempts.ts";
+import { stepAttemptKey } from "../store-keys.ts";
 import { observeTelemetry } from "../telemetry.ts";
 
-type WorkflowObservationEmit = (...event: ObservationEventArgs) => void;
+type ObservationEmit = (...event: ObservationEventArgs) => void;
 
 export function createObservationEmitter(telemetry?: Telemetry): ObservationEmitterContract {
   return new ObservationEmitter(telemetry);
@@ -34,7 +34,7 @@ export function createObservationEmitter(telemetry?: Telemetry): ObservationEmit
 export class ObservationEmitter implements ObservationEmitterContract {
   readonly #events = createPubSub<ObservationEventMap>();
   readonly #telemetry?: Telemetry;
-  readonly #emit: WorkflowObservationEmit = (...event) => {
+  readonly #emit: ObservationEmit = (...event) => {
     this.#events.emit(event[0], event[1]);
     observeTelemetry(this.#telemetry, ...event);
   };
@@ -52,7 +52,6 @@ export class ObservationEmitter implements ObservationEmitterContract {
     this.emitDurableEventAppended = this.emitDurableEventAppended.bind(this);
     this.emitMessageSent = this.emitMessageSent.bind(this);
     this.emitHookResumed = this.emitHookResumed.bind(this);
-    this.emitWebhookResumed = this.emitWebhookResumed.bind(this);
     this.emitChildWorkflowStarted = this.emitChildWorkflowStarted.bind(this);
     this.emitCleanupCompleted = this.emitCleanupCompleted.bind(this);
     this.emitRetentionApplied = this.emitRetentionApplied.bind(this);
@@ -98,11 +97,11 @@ export class ObservationEmitter implements ObservationEmitterContract {
     return pattern === undefined ? this.#events.listeners() : this.#events.listeners(pattern);
   }
 
-  emitRunEvent(run: WorkflowRunRecord, previousRun?: WorkflowRunRecord): void {
+  emitRunEvent(run: RunRecord, previousRun?: RunRecord): void {
     emitRunEvent(this.#emit, run, previousRun);
   }
 
-  emitRunMetadataUpdated(run: WorkflowRunRecord, previousRun?: WorkflowRunRecord): void {
+  emitRunMetadataUpdated(run: RunRecord, previousRun?: RunRecord): void {
     this.#emit("workflow:run-metadata-updated", makeRunObservationEvent(run, previousRun));
   }
 
@@ -126,61 +125,20 @@ export class ObservationEmitter implements ObservationEmitterContract {
       messageId: event.messageId,
       payload: event.payload,
       timestamp: event.timestamp,
+      traceContext: event.telemetryContext,
     };
-
-    if (event.telemetryContext !== undefined) {
-      Object.assign(observation, { traceContext: event.telemetryContext } satisfies Partial<
-        ObservationEventMap["workflow:message-sent"]
-      >);
-    }
 
     this.#emit("workflow:message-sent", observation);
   }
 
   emitHookResumed(
+    kind: HookKind,
     runId: RunId,
     messageId: MessageId,
     payload: StorageValue | undefined,
     traceContext: TelemetryContext | undefined,
   ): void {
-    const observation: ObservationEventMap["workflow:hook-resumed"] = { runId, messageId };
-
-    if (payload !== undefined) {
-      Object.assign(observation, { payload } satisfies Partial<
-        ObservationEventMap["workflow:hook-resumed"]
-      >);
-    }
-
-    if (traceContext !== undefined) {
-      Object.assign(observation, { traceContext } satisfies Partial<
-        ObservationEventMap["workflow:hook-resumed"]
-      >);
-    }
-
-    this.#emit("workflow:hook-resumed", observation);
-  }
-
-  emitWebhookResumed(
-    runId: RunId,
-    messageId: MessageId,
-    payload: StorageValue | undefined,
-    traceContext: TelemetryContext | undefined,
-  ): void {
-    const observation: ObservationEventMap["workflow:webhook-resumed"] = { runId, messageId };
-
-    if (payload !== undefined) {
-      Object.assign(observation, { payload } satisfies Partial<
-        ObservationEventMap["workflow:webhook-resumed"]
-      >);
-    }
-
-    if (traceContext !== undefined) {
-      Object.assign(observation, { traceContext } satisfies Partial<
-        ObservationEventMap["workflow:webhook-resumed"]
-      >);
-    }
-
-    this.#emit("workflow:webhook-resumed", observation);
+    this.#emit(`workflow:${kind}-resumed`, { runId, messageId, payload, traceContext });
   }
 
   emitChildWorkflowStarted(event: ChildWorkflowStartedObservationEvent): void {
@@ -209,7 +167,7 @@ export class ObservationEmitter implements ObservationEmitterContract {
 }
 
 function emitStepAttemptUpdated(
-  emit: WorkflowObservationEmit,
+  emit: ObservationEmit,
   runId: RunId,
   event: EventRecord,
   events: readonly EventRecord[],
@@ -226,10 +184,10 @@ function emitStepAttemptUpdated(
     return;
   }
 
-  const attempts = createWorkflowStepAttempts(runId, events);
+  const attempts = createStepAttempts(runId, events);
 
   const attempt = attempts.find(
-    (current) => workflowStepAttemptKey(current.stepId, current.attempt) === key,
+    (current) => stepAttemptKey(current.stepId, current.attempt) === key,
   );
 
   if (attempt === undefined) {
@@ -239,7 +197,7 @@ function emitStepAttemptUpdated(
   emit("workflow:step-attempt-updated", { runId, attempt });
 }
 
-function emitStreamUpdated(emit: WorkflowObservationEmit, runId: RunId, event: EventRecord): void {
+function emitStreamUpdated(emit: ObservationEmit, runId: RunId, event: EventRecord): void {
   if (
     event.kind !== "stream_started" &&
     event.kind !== "stream_chunk" &&
@@ -257,27 +215,17 @@ function emitStreamUpdated(emit: WorkflowObservationEmit, runId: RunId, event: E
     timestamp: event.timestamp,
     stepId: event.stepId,
     stepName: event.stepName,
+    index: event.kind === "stream_chunk" ? event.index : undefined,
+    error: event.kind === "stream_failed" ? event.error : undefined,
   };
-
-  if (event.kind === "stream_chunk") {
-    Object.assign(observation, { index: event.index } satisfies Partial<
-      ObservationEventMap["workflow:stream-updated"]
-    >);
-  }
-
-  if (event.kind === "stream_failed") {
-    Object.assign(observation, { error: event.error } satisfies Partial<
-      ObservationEventMap["workflow:stream-updated"]
-    >);
-  }
 
   emit("workflow:stream-updated", observation);
 }
 
 function emitRunEvent(
-  emit: WorkflowObservationEmit,
-  run: WorkflowRunRecord,
-  previousRun: WorkflowRunRecord | undefined,
+  emit: ObservationEmit,
+  run: RunRecord,
+  previousRun: RunRecord | undefined,
 ): void {
   const payload = makeRunObservationEvent(run, previousRun);
 
@@ -325,23 +273,16 @@ function emitRunEvent(
 }
 
 function makeRunObservationEvent(
-  run: WorkflowRunRecord,
-  previousRun: WorkflowRunRecord | undefined,
-): RunObservationEvent {
-  const summary: RunObservationEvent = {
+  run: RunRecord,
+  previousRun: RunRecord | undefined,
+): WorkflowLifecycleEvent {
+  return {
     run,
     previousRun,
     status: run.status,
     reason: run.lastTransitionReason,
     timestamp: run.lastTransitionAt,
     workflowName: run.workflowName,
+    workflowVersion: run.workflowVersion,
   };
-
-  if (run.workflowVersion !== undefined) {
-    Object.assign(summary, {
-      workflowVersion: run.workflowVersion,
-    } satisfies Partial<RunObservationEvent>);
-  }
-
-  return summary;
 }

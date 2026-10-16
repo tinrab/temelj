@@ -23,7 +23,7 @@ export const greetingWorkflow = implementWorkflow<GreetingInput, GreetingResult>
         })
       : true;
 
-    const message = await step.task.run({ name: "create-greeting" }, () => {
+    const message = await step.run({ name: "create-greeting" }, () => {
       return `Hello, ${input.name}!`;
     });
 

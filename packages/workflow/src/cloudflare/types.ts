@@ -23,7 +23,6 @@ export interface CloudflareWorkflowInstance {
   sendEvent(options: { readonly type: string; readonly payload?: unknown }): Promise<void>;
 }
 
-/** Status returned by a Cloudflare Workflow instance binding. */
 export interface CloudflareWorkflowInstanceStatus {
   readonly status:
     | "queued"
@@ -84,7 +83,6 @@ export interface CloudflareWorkflowEvent<TPayload = unknown> {
   };
 }
 
-/** Constructor used to convert Temelj non-retryable errors for Cloudflare. */
 export interface CloudflareNonRetryableErrorConstructor {
   new (message: string, name?: string): Error;
 }

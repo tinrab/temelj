@@ -1,21 +1,19 @@
 import type { WorkflowErrorRecord } from "../types/error.ts";
 import type { DeterministicValueRecordedEvent } from "../types/events.ts";
+import type { RunId } from "../types/ids.ts";
 import type { LockRecord } from "../types/lock.ts";
 
-import { WorkflowReplayDivergenceError, WorkflowRetryableError } from "../errors/mod.ts";
-import { RunId } from "../types/run.ts";
+import { WorkflowErrorCode } from "../errors/codes.ts";
+import { WorkflowReplayDivergenceError, matchesWorkflowError } from "../errors/mod.ts";
 
 export function parseLockWaitDeadlineReplay(
   recorded: DeterministicValueRecordedEvent,
   timeout: number,
 ): Temporal.Instant {
   if (!(recorded.value instanceof Temporal.Instant)) {
-    WorkflowReplayDivergenceError.diverged(
+    WorkflowReplayDivergenceError.atStep(
+      recorded.stepId,
       `recorded lock wait deadline ${recorded.stepId} is invalid`,
-      {
-        expectedStepId: recorded.stepId,
-        actualStepId: recorded.stepId,
-      },
     );
   }
 
@@ -25,12 +23,9 @@ export function parseLockWaitDeadlineReplay(
     return recorded.value;
   }
 
-  WorkflowReplayDivergenceError.diverged(
+  WorkflowReplayDivergenceError.atStep(
+    recorded.stepId,
     `recorded lock wait deadline ${recorded.stepId} does not match replayed waitTimeout`,
-    {
-      expectedStepId: recorded.stepId,
-      actualStepId: recorded.stepId,
-    },
   );
 }
 
@@ -56,12 +51,9 @@ export function requireLockReplayMatches(
     return;
   }
 
-  WorkflowReplayDivergenceError.diverged(
+  WorkflowReplayDivergenceError.atStep(
+    recorded.holderStepId,
     `recorded lock step ${recorded.holderStepId ?? recorded.key} does not match replayed lock acquisition`,
-    {
-      expectedStepId: recorded.holderStepId,
-      actualStepId: recorded.holderStepId,
-    },
   );
 }
 
@@ -80,12 +72,9 @@ export function requireLockReleaseReplayMatches(
     return;
   }
 
-  WorkflowReplayDivergenceError.diverged(
+  WorkflowReplayDivergenceError.atStep(
+    recorded.holderStepId,
     `recorded lock step ${recorded.holderStepId ?? recorded.key} does not match replayed lock release`,
-    {
-      expectedStepId: recorded.holderStepId,
-      actualStepId: recorded.holderStepId,
-    },
   );
 }
 
@@ -99,18 +88,15 @@ export function requireLockWaitReplayMatches(
   },
 ): void {
   const waited = failedSteps.some((failed) =>
-    WorkflowRetryableError.isLockAlreadyHeld(failed.error, expected.key),
+    matchesWorkflowError(failed.error, WorkflowErrorCode.LOCK_ALREADY_HELD, { key: expected.key }),
   );
 
   if (!waited || expected.wait) {
     return;
   }
 
-  WorkflowReplayDivergenceError.diverged(
+  WorkflowReplayDivergenceError.atStep(
+    `run:${expected.key}`,
     `recorded lock ${expected.key} waited but replayed lock acquisition does not allow waiting`,
-    {
-      expectedStepId: `run:${expected.key}`,
-      actualStepId: `run:${expected.key}`,
-    },
   );
 }

@@ -36,8 +36,8 @@ export const generateRows = defineWorkflowStep(
 export const reportWorkflow: WorkflowImplementation<ReportInput, ReportResult> = implementWorkflow<
   ReportInput,
   ReportResult
->({ name: "basic.report", version: "v1" }, async ({ input, log, step }) => {
-  log.info("report workflow started", {
+>({ name: "basic.report", version: "v1" }, async ({ input, step }) => {
+  step.log.info("report workflow started", {
     reportId: input.reportId,
     rows: input.rows,
   });
@@ -48,7 +48,7 @@ export const reportWorkflow: WorkflowImplementation<ReportInput, ReportResult> =
   step.log.info("report attributes recorded", {
     workload: "report",
   });
-  const checksum = await step.task.call(generateRows, input);
+  const checksum = await step.call(generateRows, input);
 
   return {
     reportId: input.reportId,

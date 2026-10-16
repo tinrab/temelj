@@ -23,7 +23,7 @@ export function uniqueBy<T>(items: readonly T[], key: (item: T) => string): read
 }
 
 /** Own record fields after removing undefined values. */
-export type DefinedProperties<T> = {
+type DefinedProperties<T> = {
   [K in keyof T as undefined extends T[K] ? never : K]: T[K];
 } & {
   [K in keyof T as undefined extends T[K] ? K : never]?: Exclude<T[K], undefined>;
@@ -44,26 +44,10 @@ export function omitUndefined<T extends object>(value: T): DefinedProperties<T> 
   return result as DefinedProperties<T>;
 }
 
-/** Returns an object containing one property only when the value is defined. */
-export function optionalProperty<TKey extends string, TValue>(
-  key: TKey,
-  value: TValue | undefined,
-): Partial<Record<TKey, TValue>> {
-  if (value === undefined) return {};
+export function limitItems<T>(items: readonly T[], limit: number | undefined): readonly T[] {
+  if (limit === undefined) {
+    return items;
+  }
 
-  // SAFETY: The object has one of the permitted keys with its corresponding TValue; other keys remain optional.
-  return { [key]: value } as Partial<Record<TKey, TValue>>;
-}
-
-/** Returns sorted string values from a set. */
-export function sortedStringSet(values: ReadonlySet<string>): readonly string[] {
-  return [...values].sort();
-}
-
-/** Returns an object containing a sorted string set only when the set is not empty. */
-export function optionalSortedStringSetProperty<TKey extends string>(
-  key: TKey,
-  values: ReadonlySet<string>,
-): Partial<Record<TKey, readonly string[]>> {
-  return optionalProperty(key, values.size === 0 ? undefined : sortedStringSet(values));
+  return items.slice(0, limit);
 }

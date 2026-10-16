@@ -4,18 +4,18 @@ import type {
   MessageWaitCompletedEvent,
   MessageWaitFailedEvent,
 } from "../types/events.ts";
-import type { WorkflowStepType } from "../types/run.ts";
+import type { StepType } from "../types/run.ts";
 
 import { WorkflowReplayDivergenceError, WorkflowStateError } from "../errors/mod.ts";
 import {
   getEventDescriptor,
-  getEventField,
   getWorkflowEventStepAttempt,
   isWorkflowTerminalStepAttemptEvent,
+  eventFieldsMatch,
 } from "../events/descriptors.ts";
 import {
-  isWorkflowRecordedStepEvent,
-  type WorkflowRecordedStepEvent,
+  isRecordedStepEvent,
+  type RecordedStepEvent,
   workflowRecordedStepEventType,
 } from "./sequencer.ts";
 
@@ -37,7 +37,7 @@ export function workflowStartedEventMatchesTerminalEvent(
   return eventFieldsMatch(started, terminal, descriptor.startedEventMatchFields);
 }
 
-export function workflowHistoryHasStartedEventBeforeTerminalEvent(
+function workflowHistoryHasStartedEventBeforeTerminalEvent(
   events: readonly EventRecord[],
   event: EventRecord,
 ): boolean {
@@ -69,12 +69,9 @@ export function requireWorkflowTerminalEventsHaveStartedEvents(
 
     const stepId = terminalStepEventId(event);
     const type = terminalStepEventStepType(event);
-    WorkflowReplayDivergenceError.diverged(
+    WorkflowReplayDivergenceError.atStep(
+      stepId,
       `recorded ${type} step ${stepId} has a terminal event without a started event`,
-      {
-        expectedStepId: stepId,
-        actualStepId: stepId,
-      },
     );
   }
 }
@@ -102,21 +99,18 @@ export function requireWorkflowTerminalEventsAreUnique(events: readonly EventRec
 
     const stepId = terminalStepEventId(event);
     const type = terminalStepEventStepType(event);
-    WorkflowReplayDivergenceError.diverged(
+    WorkflowReplayDivergenceError.atStep(
+      stepId,
       `recorded ${type} step ${stepId} has multiple terminal events for attempt ${getTerminalStepEventAttempt(event)}`,
-      {
-        expectedStepId: stepId,
-        actualStepId: stepId,
-      },
     );
   }
 }
 
 export function requireWorkflowStartedEventsAreUnique(events: readonly EventRecord[]): void {
-  const started = new Map<string, WorkflowRecordedStepEvent>();
+  const started = new Map<string, RecordedStepEvent>();
 
   for (const event of events) {
-    if (!isWorkflowRecordedStepEvent(event)) {
+    if (!isRecordedStepEvent(event)) {
       continue;
     }
 
@@ -134,12 +128,9 @@ export function requireWorkflowStartedEventsAreUnique(events: readonly EventReco
     }
 
     const type = workflowRecordedStepEventType(event);
-    WorkflowReplayDivergenceError.diverged(
+    WorkflowReplayDivergenceError.atStep(
+      event.stepId,
       `recorded ${type} step ${event.stepId} has multiple started events for attempt ${getWorkflowEventStepAttempt(event)}`,
-      {
-        expectedStepId: event.stepId,
-        actualStepId: event.stepId,
-      },
     );
   }
 }
@@ -165,14 +156,6 @@ function recordedAttemptFieldsMatch(
   );
 }
 
-function eventFieldsMatch(
-  left: EventRecord,
-  right: EventRecord,
-  fields: readonly EventFieldName[] = [],
-): boolean {
-  return fields.every((field) => getEventField(left, field) === getEventField(right, field));
-}
-
 function terminalStepEventId(event: EventRecord): string {
   if (isWorkflowTerminalStepAttemptEvent(event)) {
     return event.stepId;
@@ -181,7 +164,7 @@ function terminalStepEventId(event: EventRecord): string {
   WorkflowStateError.eventNotTerminalStep(event.kind);
 }
 
-function terminalStepEventStepType(event: EventRecord): WorkflowStepType {
+function terminalStepEventStepType(event: EventRecord): StepType {
   const descriptor = getEventDescriptor(event.kind);
 
   if (isWorkflowTerminalStepAttemptEvent(event) && descriptor.stepType !== undefined) {
@@ -213,7 +196,7 @@ function getTerminalStepEventAttempt(event: EventRecord): number {
   WorkflowStateError.eventNotTerminalStep(event.kind);
 }
 
-function startedStepAttemptIdentityKey(event: WorkflowRecordedStepEvent): string | undefined {
+function startedStepAttemptIdentityKey(event: RecordedStepEvent): string | undefined {
   const attempt = getWorkflowEventStepAttempt(event);
 
   if (!isValidRecordedAttempt(attempt)) {

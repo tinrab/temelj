@@ -17,29 +17,17 @@
       "types": "./dist/mod.d.mts",
       "import": "./dist/mod.mjs"
     },
-    "./engine": {
-      "types": "./dist/engine/mod.d.mts",
-      "import": "./dist/engine/mod.mjs"
+    "./compiled": {
+      "types": "./dist/compiled.d.mts",
+      "import": "./dist/compiled.mjs"
     },
     "./esbuild": {
       "types": "./dist/esbuild.d.mts",
       "import": "./dist/esbuild.mjs"
     },
-    "./events": {
-      "types": "./dist/events/mod.d.mts",
-      "import": "./dist/events/mod.mjs"
-    },
-    "./inspection": {
-      "types": "./dist/inspection/mod.d.mts",
-      "import": "./dist/inspection/mod.mjs"
-    },
     "./otel": {
-      "types": "./dist/otel.d.mts",
-      "import": "./dist/otel.mjs"
-    },
-    "./registry": {
-      "types": "./dist/registry.d.mts",
-      "import": "./dist/registry.mjs"
+      "types": "./dist/otel/mod.d.mts",
+      "import": "./dist/otel/mod.mjs"
     },
     "./rolldown": {
       "types": "./dist/rolldown.d.mts",
@@ -53,10 +41,6 @@
       "types": "./dist/rspack.d.mts",
       "import": "./dist/rspack.mjs"
     },
-    "./telemetry": {
-      "types": "./dist/telemetry.d.mts",
-      "import": "./dist/telemetry.mjs"
-    },
     "./store": {
       "types": "./dist/store/mod.d.mts",
       "import": "./dist/store/mod.mjs"
@@ -68,10 +52,6 @@
     "./webpack": {
       "types": "./dist/webpack.d.mts",
       "import": "./dist/webpack.mjs"
-    },
-    "./worker": {
-      "types": "./dist/worker.d.mts",
-      "import": "./dist/worker.mjs"
     },
     "./cloudflare": {
       "types": "./dist/cloudflare/mod.d.mts",
@@ -86,7 +66,6 @@
     "docs": "shx rm -rf docs && typedoc"
   },
   "dependencies": {
-    "@cloudflare/workers-types": "5.20261014.1",
     "@opentelemetry/api": "^1.9.1",
     "@temelj/event": "workspace:*",
     "@temelj/log": "workspace:*",
@@ -96,10 +75,10 @@
     "@temelj/value": "workspace:*",
     "oxc-parser": "0.154.0",
     "temporal-polyfill": "^1.0.6",
-    "unplugin": "^3.4.0",
-    "zod": "^4.6.7"
+    "unplugin": "^3.4.0"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "5.20261014.1",
     "@opentelemetry/sdk-metrics": "^2.12.0",
     "@opentelemetry/sdk-trace-base": "^2.12.0",
     "@rspack/core": "^2.2.9",
@@ -113,18 +92,22 @@
     "typescript": "^7.0.2",
     "vite": "^8.3.4",
     "vitest": "^5.0.4",
-    "webpack": "^5.111.1"
+    "webpack": "^5.111.1",
+    "zod": "^4.6.7"
   },
   "peerDependencies": {
+    "@cloudflare/workers-types": "^4.0.0 || ^5.0.0",
     "@rspack/core": "^2.0.0",
     "esbuild": "^0.28.0",
     "rolldown": "^1.0.0",
     "rollup": "^4.0.0",
-    "typescript": "^6.0.0",
     "vite": "^8.0.0",
     "webpack": "^5.0.0"
   },
   "peerDependenciesMeta": {
+    "@cloudflare/workers-types": {
+      "optional": true
+    },
     "@rspack/core": {
       "optional": true
     },
@@ -135,9 +118,6 @@
       "optional": true
     },
     "rollup": {
-      "optional": true
-    },
-    "typescript": {
       "optional": true
     },
     "vite": {

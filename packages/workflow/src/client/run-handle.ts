@@ -1,84 +1,88 @@
+// This module uses Temporal while loading, so the polyfill must be installed first.
+import "temporal-polyfill/global";
 import type { StorageValue } from "@temelj/storage";
 
-import "temporal-polyfill/global";
+import type { WorkflowEngine } from "../engine/create.ts";
+import type { RunRef } from "../engine/start.ts";
+import type {
+  RunStreamsApi,
+  WorkflowRunHandle as WorkflowRunHandleContract,
+} from "../types/client.ts";
+import type { RunId } from "../types/ids.ts";
+import type { ResultOptions } from "../types/result.ts";
+import type { AttributePatch } from "../types/run.ts";
 
-import type { WorkflowRunHandle as WorkflowRunHandleContract } from "../types/client.ts";
-import type {
-  WorkflowRunMaintenance,
-  WorkflowRunHandleReader,
-  WorkflowStreamReader,
-} from "../types/engine.ts";
-import type { WorkflowHandle, ResultOptions } from "../types/result.ts";
-import type {
-  WorkflowMarkRunPermanentlyFailedOptions,
-  WorkflowReleaseStaleLeaseOptions,
-  WorkflowRescheduleRunOptions,
-  WorkflowRetryFailedRunOptions,
-} from "../types/run-options.ts";
-import type { RunId, WorkflowAttributePatch } from "../types/run.ts";
-import type {
-  FollowStreamOptions,
-  ReadStreamOptions,
-  ReadStreamPageOptions,
-  WaitStreamOptions,
-} from "../types/stream.ts";
-
+import { getRunTimeline } from "../engine/inspection.ts";
+import {
+  cancelWorkflowRun,
+  setRunAttributes,
+  updateWorkflowRunMetadata,
+} from "../engine/run-service.ts";
+import { readRunResult } from "../engine/run-utils.ts";
+import {
+  followStream,
+  getStreamInfo,
+  readStream,
+  waitForStream,
+  waitForStreamChunk,
+  waitForStreamTerminal,
+} from "../engine/stream-reader.ts";
 import {
   WorkflowResultTimeoutError,
   WorkflowRunCanceledError,
   WorkflowRunNotFoundError,
 } from "../errors/mod.ts";
 import { workflowErrorFromRecord } from "../errors/records.ts";
-import { durationTotal } from "../temporal.ts";
-import { durationBetween } from "../temporal.ts";
+import { durationTotal, durationBetween } from "../temporal.ts";
 import { nonNegativeTimerDelay, sleep } from "../timer.ts";
-import { StreamIdOrName } from "../types/stream-id.ts";
 
 const DEFAULT_RESULT_POLL_INTERVAL = Temporal.Duration.from({ milliseconds: 100 });
 
-type WorkflowRunHandleEngine = WorkflowRunHandleReader &
-  WorkflowStreamReader &
-  WorkflowRunMaintenance;
-
-export function createWorkflowRunHandle<TOutput>(
-  engine: WorkflowRunHandleEngine,
-  handle: WorkflowHandle<TOutput>,
+export function createRunHandle<TOutput>(
+  engine: WorkflowEngine,
+  ref: RunRef<TOutput>,
   now: () => Temporal.Instant,
 ): WorkflowRunHandleContract<TOutput> {
-  return new WorkflowRunHandle(engine, handle, now);
+  return new WorkflowRunHandle(engine, ref, now);
 }
 
 export class WorkflowRunHandle<TOutput> implements WorkflowRunHandleContract<TOutput> {
-  /** @inheritdoc */
   readonly runId: RunId;
-  /** @inheritdoc */
   readonly workflowName: string;
-  /** @inheritdoc */
   readonly workflowVersion?: string;
 
-  readonly #engine: WorkflowRunHandleEngine;
-  readonly #handle: WorkflowHandle<TOutput>;
+  readonly #engine: WorkflowEngine;
+  readonly #ref: RunRef<TOutput>;
   readonly #now: () => Temporal.Instant;
+  readonly streams: RunStreamsApi;
 
-  constructor(
-    engine: WorkflowRunHandleEngine,
-    handle: WorkflowHandle<TOutput>,
-    now: () => Temporal.Instant,
-  ) {
+  constructor(engine: WorkflowEngine, ref: RunRef<TOutput>, now: () => Temporal.Instant) {
     this.#engine = engine;
-    this.#handle = handle;
+    this.#ref = ref;
     this.#now = now;
-    this.runId = handle.runId;
-    this.workflowName = handle.workflowName;
+    this.runId = ref.runId;
+    this.workflowName = ref.definition.name;
 
-    if (handle.workflowVersion !== undefined) {
-      this.workflowVersion = handle.workflowVersion;
+    const context = engine.context;
+    const runId = ref.runId;
+
+    this.streams = {
+      getInfo: (name) => getStreamInfo(context, runId, name),
+      follow: (name, options) => followStream(context, runId, name, options),
+      wait: (name, options) => waitForStream(context, runId, name, options),
+      waitForChunk: (name, afterIndex, options) =>
+        waitForStreamChunk(context, runId, name, afterIndex, options),
+      waitForTerminal: (name, options) => waitForStreamTerminal(context, runId, name, options),
+      read: (name, options) => readStream(context, runId, name, options),
+    };
+
+    if (ref.definition.version !== undefined) {
+      this.workflowVersion = ref.definition.version;
     }
   }
 
-  /** @inheritdoc */
   async getRun() {
-    const run = await this.#engine.getRun(this.runId);
+    const run = await this.#engine.store.getRun(this.runId);
 
     if (run === undefined) {
       WorkflowRunNotFoundError.notFound(this.runId);
@@ -87,9 +91,8 @@ export class WorkflowRunHandle<TOutput> implements WorkflowRunHandleContract<TOu
     return run;
   }
 
-  /** @inheritdoc */
   async status() {
-    const run = await this.#engine.getRun(this.runId);
+    const run = await this.#engine.store.getRun(this.runId);
 
     if (run === undefined) {
       WorkflowRunNotFoundError.notFound(this.runId);
@@ -98,17 +101,14 @@ export class WorkflowRunHandle<TOutput> implements WorkflowRunHandleContract<TOu
     return run.status;
   }
 
-  /** @inheritdoc */
   async events() {
-    return await this.#engine.getEvents(this.runId);
+    return await this.#engine.store.getEvents(this.runId);
   }
 
-  /** @inheritdoc */
   async timeline() {
-    return await this.#engine.getTimeline(this.runId);
+    return await getRunTimeline(this.#engine.context, this.runId);
   }
 
-  /** @inheritdoc */
   async result(options?: ResultOptions): Promise<TOutput> {
     const pollInterval = nonNegativeTimerDelay(
       options?.pollInterval ?? DEFAULT_RESULT_POLL_INTERVAL,
@@ -119,7 +119,12 @@ export class WorkflowRunHandle<TOutput> implements WorkflowRunHandleContract<TOu
     const deadlineAt = timeout === undefined ? undefined : this.#now().add(timeout);
 
     while (true) {
-      const result = await this.#handle.result();
+      const result = await readRunResult(
+        this.#engine.store,
+        this.#ref.definition,
+        this.runId,
+        this.#now(),
+      );
 
       if (result.run.status === "canceled") {
         WorkflowRunCanceledError.canceled(this.runId);
@@ -150,82 +155,20 @@ export class WorkflowRunHandle<TOutput> implements WorkflowRunHandleContract<TOu
     }
   }
 
-  /** @inheritdoc */
-  async getStreamInfo(streamIdOrName: StreamIdOrName) {
-    return await this.#engine.getStreamInfo(this.runId, streamIdOrName);
-  }
-
-  /** @inheritdoc */
-  followStream(streamIdOrName: StreamIdOrName, followOptions?: FollowStreamOptions) {
-    return this.#engine.followStream(this.runId, streamIdOrName, followOptions);
-  }
-
-  /** @inheritdoc */
-  async waitForStream(streamIdOrName: StreamIdOrName, waitOptions?: WaitStreamOptions) {
-    return await this.#engine.waitForStream(this.runId, streamIdOrName, waitOptions);
-  }
-
-  /** @inheritdoc */
-  async waitForStreamChunk(
-    streamIdOrName: StreamIdOrName,
-    afterIndex: number,
-    waitOptions?: WaitStreamOptions,
-  ) {
-    return await this.#engine.waitForStreamChunk(
+  async setMetadata(metadata: StorageValue) {
+    return await updateWorkflowRunMetadata(
+      this.#engine.context,
+      this.#engine.lifecycle,
       this.runId,
-      streamIdOrName,
-      afterIndex,
-      waitOptions,
+      metadata,
     );
   }
 
-  /** @inheritdoc */
-  async waitForStreamTerminal(streamIdOrName: StreamIdOrName, waitOptions?: WaitStreamOptions) {
-    return await this.#engine.waitForStreamTerminal(this.runId, streamIdOrName, waitOptions);
+  async setAttributes(attributes: AttributePatch) {
+    return await setRunAttributes(this.#engine.context, this.runId, attributes);
   }
 
-  /** @inheritdoc */
-  async readStream(streamIdOrName: StreamIdOrName, readOptions?: ReadStreamOptions) {
-    return await this.#engine.readStream(this.runId, streamIdOrName, readOptions);
-  }
-
-  /** @inheritdoc */
-  async readStreamPage(streamIdOrName: StreamIdOrName, readOptions?: ReadStreamPageOptions) {
-    return await this.#engine.readStreamPage(this.runId, streamIdOrName, readOptions);
-  }
-
-  /** @inheritdoc */
-  async reschedule(options?: WorkflowRescheduleRunOptions) {
-    return await this.#engine.rescheduleRun(this.runId, options);
-  }
-
-  /** @inheritdoc */
-  async releaseStaleLease(options?: WorkflowReleaseStaleLeaseOptions) {
-    return await this.#engine.releaseStaleRunLease(this.runId, options);
-  }
-
-  /** @inheritdoc */
-  async retryFailed(options?: WorkflowRetryFailedRunOptions) {
-    return await this.#engine.retryFailedRun(this.runId, options);
-  }
-
-  /** @inheritdoc */
-  async markPermanentlyFailed(options: WorkflowMarkRunPermanentlyFailedOptions) {
-    return await this.#engine.markRunPermanentlyFailed(this.runId, options);
-  }
-
-  /** @inheritdoc */
-  async setMetadata(metadata: StorageValue) {
-    return await this.#engine.updateRunMetadata(this.runId, metadata);
-  }
-
-  /** @inheritdoc */
-  async setAttributes(attributes: WorkflowAttributePatch) {
-    return await this.#engine.setRunAttributes(this.runId, attributes);
-  }
-
-  /** @inheritdoc */
   async cancel() {
-    return await this.#engine.cancelRun(this.runId);
+    return await cancelWorkflowRun(this.#engine.context, this.#engine.lifecycle, this.runId);
   }
 }

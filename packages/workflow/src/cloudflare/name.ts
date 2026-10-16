@@ -1,10 +1,10 @@
 const CLOUDFLARE_NAME_CHARACTERS = /[^a-zA-Z0-9_-]+/g;
 
-export function makeCloudflareWorkflowStepName(value: string): string {
+export function makeCloudflareStepName(value: string): string {
   return makeCloudflareName(value, 256, "step");
 }
 
-export function makeCloudflareWorkflowEventType(value: string): string {
+export function makeCloudflareEventType(value: string): string {
   return makeCloudflareName(value, 100, "event");
 }
 

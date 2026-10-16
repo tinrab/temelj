@@ -3,14 +3,8 @@ import type { StorageValue } from "@temelj/storage";
 import { isPlainObject } from "@temelj/value";
 
 import type { WorkflowDefinition } from "../types/definition.ts";
-import type { WorkflowExecutionLimits } from "../types/engine-options.ts";
-import type {
-  WorkflowRunCanceler,
-  WorkflowRunStarter,
-  WorkflowScheduleRunObserver,
-} from "../types/engine.ts";
-import type { ScheduleRunCreatedObservationEvent } from "../types/observation.ts";
-import type { RunId } from "../types/run.ts";
+import type { ExecutionLimits } from "../types/engine-options.ts";
+import type { RunId } from "../types/ids.ts";
 import type {
   ScheduleId,
   ScheduleConfig,
@@ -19,41 +13,24 @@ import type {
   TickSchedulesOptions,
   TickSchedulesResult,
 } from "../types/schedule.ts";
-import type {
-  WorkflowRunReaderRepository,
-  WorkflowScheduleConditionalWriterRepository,
-  WorkflowScheduleCreationRepository,
-  WorkflowScheduleListerRepository,
-  WorkflowScheduleReaderRepository,
-  WorkflowStoreNamespace,
-} from "../types/store.ts";
+import type { WorkflowStore } from "../types/store.ts";
+import type { WorkflowEngine } from "./create.ts";
 
-import { defineWorkflowFromName } from "../definition.ts";
-import { WorkflowScheduleAlreadyExistsError, WorkflowScheduleError } from "../errors/mod.ts";
-import { isActiveWorkflowRunStatus } from "../utility.ts";
-import { enforceStorageValueSize, parseWorkflowInput, toPersistedValue } from "./serialization.ts";
-
-type WorkflowScheduleCommandStore = WorkflowStoreNamespace &
-  WorkflowScheduleCreationRepository &
-  WorkflowScheduleReaderRepository &
-  WorkflowScheduleConditionalWriterRepository;
+import { defineFromName } from "../definition.ts";
+import { WorkflowErrorCode } from "../errors/codes.ts";
+import { WorkflowScheduleError, matchesWorkflowError } from "../errors/mod.ts";
+import { isActiveRunStatus } from "../run-status.ts";
+import { cancelWorkflowRun } from "./run-service.ts";
+import { enforceStorageValueSize, parseInput, toPersistedValue } from "./serialization.ts";
 
 const MAX_SCHEDULE_UPSERT_ATTEMPTS = 3;
-
-type WorkflowScheduleTickStore = WorkflowScheduleListerRepository &
-  WorkflowScheduleConditionalWriterRepository &
-  WorkflowRunReaderRepository;
-
-type WorkflowScheduleTickEngine = WorkflowRunStarter &
-  WorkflowRunCanceler &
-  Partial<WorkflowScheduleRunObserver>;
 
 export async function resolveScheduleRecord<TInput, TOutput, TRawInput>(
   namespace: string,
   definition: WorkflowDefinition<TInput, TOutput, TRawInput>,
   options: ScheduleConfig<TInput, TRawInput>,
   createdAt: Temporal.Instant,
-  limits: WorkflowExecutionLimits,
+  limits: ExecutionLimits,
 ): Promise<ScheduleRecord> {
   const from = options.from ?? createdAt;
   const nextFireAt = from.toZonedDateTimeISO("UTC").add(options.every).toInstant();
@@ -61,68 +38,40 @@ export async function resolveScheduleRecord<TInput, TOutput, TRawInput>(
   const catchUp = options.catchUp ?? "one";
   const maxCatchUpRuns = options.maxCatchUpRuns;
   const overlap = options.overlap ?? "allow";
-  const persistedInput = await parseWorkflowInput(definition, options.input);
+  const persistedInput = await parseInput(definition, options.input);
   enforceStorageValueSize(persistedInput, "workflow schedule input", limits);
 
-  const result = {
+  return {
     id: options.id,
     namespace,
     workflowName: definition.name,
-  } satisfies Partial<ScheduleRecord>;
-
-  if (definition.version !== undefined) {
-    Object.assign(result, {
-      workflowVersion: definition.version,
-    } satisfies Partial<ScheduleRecord>);
-  }
-
-  if (persistedInput !== undefined) {
-    Object.assign(result, { input: persistedInput } satisfies Partial<ScheduleRecord>);
-  }
-
-  if (options.context !== undefined) {
-    Object.assign(result, {
-      context: toPersistedValue(options.context, "workflow schedule context", limits),
-    } satisfies Partial<ScheduleRecord>);
-  }
-
-  const result1 = Object.assign(result, {
+    workflowVersion: definition.version,
+    input: persistedInput,
+    context:
+      options.context !== undefined
+        ? toPersistedValue(options.context, "workflow schedule context", limits)
+        : undefined,
     status:
       endAt !== undefined && Temporal.Instant.compare(nextFireAt, endAt) > 0 ? "deleted" : "active",
     every: options.every,
     catchUp,
-  } satisfies Partial<ScheduleRecord>);
-
-  if (maxCatchUpRuns !== undefined) {
-    Object.assign(result1, { maxCatchUpRuns } satisfies Partial<ScheduleRecord>);
-  }
-
-  if (options.maxLateness !== undefined) {
-    Object.assign(result1, { maxLateness: options.maxLateness } satisfies Partial<ScheduleRecord>);
-  }
-
-  const result2 = Object.assign(result1, {
+    maxCatchUpRuns,
+    maxLateness: options.maxLateness,
     overlap,
     createdAt,
     updatedAt: createdAt,
     nextFireAt,
-  } satisfies Partial<ScheduleRecord>);
-
-  if (endAt !== undefined) {
-    Object.assign(result2, { endAt } satisfies Partial<ScheduleRecord>);
-  }
-
-  const result3 = Object.assign(result2, { tickCount: 0 } satisfies Partial<ScheduleRecord>);
-
-  return result3;
+    endAt,
+    tickCount: 0,
+  };
 }
 
 export async function upsertSchedule<TInput, TOutput, TRawInput>(
-  store: WorkflowScheduleCommandStore,
+  store: WorkflowStore,
   definition: WorkflowDefinition<TInput, TOutput, TRawInput>,
   options: ScheduleConfig<TInput, TRawInput>,
   timestamp: Temporal.Instant,
-  limits: WorkflowExecutionLimits,
+  limits: ExecutionLimits,
 ): Promise<ScheduleRecord> {
   const schedule = await resolveScheduleRecord(
     store.namespace,
@@ -139,7 +88,11 @@ export async function upsertSchedule<TInput, TOutput, TRawInput>(
       try {
         return await store.createSchedule(schedule);
       } catch (error) {
-        if (!WorkflowScheduleAlreadyExistsError.isAlreadyExists(error, schedule.id)) {
+        if (
+          !matchesWorkflowError(error, WorkflowErrorCode.SCHEDULE_ALREADY_EXISTS, {
+            scheduleId: schedule.id,
+          })
+        ) {
           throw error;
         }
 
@@ -152,21 +105,10 @@ export async function upsertSchedule<TInput, TOutput, TRawInput>(
       createdAt: existing.createdAt,
       updatedAt: timestamp,
       tickCount: existing.tickCount,
+      bufferedFireAt: existing.bufferedFireAt,
+      lastFireAt: existing.lastFireAt,
+      lastRunId: existing.lastRunId,
     };
-
-    if (existing.bufferedFireAt !== undefined) {
-      Object.assign(next, {
-        bufferedFireAt: existing.bufferedFireAt,
-      } satisfies Partial<ScheduleRecord>);
-    }
-
-    if (existing.lastFireAt !== undefined) {
-      Object.assign(next, { lastFireAt: existing.lastFireAt } satisfies Partial<ScheduleRecord>);
-    }
-
-    if (existing.lastRunId !== undefined) {
-      Object.assign(next, { lastRunId: existing.lastRunId } satisfies Partial<ScheduleRecord>);
-    }
 
     const updated = await store.updateScheduleIfCurrent(existing, next);
 
@@ -175,11 +117,15 @@ export async function upsertSchedule<TInput, TOutput, TRawInput>(
     }
   }
 
-  WorkflowScheduleError.upsertConflictExhausted(schedule.id);
+  throw new WorkflowScheduleError(
+    `Failed to upsert workflow schedule ${schedule.id}`,
+    WorkflowErrorCode.SCHEDULE_UPSERT_CONFLICT_EXHAUSTED,
+    { scheduleId: schedule.id },
+  );
 }
 
 export async function updateScheduleStatus(
-  store: WorkflowScheduleReaderRepository & WorkflowScheduleConditionalWriterRepository,
+  store: WorkflowStore,
   scheduleId: ScheduleId,
   status: ScheduleStatus,
   now: Temporal.Instant,
@@ -187,7 +133,11 @@ export async function updateScheduleStatus(
   const current = await store.getSchedule(scheduleId);
 
   if (current === undefined) {
-    WorkflowScheduleError.notFound(scheduleId);
+    throw new WorkflowScheduleError(
+      `Workflow schedule not found: ${scheduleId}`,
+      WorkflowErrorCode.SCHEDULE_NOT_FOUND,
+      { scheduleId: scheduleId },
+    );
   }
 
   const next = {
@@ -199,13 +149,17 @@ export async function updateScheduleStatus(
   const updated = await store.updateScheduleIfCurrent(current, next);
 
   if (updated === undefined) {
-    WorkflowScheduleError.updateConflictExhausted(scheduleId);
+    throw new WorkflowScheduleError(
+      `Failed to update workflow schedule ${scheduleId}`,
+      WorkflowErrorCode.SCHEDULE_UPDATE_CONFLICT_EXHAUSTED,
+      { scheduleId: scheduleId },
+    );
   }
 
   return updated;
 }
 
-export function workflowScheduleFireTimes(
+function workflowScheduleFireTimes(
   schedule: ScheduleRecord,
   now: Temporal.Instant,
 ): readonly Temporal.Instant[] {
@@ -256,8 +210,8 @@ export function workflowScheduleFireTimes(
   return fireTimes;
 }
 
-export async function advanceSchedule(
-  store: WorkflowScheduleConditionalWriterRepository,
+async function advanceSchedule(
+  store: WorkflowStore,
   schedule: ScheduleRecord,
   now: Temporal.Instant,
   updatedAt: Temporal.Instant,
@@ -275,24 +229,16 @@ export async function advanceSchedule(
         : schedule.status,
     updatedAt,
     tickCount: schedule.tickCount + (fired === undefined ? 0 : 1),
+    bufferedFireAt: fired === undefined ? schedule.bufferedFireAt : undefined,
+    lastFireAt: fired === undefined ? schedule.lastFireAt : fired.fireAt,
+    lastRunId: fired === undefined ? schedule.lastRunId : fired.runId,
   };
-
-  if (!(fired === undefined || schedule.bufferedFireAt === undefined)) {
-    Object.assign(next, { bufferedFireAt: undefined } satisfies Partial<ScheduleRecord>);
-  }
-
-  if (fired !== undefined) {
-    Object.assign(next, {
-      lastFireAt: fired.fireAt,
-      lastRunId: fired.runId,
-    } satisfies Partial<ScheduleRecord>);
-  }
 
   return await store.updateScheduleIfCurrent(schedule, next);
 }
 
-export async function bufferSchedule(
-  store: WorkflowScheduleConditionalWriterRepository,
+async function bufferSchedule(
+  store: WorkflowStore,
   schedule: ScheduleRecord,
   fireTimes: readonly Temporal.Instant[],
   now: Temporal.Instant,
@@ -310,17 +256,14 @@ export async function bufferSchedule(
         ? "deleted"
         : schedule.status,
     updatedAt,
+    bufferedFireAt: bufferAt,
   };
-
-  if (bufferAt !== undefined) {
-    Object.assign(next, { bufferedFireAt: bufferAt } satisfies Partial<ScheduleRecord>);
-  }
 
   return await store.updateScheduleIfCurrent(schedule, next);
 }
 
-export async function hasActiveScheduledRun(
-  store: WorkflowRunReaderRepository,
+async function hasActiveScheduledRun(
+  store: WorkflowStore,
   schedule: ScheduleRecord,
 ): Promise<boolean> {
   if (schedule.lastRunId === undefined) {
@@ -329,12 +272,12 @@ export async function hasActiveScheduledRun(
 
   const run = await store.getRun(schedule.lastRunId);
 
-  return run !== undefined && isActiveWorkflowRunStatus(run.status);
+  return run !== undefined && isActiveRunStatus(run.status);
 }
 
-export async function cancelActiveScheduledRun(
-  store: WorkflowRunReaderRepository,
-  engine: WorkflowRunCanceler,
+async function cancelActiveScheduledRun(
+  store: WorkflowStore,
+  engine: WorkflowEngine,
   schedule: ScheduleRecord,
 ): Promise<void> {
   if (schedule.lastRunId === undefined) {
@@ -343,14 +286,14 @@ export async function cancelActiveScheduledRun(
 
   const run = await store.getRun(schedule.lastRunId);
 
-  if (run !== undefined && isActiveWorkflowRunStatus(run.status)) {
-    await engine.cancelRun(schedule.lastRunId);
+  if (run !== undefined && isActiveRunStatus(run.status)) {
+    await cancelWorkflowRun(engine.context, engine.lifecycle, schedule.lastRunId);
   }
 }
 
 export async function tickSchedules(
-  store: WorkflowScheduleTickStore,
-  engine: WorkflowScheduleTickEngine,
+  store: WorkflowStore,
+  engine: WorkflowEngine,
   now: () => Temporal.Instant,
   tickOptions: TickSchedulesOptions | undefined,
 ): Promise<TickSchedulesResult> {
@@ -411,7 +354,7 @@ export async function tickSchedules(
 
     for (const fireAt of fireTimes) {
       const run = await engine.startWorkflow(
-        defineWorkflowFromName(schedule.workflowName, schedule.workflowVersion),
+        defineFromName(schedule.workflowName, schedule.workflowVersion),
         schedule.input,
         {
           idempotencyKey: `schedule:${schedule.id}:${fireAt.toString()}`,
@@ -433,27 +376,14 @@ export async function tickSchedules(
       advancedSchedule = true;
       runIds.push(run.runId);
 
-      if (engine.observeScheduleRunCreated !== undefined) {
-        const result = {
-          scheduleId: schedule.id,
-          runId: run.runId,
-          workflowName: schedule.workflowName,
-        } satisfies Partial<ScheduleRunCreatedObservationEvent>;
-
-        if (schedule.workflowVersion !== undefined) {
-          Object.assign(result, {
-            workflowVersion: schedule.workflowVersion,
-          } satisfies Partial<ScheduleRunCreatedObservationEvent>);
-        }
-
-        const result1 = Object.assign(result, {
-          fireAt,
-          timestamp: tickNow,
-        } satisfies Partial<ScheduleRunCreatedObservationEvent>);
-
-        const observation: ScheduleRunCreatedObservationEvent = result1;
-        engine.observeScheduleRunCreated(observation);
-      }
+      engine.observation.emitScheduleRunCreated({
+        scheduleId: schedule.id,
+        runId: run.runId,
+        workflowName: schedule.workflowName,
+        workflowVersion: schedule.workflowVersion,
+        fireAt,
+        timestamp: tickNow,
+      });
     }
 
     if (advancedSchedule) {
@@ -463,19 +393,12 @@ export async function tickSchedules(
 
   const nextScheduleAt = (await store.listSchedules({ status: "active", limit: 1 }))[0]?.nextFireAt;
 
-  const summary: Awaited<Promise<TickSchedulesResult>> = {
+  return {
     ticked: runIds.length,
     runIds,
     scheduleIds,
+    nextScheduleAt,
   };
-
-  if (nextScheduleAt !== undefined) {
-    Object.assign(summary, { nextScheduleAt } satisfies Partial<
-      Awaited<Promise<TickSchedulesResult>>
-    >);
-  }
-
-  return summary;
 }
 
 function scheduleRunContext(schedule: ScheduleRecord, fireAt: Temporal.Instant): StorageValue {

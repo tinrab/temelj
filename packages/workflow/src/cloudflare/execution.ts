@@ -1,23 +1,23 @@
 import type { Logger } from "@temelj/log";
 
 import type { RegistryLike } from "../types/definition.ts";
-import type { CreateCloudflareWorkflowContextOptions } from "./step.ts";
+import type { CreateCloudflareContextOptions } from "./step.ts";
 import type {
   CloudflareNonRetryableErrorConstructor,
   CloudflareWorkflowEvent,
   CloudflareWorkflowStep,
 } from "./types.ts";
 
-import { parseWorkflowInput } from "../engine/serialization.ts";
+import { parseInput } from "../engine/serialization.ts";
 import { WorkflowCapabilityError } from "../errors/mod.ts";
 import {
-  type CloudflareWorkflowResultEnvelope,
-  decodeCloudflareWorkflowValue,
-  encodeCloudflareWorkflowValue,
-  parseCloudflareWorkflowEnvelope,
+  type CloudflareResultEnvelope,
+  decodeCloudflareValue,
+  encodeCloudflareValue,
+  parseCloudflareEnvelope,
 } from "./codec.ts";
 import { resolveCloudflareWorkflowImplementation } from "./registry.ts";
-import { createCloudflareWorkflowContext } from "./step.ts";
+import { createCloudflareContext } from "./step.ts";
 
 export interface RunCloudflareWorkflowOptions {
   readonly registry: RegistryLike;
@@ -31,7 +31,7 @@ export async function runCloudflareWorkflow(
   event: CloudflareWorkflowEvent,
   step: CloudflareWorkflowStep,
 ): Promise<string> {
-  const envelope = parseCloudflareWorkflowEnvelope(event.payload);
+  const envelope = parseCloudflareEnvelope(event.payload);
 
   const implementation = resolveCloudflareWorkflowImplementation(
     options.registry,
@@ -43,51 +43,30 @@ export async function runCloudflareWorkflow(
     WorkflowCapabilityError.unsupported("Cloudflare workflow-level retry configuration");
   }
 
-  const rawInput = decodeCloudflareWorkflowValue(envelope.input, "Cloudflare Workflow input");
-  const input = await parseWorkflowInput(implementation.definition, rawInput);
+  const rawInput = decodeCloudflareValue(envelope.input, "Cloudflare Workflow input");
+  const input = await parseInput(implementation.definition, rawInput);
 
-  const result = {
+  const result: CreateCloudflareContextOptions<typeof input> = {
     input,
     step,
     runId: event.instanceId,
     workflowName: implementation.name,
-  } satisfies Partial<CreateCloudflareWorkflowContextOptions<typeof input>>;
-
-  if (implementation.version !== undefined) {
-    Object.assign(result, { workflowVersion: implementation.version } satisfies Partial<
-      CreateCloudflareWorkflowContextOptions<typeof input>
-    >);
-  }
-
-  const result1 = Object.assign(result, {
+    workflowVersion: implementation.version,
     createdAt: Temporal.Instant.fromEpochMilliseconds(event.timestamp.getTime()),
-  } satisfies Partial<CreateCloudflareWorkflowContextOptions<typeof input>>);
+    logger: options.logger,
+    nonRetryableError: options.nonRetryableError,
+  };
 
-  if (options.logger !== undefined) {
-    Object.assign(result1, { logger: options.logger } satisfies Partial<
-      CreateCloudflareWorkflowContextOptions<typeof input>
-    >);
-  }
+  const contextOptions: CreateCloudflareContextOptions<typeof input> = result;
+  const context = createCloudflareContext(contextOptions);
 
-  if (options.nonRetryableError !== undefined) {
-    Object.assign(result1, { nonRetryableError: options.nonRetryableError } satisfies Partial<
-      CreateCloudflareWorkflowContextOptions<typeof input>
-    >);
-  }
-
-  const contextOptions: CreateCloudflareWorkflowContextOptions<typeof input> = result1;
-  const context = createCloudflareWorkflowContext(contextOptions);
-
-  const output: CloudflareWorkflowResultEnvelope = {
+  const output: CloudflareResultEnvelope = {
     kind: "temelj-workflow-result",
     version: 1,
     workflowName: implementation.name,
-    output: encodeCloudflareWorkflowValue(await implementation.handler(context)),
+    output: encodeCloudflareValue(await implementation.handler(context)),
+    workflowVersion: implementation.version,
   };
-
-  if (implementation.version !== undefined) {
-    Object.assign(output, { workflowVersion: implementation.version });
-  }
 
   return JSON.stringify(output);
 }

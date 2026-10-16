@@ -1,20 +1,16 @@
-import type {
-  WorkflowStepDefinition,
-  WorkflowStepDefinitionHandler,
-  WorkflowStepRunConfig,
-} from "./types/step.ts";
+import type { StepDefinition, StepDefinitionHandler, StepRunConfig } from "./types/step.ts";
 
 import { WorkflowDefinitionError } from "./errors/mod.ts";
 
 /** Defines a durable step whose handler receives context before its typed arguments. */
 export function defineWorkflowStep<TArgs extends readonly unknown[], TOutput>(
-  config: WorkflowStepRunConfig,
-  handler: WorkflowStepDefinitionHandler<TArgs, TOutput>,
-): WorkflowStepDefinition<TArgs, TOutput> {
+  config: StepRunConfig,
+  handler: StepDefinitionHandler<TArgs, TOutput>,
+): StepDefinition<TArgs, TOutput> {
   const commandId = config.commandId ?? config.name;
 
   if (commandId === undefined) {
-    WorkflowDefinitionError.stepNameOrCommandIdRequired();
+    throw new WorkflowDefinitionError("Workflow step name or commandId is required");
   }
 
   return { config, name: commandId, handler };

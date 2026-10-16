@@ -5,9 +5,9 @@ import type {
   EventKind,
   EventRecord,
 } from "../types/events.ts";
+import type { StepId } from "../types/ids.ts";
 
-import { makeWorkflowStepAttemptKey } from "../history/attempt-key.ts";
-import { StepId } from "../types/step.ts";
+import { stepAttemptKey } from "../store-keys.ts";
 
 export type { EventDescriptor } from "../types/events.ts";
 
@@ -57,7 +57,7 @@ function defineEventDescriptors<
 
 // Descriptors are the central event metadata table.
 // Cleanup, idempotency, reconciliation, and materialized step-attempt keys all read these fields instead of duplicating per-event rules.
-export const WORKFLOW_EVENT_DESCRIPTORS = defineEventDescriptors({
+const WORKFLOW_EVENT_DESCRIPTORS = defineEventDescriptors({
   workflow_started: {
     kind: "workflow_started",
     category: "workflow",
@@ -309,7 +309,7 @@ const WORKFLOW_TERMINAL_STEP_EVENT_KINDS = new Set<string>(
     .map((descriptor) => descriptor.kind),
 );
 
-export function isEventKindForCleanup(kind: string): kind is EventKind {
+function isEventKindForCleanup(kind: string): kind is EventKind {
   return WORKFLOW_EVENT_KINDS_FOR_CLEANUP.has(kind);
 }
 
@@ -350,7 +350,7 @@ export function getWorkflowEventStepAttemptKey(event: EventRecord): string | und
 
   const attempt = getWorkflowEventStepAttempt(event);
 
-  return attempt === undefined ? undefined : makeWorkflowStepAttemptKey(event.stepId, attempt);
+  return attempt === undefined ? undefined : stepAttemptKey(event.stepId, attempt);
 }
 
 export function getEventDescriptor(kind: EventKind): EventDescriptor {
@@ -365,4 +365,12 @@ export function getEventField(
   const fields: Partial<Record<EventFieldName, EventFieldValue>> = event;
 
   return fields[field];
+}
+
+export function eventFieldsMatch(
+  left: EventRecord,
+  right: EventRecord,
+  fields: readonly EventFieldName[] = [],
+): boolean {
+  return fields.every((field) => getEventField(left, field) === getEventField(right, field));
 }

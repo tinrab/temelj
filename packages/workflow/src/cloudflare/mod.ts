@@ -1,3 +1,4 @@
+// Cloudflare Workers lack Temporal, so the adapter installs the polyfill before it loads.
 import "temporal-polyfill/global";
 
 export * from "./entrypoint.ts";

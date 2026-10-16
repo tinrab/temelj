@@ -1,10 +1,10 @@
-import type { WorkflowExecutionEnvironment } from "../types/engine.ts";
+import type { ExecutionEnvironment } from "../types/engine.ts";
 import type { EventRecord } from "../types/events.ts";
 
 import { enforceStepAttemptBudget } from "./retry.ts";
 import { appendEventIfCurrentExecution } from "./state.ts";
 
-type WorkflowDurableStepStartedEvent = Extract<
+type DurableStepStartedEvent = Extract<
   EventRecord,
   {
     readonly kind:
@@ -18,16 +18,16 @@ type WorkflowDurableStepStartedEvent = Extract<
 >;
 
 export async function appendDurableStepStartedEvent(
-  environment: WorkflowExecutionEnvironment,
-  event: WorkflowDurableStepStartedEvent,
+  environment: ExecutionEnvironment,
+  event: DurableStepStartedEvent,
 ): Promise<void> {
   await appendDurableStepEvent(environment, event, {
     enforceAttemptBudget: true,
   });
 }
 
-export async function appendDurableStepTerminalEvent(
-  environment: WorkflowExecutionEnvironment,
+export async function appendDurableEvent(
+  environment: ExecutionEnvironment,
   event: EventRecord,
 ): Promise<void> {
   await appendDurableStepEvent(environment, event);
@@ -38,7 +38,7 @@ interface AppendDurableStepEventOptions {
 }
 
 async function appendDurableStepEvent(
-  environment: WorkflowExecutionEnvironment,
+  environment: ExecutionEnvironment,
   event: EventRecord,
   options: AppendDurableStepEventOptions = {},
 ): Promise<void> {

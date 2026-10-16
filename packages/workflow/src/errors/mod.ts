@@ -1,5 +1,3 @@
-// TODO: Number of errors grew during development. Consolidate and clean up what is needed.
-
 export * from "./base.ts";
 
 export * from "./capability.ts";
@@ -18,23 +16,14 @@ export * from "./message.ts";
 
 export * from "./run.ts";
 
-export * from "./runtime.ts";
-
 export * from "./schedule.ts";
 
 export * from "./step.ts";
 
 export * from "./stream.ts";
 
-export {
-  WorkflowErrorCode,
-  workflowErrorCodeSchema,
-  workflowErrorRecordSchema,
-} from "../types/error.ts";
+export { WorkflowErrorCode } from "./codes.ts";
 
-export { workflowErrorRecordView } from "./record-view.ts";
+export { matchesWorkflowError } from "./records.ts";
 
-export type {
-  WorkflowErrorCode as WorkflowErrorCodeType,
-  WorkflowErrorRecord,
-} from "../types/error.ts";
+export type { WorkflowErrorRecord } from "../types/error.ts";

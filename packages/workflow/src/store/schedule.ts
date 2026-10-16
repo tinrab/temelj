@@ -7,11 +7,11 @@ import type {
 } from "../types/schedule.ts";
 import type { WorkflowStorage } from "../types/store.ts";
 
+import { omitUndefined, limitItems } from "../collection.ts";
+import { WorkflowErrorCode } from "../errors/codes.ts";
 import { WorkflowScheduleAlreadyExistsError, WorkflowScheduleError } from "../errors/mod.ts";
 import { makeScheduleCursorKey, pageItems } from "../pagination.ts";
 import { makeScheduleKey } from "../store-keys.ts";
-import { limitWorkflowItems } from "../utility.ts";
-import { compactWorkflowStoreRecord } from "./compaction.ts";
 import { querySchedules } from "./query.ts";
 import { toStorageValue } from "./storage-value.ts";
 import { isReadableScheduleRecord } from "./validation.ts";
@@ -26,10 +26,14 @@ export async function createSchedule(
   }
 
   if (!isReadableScheduleRecord(schedule, namespace)) {
-    WorkflowScheduleError.recordInvalid();
+    throw new WorkflowScheduleError(
+      "Workflow schedule record is invalid",
+      WorkflowErrorCode.SCHEDULE_RECORD_INVALID,
+      undefined,
+    );
   }
 
-  const compact = compactWorkflowStoreRecord(schedule);
+  const compact = omitUndefined(schedule);
 
   const created = await storage.compareAndSet(
     makeScheduleKey(namespace, schedule.id),
@@ -38,7 +42,7 @@ export async function createSchedule(
   );
 
   if (!created) {
-    WorkflowScheduleAlreadyExistsError.alreadyExists(schedule.id);
+    throw new WorkflowScheduleAlreadyExistsError(schedule.id);
   }
 
   return compact;
@@ -69,18 +73,30 @@ export async function updateScheduleIfCurrent(
   }
 
   if (current.id !== next.id) {
-    WorkflowScheduleError.idChangeRejected();
+    throw new WorkflowScheduleError(
+      "Workflow schedule id cannot change",
+      WorkflowErrorCode.SCHEDULE_ID_CHANGE_REJECTED,
+      undefined,
+    );
   }
 
   if (!isReadableScheduleRecord(current, namespace)) {
-    WorkflowScheduleError.currentRecordInvalid();
+    throw new WorkflowScheduleError(
+      "Current workflow schedule record is invalid",
+      WorkflowErrorCode.SCHEDULE_CURRENT_RECORD_INVALID,
+      undefined,
+    );
   }
 
   if (!isReadableScheduleRecord(next, namespace)) {
-    WorkflowScheduleError.nextRecordInvalid();
+    throw new WorkflowScheduleError(
+      "Next workflow schedule record is invalid",
+      WorkflowErrorCode.SCHEDULE_NEXT_RECORD_INVALID,
+      undefined,
+    );
   }
 
-  const compact = compactWorkflowStoreRecord(next);
+  const compact = omitUndefined(next);
 
   const updated = await storage.compareAndSet(
     makeScheduleKey(namespace, current.id),
@@ -100,7 +116,7 @@ export async function listSchedules(
     label: "Workflow schedule list options",
   });
 
-  return limitWorkflowItems(schedules, options?.limit);
+  return limitItems(schedules, options?.limit);
 }
 
 export async function listSchedulesPage(

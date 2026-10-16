@@ -1,4 +1,4 @@
-import type { WorkflowRegistryEntry } from "./registry.ts";
+import type { RegistryEntry } from "./registry.ts";
 import type { WorkflowImplementation } from "./types/definition.ts";
 
 import { Registry } from "./registry.ts";
@@ -10,7 +10,7 @@ export interface WorkflowBundle {
 }
 
 /** Defines an immutable workflow collection for local and deployed workflow hosts. */
-export function defineWorkflowBundle(entries: readonly WorkflowRegistryEntry[]): WorkflowBundle {
+export function defineWorkflowBundle(entries: readonly RegistryEntry[]): WorkflowBundle {
   const registry = new Registry(entries);
 
   return Object.freeze({

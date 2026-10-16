@@ -5,16 +5,16 @@ import { createSuperJsonStorageCodec } from "@temelj/storage";
 import { isString } from "@temelj/value";
 
 import type { WorkflowDefinition } from "../types/definition.ts";
-import type { WorkflowEngineSerializationLimits } from "../types/engine-options.ts";
-import type { WorkflowErrorDetails, WorkflowErrorRecord } from "../types/error.ts";
+import type { ExecutionLimits } from "../types/engine-options.ts";
+import type { ErrorDetails, WorkflowErrorRecord } from "../types/error.ts";
 
 import {
   WorkflowError,
   WorkflowSerializationError,
   WorkflowStepExecutionError,
 } from "../errors/mod.ts";
-import { sanitizedWorkflowErrorDetails } from "../types/error.ts";
-import { persistedValueIssue } from "../types/run.ts";
+import { sanitizedErrorDetails } from "../errors/records.ts";
+import { persistedValueIssue } from "../schema/persisted-value.ts";
 
 const PERSISTED_VALUE_CODEC = createSuperJsonStorageCodec<StorageValue, "bytes">({
   format: "bytes",
@@ -28,13 +28,13 @@ export function serializeError(cause: unknown): WorkflowErrorRecord {
 
     const stack = isString(cause.stack) && cause.stack.trim() !== "" ? cause.stack : undefined;
 
-    const record: WorkflowErrorRecord = { name, message, ...workflowErrorDetails(cause) };
-
-    if (cause instanceof WorkflowError) Object.assign(record, { code: cause.code });
-
-    if (stack !== undefined) Object.assign(record, { stack });
-
-    return record;
+    return {
+      name,
+      message,
+      ...workflowErrorDetails(cause),
+      code: cause instanceof WorkflowError ? cause.code : undefined,
+      stack,
+    };
   }
 
   const message = String(cause).trim() === "" ? "Error" : String(cause);
@@ -45,13 +45,13 @@ export function serializeError(cause: unknown): WorkflowErrorRecord {
   };
 }
 
-interface WorkflowSerializedErrorDetails {
-  readonly details?: WorkflowErrorDetails;
+interface SerializedErrorDetails {
+  readonly details?: ErrorDetails;
 }
 
-function workflowErrorDetails(error: Error): WorkflowSerializedErrorDetails {
+function workflowErrorDetails(error: Error): SerializedErrorDetails {
   if (error instanceof WorkflowStepExecutionError) {
-    const details = sanitizedWorkflowErrorDetails(error.details);
+    const details = sanitizedErrorDetails(error.details);
 
     return {
       details: {
@@ -62,7 +62,7 @@ function workflowErrorDetails(error: Error): WorkflowSerializedErrorDetails {
   }
 
   if (error instanceof WorkflowError && error.details !== undefined) {
-    const details = sanitizedWorkflowErrorDetails(error.details);
+    const details = sanitizedErrorDetails(error.details);
 
     return details === undefined ? {} : { details };
   }
@@ -70,7 +70,7 @@ function workflowErrorDetails(error: Error): WorkflowSerializedErrorDetails {
   return {};
 }
 
-function workflowErrorCauseDetails(cause: unknown): WorkflowErrorDetails {
+function workflowErrorCauseDetails(cause: unknown): ErrorDetails {
   if (!(cause instanceof Error)) {
     return {};
   }
@@ -78,18 +78,16 @@ function workflowErrorCauseDetails(cause: unknown): WorkflowErrorDetails {
   const record = serializeError(cause);
   const details = causeDetailsWithoutReservedIdentity(record.details);
 
-  const identity = { ...details, name: record.name, message: record.message };
-
-  if (record.code !== undefined) Object.assign(identity, { code: record.code });
-
-  if (record.stack !== undefined) Object.assign(identity, { stack: record.stack });
-
-  return prefixWorkflowErrorCauseDetails(identity);
+  return prefixErrorCauseDetails({
+    ...details,
+    name: record.name,
+    message: record.message,
+    code: record.code ?? details.code,
+    stack: record.stack,
+  });
 }
 
-function causeDetailsWithoutReservedIdentity(
-  details: WorkflowErrorDetails | undefined,
-): WorkflowErrorDetails {
+function causeDetailsWithoutReservedIdentity(details: ErrorDetails | undefined): ErrorDetails {
   if (details === undefined) {
     return {};
   }
@@ -109,7 +107,7 @@ function causeDetailsWithoutReservedIdentity(
   );
 }
 
-function prefixWorkflowErrorCauseDetails(details: WorkflowErrorDetails): WorkflowErrorDetails {
+function prefixErrorCauseDetails(details: ErrorDetails): ErrorDetails {
   return Object.fromEntries(
     Object.entries(details).map(([key, value]) => [
       key.startsWith("cause") ? key : `cause${key[0]?.toUpperCase() ?? ""}${key.slice(1)}`,
@@ -119,7 +117,7 @@ function prefixWorkflowErrorCauseDetails(details: WorkflowErrorDetails): Workflo
 }
 
 /** Validates workflow input and returns the value admitted to durable storage. */
-export async function parseWorkflowInput(
+export async function parseInput(
   definition: WorkflowDefinition,
   // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Raw workflow input enters through the definition schema and persistence validator.
   input: unknown,
@@ -138,7 +136,7 @@ export function toPersistedValue(
   // oxlint-disable-next-line anti-slop/no-unknown-parameters -- This is the validation boundary for caller-defined workflow values before durable writes.
   value: unknown,
   path: string,
-  limits?: WorkflowEngineSerializationLimits,
+  limits?: ExecutionLimits,
 ): StorageValue {
   const issue = persistedValueIssue(value, path, new WeakSet<object>(), false);
 
@@ -157,7 +155,7 @@ export function toOptionalPersistedValue(
   // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Optional caller values enter the same persistence validation boundary.
   value: unknown,
   path: string,
-  limits?: WorkflowEngineSerializationLimits,
+  limits?: ExecutionLimits,
 ): StorageValue | undefined {
   if (value === undefined) {
     return undefined;
@@ -169,7 +167,7 @@ export function toOptionalPersistedValue(
 export function enforceStorageValueSize(
   value: StorageValue | undefined,
   path: string,
-  limits: WorkflowEngineSerializationLimits | undefined,
+  limits: ExecutionLimits | undefined,
 ): void {
   if (limits?.maximumPersistedValueBytes === undefined) {
     return;

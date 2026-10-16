@@ -1,10 +1,7 @@
 import type { Schema } from "@temelj/standard-schema";
 
-import type { MessageId } from "./message-id.ts";
-import type { RunId } from "./run-id.ts";
-import type { WorkflowListRunsOptions } from "./run-list.ts";
-
-export type { MessageId } from "./message-id.ts";
+import type { MessageId, RunId } from "./ids.ts";
+import type { ListRunsOptions } from "./run-list.ts";
 
 /** Schema-validated message channel bound to one durable message ID. */
 export interface MessageChannel<TPayload = unknown, TRawPayload = unknown> {
@@ -25,7 +22,6 @@ export interface SendMessageOptions {
   readonly idempotencyKey?: string;
 }
 
-/** Options for sending through a typed message channel. */
 export interface SendMessageChannelOptions<TPayload = unknown> {
   readonly payload?: TPayload;
   readonly idempotencyKey?: string;
@@ -45,14 +41,14 @@ export type SendMessageInput = SendMessageOptions | SendMessageChannelObject;
 /** Options for broadcasting a concrete message id to matching runs. */
 export interface BroadcastMessageOptions extends SendMessageOptions {
   readonly payload?: unknown;
-  readonly target?: WorkflowListRunsOptions;
+  readonly target?: ListRunsOptions;
 }
 
 /** Options for broadcasting through a typed message channel to matching runs. */
 export interface BroadcastMessageChannelOptions<
   TPayload = unknown,
 > extends SendMessageChannelOptions<TPayload> {
-  readonly target?: WorkflowListRunsOptions;
+  readonly target?: ListRunsOptions;
 }
 
 /** Object form for broadcasting through a typed message channel. */
@@ -87,4 +83,16 @@ export interface WaitForMessageChannelOptions {
   readonly commandId?: string;
   readonly name?: string;
   readonly timeout?: Temporal.Duration;
+}
+
+/** Sends messages to workflow runs, by message ID or through a typed channel. */
+export interface MessageSender {
+  /** Sends a named message to a workflow run. */
+  send(runId: RunId, options: SendMessageInput): Promise<void>;
+  /** Sends a payload through a typed message channel to a workflow run. */
+  send<TPayload, TRawPayload = TPayload>(
+    runId: RunId,
+    channel: MessageChannel<TPayload, TRawPayload>,
+    options?: SendMessageChannelOptions<TRawPayload>,
+  ): Promise<void>;
 }

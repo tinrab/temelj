@@ -36,13 +36,10 @@ export function createCloudflareWorkflowHost<TEnv = unknown>(
 ): CloudflareWorkflowHost<TEnv> {
   const registry = new Registry(options.workflows.workflows);
 
-  const entrypointOptions: CreateCloudflareWorkflowEntrypointOptions = { registry };
-
-  if (options.logger !== undefined) {
-    Object.assign(entrypointOptions, {
-      logger: options.logger,
-    } satisfies Partial<CreateCloudflareWorkflowEntrypointOptions>);
-  }
+  const entrypointOptions: CreateCloudflareWorkflowEntrypointOptions = {
+    registry,
+    logger: options.logger,
+  };
 
   return {
     Entrypoint: createCloudflareWorkflowEntrypoint<TEnv>(entrypointOptions),

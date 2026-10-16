@@ -1,7 +1,8 @@
+import { ss } from "@temelj/standard-schema";
 import { decodeBase64UrlString, encodeBase64UrlString } from "@temelj/string";
 import { isNumber } from "@temelj/value";
 
-import type { EventRecord } from "./types/events.ts";
+import type { StepId } from "./types/ids.ts";
 import type {
   CursorKeyPart,
   CursorPayload,
@@ -10,8 +11,7 @@ import type {
 } from "./types/pagination.ts";
 
 import { WorkflowOptionsError } from "./errors/mod.ts";
-import { workflowCursorPayloadSchema } from "./types/pagination.ts";
-import { StepId } from "./types/step.ts";
+import { cursorPayloadSchema } from "./schema/pagination.ts";
 
 const CURSOR_PREFIX = "wf-page:";
 
@@ -38,31 +38,24 @@ export function pageItems<TItem>(
   const hasMore = nextOffset < items.length;
   const last = pageItems.at(-1);
 
-  const result = { items: pageItems } satisfies Partial<WorkflowPage<TItem>>;
-
-  if (hasMore && last !== undefined) {
-    Object.assign(result, {
-      nextCursor: encodeCursor({ key: [...cursorKey(last, nextOffset - 1)] }),
-    } satisfies Partial<WorkflowPage<TItem>>);
-  }
-
-  const result1 = Object.assign(result, { hasMore } satisfies Partial<WorkflowPage<TItem>>);
-
-  return result1;
+  return {
+    items: pageItems,
+    nextCursor:
+      hasMore && last !== undefined
+        ? encodeCursor({ key: [...cursorKey(last, nextOffset - 1)] })
+        : undefined,
+    hasMore,
+  };
 }
 
-export function makeWorkflowRunCursorKey(run: {
+export function makeRunCursorKey(run: {
   readonly createdAt: Temporal.Instant;
   readonly id: string;
 }): readonly [number, string] {
   return [run.createdAt.epochMilliseconds, run.id] as const;
 }
 
-export function makeWorkflowEventCursorKey(_event: EventRecord, index: number): readonly [number] {
-  return [index] as const;
-}
-
-export function makeWorkflowStepAttemptCursorKey(attempt: {
+export function makeStepAttemptCursorKey(attempt: {
   readonly startedAt: Temporal.Instant;
   readonly stepId: StepId;
   readonly attempt: number;
@@ -82,10 +75,6 @@ export function makeScheduleCursorKey(schedule: {
   ] as const;
 }
 
-export function makeStreamChunkCursorKey(chunk: { readonly index: number }): readonly [number] {
-  return [chunk.index] as const;
-}
-
 function encodeCursor(payload: CursorPayload): string {
   return `${CURSOR_PREFIX}${encodeBase64UrlString(JSON.stringify(payload))}`;
 }
@@ -103,7 +92,8 @@ function decodeCursor(
   }
 
   try {
-    const parsed = workflowCursorPayloadSchema.safeParse(
+    const parsed = ss.safeParseSync(
+      cursorPayloadSchema,
       JSON.parse(decodeBase64UrlString(value.slice(CURSOR_PREFIX.length))),
     );
 
@@ -111,7 +101,7 @@ function decodeCursor(
       WorkflowOptionsError.cursorInvalid(label);
     }
 
-    return parsed.data.key;
+    return parsed.value.key;
   } catch (error) {
     if (!(error instanceof WorkflowOptionsError)) {
       WorkflowOptionsError.cursorInvalid(label);

@@ -1,77 +1,56 @@
-import type { WorkflowExecutionEnvironment } from "../types/engine.ts";
-import type { WorkflowErrorDetails } from "../types/error.ts";
+import type { ExecutionEnvironment } from "../types/engine.ts";
+import type { ErrorDetails } from "../types/error.ts";
 import type {
   AcquireLockOptions,
   LockRecord,
   ReleaseLockOptions,
-  WorkflowStepAcquireLockOptions,
-  WorkflowStepReleaseLockOptions,
+  StepAcquireLockOptions,
+  StepReleaseLockOptions,
 } from "../types/lock.ts";
-import type {
-  WorkflowStepContext,
-  WorkflowStepLockApi,
-  WorkflowStepRunConfig,
-} from "../types/step.ts";
-import type {
-  WorkflowLockConditionalWriterRepository,
-  WorkflowLockReaderRepository,
-  WorkflowRunListerRepository,
-  WorkflowRunUnconditionalWriterRepository,
-  WorkflowStepAttemptLookup,
-  WorkflowStoreNamespace,
-} from "../types/store.ts";
+import type { WorkflowStepContext, StepLockApi, StepRunConfig } from "../types/step.ts";
+import type { WorkflowStore } from "../types/store.ts";
 
+import { WorkflowErrorCode } from "../errors/codes.ts";
 import {
   WorkflowLockError,
   WorkflowLockStateError,
   WorkflowNonRetryableError,
   WorkflowOptionsError,
   WorkflowRetryableError,
+  matchesWorkflowError,
 } from "../errors/mod.ts";
-import { isPositiveSafeInteger, positiveSafeInteger } from "../utility.ts";
-import { recordWorkflowDeterministicValue } from "./deterministic.ts";
+import { isPositiveSafeInteger, positiveSafeInteger } from "../values.ts";
+import { recordDeterministicValue } from "./deterministic.ts";
 import {
   requireLockReplayMatches,
   requireLockReleaseReplayMatches,
   parseLockWaitDeadlineReplay,
   requireLockWaitReplayMatches,
 } from "./lock-replay.ts";
-import { patchRun, WorkflowSuspended } from "./state.ts";
+import { Suspended } from "./signals.ts";
+import { patchRun } from "./state.ts";
 
-type WorkflowLockCommandStore = WorkflowStoreNamespace &
-  WorkflowLockReaderRepository &
-  WorkflowLockConditionalWriterRepository;
-
-type WorkflowLockRunWakeStore = WorkflowRunListerRepository &
-  WorkflowRunUnconditionalWriterRepository;
-
-type WorkflowLockStepAttemptWakeStore = WorkflowStepAttemptLookup;
-
-type WorkflowLockWakeStore = WorkflowLockRunWakeStore & WorkflowLockStepAttemptWakeStore;
-
-type WorkflowLockReleaseStore = WorkflowLockCommandStore & WorkflowLockWakeStore;
-
-export interface WorkflowStepLockEngine {
+interface StepLockEngine {
   acquireLock(key: string, options: AcquireLockOptions): Promise<LockRecord>;
   releaseLock(key: string, options: ReleaseLockOptions): Promise<LockRecord>;
 }
 
-type WorkflowStepLockRunner = <TOutput>(
-  config: WorkflowStepRunConfig,
+type StepLockRunner = <TOutput>(
+  config: StepRunConfig,
   callback: (context: WorkflowStepContext) => Promise<TOutput> | TOutput,
 ) => Promise<TOutput>;
 
-export function createWorkflowStepLockApi(
-  environment: WorkflowExecutionEnvironment,
-  engine: WorkflowStepLockEngine,
-  run: WorkflowStepLockRunner,
-): WorkflowStepLockApi {
+export function createStepLockApi(
+  environment: ExecutionEnvironment,
+  engine: StepLockEngine,
+  run: StepLockRunner,
+): StepLockApi {
   const { runId, history } = environment;
 
   const acquire = async (
     commandId: string,
     key: string,
-    options: WorkflowStepAcquireLockOptions,
+    options: StepAcquireLockOptions,
   ): Promise<LockRecord> => {
     const requestedLeaseDuration = positiveSafeInteger(
       options.leaseDuration.total({ unit: "millisecond" }),
@@ -93,11 +72,8 @@ export function createWorkflowStepLockApi(
           holderId: options.holderId ?? runId,
           holderRunId: runId,
           holderStepId: context.step.id,
+          waitDeadlineAt,
         };
-
-        if (waitDeadlineAt !== undefined) {
-          Object.assign(acquireOptions, { waitDeadlineAt } satisfies Partial<AcquireLockOptions>);
-        }
 
         return await engine.acquireLock(key, acquireOptions);
       },
@@ -120,16 +96,15 @@ export function createWorkflowStepLockApi(
   const release = async (
     commandId: string,
     key: string,
-    options?: WorkflowStepReleaseLockOptions,
+    options?: StepReleaseLockOptions,
   ): Promise<LockRecord> => {
     const holderId = options?.holderId ?? runId;
 
     const lock = await run({ commandId, retry: { maximumAttempts: 1 } }, async () => {
-      const releaseOptions: ReleaseLockOptions = { holderId };
-
-      if (options?.now !== undefined) {
-        Object.assign(releaseOptions, { now: options.now } satisfies Partial<ReleaseLockOptions>);
-      }
+      const releaseOptions: ReleaseLockOptions = {
+        holderId,
+        now: options?.now,
+      };
 
       return await engine.releaseLock(key, releaseOptions);
     });
@@ -149,48 +124,31 @@ export function createWorkflowStepLockApi(
     async with<TOutput>(
       commandId: string,
       key: string,
-      options: WorkflowStepAcquireLockOptions,
+      options: StepAcquireLockOptions,
       callback: (lock: LockRecord) => Promise<TOutput> | TOutput,
     ): Promise<TOutput> {
       const lock = await acquire(`${commandId}:acquire`, key, options);
 
       try {
         const output = await callback(lock);
-        const releaseOptions: WorkflowStepReleaseLockOptions = {};
 
-        if (options.holderId !== undefined) {
-          Object.assign(releaseOptions, {
-            holderId: options.holderId,
-          } satisfies Partial<WorkflowStepReleaseLockOptions>);
-        }
-
-        if (options.now !== undefined) {
-          Object.assign(releaseOptions, {
-            now: options.now,
-          } satisfies Partial<WorkflowStepReleaseLockOptions>);
-        }
+        const releaseOptions: StepReleaseLockOptions = {
+          holderId: options.holderId,
+          now: options.now,
+        };
 
         await release(`${commandId}:release`, key, releaseOptions);
 
         return output;
       } catch (error) {
-        if (error instanceof WorkflowSuspended) {
+        if (error instanceof Suspended) {
           throw error;
         }
 
-        const releaseOptions: WorkflowStepReleaseLockOptions = {};
-
-        if (options.holderId !== undefined) {
-          Object.assign(releaseOptions, {
-            holderId: options.holderId,
-          } satisfies Partial<WorkflowStepReleaseLockOptions>);
-        }
-
-        if (options.now !== undefined) {
-          Object.assign(releaseOptions, {
-            now: options.now,
-          } satisfies Partial<WorkflowStepReleaseLockOptions>);
-        }
+        const releaseOptions: StepReleaseLockOptions = {
+          holderId: options.holderId,
+          now: options.now,
+        };
 
         await release(`${commandId}:release`, key, releaseOptions);
         throw error;
@@ -200,7 +158,7 @@ export function createWorkflowStepLockApi(
 }
 
 export async function acquireLock(
-  store: WorkflowLockCommandStore,
+  store: WorkflowStore,
   key: string,
   lockOptions: AcquireLockOptions,
   acquiredAt: Temporal.Instant,
@@ -225,7 +183,7 @@ export async function acquireLock(
         waitDeadlineAt !== undefined &&
         Temporal.Instant.compare(waitDeadlineAt, acquiredAt) <= 0
       ) {
-        WorkflowNonRetryableError.failed(`Workflow lock wait timed out: ${key}`, {
+        throw new WorkflowNonRetryableError(`Workflow lock wait timed out: ${key}`, {
           details: {
             key,
             holderId,
@@ -236,49 +194,54 @@ export async function acquireLock(
       }
 
       const retryAt = workflowLockRetryAt(existing, acquiredAt, waitDeadlineAt);
-      const details: WorkflowErrorDetails = { key, holderId, currentHolderId: existing.holderId };
 
-      if (waitDeadlineAt !== undefined) {
-        Object.assign(details, {
-          waitDeadlineAt: waitDeadlineAt.toString(),
-        } satisfies Partial<WorkflowErrorDetails>);
-      }
+      const details: ErrorDetails = {
+        key,
+        holderId,
+        currentHolderId: existing.holderId,
+        waitDeadlineAt: waitDeadlineAt !== undefined ? waitDeadlineAt.toString() : undefined,
+      };
 
-      throw WorkflowRetryableError.lockAlreadyHeld(key, { retryAt, details });
+      throw new WorkflowRetryableError(`Workflow lock is already held: ${key}`, {
+        retryAt,
+        code: WorkflowErrorCode.LOCK_ALREADY_HELD,
+        details: { ...details, key },
+      });
     }
 
-    WorkflowLockError.alreadyHeld(key);
+    throw new WorkflowLockError(
+      `Workflow lock is already held: ${key}`,
+      WorkflowErrorCode.LOCK_ALREADY_HELD_WITHOUT_WAIT,
+      { key: key },
+    );
   }
 
-  const result = { key, namespace: store.namespace, holderId } satisfies Partial<LockRecord>;
-
-  if (lockOptions.holderRunId !== undefined) {
-    Object.assign(result, { holderRunId: lockOptions.holderRunId } satisfies Partial<LockRecord>);
-  }
-
-  if (lockOptions.holderStepId !== undefined) {
-    Object.assign(result, { holderStepId: lockOptions.holderStepId } satisfies Partial<LockRecord>);
-  }
-
-  const result1 = Object.assign(result, {
+  const lock: LockRecord = {
+    key,
+    namespace: store.namespace,
+    holderId,
+    holderRunId: lockOptions.holderRunId,
+    holderStepId: lockOptions.holderStepId,
     fencingToken: (existing?.fencingToken ?? 0) + 1,
     acquiredAt,
     leaseExpiresAt: acquiredAt.add(Temporal.Duration.from({ milliseconds: leaseDuration })),
-  } satisfies Partial<LockRecord>);
-
-  const lock: LockRecord = result1;
+  };
 
   const acquired = await store.updateLockIfCurrent(existing, lock);
 
   if (acquired === undefined) {
-    WorkflowLockStateError.acquireConflictExhausted(key);
+    throw new WorkflowLockStateError(
+      `Failed to acquire workflow lock ${key}`,
+      WorkflowErrorCode.LOCK_ACQUIRE_CONFLICT_EXHAUSTED,
+      { key: key },
+    );
   }
 
   return acquired;
 }
 
 export async function releaseLock(
-  store: WorkflowLockReleaseStore,
+  store: WorkflowStore,
   key: string,
   lockOptions: ReleaseLockOptions,
   releasedAt: Temporal.Instant,
@@ -291,7 +254,11 @@ export async function releaseLock(
   }
 
   if (current.holderId !== holderId) {
-    WorkflowLockError.holderMismatch(key);
+    throw new WorkflowLockError(
+      `Workflow lock holder mismatch: ${key}`,
+      WorkflowErrorCode.LOCK_HOLDER_MISMATCH,
+      { key: key },
+    );
   }
 
   const released = {
@@ -302,16 +269,20 @@ export async function releaseLock(
   const updated = await store.updateLockIfCurrent(current, released);
 
   if (updated === undefined) {
-    WorkflowLockStateError.releaseConflictExhausted(key);
+    throw new WorkflowLockStateError(
+      `Failed to release workflow lock ${key}`,
+      WorkflowErrorCode.LOCK_RELEASE_CONFLICT_EXHAUSTED,
+      { key: key },
+    );
   }
 
-  await wakeWorkflowRunsWaitingForLock(store, key, releasedAt);
+  await wakeRunsWaitingForLock(store, key, releasedAt);
 
   return updated;
 }
 
 export async function releaseStaleLock(
-  store: WorkflowLockReleaseStore,
+  store: WorkflowStore,
   key: string,
   releasedAt: Temporal.Instant,
 ): Promise<LockRecord> {
@@ -322,11 +293,19 @@ export async function releaseStaleLock(
   }
 
   if (current.releasedAt !== undefined) {
-    WorkflowLockError.alreadyReleased(key);
+    throw new WorkflowLockError(
+      `Workflow lock is already released: ${key}`,
+      WorkflowErrorCode.LOCK_ALREADY_RELEASED,
+      { key: key },
+    );
   }
 
   if (Temporal.Instant.compare(current.leaseExpiresAt, releasedAt) > 0) {
-    WorkflowLockError.notStale(key);
+    throw new WorkflowLockError(
+      `Workflow lock is not stale: ${key}`,
+      WorkflowErrorCode.LOCK_NOT_STALE,
+      { key: key },
+    );
   }
 
   const released = {
@@ -337,10 +316,14 @@ export async function releaseStaleLock(
   const updated = await store.updateLockIfCurrent(current, released);
 
   if (updated === undefined) {
-    WorkflowLockStateError.staleReleaseConflictExhausted(key);
+    throw new WorkflowLockStateError(
+      `Failed to release stale workflow lock ${key}`,
+      WorkflowErrorCode.LOCK_STALE_RELEASE_CONFLICT_EXHAUSTED,
+      { key: key },
+    );
   }
 
-  await wakeWorkflowRunsWaitingForLock(store, key, releasedAt);
+  await wakeRunsWaitingForLock(store, key, releasedAt);
 
   return updated;
 }
@@ -350,14 +333,22 @@ function resolveLockWaitDeadline(
   now: Temporal.Instant,
 ): Temporal.Instant | undefined {
   if (options.waitTimeout !== undefined && options.waitDeadlineAt !== undefined) {
-    WorkflowLockError.waitDeadlineConflict();
+    throw new WorkflowLockError(
+      "Workflow lock options cannot include both waitTimeout and waitDeadlineAt",
+      WorkflowErrorCode.LOCK_WAIT_DEADLINE_CONFLICT,
+      undefined,
+    );
   }
 
   if (
     (options.waitTimeout !== undefined || options.waitDeadlineAt !== undefined) &&
     options.wait !== true
   ) {
-    WorkflowLockError.timeoutRequiresWait();
+    throw new WorkflowLockError(
+      "Workflow lock timeout options require wait: true",
+      WorkflowErrorCode.LOCK_TIMEOUT_REQUIRES_WAIT,
+      undefined,
+    );
   }
 
   if (options.waitDeadlineAt !== undefined) {
@@ -377,14 +368,17 @@ function positiveDurationMilliseconds(duration: Temporal.Duration, label: string
   const milliseconds = duration.total({ unit: "millisecond" });
 
   if (!isPositiveSafeInteger(milliseconds)) {
-    WorkflowOptionsError.positiveSafeIntegerDuration(label);
+    throw new WorkflowOptionsError(`${label} must be a positive safe integer duration`, {
+      code: WorkflowErrorCode.OPTIONS_EXPECTED_POSITIVE_SAFE_INTEGER_DURATION,
+      details: { label: label },
+    });
   }
 
   return milliseconds;
 }
 
 async function recordLockWaitDeadline(
-  environment: WorkflowExecutionEnvironment,
+  environment: ExecutionEnvironment,
   name: string,
   timeout: Temporal.Duration,
 ): Promise<Temporal.Instant> {
@@ -393,7 +387,7 @@ async function recordLockWaitDeadline(
     "Workflow lock waitTimeout",
   );
 
-  return await recordWorkflowDeterministicValue(
+  return await recordDeterministicValue(
     environment,
     `${name}:wait-deadline`,
     () => environment.now().add(Temporal.Duration.from({ milliseconds: resolvedTimeout })),
@@ -416,16 +410,18 @@ function workflowLockRetryAt(
   return retryAt;
 }
 
-async function wakeWorkflowRunsWaitingForLock(
-  store: WorkflowLockWakeStore,
+async function wakeRunsWaitingForLock(
+  store: WorkflowStore,
   key: string,
   timestamp: Temporal.Instant,
 ): Promise<void> {
-  const wakeAt = timestamp;
   const waitingRuns = await store.listRuns({ status: "waiting", retryReason: "step" });
   await Promise.all(
     waitingRuns.map(async (run) => {
-      if (run.availableAt !== undefined && Temporal.Instant.compare(run.availableAt, wakeAt) <= 0) {
+      if (
+        run.availableAt !== undefined &&
+        Temporal.Instant.compare(run.availableAt, timestamp) <= 0
+      ) {
         return;
       }
 
@@ -435,19 +431,21 @@ async function wakeWorkflowRunsWaitingForLock(
       });
 
       if (
-        !attempts.some((attempt) => WorkflowRetryableError.isLockAlreadyHeld(attempt.error, key))
+        !attempts.some((attempt) =>
+          matchesWorkflowError(attempt.error, WorkflowErrorCode.LOCK_ALREADY_HELD, { key }),
+        )
       ) {
         return;
       }
 
       await patchRun(store, run, {
-        availableAt: wakeAt,
-        retryAt: wakeAt,
-        updatedAt: wakeAt,
-        lastTransitionAt: wakeAt,
+        availableAt: timestamp,
+        retryAt: timestamp,
+        updatedAt: timestamp,
+        lastTransitionAt: timestamp,
         lastTransitionReason: "retry",
         deadlineAt: run.deadlineAt,
-        startedAt: run.startedAt ?? wakeAt,
+        startedAt: run.startedAt ?? timestamp,
         error: run.error,
         output: undefined,
         finishedAt: undefined,

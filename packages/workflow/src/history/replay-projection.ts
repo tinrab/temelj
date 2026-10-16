@@ -14,60 +14,55 @@ import type {
   MetadataSetEvent,
   SleepCompletedEvent,
   SleepStartedEvent,
-  WorkflowStepCompletedEvent,
-  WorkflowStepFailedEvent,
-  WorkflowStepStartedEvent,
+  StepCompletedEvent,
+  StepFailedEvent,
+  StepStartedEvent,
   StreamChunkEvent,
   StreamClosedEvent,
   StreamFailedEvent,
   StreamStartedEvent,
 } from "../types/events.ts";
-import type { MessageId } from "../types/message.ts";
-import type { WorkflowStepAttemptRecord } from "../types/step-attempts.ts";
-import type { StreamId, StreamIdOrName } from "../types/stream-id.ts";
+import type { MessageId, StreamId, StreamIdOrName, StepId } from "../types/ids.ts";
+import type { StepAttemptRecord } from "../types/step-attempts.ts";
 
 import {
   isWorkflowRecordedStepEventKind,
   isWorkflowTerminalStepAttemptEvent,
 } from "../events/descriptors.ts";
-import { StepId } from "../types/step.ts";
 import { workflowStartedEventMatchesTerminalEvent } from "./validator.ts";
 
-export interface IndexedWorkflowEvent<TEvent extends EventRecord> {
+interface IndexedEvent<TEvent extends EventRecord> {
   index: number;
   event: TEvent;
 }
 
-export interface WorkflowReplayProjection {
+export interface ReplayProjection {
   startedEventsByStepId: Map<StepId, EventRecord[]>;
-  startedStep: Map<StepId, WorkflowStepStartedEvent>;
-  completedStep: Map<StepId, WorkflowStepCompletedEvent>;
-  failedSteps: Map<StepId, WorkflowStepFailedEvent[]>;
-  unstartedFailedStep: Map<StepId, WorkflowStepFailedEvent>;
+  startedStep: Map<StepId, StepStartedEvent>;
+  completedStep: Map<StepId, StepCompletedEvent>;
+  failedSteps: Map<StepId, StepFailedEvent[]>;
+  unstartedFailedStep: Map<StepId, StepFailedEvent>;
   metadataSet: Map<StepId, MetadataSetEvent>;
   attributesSet: Map<StepId, Extract<EventRecord, { kind: "attributes_set" }>>;
-  startedStepAttempts: Map<StepId, WorkflowStepStartedEvent[]>;
+  startedStepAttempts: Map<StepId, StepStartedEvent[]>;
   nextStepAttemptByStepId: Map<StepId, number>;
-  invalidStartedStepAttempt: Map<StepId, WorkflowStepStartedEvent>;
+  invalidStartedStepAttempt: Map<StepId, StepStartedEvent>;
   startedSleep: Map<StepId, SleepStartedEvent>;
   completedSleep: Map<StepId, SleepCompletedEvent>;
   startedChildWorkflow: Map<StepId, ChildWorkflowStartedEvent>;
   completedChildWorkflow: Map<StepId, ChildWorkflowCompletedEvent>;
   failedChildWorkflow: Map<StepId, ChildWorkflowFailedEvent>;
-  childWorkflowStartedByAttemptKey: Map<string, IndexedWorkflowEvent<ChildWorkflowStartedEvent>>;
-  childWorkflowStartedByStepId: Map<StepId, IndexedWorkflowEvent<ChildWorkflowStartedEvent>[]>;
-  childWorkflowCompletedByStepId: Map<StepId, IndexedWorkflowEvent<ChildWorkflowCompletedEvent>[]>;
-  childWorkflowFailedByStepId: Map<StepId, IndexedWorkflowEvent<ChildWorkflowFailedEvent>[]>;
+  childWorkflowStartedByAttemptKey: Map<string, IndexedEvent<ChildWorkflowStartedEvent>>;
+  childWorkflowStartedByStepId: Map<StepId, IndexedEvent<ChildWorkflowStartedEvent>[]>;
+  childWorkflowCompletedByStepId: Map<StepId, IndexedEvent<ChildWorkflowCompletedEvent>[]>;
+  childWorkflowFailedByStepId: Map<StepId, IndexedEvent<ChildWorkflowFailedEvent>[]>;
   startedMessageWait: Map<StepId, MessageWaitStartedEvent>;
-  messageWaitStartedByNameAndMessageId: Map<
-    string,
-    IndexedWorkflowEvent<MessageWaitStartedEvent>[]
-  >;
+  messageWaitStartedByNameAndMessageId: Map<string, IndexedEvent<MessageWaitStartedEvent>[]>;
   messageWaitStartedIndex: Map<MessageWaitStartedEvent, number>;
   latestMessageWaitStartedIndex: Map<StepId, number>;
-  completedMessageWait: Map<StepId, IndexedWorkflowEvent<MessageWaitCompletedEvent>[]>;
-  failedMessageWait: Map<StepId, IndexedWorkflowEvent<MessageWaitFailedEvent>[]>;
-  messageSentById: Map<MessageId, IndexedWorkflowEvent<MessageSentEvent>[]>;
+  completedMessageWait: Map<StepId, IndexedEvent<MessageWaitCompletedEvent>[]>;
+  failedMessageWait: Map<StepId, IndexedEvent<MessageWaitFailedEvent>[]>;
+  messageSentById: Map<MessageId, IndexedEvent<MessageSentEvent>[]>;
   activeMessageWaitsByMessageId: Map<MessageId, Map<StepId, string>>;
   messageSentByIdempotencyKey: Map<string, MessageSentEvent>;
   latestMessageSentByIdempotencyKey: Map<string, MessageSentEvent>;
@@ -77,10 +72,10 @@ export interface WorkflowReplayProjection {
   startedStream: Map<StepId, StreamStartedEvent>;
   streamChunks: Map<StepId, StreamChunkEvent[]>;
   streamChunkByIndex: Map<StepId, Map<number, StreamChunkEvent>>;
-  streamStartedByIdOrName: Map<string, IndexedWorkflowEvent<StreamStartedEvent>>;
-  streamChunksByStreamId: Map<StreamId, IndexedWorkflowEvent<StreamChunkEvent>[]>;
-  streamClosedByStreamId: Map<StreamId, IndexedWorkflowEvent<StreamClosedEvent>>;
-  streamFailedByStreamId: Map<StreamId, IndexedWorkflowEvent<StreamFailedEvent>>;
+  streamStartedByIdOrName: Map<string, IndexedEvent<StreamStartedEvent>>;
+  streamChunksByStreamId: Map<StreamId, IndexedEvent<StreamChunkEvent>[]>;
+  streamClosedByStreamId: Map<StreamId, IndexedEvent<StreamClosedEvent>>;
+  streamFailedByStreamId: Map<StreamId, IndexedEvent<StreamFailedEvent>>;
   closedStream: Map<StepId, StreamClosedEvent>;
   failedStream: Map<StepId, StreamFailedEvent>;
   deterministicValue: Map<StepId, DeterministicValueRecordedEvent>;
@@ -89,49 +84,37 @@ export interface WorkflowReplayProjection {
   totalStartedStepCount: number;
 }
 
-export function createWorkflowReplayProjection(events: EventRecord[]): WorkflowReplayProjection {
+export function createReplayProjection(events: EventRecord[]): ReplayProjection {
   const projection = {
     startedEventsByStepId: new Map<StepId, EventRecord[]>(),
-    startedStep: new Map<StepId, WorkflowStepStartedEvent>(),
-    completedStep: new Map<StepId, WorkflowStepCompletedEvent>(),
-    failedSteps: new Map<StepId, WorkflowStepFailedEvent[]>(),
-    unstartedFailedStep: new Map<StepId, WorkflowStepFailedEvent>(),
+    startedStep: new Map<StepId, StepStartedEvent>(),
+    completedStep: new Map<StepId, StepCompletedEvent>(),
+    failedSteps: new Map<StepId, StepFailedEvent[]>(),
+    unstartedFailedStep: new Map<StepId, StepFailedEvent>(),
     metadataSet: new Map<StepId, MetadataSetEvent>(),
     attributesSet: new Map<StepId, Extract<EventRecord, { kind: "attributes_set" }>>(),
-    startedStepAttempts: new Map<StepId, WorkflowStepStartedEvent[]>(),
+    startedStepAttempts: new Map<StepId, StepStartedEvent[]>(),
     nextStepAttemptByStepId: new Map<StepId, number>(),
-    invalidStartedStepAttempt: new Map<StepId, WorkflowStepStartedEvent>(),
+    invalidStartedStepAttempt: new Map<StepId, StepStartedEvent>(),
     startedSleep: new Map<StepId, SleepStartedEvent>(),
     completedSleep: new Map<StepId, SleepCompletedEvent>(),
     startedChildWorkflow: new Map<StepId, ChildWorkflowStartedEvent>(),
     completedChildWorkflow: new Map<StepId, ChildWorkflowCompletedEvent>(),
     failedChildWorkflow: new Map<StepId, ChildWorkflowFailedEvent>(),
-    childWorkflowStartedByAttemptKey: new Map<
-      string,
-      IndexedWorkflowEvent<ChildWorkflowStartedEvent>
-    >(),
-    childWorkflowStartedByStepId: new Map<
-      StepId,
-      IndexedWorkflowEvent<ChildWorkflowStartedEvent>[]
-    >(),
-    childWorkflowCompletedByStepId: new Map<
-      StepId,
-      IndexedWorkflowEvent<ChildWorkflowCompletedEvent>[]
-    >(),
-    childWorkflowFailedByStepId: new Map<
-      StepId,
-      IndexedWorkflowEvent<ChildWorkflowFailedEvent>[]
-    >(),
+    childWorkflowStartedByAttemptKey: new Map<string, IndexedEvent<ChildWorkflowStartedEvent>>(),
+    childWorkflowStartedByStepId: new Map<StepId, IndexedEvent<ChildWorkflowStartedEvent>[]>(),
+    childWorkflowCompletedByStepId: new Map<StepId, IndexedEvent<ChildWorkflowCompletedEvent>[]>(),
+    childWorkflowFailedByStepId: new Map<StepId, IndexedEvent<ChildWorkflowFailedEvent>[]>(),
     startedMessageWait: new Map<StepId, MessageWaitStartedEvent>(),
     messageWaitStartedByNameAndMessageId: new Map<
       string,
-      IndexedWorkflowEvent<MessageWaitStartedEvent>[]
+      IndexedEvent<MessageWaitStartedEvent>[]
     >(),
     messageWaitStartedIndex: new Map<MessageWaitStartedEvent, number>(),
     latestMessageWaitStartedIndex: new Map<StepId, number>(),
-    completedMessageWait: new Map<StepId, IndexedWorkflowEvent<MessageWaitCompletedEvent>[]>(),
-    failedMessageWait: new Map<StepId, IndexedWorkflowEvent<MessageWaitFailedEvent>[]>(),
-    messageSentById: new Map<MessageId, IndexedWorkflowEvent<MessageSentEvent>[]>(),
+    completedMessageWait: new Map<StepId, IndexedEvent<MessageWaitCompletedEvent>[]>(),
+    failedMessageWait: new Map<StepId, IndexedEvent<MessageWaitFailedEvent>[]>(),
+    messageSentById: new Map<MessageId, IndexedEvent<MessageSentEvent>[]>(),
     activeMessageWaitsByMessageId: new Map<MessageId, Map<StepId, string>>(),
     messageSentByIdempotencyKey: new Map<string, MessageSentEvent>(),
     latestMessageSentByIdempotencyKey: new Map<string, MessageSentEvent>(),
@@ -141,10 +124,10 @@ export function createWorkflowReplayProjection(events: EventRecord[]): WorkflowR
     startedStream: new Map<StepId, StreamStartedEvent>(),
     streamChunks: new Map<StepId, StreamChunkEvent[]>(),
     streamChunkByIndex: new Map<StepId, Map<number, StreamChunkEvent>>(),
-    streamStartedByIdOrName: new Map<string, IndexedWorkflowEvent<StreamStartedEvent>>(),
-    streamChunksByStreamId: new Map<StreamId, IndexedWorkflowEvent<StreamChunkEvent>[]>(),
-    streamClosedByStreamId: new Map<StreamId, IndexedWorkflowEvent<StreamClosedEvent>>(),
-    streamFailedByStreamId: new Map<StreamId, IndexedWorkflowEvent<StreamFailedEvent>>(),
+    streamStartedByIdOrName: new Map<string, IndexedEvent<StreamStartedEvent>>(),
+    streamChunksByStreamId: new Map<StreamId, IndexedEvent<StreamChunkEvent>[]>(),
+    streamClosedByStreamId: new Map<StreamId, IndexedEvent<StreamClosedEvent>>(),
+    streamFailedByStreamId: new Map<StreamId, IndexedEvent<StreamFailedEvent>>(),
     closedStream: new Map<StepId, StreamClosedEvent>(),
     failedStream: new Map<StepId, StreamFailedEvent>(),
     deterministicValue: new Map<StepId, DeterministicValueRecordedEvent>(),
@@ -154,26 +137,26 @@ export function createWorkflowReplayProjection(events: EventRecord[]): WorkflowR
   };
 
   for (const [index, event] of events.entries()) {
-    appendWorkflowReplayProjectionEvent(projection, event, index);
+    appendReplayProjectionEvent(projection, event, index);
   }
 
   return projection;
 }
 
-export function appendWorkflowReplayProjectionEvents(
-  projection: WorkflowReplayProjection,
+export function appendReplayProjectionEvents(
+  projection: ReplayProjection,
   events: EventRecord[],
   startIndex: number,
-): WorkflowReplayProjection {
+): ReplayProjection {
   for (const [offset, event] of events.entries()) {
-    appendWorkflowReplayProjectionEvent(projection, event, startIndex + offset);
+    appendReplayProjectionEvent(projection, event, startIndex + offset);
   }
 
   return projection;
 }
 
-function appendWorkflowReplayProjectionEvent(
-  projection: WorkflowReplayProjection,
+function appendReplayProjectionEvent(
+  projection: ReplayProjection,
   event: EventRecord,
   index: number,
 ): void {
@@ -196,8 +179,6 @@ function appendWorkflowReplayProjectionEvent(
       projection.startedStep.set(event.stepId, event);
       appendProjectedEvent(projection.startedStepAttempts, event.stepId, event);
       recordProjectedStepAttempt(projection, event);
-      appendStartedEvent(projection.startedEventsByStepId, event);
-      projection.totalStartedStepCount++;
       break;
     }
 
@@ -232,8 +213,6 @@ function appendWorkflowReplayProjectionEvent(
 
     case "sleep_started": {
       projection.startedSleep.set(event.stepId, event);
-      appendStartedEvent(projection.startedEventsByStepId, event);
-      projection.totalStartedStepCount++;
       break;
     }
 
@@ -245,7 +224,7 @@ function appendWorkflowReplayProjectionEvent(
     case "child_workflow_started": {
       projection.startedChildWorkflow.set(event.stepId, event);
       const startedWorkflows = projection.childWorkflowStartedByAttemptKey;
-      const childWorkflowKey = workflowChildWorkflowAttemptKey(event);
+      const childWorkflowKey = childWorkflowAttemptKey(event);
 
       if (!startedWorkflows.has(childWorkflowKey)) {
         startedWorkflows.set(childWorkflowKey, { index, event });
@@ -255,8 +234,6 @@ function appendWorkflowReplayProjectionEvent(
         index,
         event,
       });
-      appendStartedEvent(projection.startedEventsByStepId, event);
-      projection.totalStartedStepCount++;
       break;
     }
 
@@ -288,8 +265,6 @@ function appendWorkflowReplayProjectionEvent(
       );
       projection.messageWaitStartedIndex.set(event, index);
       projection.latestMessageWaitStartedIndex.set(event.stepId, index);
-      appendStartedEvent(projection.startedEventsByStepId, event);
-      projection.totalStartedStepCount++;
       break;
     }
 
@@ -332,8 +307,6 @@ function appendWorkflowReplayProjectionEvent(
 
     case "message_send_started": {
       projection.startedMessageSend.set(event.stepId, event);
-      appendStartedEvent(projection.startedEventsByStepId, event);
-      projection.totalStartedStepCount++;
       break;
     }
 
@@ -350,8 +323,6 @@ function appendWorkflowReplayProjectionEvent(
     case "stream_started": {
       projection.startedStream.set(event.stepId, event);
       setProjectedStreamStartedByIdOrName(projection, event, index);
-      appendStartedEvent(projection.startedEventsByStepId, event);
-      projection.totalStartedStepCount++;
       break;
     }
 
@@ -392,7 +363,21 @@ function appendWorkflowReplayProjectionEvent(
       break;
     }
   }
+
+  if (STEP_STARTED_KINDS.has(event.kind)) {
+    appendStartedEvent(projection.startedEventsByStepId, event);
+    projection.totalStartedStepCount++;
+  }
 }
+
+const STEP_STARTED_KINDS: ReadonlySet<EventRecord["kind"]> = new Set([
+  "step_started",
+  "sleep_started",
+  "child_workflow_started",
+  "message_wait_started",
+  "message_send_started",
+  "stream_started",
+]);
 
 function appendStartedEvent(
   startedEventsByStepId: Map<StepId, EventRecord[]>,
@@ -405,10 +390,7 @@ function appendStartedEvent(
   appendProjectedEvent(startedEventsByStepId, event.stepId, event);
 }
 
-function recordProjectedStepAttempt(
-  projection: WorkflowReplayProjection,
-  event: WorkflowStepStartedEvent,
-): void {
+function recordProjectedStepAttempt(projection: ReplayProjection, event: StepStartedEvent): void {
   if (!(Number.isSafeInteger(event.attempt) && event.attempt > 0)) {
     projection.invalidStartedStepAttempt.set(event.stepId, event);
 
@@ -423,7 +405,7 @@ function recordProjectedStepAttempt(
 }
 
 function setProjectedStreamChunkByIndex(
-  projection: WorkflowReplayProjection,
+  projection: ReplayProjection,
   event: StreamChunkEvent,
 ): void {
   const chunks = projection.streamChunkByIndex.get(event.stepId);
@@ -440,7 +422,7 @@ function setProjectedStreamChunkByIndex(
 }
 
 function setProjectedStreamStartedByIdOrName(
-  projection: WorkflowReplayProjection,
+  projection: ReplayProjection,
   event: StreamStartedEvent,
   index: number,
 ): void {
@@ -454,7 +436,7 @@ function setProjectedStreamStartedByIdOrName(
 }
 
 function activeMessageWaits(
-  projection: WorkflowReplayProjection,
+  projection: ReplayProjection,
   messageId: MessageId,
 ): Map<StepId, string> {
   const waits = projection.activeMessageWaitsByMessageId.get(messageId);
@@ -470,7 +452,7 @@ function activeMessageWaits(
 }
 
 function deleteActiveMessageWait(
-  projection: WorkflowReplayProjection,
+  projection: ReplayProjection,
   event: MessageWaitCompletedEvent | MessageWaitFailedEvent,
 ): void {
   const activeWaits = activeMessageWaits(projection, event.messageId);
@@ -480,11 +462,8 @@ function deleteActiveMessageWait(
   }
 }
 
-export function findLastIndexedWorkflowEventAfter<
-  TEvent extends EventRecord,
-  TMatch extends TEvent,
->(
-  entries: IndexedWorkflowEvent<TEvent>[],
+export function findLastIndexedEventAfter<TEvent extends EventRecord, TMatch extends TEvent>(
+  entries: IndexedEvent<TEvent>[],
   afterIndex: number,
   predicate: (event: TEvent) => event is TMatch,
 ): TMatch | undefined {
@@ -499,11 +478,11 @@ export function findLastIndexedWorkflowEventAfter<
   return undefined;
 }
 
-function findLastIndexedWorkflowEventEntryAfter<TEvent extends EventRecord, TMatch extends TEvent>(
-  entries: IndexedWorkflowEvent<TEvent>[],
+function findLastIndexedEventEntryAfter<TEvent extends EventRecord, TMatch extends TEvent>(
+  entries: IndexedEvent<TEvent>[],
   afterIndex: number,
   predicate: (event: TEvent) => event is TMatch,
-): IndexedWorkflowEvent<TMatch> | undefined {
+): IndexedEvent<TMatch> | undefined {
   for (let index = entries.length - 1; index >= 0; index--) {
     const entry = entries[index];
     const event = entry.event;
@@ -516,8 +495,8 @@ function findLastIndexedWorkflowEventEntryAfter<TEvent extends EventRecord, TMat
   return undefined;
 }
 
-export function findWorkflowMessageSentForWait(
-  projection: WorkflowReplayProjection,
+export function findMessageSentForWait(
+  projection: ReplayProjection,
   messageId: MessageId,
   stepId: StepId,
   timeoutAt: Temporal.Instant | undefined,
@@ -533,12 +512,12 @@ export function findWorkflowMessageSentForWait(
   })?.event;
 }
 
-export function findWorkflowMessageSentByTimestamp(
-  projection: WorkflowReplayProjection,
+export function findMessageSentByTimestamp(
+  projection: ReplayProjection,
   messageId: MessageId,
   timestamp: Temporal.Instant,
 ): MessageSentEvent | undefined {
-  return findLastIndexedWorkflowEventAfter(
+  return findLastIndexedEventAfter(
     projection.messageSentById.get(messageId) ?? [],
     -1,
     (event): event is MessageSentEvent =>
@@ -548,13 +527,13 @@ export function findWorkflowMessageSentByTimestamp(
 
 export interface StreamEventProjection {
   started: StreamStartedEvent;
-  chunks: IndexedWorkflowEvent<StreamChunkEvent>[];
-  closed?: IndexedWorkflowEvent<StreamClosedEvent>;
-  failed?: IndexedWorkflowEvent<StreamFailedEvent>;
+  chunks: IndexedEvent<StreamChunkEvent>[];
+  closed?: IndexedEvent<StreamClosedEvent>;
+  failed?: IndexedEvent<StreamFailedEvent>;
 }
 
 export function findStreamEventProjection(
-  projection: WorkflowReplayProjection,
+  projection: ReplayProjection,
   streamIdOrName: StreamIdOrName,
 ): StreamEventProjection | undefined {
   const started = projection.streamStartedByIdOrName.get(streamIdOrName);
@@ -563,30 +542,18 @@ export function findStreamEventProjection(
     return undefined;
   }
 
-  const summary: StreamEventProjection | undefined = {
+  return {
     started: started.event,
     chunks: [...(projection.streamChunksByStreamId.get(started.event.streamId) ?? [])].sort(
       (left, right) => left.event.index - right.event.index,
     ),
+    closed: projection.streamClosedByStreamId.get(started.event.streamId),
+    failed: projection.streamFailedByStreamId.get(started.event.streamId),
   };
-
-  if (projection.streamClosedByStreamId.get(started.event.streamId) !== undefined) {
-    Object.assign(summary, {
-      closed: projection.streamClosedByStreamId.get(started.event.streamId),
-    } satisfies Partial<StreamEventProjection | undefined>);
-  }
-
-  if (projection.streamFailedByStreamId.get(started.event.streamId) !== undefined) {
-    Object.assign(summary, {
-      failed: projection.streamFailedByStreamId.get(started.event.streamId),
-    } satisfies Partial<StreamEventProjection | undefined>);
-  }
-
-  return summary;
 }
 
-export function findLastWorkflowSleepStartedForCompleted(
-  projection: WorkflowReplayProjection,
+export function findLastSleepStartedForCompleted(
+  projection: ReplayProjection,
   completed: SleepCompletedEvent,
 ): SleepStartedEvent | undefined {
   const started = projection.startedSleep.get(completed.stepId);
@@ -595,7 +562,7 @@ export function findLastWorkflowSleepStartedForCompleted(
 }
 
 export function findLastMessageWaitStartedForCompleted(
-  projection: WorkflowReplayProjection,
+  projection: ReplayProjection,
   completed: MessageWaitCompletedEvent,
 ): MessageWaitStartedEvent | undefined {
   const started = projection.startedMessageWait.get(completed.stepId);
@@ -605,30 +572,28 @@ export function findLastMessageWaitStartedForCompleted(
     : undefined;
 }
 
-export function findLastWorkflowChildWorkflowStartedForTerminal(
-  projection: WorkflowReplayProjection,
+export function findLastChildWorkflowStartedForTerminal(
+  projection: ReplayProjection,
   terminal: ChildWorkflowCompletedEvent | ChildWorkflowFailedEvent,
 ): ChildWorkflowStartedEvent | undefined {
-  return findLastIndexedWorkflowEventAfter(
+  return findLastIndexedEventAfter(
     projection.childWorkflowStartedByStepId.get(terminal.stepId) ?? [],
     -1,
     (event): event is ChildWorkflowStartedEvent =>
-      workflowChildWorkflowTerminalMatchesStarted(terminal, event),
+      childWorkflowTerminalMatchesStarted(terminal, event),
   );
 }
 
-export interface WorkflowChildWorkflowLifecycle {
+export interface ChildWorkflowLifecycle {
   started?: ChildWorkflowStartedEvent;
   hasTerminalAfterStarted: boolean;
 }
 
-export function findWorkflowChildWorkflowLifecycleForAttempt(
-  projection: WorkflowReplayProjection,
-  attempt: WorkflowStepAttemptRecord,
-): WorkflowChildWorkflowLifecycle {
-  const started = projection.childWorkflowStartedByAttemptKey.get(
-    workflowChildWorkflowAttemptKey(attempt),
-  );
+export function findChildWorkflowLifecycleForAttempt(
+  projection: ReplayProjection,
+  attempt: StepAttemptRecord,
+): ChildWorkflowLifecycle {
+  const started = projection.childWorkflowStartedByAttemptKey.get(childWorkflowAttemptKey(attempt));
 
   if (started === undefined) {
     return { hasTerminalAfterStarted: false };
@@ -636,39 +601,39 @@ export function findWorkflowChildWorkflowLifecycleForAttempt(
 
   return {
     started: started.event,
-    hasTerminalAfterStarted: hasWorkflowChildWorkflowTerminalAfterStarted(projection, started),
+    hasTerminalAfterStarted: hasChildWorkflowTerminalAfterStarted(projection, started),
   };
 }
 
-function hasWorkflowChildWorkflowTerminalAfterStarted(
-  projection: WorkflowReplayProjection,
-  started: IndexedWorkflowEvent<ChildWorkflowStartedEvent>,
+function hasChildWorkflowTerminalAfterStarted(
+  projection: ReplayProjection,
+  started: IndexedEvent<ChildWorkflowStartedEvent>,
 ): boolean {
   return (
-    findLastIndexedWorkflowEventEntryAfter(
+    findLastIndexedEventEntryAfter(
       projection.childWorkflowCompletedByStepId.get(started.event.stepId) ?? [],
       started.index,
       (event): event is ChildWorkflowCompletedEvent =>
-        workflowChildWorkflowTerminalMatchesStarted(event, started.event),
+        childWorkflowTerminalMatchesStarted(event, started.event),
     ) !== undefined ||
-    findLastIndexedWorkflowEventEntryAfter(
+    findLastIndexedEventEntryAfter(
       projection.childWorkflowFailedByStepId.get(started.event.stepId) ?? [],
       started.index,
       (event): event is ChildWorkflowFailedEvent =>
-        workflowChildWorkflowTerminalMatchesStarted(event, started.event),
+        childWorkflowTerminalMatchesStarted(event, started.event),
     ) !== undefined
   );
 }
 
 export function activeMessageWaitStepIds(
-  projection: WorkflowReplayProjection,
+  projection: ReplayProjection,
   messageId: MessageId,
 ): StepId[] {
   return [...(projection.activeMessageWaitsByMessageId.get(messageId)?.keys() ?? [])];
 }
 
 export function findLastMessageWaitStartedByNameAndMessageId(
-  projection: WorkflowReplayProjection,
+  projection: ReplayProjection,
   stepName: string,
   messageId: MessageId,
 ): MessageWaitStartedEvent | undefined {
@@ -681,7 +646,7 @@ export function findLastMessageWaitStartedByNameAndMessageId(
 }
 
 export function findLastMessageWaitTerminalAfterStarted(
-  projection: WorkflowReplayProjection,
+  projection: ReplayProjection,
   started: MessageWaitStartedEvent,
 ): MessageWaitCompletedEvent | MessageWaitFailedEvent | undefined {
   const startedIndex = projection.messageWaitStartedIndex.get(started);
@@ -690,14 +655,14 @@ export function findLastMessageWaitTerminalAfterStarted(
     return undefined;
   }
 
-  const completed = findLastIndexedWorkflowEventEntryAfter(
+  const completed = findLastIndexedEventEntryAfter(
     projection.completedMessageWait.get(started.stepId) ?? [],
     startedIndex,
     (event): event is MessageWaitCompletedEvent =>
       event.stepName === started.stepName && event.messageId === started.messageId,
   );
 
-  const failed = findLastIndexedWorkflowEventEntryAfter(
+  const failed = findLastIndexedEventEntryAfter(
     projection.failedMessageWait.get(started.stepId) ?? [],
     startedIndex,
     (event): event is MessageWaitFailedEvent =>
@@ -715,8 +680,8 @@ export function findLastMessageWaitTerminalAfterStarted(
   return completed.index > failed.index ? completed.event : failed.event;
 }
 
-export function findWorkflowMessageSentByIdempotencyKey(
-  projection: WorkflowReplayProjection,
+export function findMessageSentByIdempotencyKey(
+  projection: ReplayProjection,
   idempotencyKey: string | undefined,
 ): MessageSentEvent | undefined {
   return idempotencyKey === undefined
@@ -724,8 +689,8 @@ export function findWorkflowMessageSentByIdempotencyKey(
     : projection.messageSentByIdempotencyKey.get(idempotencyKey);
 }
 
-export function findLastWorkflowMessageSentById(
-  projection: WorkflowReplayProjection,
+export function findLastMessageSentById(
+  projection: ReplayProjection,
   messageId: MessageId,
 ): MessageSentEvent | undefined {
   const entries = projection.messageSentById.get(messageId) ?? [];
@@ -753,9 +718,7 @@ function workflowMessageWaitNameMessageKey(stepName: string, messageId: MessageI
   return `${stepName}\u0000${messageId}`;
 }
 
-function workflowChildWorkflowAttemptKey(
-  event: ChildWorkflowStartedEvent | WorkflowStepAttemptRecord,
-): string {
+function childWorkflowAttemptKey(event: ChildWorkflowStartedEvent | StepAttemptRecord): string {
   return [
     workflowProjectionKeyPart(event.childRunId),
     workflowProjectionKeyPart(event.stepId),
@@ -772,7 +735,7 @@ function workflowProjectionKeyPart(value: string | number | undefined): string {
   return value === undefined ? "\u0001" : String(value);
 }
 
-function workflowChildWorkflowTerminalMatchesStarted(
+function childWorkflowTerminalMatchesStarted(
   event: ChildWorkflowCompletedEvent | ChildWorkflowFailedEvent,
   started: ChildWorkflowStartedEvent,
 ): boolean {

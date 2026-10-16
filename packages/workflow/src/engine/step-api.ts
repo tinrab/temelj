@@ -1,49 +1,44 @@
-import type { WorkflowExecutionEnvironment } from "../types/engine.ts";
+import type { ExecutionEnvironment } from "../types/engine.ts";
 import type {
-  WorkflowDeterministicApi,
-  WorkflowStepApi,
+  DeterministicApi,
+  StepApi,
   WorkflowStepContext,
-  WorkflowStepRunConfig,
+  StepRunConfig,
 } from "../types/step.ts";
+import type { WorkflowEngine } from "./create.ts";
 
-import {
-  createWorkflowStepWorkflowApi,
-  type WorkflowChildWorkflowEngine,
-} from "./child-workflow.ts";
-import { createWorkflowStepHookApi } from "./hooks.ts";
-import { createWorkflowStepLockApi, type WorkflowStepLockEngine } from "./lock.ts";
-import { createWorkflowStepMessageApi } from "./message.ts";
-import { createWorkflowRunDataApi } from "./run-data.ts";
-import { createWorkflowStepStreamApi } from "./stream.ts";
-import { createWorkflowStepTaskApi } from "./task.ts";
+import { createStepWorkflowApi } from "./child-workflow.ts";
+import { createStepHookApi } from "./hooks.ts";
+import { createStepLockApi } from "./lock.ts";
+import { createStepMessageApi } from "./message.ts";
+import { createRunDataApi } from "./run-data.ts";
+import { createStepStreamApi } from "./stream.ts";
+import { createStepTaskApi } from "./task.ts";
 
-type WorkflowStepRuntime = WorkflowChildWorkflowEngine & WorkflowStepLockEngine;
-
-type WorkflowRunTaskCommand = <TOutput>(
-  config: WorkflowStepRunConfig,
+type RunTaskCommand = <TOutput>(
+  config: StepRunConfig,
   callback: (context: WorkflowStepContext) => Promise<TOutput> | TOutput,
 ) => Promise<TOutput>;
 
 export function createStepApi(
-  environment: WorkflowExecutionEnvironment,
-  engine: WorkflowStepRuntime,
+  environment: ExecutionEnvironment,
+  engine: WorkflowEngine,
   executionSignal: AbortSignal,
-  deterministic: WorkflowDeterministicApi,
-): WorkflowStepApi {
-  const task = createWorkflowStepTaskApi(environment, executionSignal);
+  deterministic: DeterministicApi,
+): StepApi {
+  const task = createStepTaskApi(environment, executionSignal);
 
-  const runTask: WorkflowRunTaskCommand = async (config, callback) =>
-    await task.run(config, callback);
+  const runTask: RunTaskCommand = (config, callback) => task.run(config, callback);
 
   return {
     log: environment.logger,
-    task,
-    workflow: createWorkflowStepWorkflowApi(environment, engine),
-    message: createWorkflowStepMessageApi(environment),
-    lock: createWorkflowStepLockApi(environment, engine, runTask),
-    runData: createWorkflowRunDataApi(environment),
+    ...task,
+    workflow: createStepWorkflowApi(environment, engine),
+    message: createStepMessageApi(environment),
+    lock: createStepLockApi(environment, engine, runTask),
+    runData: createRunDataApi(environment),
     deterministic,
-    stream: createWorkflowStepStreamApi(environment),
-    hook: createWorkflowStepHookApi(environment),
+    stream: createStepStreamApi(environment),
+    hook: createStepHookApi(environment),
   };
 }

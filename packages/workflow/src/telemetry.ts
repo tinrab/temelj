@@ -1,3 +1,5 @@
+// Installs Temporal when the runtime lacks it, before any module uses it.
+import "temporal-polyfill/global";
 import type { ObservationEventArgs } from "./types/observation.ts";
 import type { ExecutionResult } from "./types/result.ts";
 import type {
@@ -11,7 +13,6 @@ import type {
 /** Instrumentation scope used by workflow telemetry adapters. */
 export const WORKFLOW_INSTRUMENTATION_NAME = "temelj.workflow";
 
-/** Version of the built-in workflow telemetry instrumentation. */
 export const WORKFLOW_INSTRUMENTATION_VERSION = "0.1.0";
 
 /** Stable workflow system identifier used on spans, metrics, and logs. */

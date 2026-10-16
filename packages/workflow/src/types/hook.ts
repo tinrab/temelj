@@ -1,112 +1,8 @@
 import type { Schema, SchemaOutput } from "@temelj/standard-schema";
 import type { StorageValue } from "@temelj/storage";
 
-import { decodeBase64UrlString } from "@temelj/string";
-import { z } from "zod";
-
 import type { WorkflowErrorRecord } from "./error.ts";
-import type { MessageId } from "./message-id.ts";
-import type { RunId } from "./run.ts";
-
-import { WorkflowHookError } from "../errors/mod.ts";
-import { nonBlankStringSchema } from "./common.ts";
-import { messageIdSchema } from "./message-id.ts";
-import { runIdSchema } from "./run-id.ts";
-import { workflowPersistedValueSchema } from "./run.ts";
-
-export const WORKFLOW_HOOK_TOKEN_PREFIX = "temelj-hook:";
-
-export const WORKFLOW_HOOK_TOKEN_VERSION = "v1";
-
-export const workflowHookKindSchema = z.enum(["hook", "webhook"]);
-
-export const workflowHookTokenPayloadSchema = z.object({
-  v: z.literal(1).optional(),
-  runId: runIdSchema,
-  name: nonBlankStringSchema,
-  messageId: messageIdSchema,
-  kind: workflowHookKindSchema.optional(),
-  metadata: workflowPersistedValueSchema.optional(),
-});
-
-export const workflowHookTokenSchema = nonBlankStringSchema.refine(
-  (token) => token.startsWith(WORKFLOW_HOOK_TOKEN_PREFIX),
-  { error: "Workflow hook token is invalid" },
-);
-
-/** Decoded fields carried by a workflow webhook resume token. */
-export const parsedWorkflowWebhookTokenSchema = z.object({
-  runId: runIdSchema,
-  name: nonBlankStringSchema,
-  messageId: messageIdSchema,
-});
-
-export const parsedWorkflowHookTokenSchema = parsedWorkflowWebhookTokenSchema.extend({
-  kind: workflowHookKindSchema,
-  metadata: workflowPersistedValueSchema.optional(),
-});
-
-/** Parses a workflow hook token and throws WorkflowHookError when it is invalid. */
-export function parseHookToken(token: string): ParsedWorkflowHookToken {
-  const parsedToken = workflowHookTokenSchema.safeParse(token);
-
-  if (!parsedToken.success) {
-    WorkflowHookError.tokenInvalid();
-  }
-
-  const tokenValue = parsedToken.data;
-  const body = tokenValue.slice(WORKFLOW_HOOK_TOKEN_PREFIX.length);
-
-  if (body.startsWith(`${WORKFLOW_HOOK_TOKEN_VERSION}:`)) {
-    try {
-      const payload = JSON.parse(
-        decodeBase64UrlString(body.slice(WORKFLOW_HOOK_TOKEN_VERSION.length + 1)),
-      );
-
-      const hook = workflowHookTokenPayloadSchema.safeParse(payload);
-
-      if (!hook.success) {
-        WorkflowHookError.tokenInvalid();
-      }
-
-      const parsedHook: ParsedWorkflowHookToken = {
-        runId: hook.data.runId,
-        name: hook.data.name,
-        messageId: hook.data.messageId,
-        kind: hook.data.kind ?? "hook",
-      };
-
-      if (hook.data.metadata !== undefined) {
-        Object.assign(parsedHook, {
-          metadata: hook.data.metadata,
-        } satisfies Partial<ParsedWorkflowHookToken>);
-      }
-
-      return parsedHook;
-    } catch (error) {
-      if (!(error instanceof WorkflowHookError)) {
-        WorkflowHookError.tokenInvalid();
-      }
-
-      WorkflowHookError.tokenInvalid();
-    }
-  }
-
-  WorkflowHookError.tokenInvalid();
-}
-
-/** Parses a workflow webhook token and throws a webhook-specific options error when invalid. */
-export function parseWebhookToken(token: string): ParsedWorkflowHookToken {
-  try {
-    return parseHookToken(token);
-  } catch (error) {
-    if (error instanceof WorkflowHookError) {
-      WorkflowHookError.webhookTokenInvalid();
-    }
-
-    throw error;
-  }
-}
+import type { MessageId, RunId } from "./ids.ts";
 
 /** Promise-like handle for a message-backed workflow hook created by workflow code. */
 export interface Hook<TPayload = unknown> extends PromiseLike<TPayload> {
@@ -154,30 +50,22 @@ export interface CreateWebhookOptions<
   readonly metadata?: StorageValue;
 }
 
-/** Options for completing an external resume hook. */
 export interface ResumeHookOptions {
   readonly payload?: unknown;
   readonly idempotencyKey?: string;
 }
-
-/** Options for completing a webhook-labeled external resume hook. */
-export type ResumeWebhookOptions = ResumeHookOptions;
 
 /** Kind of external resume token represented in hook inspection data. */
 export type HookKind = "hook" | "webhook";
 
 /** Payload encoded into a workflow hook token before it is given to external systems. */
 export interface HookTokenPayload {
-  readonly v?: 1;
   readonly runId: RunId;
   readonly name: string;
   readonly messageId: MessageId;
-  readonly kind?: HookKind;
+  readonly kind: HookKind;
   readonly metadata?: StorageValue;
 }
-
-/** Opaque token string used to resume or dispose an external workflow hook. */
-export type HookToken = string;
 
 /** Observed lifecycle status of an external resume token. */
 export type HookInspectionStatus =
@@ -204,27 +92,8 @@ export interface HookInspection {
   readonly error?: WorkflowErrorRecord;
 }
 
-/** Decoded fields carried by a workflow webhook resume token. */
-export interface ParsedWorkflowWebhookToken {
-  readonly runId: RunId;
-  readonly name: string;
-  readonly messageId: MessageId;
-}
-
-/** Decoded fields carried by any workflow hook token, including webhook tokens. */
-export interface ParsedWorkflowHookToken extends ParsedWorkflowWebhookToken {
-  readonly kind: HookKind;
-  readonly metadata?: StorageValue;
-}
-
-/** Alias for message-backed hook handles. */
-export type HookCreator<TPayload = unknown> = Hook<TPayload>;
-
-/** Alias for webhook-backed hook handles. */
-export type WebhookCreator<TPayload = unknown> = Webhook<TPayload>;
-
 /** Minimal hook creation surface exposed on the workflow step API. */
-export interface WorkflowStepHookCreateApi {
+export interface StepHookCreateApi {
   /** Creates a message-backed external resume hook. */
   create(options: CreateHookOptions): Hook<StorageValue | undefined>;
   /** Creates a message-backed external resume hook with schema-validated payloads. */

@@ -2,31 +2,31 @@ import { validateStandardSchema, type Schema, type SchemaOutput } from "@temelj/
 
 import type {
   WorkflowDefinition,
-  WorkflowDefinitionConfig,
+  DefinitionConfig,
   WorkflowHandler,
   WorkflowImplementation,
-  WorkflowInputFromSchema,
-  WorkflowRawInputFromSchema,
-  WorkflowStartTarget,
+  InputFromSchema,
+  RawInputFromSchema,
+  StartTarget,
 } from "./types/definition.ts";
+import type { MessageId } from "./types/ids.ts";
 import type {
   SendMessageChannelOptions,
   MessageChannel,
   MessageChannelConfig,
   WaitForMessageChannelOptions,
   WaitForMessageOptions,
-  MessageId,
 } from "./types/message.ts";
 
 /** Defines a durable workflow definition. */
 export function defineWorkflow<TInput = unknown, TOutput = unknown, TRawInput = TInput>(
-  config: WorkflowDefinitionConfig,
+  config: DefinitionConfig,
 ): WorkflowDefinition<TInput, TOutput, TRawInput>;
 
 /** Defines a durable workflow definition. */
 export function defineWorkflow<const TSchema extends Schema, TOutput = unknown>(
-  config: WorkflowDefinitionConfig<TSchema>,
-): WorkflowDefinition<SchemaOutput<TSchema>, TOutput, WorkflowRawInputFromSchema<TSchema, never>>;
+  config: DefinitionConfig<TSchema>,
+): WorkflowDefinition<SchemaOutput<TSchema>, TOutput, RawInputFromSchema<TSchema, never>>;
 
 /** Defines a durable workflow definition. */
 export function defineWorkflow<
@@ -35,67 +35,51 @@ export function defineWorkflow<
   TRawInput = TInput,
   const TSchema extends Schema | undefined = undefined,
 >(
-  config: WorkflowDefinitionConfig<TSchema>,
+  config: DefinitionConfig<TSchema>,
 ): WorkflowDefinition<
-  WorkflowInputFromSchema<TSchema, TInput>,
+  InputFromSchema<TSchema, TInput>,
   TOutput,
-  WorkflowRawInputFromSchema<TSchema, TRawInput>
+  RawInputFromSchema<TSchema, TRawInput>
 > {
-  const summary: WorkflowDefinition<
-    WorkflowInputFromSchema<TSchema, TInput>,
-    TOutput,
-    WorkflowRawInputFromSchema<TSchema, TRawInput>
-  > = { kind: "definition", config, name: config.name };
-
-  if (config.version !== undefined) {
-    Object.assign(summary, { version: config.version } satisfies Partial<
-      WorkflowDefinition<
-        WorkflowInputFromSchema<TSchema, TInput>,
-        TOutput,
-        WorkflowRawInputFromSchema<TSchema, TRawInput>
-      >
-    >);
-  }
-
-  return summary;
+  return {
+    kind: "definition",
+    config,
+    name: config.name,
+    version: config.version,
+  };
 }
 
 /** Creates a workflow definition from a resolved name and optional version. */
-export function defineWorkflowFromName<TInput = unknown, TOutput = unknown, TRawInput = TInput>(
+export function defineFromName<TInput = unknown, TOutput = unknown, TRawInput = TInput>(
   name: string,
   version?: string,
 ): WorkflowDefinition<TInput, TOutput, TRawInput> {
-  const config: WorkflowDefinitionConfig = { name };
-
-  if (version !== undefined) {
-    Object.assign(config, { version } satisfies Partial<WorkflowDefinitionConfig>);
-  }
+  const config: DefinitionConfig = {
+    name,
+    version,
+  };
 
   return defineWorkflow<TInput, TOutput, TRawInput>(config);
 }
 
 /** Returns the durable definition for a workflow definition or implementation. */
-export function defineWorkflowFromTarget<TInput, TOutput, TRawInput>(
-  target: WorkflowStartTarget<TInput, TOutput, TRawInput>,
+export function defineFromTarget<TInput, TOutput, TRawInput>(
+  target: StartTarget<TInput, TOutput, TRawInput>,
 ): WorkflowDefinition<TInput, TOutput, TRawInput> {
   return target.kind === "implementation" ? target.definition : target;
 }
 
 /** Defines an executable workflow implementation from durable workflow config. */
 export function implementWorkflow<TInput = unknown, TOutput = unknown, TRawInput = TInput>(
-  config: WorkflowDefinitionConfig,
+  config: DefinitionConfig,
   handler: WorkflowHandler<TInput, TOutput>,
 ): WorkflowImplementation<TInput, TOutput, TRawInput>;
 
 /** Defines an executable workflow implementation from durable workflow config. */
 export function implementWorkflow<const TSchema extends Schema, TOutput = unknown>(
-  config: WorkflowDefinitionConfig<TSchema>,
+  config: DefinitionConfig<TSchema>,
   handler: WorkflowHandler<SchemaOutput<TSchema>, TOutput>,
-): WorkflowImplementation<
-  SchemaOutput<TSchema>,
-  TOutput,
-  WorkflowRawInputFromSchema<TSchema, never>
->;
+): WorkflowImplementation<SchemaOutput<TSchema>, TOutput, RawInputFromSchema<TSchema, never>>;
 
 /** Defines an executable workflow implementation from durable workflow config. */
 export function implementWorkflow<
@@ -104,61 +88,32 @@ export function implementWorkflow<
   TRawInput = TInput,
   const TSchema extends Schema | undefined = undefined,
 >(
-  config: WorkflowDefinitionConfig<TSchema>,
-  handler: WorkflowHandler<WorkflowInputFromSchema<TSchema, TInput>, TOutput>,
+  config: DefinitionConfig<TSchema>,
+  handler: WorkflowHandler<InputFromSchema<TSchema, TInput>, TOutput>,
 ): WorkflowImplementation<
-  WorkflowInputFromSchema<TSchema, TInput>,
+  InputFromSchema<TSchema, TInput>,
   TOutput,
-  WorkflowRawInputFromSchema<TSchema, TRawInput>
+  RawInputFromSchema<TSchema, TRawInput>
 > {
   const definition: WorkflowDefinition<
-    WorkflowInputFromSchema<TSchema, TInput>,
+    InputFromSchema<TSchema, TInput>,
     TOutput,
-    WorkflowRawInputFromSchema<TSchema, TRawInput>
-  > = { kind: "definition", config, name: config.name };
+    RawInputFromSchema<TSchema, TRawInput>
+  > = {
+    kind: "definition",
+    config,
+    name: config.name,
+    version: config.version,
+  };
 
-  if (config.version !== undefined) {
-    Object.assign(definition, { version: config.version } satisfies Partial<
-      WorkflowDefinition<
-        WorkflowInputFromSchema<TSchema, TInput>,
-        TOutput,
-        WorkflowRawInputFromSchema<TSchema, TRawInput>
-      >
-    >);
-  }
-
-  const result = {
+  return {
     kind: "implementation",
     definition,
     config: definition.config,
     name: definition.name,
-  } satisfies Partial<
-    WorkflowImplementation<
-      WorkflowInputFromSchema<TSchema, TInput>,
-      TOutput,
-      WorkflowRawInputFromSchema<TSchema, TRawInput>
-    >
-  >;
-
-  if (definition.version !== undefined) {
-    Object.assign(result, { version: definition.version } satisfies Partial<
-      WorkflowImplementation<
-        WorkflowInputFromSchema<TSchema, TInput>,
-        TOutput,
-        WorkflowRawInputFromSchema<TSchema, TRawInput>
-      >
-    >);
-  }
-
-  const result1 = Object.assign(result, { handler } satisfies Partial<
-    WorkflowImplementation<
-      WorkflowInputFromSchema<TSchema, TInput>,
-      TOutput,
-      WorkflowRawInputFromSchema<TSchema, TRawInput>
-    >
-  >);
-
-  return result1;
+    version: definition.version,
+    handler,
+  };
 }
 
 /** Defines a message channel whose schema validates incoming payloads. */
@@ -185,43 +140,22 @@ export async function resolveMessageChannelSend<TPayload, TRawPayload>(
   const payload = options.payload;
   await validateStandardSchema(channel.schema, payload, "Workflow message validation failed");
 
-  const result: ResolvedMessageChannelSend<TRawPayload> = {
+  return {
     messageId: channel.name,
+    payload,
+    idempotencyKey: options.idempotencyKey,
   };
-
-  if (payload !== undefined) {
-    Object.assign(result, { payload } satisfies Partial<ResolvedMessageChannelSend<TRawPayload>>);
-  }
-
-  if (options.idempotencyKey !== undefined) {
-    Object.assign(result, { idempotencyKey: options.idempotencyKey } satisfies Partial<
-      ResolvedMessageChannelSend<TRawPayload>
-    >);
-  }
-
-  return result;
 }
 
-/** Normalizes and parses workflow message channel wait. */
 export function resolveMessageChannelWait<TPayload>(
   channel: MessageChannel<TPayload, unknown>,
   options: WaitForMessageChannelOptions = {},
 ): WaitForMessageOptions<Schema<unknown, TPayload>> {
-  const result = {
+  return {
     commandId: options.commandId ?? options.name ?? channel.name,
     name: options.name ?? channel.name,
     messageId: channel.name,
-  } satisfies Partial<WaitForMessageOptions<Schema<unknown, TPayload>>>;
-
-  if (options.timeout !== undefined) {
-    Object.assign(result, { timeout: options.timeout } satisfies Partial<
-      WaitForMessageOptions<Schema<unknown, TPayload>>
-    >);
-  }
-
-  const result1 = Object.assign(result, { schema: channel.schema } satisfies Partial<
-    WaitForMessageOptions<Schema<unknown, TPayload>>
-  >);
-
-  return result1;
+    timeout: options.timeout,
+    schema: channel.schema,
+  };
 }

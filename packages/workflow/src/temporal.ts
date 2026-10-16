@@ -6,7 +6,7 @@ export function durationTotal(value: Temporal.Duration): number {
 }
 
 /** Returns a non-negative millisecond duration between two instants. */
-export function durationBetweenMilliseconds(from: Temporal.Instant, to: Temporal.Instant): number {
+function durationBetweenMilliseconds(from: Temporal.Instant, to: Temporal.Instant): number {
   return Math.max(0, to.epochMilliseconds - from.epochMilliseconds);
 }
 
@@ -77,8 +77,8 @@ export function matchesOptionalDurationRange(
   }
 
   const current = value.total({ unit: "millisecond" });
-  const lower = from === undefined ? undefined : from.total({ unit: "millisecond" });
-  const upper = to === undefined ? undefined : to.total({ unit: "millisecond" });
+  const lower = from?.total({ unit: "millisecond" });
+  const upper = to?.total({ unit: "millisecond" });
 
   return (lower === undefined || current >= lower) && (upper === undefined || current <= upper);
 }
@@ -103,7 +103,6 @@ export function compareOptionalTimestamps(
   return 0;
 }
 
-/** Returns the earlier of two optional timestamps. */
 export function earliestOptionalTimestamp(
   current: Temporal.Instant | undefined,
   next: Temporal.Instant | undefined,
@@ -119,7 +118,6 @@ export function earliestOptionalTimestamp(
   return Temporal.Instant.compare(next, current) < 0 ? next : current;
 }
 
-/** Returns the later of two optional timestamps. */
 export function latestOptionalTimestamp(
   current: Temporal.Instant | undefined,
   next: Temporal.Instant | undefined,
@@ -133,14 +131,4 @@ export function latestOptionalTimestamp(
   }
 
   return Temporal.Instant.compare(next, current) > 0 ? next : current;
-}
-
-/** Returns whether `next` should replace `current` as the earliest defined instant. */
-export function shouldReplaceWorkflowEarliestDefinedInstant(
-  current: Temporal.Instant | undefined,
-  next: Temporal.Instant | undefined,
-): boolean {
-  return (
-    next !== undefined && (current === undefined || Temporal.Instant.compare(next, current) < 0)
-  );
 }
