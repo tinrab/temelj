@@ -28,7 +28,11 @@ export interface InlineMatch {
   readonly node: InlineSyntax;
 }
 
-export function convertOutput(input: InlineInput, output: readonly Output[]): InlineSyntax[] {
+export function convertOutput(
+  input: InlineInput,
+  output: readonly Output[],
+  target: InlineSyntax[] = [],
+): InlineSyntax[] {
   return mergeText(
     output.map((entry) =>
       isDelimiter(entry)
@@ -37,6 +41,7 @@ export function convertOutput(input: InlineInput, output: readonly Output[]): In
           ? bracketText(input, entry)
           : entry,
     ),
+    target,
   );
 }
 
@@ -113,9 +118,10 @@ export function markerRunEnd(value: SourceText, start: number, marker: string): 
   return end;
 }
 
-export function mergeText(nodes: readonly InlineSyntax[]): InlineSyntax[] {
-  const merged: InlineSyntax[] = [];
-
+export function mergeText(
+  nodes: readonly InlineSyntax[],
+  merged: InlineSyntax[] = [],
+): InlineSyntax[] {
   for (const node of nodes) {
     const previous = merged.at(-1);
 

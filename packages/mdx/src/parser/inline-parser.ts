@@ -3,12 +3,7 @@ import type { ResolvedSyntaxOptions } from "../syntax-options.ts";
 import type { InlineInput } from "./inline-input.ts";
 import type { Bracket, Delimiter, InlineMatch, Output } from "./inline-output.ts";
 import type { PendingCandidate } from "./inline-pending.ts";
-import type {
-  InlineParseResult,
-  InlineResume,
-  InlineSyntax,
-  InvalidInlineSyntax,
-} from "./inline-syntax.ts";
+import type { InlineParseResult, InlineSyntax, InvalidInlineSyntax } from "./inline-syntax.ts";
 
 import { isAsciiPunctuation } from "./characters.ts";
 import { matchLiteralAutolink } from "./inline-autolink.ts";
@@ -22,73 +17,65 @@ import { dollarMath, dollarUnclosed, texMath } from "./inline-math.ts";
 import { convertOutput, markerRunEnd, textNode } from "./inline-output.ts";
 import { pendingInline } from "./inline-pending.ts";
 
-/** The parser state at a safe point, behind the opaque `InlineResume` type. */
+/** Private arrays retained before the suffix that future input can still change. */
 interface ResumeState {
   readonly offset: number;
   readonly textStart: number;
-  readonly prefix: SourceText;
   /** The input the state came from. */
   readonly input: InlineInput;
   /**
-   * The parse's own output and delimiter arrays with their lengths at the safe
+   * The parse's own output array with its length at the safe
    * point. Entries before a safe point never change, so the next parse takes
    * the arrays over and truncates them instead of copying.
    */
   readonly output: Output[];
   readonly outputLength: number;
-  readonly delimiters: Delimiter[];
-  readonly delimitersLength: number;
   readonly invalid: readonly InvalidInlineSyntax[];
   /** `output` as nodes, which resumed parses extend in place to keep node identities. */
   readonly nodes: InlineSyntax[];
   readonly nodesLength: number;
+  readonly lastNode: InlineSyntax | undefined;
 }
 
 interface SafePoint {
   readonly offset: number;
   readonly textStart: number;
   readonly output: number;
-  readonly delimiters: number;
   readonly invalid: number;
 }
 
-const resumeStates = new WeakMap<InlineResume, ResumeState>();
+/** A paragraph owns its continuation; edits start a new parse. */
+export class InlineParser {
+  readonly #syntax: ResolvedSyntaxOptions;
+  #state: ResumeState | undefined;
 
-type InlineParseOptions =
-  | Readonly<{ mode: "complete" }>
-  | Readonly<{ mode: "preview"; resume?: InlineResume }>;
+  public constructor(syntax: ResolvedSyntaxOptions) {
+    this.#syntax = syntax;
+  }
 
-/**
- * Direct inline parser with one output sequence and one delimiter stack.
- * Closers resolve as they arrive, so at a line start with no open delimiter,
- * bracket, or unfinished construct, the output so far is final. The result
- * keeps the last such safe point; passing it back parses only the text after
- * it, when the input still starts with the same text.
- */
-export function parseInline(
-  input: InlineInput,
-  syntax: ResolvedSyntaxOptions,
-  options: InlineParseOptions = { mode: "complete" },
-): InlineParseResult {
-  const value = input.text();
-  const resume = options.mode === "preview" ? options.resume : undefined;
-  const saved = resume === undefined ? undefined : resumeStates.get(resume);
+  public parse(input: InlineInput): InlineParseResult {
+    const state = this.#state;
+    const resumed = state !== undefined && input.extends(state.input) ? state : undefined;
+    const scan = new InlineScan(input, this.#syntax, resumed, true);
+    const parsed = scan.run();
+    this.#state = scan.state;
 
-  // An input built by extending the saved one shares its text, so only other inputs are compared.
-  const resumed =
-    saved !== undefined &&
-    (input.extends(saved.input) || value.startsWith(saved.prefix.slice(0, saved.offset)))
-      ? saved
-      : undefined;
-
-  const scan = new InlineScan(input, value, syntax, resumed, options.mode === "preview");
-  scan.run();
-
-  return scan.result(resume);
+    return parsed;
+  }
 }
+
+/** Complete input uses the same grammar without retaining preview state. */
+export function parseInline(input: InlineInput, syntax: ResolvedSyntaxOptions): InlineParseResult {
+  return new InlineScan(input, syntax, undefined, false).run();
+}
+
+const inlineMarkers = /[\\\r\n \t![\]`&{<_*~:$hHwW]/gu;
+
+const emailMarkers = /[\\\r\n \t![\]`&{<_*~:$A-Za-z\d.+-]/gu;
 
 /** One inline parse: the output sequence, the delimiter and bracket stacks, and the cursor. */
 class InlineScan {
+  public state: ResumeState | undefined;
   readonly #input: InlineInput;
   readonly #value: SourceText;
   readonly #syntax: ResolvedSyntaxOptions;
@@ -96,7 +83,7 @@ class InlineScan {
   readonly #preview: boolean;
   readonly #emailAutolinks: boolean;
   readonly #output: Output[];
-  readonly #delimiters: Delimiter[];
+  readonly #delimiters: Delimiter[] = [];
   readonly #brackets: Bracket[] = [];
   readonly #invalid: InvalidInlineSyntax[];
   #openEmbedded: PendingCandidate | undefined;
@@ -108,34 +95,37 @@ class InlineScan {
 
   public constructor(
     input: InlineInput,
-    value: SourceText,
     syntax: ResolvedSyntaxOptions,
     resumed: ResumeState | undefined,
     preview: boolean,
   ) {
+    const value = input.text();
     this.#input = input;
     this.#value = value;
     this.#syntax = syntax;
     this.#resumed = resumed;
     this.#preview = preview;
     this.#output = resumed === undefined ? [] : resumed.output;
-    this.#delimiters = resumed === undefined ? [] : resumed.delimiters;
     this.#output.length = resumed?.outputLength ?? 0;
-    this.#delimiters.length = resumed?.delimitersLength ?? 0;
     this.#invalid = resumed === undefined ? [] : [...resumed.invalid];
     this.#textStart = resumed?.textStart ?? 0;
     this.#offset = resumed?.offset ?? 0;
     this.#emailAutolinks = value.indexOf("@", this.#offset) !== -1;
   }
 
-  public run(): void {
+  public run(): InlineParseResult {
     while (this.#offset < this.#value.length) {
+      const character = this.#value.char(this.#offset) ?? "";
+
       if (this.#preview) {
-        this.recordSafePoint();
+        this.recordSafePoint(character);
       }
 
-      if (!this.scanConstruct(this.#value.char(this.#offset) ?? "")) {
-        this.#offset++;
+      if (!this.scanConstruct(character)) {
+        this.#offset = this.#value.findCharacter(
+          this.#emailAutolinks ? emailMarkers : inlineMarkers,
+          this.#offset + 1,
+        );
       }
     }
 
@@ -145,16 +135,17 @@ class InlineScan {
     }
 
     this.flushText(this.#value.length);
+
+    return this.result();
   }
 
-  public result(resume: InlineResume | undefined): InlineParseResult {
+  private result(): InlineParseResult {
     const input = this.#input;
     const output = this.#output;
     const resumed = this.#resumed;
     const resumedLength = resumed?.outputLength ?? 0;
-    const safe = this.#safe;
 
-    const pending = this.#preview
+    const unsettled = this.#preview
       ? pendingInline(
           input,
           this.#value,
@@ -163,70 +154,69 @@ class InlineScan {
           this.#syntax,
           resumed?.offset ?? 0,
           resumedLength,
+          this.#safe?.offset,
         )
       : undefined;
 
-    let nodes: InlineSyntax[];
-    let stateNodes: InlineSyntax[] | undefined;
-    let stateLength = 0;
+    const pending = unsettled?.pending;
+    let safe = this.#safe;
 
-    if (resumed === undefined) {
-      nodes = convertOutput(input, output);
+    // Raw pending syntax can start inside a construct consumed by the grammar.
+    // Keep that candidate in the retry region rather than skipping it next time.
+    if (safe !== undefined && unsettled !== undefined && unsettled.earliest < safe.offset) {
+      safe = undefined;
+    }
 
-      if (safe !== undefined) {
-        stateNodes = convertOutput(input, output.slice(0, safe.output));
-        stateLength = stateNodes.length;
-      }
-    } else {
-      // A resumed parse extends the chain's node array in place. Text is not merged across safe
-      // points, so every node before the last one keeps its identity for later parses.
-      nodes = resumed.nodes;
+    const nodes = resumed?.nodes ?? [];
+    let changedFrom = resumed?.nodesLength ?? 0;
+
+    if (resumed !== undefined) {
       nodes.length = resumed.nodesLength;
-      const end = safe?.output ?? resumedLength;
-      nodes.push(...convertOutput(input, output.slice(resumedLength, end)));
-      stateNodes = nodes;
-      stateLength = nodes.length;
-      nodes.push(...convertOutput(input, output.slice(end)));
+
+      if (resumed.lastNode !== undefined) {
+        nodes[nodes.length - 1] = resumed.lastNode;
+
+        if (resumed.lastNode.kind === "text") {
+          changedFrom--;
+        }
+      }
     }
 
-    let next = resume;
+    const end = safe?.output ?? resumedLength;
 
-    if (safe !== undefined && stateNodes !== undefined) {
-      const state: ResumeState = {
-        offset: safe.offset,
-        textStart: safe.textStart,
-        prefix: this.#value,
-        input,
-        output,
-        outputLength: safe.output,
-        delimiters: this.#delimiters,
-        delimitersLength: safe.delimiters,
-        invalid: this.#invalid.slice(0, safe.invalid),
-        nodes: stateNodes,
-        nodesLength: stateLength,
-      };
-
-      next = Object.freeze({});
-      resumeStates.set(next, state);
+    if (end > resumedLength) {
+      convertOutput(input, output.slice(resumedLength, end), nodes);
     }
 
-    return {
-      nodes,
-      invalid: this.#invalid,
-      pending,
-      resume: next,
-    };
+    this.state =
+      safe === undefined
+        ? resumed
+        : {
+            offset: safe.offset,
+            textStart: safe.textStart,
+            input,
+            output,
+            outputLength: safe.output,
+            invalid: this.#invalid.slice(0, safe.invalid),
+            nodes,
+            nodesLength: nodes.length,
+            lastNode: nodes.at(-1),
+          };
+
+    convertOutput(input, end === 0 ? output : output.slice(end), nodes);
+
+    return { nodes, invalid: this.#invalid, pending, changedFrom };
   }
 
   /** Consumes the construct at the cursor, in CommonMark precedence order. */
   private scanConstruct(character: string): boolean {
     switch (character) {
       case ":":
-        return this.scanDirective(character);
+        return this.scanDirective();
       case "\\":
-        return this.scanTexMath(character) || this.scanBackslash(character);
+        return this.scanTexMath() || this.scanBackslash();
       case "$":
-        return this.scanDollarMath(character);
+        return this.scanDollarMath();
       case "\n":
       case "\r":
         return this.scanSpaceBreak(character);
@@ -234,15 +224,15 @@ class InlineScan {
       case "[":
         return this.scanOpenBracket(character);
       case "]":
-        return this.scanCloseBracket(character);
+        return this.scanCloseBracket();
       case "`":
-        return this.scanCodeSpan(character);
+        return this.scanCodeSpan();
       case "&":
-        return this.scanCharacterReference(character);
+        return this.scanCharacterReference();
       case "{":
-        return this.scanExpression(character);
+        return this.scanExpression();
       case "<":
-        return this.scanAngle(character);
+        return this.scanAngle();
       case "_":
         return this.scanAutolink(character) || this.scanDelimiterRun(character);
       case "*":
@@ -253,31 +243,31 @@ class InlineScan {
     }
   }
 
-  /**
-   * Closers resolve as they arrive, so at a line start with no open delimiter,
-   * bracket, or unfinished construct, the output so far is final.
-   */
-  private recordSafePoint(): void {
+  /** Known whitespace ends a token; open constructs keep their earlier retry point. */
+  private recordSafePoint(character?: string): void {
+    const previous = this.#value.char(this.#offset - 1);
+
     if (
       this.#stable &&
       this.#offset > (this.#resumed?.offset ?? 0) &&
-      startsLine(this.#value, this.#offset) &&
+      (character === " " ||
+        character === "\t" ||
+        previous === "\n" ||
+        (previous === "\r" && character !== "\n")) &&
       this.#brackets.length === 0 &&
-      this.#openEmbedded === undefined &&
       !this.#delimiters.some((delimiter) => delimiter.canOpen)
     ) {
       this.#safe = {
         offset: this.#offset,
         textStart: this.#textStart,
         output: this.#output.length,
-        delimiters: this.#delimiters.length,
         invalid: this.#invalid.length,
       };
     }
   }
 
-  private scanDirective(character: string): boolean {
-    if (character !== ":" || !this.#syntax.directives) {
+  private scanDirective(): boolean {
+    if (!this.#syntax.directives) {
       return false;
     }
 
@@ -287,12 +277,8 @@ class InlineScan {
     return directive !== undefined && this.emit(directive);
   }
 
-  private scanTexMath(character: string): boolean {
-    if (
-      character !== "\\" ||
-      this.#value.char(this.#offset + 1) !== "(" ||
-      !this.#syntax.math.includes("tex")
-    ) {
+  private scanTexMath(): boolean {
+    if (this.#value.char(this.#offset + 1) !== "(" || !this.#syntax.math.includes("tex")) {
       return false;
     }
 
@@ -302,8 +288,8 @@ class InlineScan {
     return math !== undefined && this.emit(math);
   }
 
-  private scanDollarMath(character: string): boolean {
-    if (character !== "$" || !this.#syntax.math.includes("dollar")) {
+  private scanDollarMath(): boolean {
+    if (!this.#syntax.math.includes("dollar")) {
       return false;
     }
 
@@ -314,11 +300,7 @@ class InlineScan {
   }
 
   /** Two or more spaces before a line ending make a hard break. */
-  private scanSpaceBreak(character: string): boolean {
-    if (character !== "\n" && character !== "\r") {
-      return false;
-    }
-
+  private scanSpaceBreak(character: "\n" | "\r"): boolean {
     const value = this.#value;
     let spaces = this.#offset;
 
@@ -344,13 +326,7 @@ class InlineScan {
 
   private scanAutolink(character: string): boolean {
     // Without an @, only HTTP and www prefixes can start a literal link.
-    if (
-      !this.#emailAutolinks &&
-      character !== "h" &&
-      character !== "H" &&
-      character !== "w" &&
-      character !== "W"
-    ) {
+    if (!this.#emailAutolinks && !"hHwW".includes(character)) {
       return false;
     }
 
@@ -359,7 +335,7 @@ class InlineScan {
     return autolink !== undefined && this.emit(autolink);
   }
 
-  private scanOpenBracket(character: string): boolean {
+  private scanOpenBracket(character: "!" | "["): boolean {
     const image = character === "!" && this.#value.char(this.#offset + 1) === "[";
 
     if (character !== "[" && !image) {
@@ -374,8 +350,8 @@ class InlineScan {
     return this.advance(this.#offset + (image ? 2 : 1));
   }
 
-  private scanCloseBracket(character: string): boolean {
-    const bracket = character === "]" ? this.#brackets.at(-1) : undefined;
+  private scanCloseBracket(): boolean {
+    const bracket = this.#brackets.at(-1);
 
     if (bracket === undefined) {
       return false;
@@ -414,11 +390,7 @@ class InlineScan {
   }
 
   /** A backslash before a line ending is a hard break; before punctuation, an escape. */
-  private scanBackslash(character: string): boolean {
-    if (character !== "\\") {
-      return false;
-    }
-
+  private scanBackslash(): boolean {
     const next = this.#value.char(this.#offset + 1);
 
     if (next === "\n" || next === "\r") {
@@ -444,30 +416,21 @@ class InlineScan {
     return this.advance(this.#offset + 2);
   }
 
-  private scanCodeSpan(character: string): boolean {
-    if (character !== "`") {
-      return false;
-    }
-
+  private scanCodeSpan(): boolean {
     const code = codeSpan(this.#input, this.#value, this.#offset);
     this.#stable &&= code !== undefined;
 
     return code !== undefined && this.emit(code);
   }
 
-  private scanCharacterReference(character: string): boolean {
-    if (character !== "&") {
-      return false;
-    }
-
+  private scanCharacterReference(): boolean {
     const reference = characterReference(this.#input, this.#value, this.#offset);
 
     return reference !== undefined && this.emit(reference);
   }
 
-  private scanExpression(character: string): boolean {
-    const expression =
-      character === "{" ? expressionNode(this.#input, this.#value, this.#offset) : undefined;
+  private scanExpression(): boolean {
+    const expression = expressionNode(this.#input, this.#value, this.#offset);
 
     if (expression === undefined) {
       return false;
@@ -492,8 +455,8 @@ class InlineScan {
     return this.advance(expression.end);
   }
 
-  private scanAngle(character: string): boolean {
-    const angle = character === "<" ? angleNode(this.#input, this.#value, this.#offset) : undefined;
+  private scanAngle(): boolean {
+    const angle = angleNode(this.#input, this.#value, this.#offset);
 
     if (angle === undefined) {
       return false;
@@ -516,11 +479,7 @@ class InlineScan {
     return this.advance(angle.end);
   }
 
-  private scanDelimiterRun(character: string): boolean {
-    if (character !== "*" && character !== "_" && character !== "~") {
-      return false;
-    }
-
+  private scanDelimiterRun(character: "*" | "_" | "~"): boolean {
     const runEnd = markerRunEnd(this.#value, this.#offset, character);
 
     if (character === "~" && runEnd - this.#offset < (this.#syntax.singleTilde ? 1 : 2)) {
@@ -558,11 +517,4 @@ class InlineScan {
 
     this.#textStart = end;
   }
-}
-
-/** Text that a line ending precedes. */
-function startsLine(value: SourceText, offset: number): boolean {
-  const previous = value.char(offset - 1);
-
-  return previous === "\n" || (previous === "\r" && value.char(offset) !== "\n");
 }

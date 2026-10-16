@@ -6,21 +6,17 @@ import type { InlinePendingSyntax } from "./inline-syntax.ts";
 
 import { isUnicodeWhitespace } from "./characters.ts";
 import { codeSpan } from "./inline-code.ts";
-import {
-  bracketText,
-  delimiterText,
-  isBracket,
-  isDelimiter,
-  markerRunEnd,
-  mergeText,
-  textNode,
-} from "./inline-output.ts";
-
-// The construct still open at the end of a stream's input.
+import { convertOutput, isDelimiter, markerRunEnd, textNode } from "./inline-output.ts";
 
 export interface PendingCandidate {
   readonly start: number;
   readonly pending: InlinePendingSyntax;
+}
+
+export interface PendingInlineResult {
+  readonly pending: InlinePendingSyntax | undefined;
+  /** Earliest raw syntax future input can change; the input length means none remains. */
+  readonly earliest: number;
 }
 
 /**
@@ -36,8 +32,10 @@ export function pendingInline(
   syntax: ResolvedSyntaxOptions,
   from: number,
   fromOutput: number,
-): InlinePendingSyntax | undefined {
+  checkpoint: number | undefined,
+): PendingInlineResult {
   const candidates: PendingCandidate[] = openEmbedded === undefined ? [] : [openEmbedded];
+  let earliest = value.length;
 
   for (let index = output.length - 1; index >= fromOutput; index--) {
     const opener = output[index];
@@ -59,41 +57,31 @@ export function pendingInline(
       continue;
     }
 
-    const children = output
-      .slice(index + 1)
-      .map((entry) =>
-        isDelimiter(entry)
-          ? delimiterText(input, entry)
-          : isBracket(entry)
-            ? bracketText(input, entry)
-            : entry,
-      );
-
     candidates.push({
       start: opener.start,
       pending: {
         kind,
         range: input.sourceRange(opener.start, input.length),
-        children: mergeText(children),
+        children: convertOutput(input, output.slice(index + 1)),
       },
     });
     break;
   }
 
-  for (let offset = from; offset < value.length;) {
-    if (value.char(offset) !== "`") {
-      offset++;
-      continue;
-    }
-
+  for (let offset = value.indexOf("`", from); offset !== -1;) {
     const matched = codeSpan(input, value, offset);
 
     if (matched !== undefined) {
-      offset = matched.end;
+      if (checkpoint !== undefined && offset < checkpoint && matched.end > checkpoint) {
+        earliest = Math.min(earliest, offset);
+      }
+
+      offset = value.indexOf("`", matched.end);
       continue;
     }
 
     const openingEnd = markerRunEnd(value, offset, "`");
+    earliest = Math.min(earliest, offset);
 
     if (openingEnd < value.length) {
       candidates.push({
@@ -109,7 +97,15 @@ export function pendingInline(
     break;
   }
 
-  const pendingLink = /(!?)\[([^\]]+)\]\(([^)]*)$/u.exec(value.slice(from));
+  const suffix = value.slice(from);
+  // Escaped brackets and brackets inside code still participate in raw pending syntax.
+  const label = /!?\[[^\]]*\]?$/u.exec(suffix);
+
+  if (label !== null) {
+    earliest = Math.min(earliest, from + label.index);
+  }
+
+  const pendingLink = /(!?)\[([^\]]+)\]\(([^)]*)$/u.exec(suffix);
 
   if (pendingLink !== null) {
     const start = from + pendingLink.index;
@@ -166,5 +162,10 @@ export function pendingInline(
     }
   }
 
-  return candidates.sort((left, right) => right.start - left.start)[0]?.pending;
+  candidates.sort((left, right) => right.start - left.start);
+
+  return {
+    pending: candidates[0]?.pending,
+    earliest: Math.min(earliest, candidates.at(-1)?.start ?? value.length),
+  };
 }

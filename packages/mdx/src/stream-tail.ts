@@ -4,17 +4,21 @@ import type { JsxAttributeLike, MdxNode, PhrasingContent, SourceRange } from "./
 import type { BlockSyntax, PendingBlockSyntax } from "./parser/block-syntax.ts";
 import type { ResolvedParserLimits } from "./parser/config.ts";
 import type { CommittedJsxOpening } from "./parser/embedded-scanner.ts";
-import type { InlinePendingSyntax, InlineResume, InlineSyntax } from "./parser/inline-syntax.ts";
+import type { InlinePendingSyntax, InlineSyntax } from "./parser/inline-syntax.ts";
 import type { PhrasingCache } from "./parser/materialize.ts";
 import type { SourceFile } from "./source.ts";
 import type { ResolvedSyntaxOptions } from "./syntax-options.ts";
 
 import { footnoteReferences } from "./html-lower.ts";
 import { parseFlowRange } from "./parser/block-parser.ts";
-import { InlineInput } from "./parser/inline-input.ts";
-import { parseInline } from "./parser/inline-parser.ts";
+import { InlineInput, type InlineSegment } from "./parser/inline-input.ts";
+import { InlineParser } from "./parser/inline-parser.ts";
 import { isFlowJsxChildren } from "./parser/materialize-jsx.ts";
-import { materializeDocument, materializePhrasing } from "./parser/materialize.ts";
+import {
+  materializeDocument,
+  materializePhrasing,
+  materializePhrasingGroups,
+} from "./parser/materialize.ts";
 import { sourceText } from "./source.ts";
 
 /** Lowers MDX siblings in the scope of the block that contains the open leaf. */
@@ -35,8 +39,7 @@ export interface OpenLeafContext {
 
 /** One inline node of the open paragraph with its materialized and lowered output. */
 interface InlineGroup {
-  readonly inline: InlineSyntax;
-  readonly nodes: readonly PhrasingContent[];
+  readonly node: PhrasingContent | undefined;
   /** Totals through this group, so a reused prefix needs no new pass. */
   readonly htmlEnd: number;
   readonly nodeEnd: number;
@@ -55,7 +58,7 @@ export class OpenParagraph {
   #start = -1;
   #lowering: HtmlLoweringCache | undefined;
   #input: InlineInput | undefined;
-  #resume: InlineResume | undefined;
+  #parser: InlineParser | undefined;
   readonly #groups: InlineGroup[] = [];
   readonly #children: HtmlNode[] = [];
   /** Fragments of full chunks of `#children`, reused while their nodes are unchanged. */
@@ -68,7 +71,6 @@ export class OpenParagraph {
     if (this.#start !== start) {
       this.#start = start;
       this.#input = undefined;
-      this.#resume = undefined;
       this.truncate(0);
     }
 
@@ -78,38 +80,29 @@ export class OpenParagraph {
     }
   }
 
-  public get input(): InlineInput | undefined {
-    return this.#input;
-  }
+  public parse(
+    file: SourceFile,
+    segments: readonly InlineSegment[],
+    syntax: ResolvedSyntaxOptions,
+  ): ReturnType<InlineParser["parse"]> {
+    this.#parser ??= new InlineParser(syntax);
+    this.#input = new InlineInput(file, segments, this.#input);
 
-  public get resume(): InlineResume | undefined {
-    return this.#resume;
+    return this.#parser.parse(this.#input);
   }
 
   /** The last materialized node, which decides how text after a hard break renders. */
   public get lastNode(): PhrasingContent | undefined {
-    return this.#groups.at(-1)?.nodes.at(-1);
+    return this.#groups.at(-1)?.node;
   }
 
-  /** Leading groups whose inline node kept its identity. */
-  public reusable(nodes: readonly InlineSyntax[]): number {
+  /** The unchanged prefix, capped where footnote numbering must be refreshed. */
+  public reusable(changedFrom: number): number {
     const groups = this.#groups;
-    // Identity is a prefix property: nodes after a changed one are new objects.
-    let low = 0;
-    let high = Math.min(groups.length, nodes.length, this.#numbered);
-
-    while (low < high) {
-      const middle = (low + high + 1) >> 1;
-
-      if (groups[middle - 1].inline === nodes[middle - 1]) {
-        low = middle;
-      } else {
-        high = middle - 1;
-      }
-    }
+    let low = Math.min(groups.length, changedFrom, this.#numbered);
 
     // The group after a reused hard break must render again with that context.
-    while (low > 0 && groups[low - 1].nodes.at(-1)?.kind === "hardBreak") {
+    while (low > 0 && groups[low - 1].node?.kind === "hardBreak") {
       low--;
     }
 
@@ -134,23 +127,17 @@ export class OpenParagraph {
   }
 
   public push(
-    inline: InlineSyntax,
-    nodes: readonly PhrasingContent[],
+    node: PhrasingContent | undefined,
     html: readonly HtmlNode[],
     nodeEnd: number,
     numbered: boolean,
   ): void {
     this.#children.push(...html);
-    this.#groups.push({ inline, nodes, htmlEnd: this.#children.length, nodeEnd });
+    this.#groups.push({ node, htmlEnd: this.#children.length, nodeEnd });
 
     if (numbered) {
       this.#numbered = Math.min(this.#numbered, this.#groups.length - 1);
     }
-  }
-
-  public update(input: InlineInput, resume: InlineResume | undefined): void {
-    this.#input = input;
-    this.#resume = resume;
   }
 
   /**
@@ -268,13 +255,13 @@ function openParagraph(
 ): OpenLeafHtml {
   const cache = context.paragraph;
   cache.open(pending.range.start, context.lowering);
-  const input = new InlineInput(context.file, pending.input, cache.input);
-  const parsed = parseInline(input, context.syntax, { mode: "preview", resume: cache.resume });
+  const parsed = cache.parse(context.file, pending.input, context.syntax);
   const open = parsed.pending;
   const boundary = open?.range.start ?? Infinity;
   const nodes = parsed.nodes;
-  const reused = cache.reusable(nodes);
+  const reused = cache.reusable(parsed.changedFrom);
   let nodeCount = cache.truncate(reused);
+  const changed: InlineSyntax[] = [];
 
   for (let index = reused; index < nodes.length; index++) {
     const node = nodes[index];
@@ -295,26 +282,28 @@ function openParagraph(
         ? node
         : { kind: "text", value: context.file.semanticSlice(range), range };
 
-    const materialized = materializePhrasing(
-      context.file,
-      [inline],
-      context.syntax,
-      context.limits,
-      context.phrasing,
-    );
+    changed.push(inline);
+  }
 
+  const groups = materializePhrasingGroups(
+    context.file,
+    changed,
+    context.syntax,
+    context.limits,
+    context.phrasing,
+  );
+
+  for (const materialized of groups) {
     nodeCount += materialized.nodeCount;
 
     cache.push(
-      inline,
-      materialized.nodes,
+      materialized.nodes.at(-1),
       lower(materialized.nodes, cache.lastNode),
       nodeCount,
       materialized.nodes.some((child) => footnoteReferences(child).length > 0),
     );
   }
 
-  cache.update(input, parsed.resume);
   const children = cache.children();
 
   if (open !== undefined) {

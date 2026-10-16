@@ -196,14 +196,13 @@ export type PhrasingCache = WeakMap<InlineSyntax, MaterializedPhrasing>;
 
 /**
  * Materializes parsed inline syntax that a stream renders outside a block,
- * keeping references. Nodes found in `cache` keep their identity.
+ * keeping references.
  */
 export function materializePhrasing(
   file: SourceFile,
   nodes: readonly InlineSyntax[],
   syntax: ResolvedSyntaxOptions,
   limits: ResolvedParserLimits,
-  cache?: PhrasingCache,
 ): MaterializedPhrasing {
   const context = createContext(file, syntax, limits, {
     keepReferences: true,
@@ -211,29 +210,55 @@ export function materializePhrasing(
   });
 
   const children: PhrasingContent[] = [];
-  let nodeCount = 0;
 
   for (const node of nodes) {
-    let materialized = cache?.get(node);
+    const child = materializeInlineNode(node, context);
 
-    if (materialized === undefined) {
-      const before = context.nodes;
-      const child = materializeInlineNode(node, context);
-      materialized = {
-        nodes: child === undefined ? [] : [child],
-        nodeCount: context.nodes - before,
-      };
-
-      if (context.limit === undefined && !context.usedEndOfInput) {
-        cache?.set(node, materialized);
-      }
+    if (child !== undefined) {
+      children.push(child);
     }
-
-    children.push(...materialized.nodes);
-    nodeCount += materialized.nodeCount;
   }
 
-  return { nodes: children, nodeCount };
+  return { nodes: children, nodeCount: context.nodes };
+}
+
+/** Independent inline groups share one context while retaining their own node budgets. */
+export function materializePhrasingGroups(
+  file: SourceFile,
+  nodes: readonly InlineSyntax[],
+  syntax: ResolvedSyntaxOptions,
+  limits: ResolvedParserLimits,
+  cache: PhrasingCache,
+): readonly MaterializedPhrasing[] {
+  const context = createContext(file, syntax, limits, {
+    keepReferences: true,
+    allowIncomplete: true,
+  });
+
+  return nodes.map((node) => {
+    const hit = cache.get(node);
+
+    if (hit !== undefined) {
+      return hit;
+    }
+
+    context.nodes = 0;
+    context.limit = undefined;
+    context.usedEndOfInput = false;
+
+    const child = materializeInlineNode(node, context);
+
+    const materialized = {
+      nodes: child === undefined ? [] : [child],
+      nodeCount: context.nodes,
+    };
+
+    if (context.limit === undefined && !context.usedEndOfInput) {
+      cache.set(node, materialized);
+    }
+
+    return materialized;
+  });
 }
 
 /** Only whitespace and at most one line ending follow `offset`. */
@@ -241,12 +266,14 @@ function reachesEndOfInput(file: SourceFile, offset: number): boolean {
   return /^[ \t]*(?:\r\n?|\n)?[ \t]*$/u.test(file.slice({ start: offset, end: file.length }));
 }
 
+const emptyIndexes: DependencyIndexes = { definitions: new Set(), footnotes: new Set() };
+
 function createContext(
   file: SourceFile,
   syntax: ResolvedSyntaxOptions,
   limits: ResolvedParserLimits,
   options: MaterializeOptions,
-  indexes: DependencyIndexes = { definitions: new Set(), footnotes: new Set() },
+  indexes: DependencyIndexes = emptyIndexes,
 ): MaterializeContext {
   return {
     definitions: indexes.definitions,

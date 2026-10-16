@@ -34,6 +34,14 @@ export function formatHtmlElement(
 
 const tagNamePattern = /^[A-Za-z][A-Za-z0-9:-]*$/u;
 
+const attributeNamePattern = /[\0\t\n\f\r "&'/<=>`]/gu;
+
+const unquotedAttributePattern = /[\0\t\n\f\r "&'<=>`]/gu;
+
+const doubleQuotedAttributePattern = /[\0"&]/gu;
+
+const singleQuotedAttributePattern = /[\0'&]/gu;
+
 const HTML_VOID_ELEMENTS: ReadonlySet<string> = new Set([
   "area",
   "base",
@@ -81,13 +89,9 @@ class HtmlFormatter {
       case "doctype":
         return "<!doctype html>";
       case "element":
-        return this.element(
-          node.tagName,
-          node.attributes,
-          node.children.map((child) => this.format(child)).join(""),
-        );
+        return this.element(node.tagName, node.attributes, this.children(node.children));
       case "root":
-        return node.children.map((child) => this.format(child)).join("");
+        return this.children(node.children);
       case "codeBlock":
       case "math":
       case "footnoteReference":
@@ -95,9 +99,7 @@ class HtmlFormatter {
         return this.format(htmlFallback(node));
       case "pending":
       case "unresolvedReference":
-        return pendingFallback(node)
-          .map((child) => this.format(child))
-          .join("");
+        return this.children(pendingFallback(node));
       default: {
         const exhaustive: never = node;
 
@@ -111,12 +113,18 @@ class HtmlFormatter {
       throw InputError.invalidHtmlTagName(tagName);
     }
 
-    const attributes = Object.entries(values)
-      .map(([name, value]) => this.attribute(name, value))
-      .filter((value) => value.length > 0)
-      .join(" ");
+    let opening = `<${tagName}`;
 
-    const opening = `<${tagName}${attributes.length === 0 ? "" : ` ${attributes}`}`;
+    for (const name in values) {
+      if (Object.hasOwn(values, name)) {
+        const attribute = this.attribute(name, values[name]);
+
+        if (attribute.length > 0) {
+          opening += ` ${attribute}`;
+        }
+      }
+    }
+
     const isVoid = this.voids.has(tagName.toLowerCase()) && content.length === 0;
 
     if (isVoid) {
@@ -130,12 +138,22 @@ class HtmlFormatter {
     return `${opening}>${content}</${tagName}>`;
   }
 
+  private children(nodes: readonly HtmlNode[]): string {
+    let content = "";
+
+    for (const node of nodes) {
+      content += this.format(node);
+    }
+
+    return content;
+  }
+
   private attribute(name: string, value: HtmlAttributeValue): string {
     if (value === false || (isNumber(value) && Number.isNaN(value))) {
       return "";
     }
 
-    const encodedName = escapeAttributeName(name);
+    const encodedName = escapeAttribute(name, attributeNamePattern);
 
     if (value === true) {
       return encodedName;
@@ -152,7 +170,7 @@ class HtmlFormatter {
       serialized.length > 0 &&
       !/[\0\t\n\f\r "'`=<>]/u.test(serialized)
     ) {
-      return `${encodedName}=${escapeUnquotedAttribute(serialized)}`;
+      return `${encodedName}=${escapeAttribute(serialized, unquotedAttributePattern)}`;
     }
 
     const preferred = this.options.quote ?? '"';
@@ -164,7 +182,28 @@ class HtmlFormatter {
         ? alternative
         : preferred;
 
-    return `${encodedName}=${quote}${escapeQuotedAttribute(serialized, quote)}${quote}`;
+    const pattern = quote === '"' ? doubleQuotedAttributePattern : singleQuotedAttributePattern;
+
+    return `${encodedName}=${quote}${escapeAttribute(serialized, pattern)}${quote}`;
+  }
+}
+
+/** Internal formatter for immutable nodes owned by one stream. */
+export class CachedHtmlFormatter extends HtmlFormatter {
+  readonly #cache = new WeakMap<HtmlNode, string>();
+
+  public override format(node: HtmlNode): string {
+    const hit = this.#cache.get(node);
+
+    if (hit !== undefined) {
+      return hit;
+    }
+
+    const html = super.format(node);
+
+    this.#cache.set(node, html);
+
+    return html;
   }
 }
 
@@ -177,19 +216,16 @@ function escapeComment(value: string): string {
 }
 
 function escapeHtmlText(value: string): string {
-  return value.replace(/[&<]/gu, (character) => (character === "&" ? "&amp;" : "&lt;"));
+  return /[&<]/u.test(value)
+    ? value.replace(/[&<]/gu, (character) => (character === "&" ? "&amp;" : "&lt;"))
+    : value;
 }
 
-function escapeAttributeName(value: string): string {
-  return value.replace(/[\0\t\n\f\r "&'/<=>`]/gu, encodeCharacterReference);
-}
+function escapeAttribute(value: string, pattern: RegExp): string {
+  // Shared global patterns must start at the beginning for each attribute.
+  pattern.lastIndex = 0;
 
-function escapeUnquotedAttribute(value: string): string {
-  return value.replace(/[\0\t\n\f\r "&'<=>`]/gu, encodeCharacterReference);
-}
-
-function escapeQuotedAttribute(value: string, quote: '"' | "'"): string {
-  return value.replace(quote === '"' ? /[\0"&]/gu : /[\0'&]/gu, encodeCharacterReference);
+  return pattern.test(value) ? value.replace(pattern, encodeCharacterReference) : value;
 }
 
 function encodeCharacterReference(character: string): string {

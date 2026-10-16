@@ -6,6 +6,10 @@ export function isAsciiDigit(value: string | undefined): boolean {
   return value !== undefined && value >= "0" && value <= "9";
 }
 
+export function isAsciiLetter(value: string | undefined): boolean {
+  return value !== undefined && /^[A-Za-z]$/u.test(value);
+}
+
 export function isSpaceOrTab(value: string | undefined): boolean {
   return value === " " || value === "\t";
 }
@@ -59,7 +63,7 @@ export function isUnicodeWhitespace(value: string): boolean {
 }
 
 export function isUnicodePunctuation(value: string): boolean {
-  return isAsciiPunctuation(value) || /^[\p{P}\p{S}]$/u.test(value);
+  return value < "\x80" ? isAsciiPunctuation(value) : /^[\p{P}\p{S}]$/u.test(value);
 }
 
 export interface ConsumedIndent {

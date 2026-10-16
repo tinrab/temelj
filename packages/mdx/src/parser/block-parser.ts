@@ -47,7 +47,7 @@ import {
   tableRow,
   trimLineEndingOffset,
 } from "./block-leaf-recognizers.ts";
-import { consumeIndent, isBlank } from "./characters.ts";
+import { consumeIndent, isAsciiLetter, isBlank, isSpaceOrTab } from "./characters.ts";
 import { ExpressionBoundaryScanner, JsxBoundaryScanner } from "./embedded-scanner.ts";
 import { parseJavaScriptBoundary } from "./javascript-boundary.ts";
 import { matched, noMatch } from "./recognizer.ts";
@@ -182,13 +182,13 @@ export class BlockParser {
     }
 
     const unmatched = matchedContainers < this.#containers.length;
-    const candidate = contentLine(physicalLine, cursor);
+    let line = contentLine(physicalLine, cursor);
     const unmatchedFrame = this.#containers[matchedContainers];
 
     const siblingItem =
-      unmatchedFrame?.kind === "listItem" && isSiblingListItem(source, candidate, unmatchedFrame);
+      unmatchedFrame?.kind === "listItem" && isSiblingListItem(source, line, unmatchedFrame);
 
-    const lazy = unmatched && !siblingItem && this.#leaf.canLazyContinue(source, candidate);
+    const lazy = unmatched && !siblingItem && this.#leaf.canLazyContinue(source, line);
 
     if (lazy) {
       for (let index = matchedContainers; index < this.#containers.length; index++) {
@@ -203,8 +203,6 @@ export class BlockParser {
         this.closeContainers(matchedContainers);
       }
 
-      const line = contentLine(physicalLine, cursor);
-
       if (this.#leaf.hasParagraph) {
         if (opensContainer(source, line, this.#syntax)) {
           this.appendLeafBlocks(this.#leaf.finish());
@@ -215,7 +213,7 @@ export class BlockParser {
       }
     }
 
-    let line = contentLine(physicalLine, cursor);
+    line = contentLine(physicalLine, cursor);
     const task = taskListMarker(source, line, this.#containers, this.#leaf.hasParagraph);
 
     if (task !== undefined) {
@@ -226,7 +224,7 @@ export class BlockParser {
       line = contentLine(physicalLine, task.contentStart);
     }
 
-    if (isBlank(source.slice(line.content.start, line.content.end))) {
+    if (isBlankLine(source, line)) {
       markListBlank(this.#containers);
     } else {
       settleListBlank(this.#containers, lazy ? this.#containers.length : matchedContainers);
@@ -428,7 +426,7 @@ class LeafParser {
   public canLazyContinue(source: SourceText, line: PhysicalLine): boolean {
     return (
       this.#active?.kind === "paragraph" &&
-      !isBlank(source.slice(line.content.start, line.content.end)) &&
+      !isBlankLine(source, line) &&
       !this.interruptsParagraph(source, line) &&
       !opensContainer(source, line, this.#syntax)
     );
@@ -445,7 +443,7 @@ class LeafParser {
       return blocks;
     }
 
-    if (isBlank(source.slice(line.content.start, line.content.end))) {
+    if (isBlankLine(source, line)) {
       return [...blocks, ...this.finish()];
     }
 
@@ -472,7 +470,7 @@ class LeafParser {
 
         return true;
       case "esm":
-        if (isBlank(source.slice(line.content.start, line.content.end))) {
+        if (isBlankLine(source, line)) {
           blocks.push(this.finishEmbedded(source));
         } else {
           this.#active = {
@@ -569,7 +567,7 @@ class LeafParser {
     active: OpenIndentedCode,
     blocks: BlockSyntax[],
   ): boolean {
-    if (isBlank(source.slice(line.content.start, line.content.end))) {
+    if (isBlankLine(source, line)) {
       this.#active = {
         ...active,
         end: line.range.end,
@@ -606,7 +604,7 @@ class LeafParser {
     active: OpenTable,
     blocks: BlockSyntax[],
   ): boolean {
-    if (isBlank(source.slice(line.content.start, line.content.end))) {
+    if (isBlankLine(source, line)) {
       blocks.push(this.closeActive());
 
       return false;
@@ -681,76 +679,81 @@ class LeafParser {
     allowFrontmatter: boolean,
     blocks: BlockSyntax[],
   ): void {
-    if (allowFrontmatter) {
-      const frontmatter = recognizeFrontmatter(source, line, this.#syntax);
+    if (!startsParagraph(source, line.content.start)) {
+      if (allowFrontmatter) {
+        const frontmatter = recognizeFrontmatter(source, line, this.#syntax);
 
-      if (frontmatter.kind === "matched") {
-        this.#active = frontmatter.value;
+        if (frontmatter.kind === "matched") {
+          this.#active = frontmatter.value;
 
-        return;
-      }
-    }
-
-    for (const recognize of [recognizeLeafDirective, recognizeSameLineMath]) {
-      const result = recognize(source, line, this.#syntax);
-
-      if (result.kind === "matched") {
-        blocks.push(result.value);
-
-        return;
-      }
-    }
-
-    const math = recognizeMathFence(source, line, this.#syntax);
-
-    if (math.kind === "matched") {
-      this.#active = math.value;
-
-      return;
-    }
-
-    if (this.startEmbedded(source, line, blocks)) {
-      return;
-    }
-
-    for (const recognize of [
-      recognizeRawHtml,
-      recognizeDefinition,
-      recognizeFence,
-      recognizeAtxHeading,
-      recognizeThematicBreak,
-    ]) {
-      const result = recognize(source, line);
-
-      if (result.kind === "matched") {
-        if (result.value.kind === "openLeaf") {
-          this.#active = result.value.leaf;
-        } else {
-          blocks.push(result.value.block);
+          return;
         }
+      }
+
+      for (const recognize of [recognizeLeafDirective, recognizeSameLineMath]) {
+        const result = recognize(source, line, this.#syntax);
+
+        if (result.kind === "matched") {
+          blocks.push(result.value);
+
+          return;
+        }
+      }
+
+      const math = recognizeMathFence(source, line, this.#syntax);
+
+      if (math.kind === "matched") {
+        this.#active = math.value;
+
+        return;
+      }
+
+      if (this.startEmbedded(source, line, blocks)) {
+        return;
+      }
+
+      for (const recognize of [
+        recognizeRawHtml,
+        recognizeDefinition,
+        recognizeFence,
+        recognizeAtxHeading,
+        recognizeThematicBreak,
+      ]) {
+        const result = recognize(source, line);
+
+        if (result.kind === "matched") {
+          if (result.value.kind === "openLeaf") {
+            this.#active = result.value.leaf;
+          } else {
+            blocks.push(result.value.block);
+          }
+
+          return;
+        }
+      }
+
+      const indented = indentedCodeLine(source, line);
+
+      if (indented !== undefined) {
+        this.#active = {
+          kind: "indentedCode",
+          start: line.range.start,
+          end: line.range.end,
+          value: indented,
+          pendingBlank: [],
+        };
 
         return;
       }
     }
 
-    const indented = indentedCodeLine(source, line);
-
-    this.#active =
-      indented === undefined
-        ? {
-            kind: "paragraph",
-            start: line.content.start,
-            end: line.content.end,
-            lines: [{ kind: "source", range: line.content }],
-            pendingEnding: sourceRange(line.content.end, line.range.end),
-          }
-        : {
-            kind: "indentedCode",
-            start: line.range.start,
-            end: line.range.end,
-            value: indented,
-            pendingBlank: [],
-          };
+    this.#active = {
+      kind: "paragraph",
+      start: line.content.start,
+      end: line.content.end,
+      lines: [{ kind: "source", range: line.content }],
+      pendingEnding: sourceRange(line.content.end, line.range.end),
+    };
   }
 
   /**
@@ -982,6 +985,10 @@ class LeafParser {
   }
 
   private interruptsParagraph(source: SourceText, line: PhysicalLine): boolean {
+    if (startsParagraph(source, line.content.start)) {
+      return false;
+    }
+
     return (
       interruptsParagraph(source, line) ||
       recognizeLeafDirective(source, line, this.#syntax).kind === "matched" ||
@@ -995,6 +1002,22 @@ class LeafParser {
 interface EmbeddedFlowStart {
   readonly kind: "esm" | "expression" | "jsx";
   readonly markerEnd: number;
+}
+
+/** Unindented letters start paragraphs, except the ESM keywords import and export. */
+function startsParagraph(source: SourceText, start: number): boolean {
+  const character = source.char(start);
+
+  return isAsciiLetter(character) && character !== "i" && character !== "e";
+}
+
+/** Rejects ordinary content before slicing a potentially long, chunked line. */
+function isBlankLine(source: SourceText, line: PhysicalLine): boolean {
+  return (
+    line.content.start === line.content.end ||
+    (isSpaceOrTab(source.char(line.content.start)) &&
+      isBlank(source.slice(line.content.start, line.content.end)))
+  );
 }
 
 function matchEmbeddedFlowStart(
@@ -1208,6 +1231,10 @@ function openContainers(
   let cursor = initialCursor;
 
   while (cursor < line.content.end) {
+    if (isAsciiLetter(source.char(cursor))) {
+      break;
+    }
+
     const quote = blockQuoteMarker(source, line.content.end, cursor);
 
     if (quote !== undefined) {
@@ -1296,6 +1323,10 @@ function opensContainer(
   line: PhysicalLine,
   syntax: ResolvedSyntaxOptions,
 ): boolean {
+  if (isAsciiLetter(source.char(line.content.start))) {
+    return false;
+  }
+
   return (
     blockQuoteMarker(source, line.content.end, line.content.start) !== undefined ||
     footnoteMarker(source, line.content.end, line.content.start) !== undefined ||
@@ -1378,6 +1409,10 @@ function settleListBlank(containers: ContainerFrame[], surviving: number): void 
 }
 
 function contentLine(line: PhysicalLine, contentStart: number): PhysicalLine {
+  if (line.range.start === contentStart) {
+    return line;
+  }
+
   return {
     line: line.line,
     range: sourceRange(contentStart, line.range.end),

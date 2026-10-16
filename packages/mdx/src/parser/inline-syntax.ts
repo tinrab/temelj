@@ -106,13 +106,6 @@ export interface InvalidInlineSyntax {
   readonly open: boolean;
 }
 
-declare const inlineResumeBrand: unique symbol;
-
-/** Where a later parse of the same growing input can resume. Opaque to callers. */
-export interface InlineResume {
-  readonly [inlineResumeBrand]?: never;
-}
-
 export interface InlineParseResult {
   /**
    * Parsed nodes. A resumed parse shares this array with the next parse that
@@ -121,7 +114,8 @@ export interface InlineParseResult {
   readonly nodes: readonly InlineSyntax[];
   readonly invalid: readonly InvalidInlineSyntax[];
   readonly pending?: InlinePendingSyntax;
-  readonly resume?: InlineResume;
+  /** First node whose materialized output must be rebuilt. */
+  readonly changedFrom: number;
 }
 
 export interface PendingInlineParentSyntax extends InlineSyntaxBase {

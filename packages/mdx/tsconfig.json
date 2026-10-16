@@ -4,5 +4,5 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true
   },
-  "include": ["src/**/*.ts", "scripts/**/*.ts", "benches/**/*.ts"]
+  "include": ["src/**/*.ts", "scripts/**/*.ts"]
 }

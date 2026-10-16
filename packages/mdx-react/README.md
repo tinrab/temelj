@@ -279,5 +279,3 @@ HTML stays inert.
 Run `pnpm --filter @temelj/mdx-react measure:bundles` for minified and gzip
 sizes. Bundle tests cap the core stream, the hook with renderer, and the
 snapshot renderer alone, and keep Shiki and Unified out of them.
-Parser, HTML, compilation, and streaming benchmarks live in
-[`@temelj/mdx/benches`](../mdx/benches/README.md).

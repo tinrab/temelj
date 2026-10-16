@@ -220,7 +220,7 @@ const { artifact, frontmatter } = await compile(await processor.transform(source
 ## Stream a document
 
 `MdxStream` parses a document as it arrives, such as a chat answer streamed token by token.
-Each append costs work proportional to the new text:
+Appends reuse settled blocks and resume parsing the open tail:
 
 ```ts
 import { formatHtml, MdxStream, previewDocument } from "@temelj/mdx";
@@ -240,17 +240,39 @@ diagnostics, and a `limit` if one was exceeded. Each block has a stable `id`, it
 later input cannot change it. `edit({ start, end, text })` replaces a source range, and
 `snapshot()` returns the latest state.
 
+For repeated HTML output, attach an `HtmlStreamRenderer` to the stream:
+
+```ts
+import { HtmlStreamRenderer, MdxStream } from "@temelj/mdx";
+
+const stream = new MdxStream();
+const renderer = new HtmlStreamRenderer(stream, { rawHtml: "escape" });
+
+stream.append("Hello **world**");
+console.log(renderer.render());
+stream.append(" and more.");
+console.log(renderer.render());
+stream.complete();
+console.log(renderer.render());
+```
+
+The renderer reuses serialized HTML for unchanged nodes across appends and edits.
+It captures formatting options at construction and returns the strict document after
+successful completion. Create a renderer for each stream. `formatHtml()` remains useful
+for individual snapshots and caller-owned HTML trees.
+
 ### How appends stay cheap
 
 Settled blocks are parsed, materialized, and lowered once, and keep their objects; each append
-only re-finishes the open tail. Open paragraphs resume from the last line with nothing left
-open, open fences decode only new lines, and growing lists reuse their leading items. Source
+only re-finishes the open tail. Open paragraphs reuse completed inline tokens, open fences
+decode only new lines, and growing lists reuse their leading items. Source
 text lives in a shared, append-friendly buffer, and definitions, footnote numbers, and node
 counts are running totals, so a settled block re-renders only when a definition it uses
 changes. Unchanged nodes keep their identity, so renderers can skip them.
 
-`pnpm --filter @temelj/mdx bench:stream` compares streaming against remark and TanStack
-Markdown; see [benchmarks](./benches/README.md) for the rest.
+Paragraphs keep this work even without line endings. The parser retries the suffix
+containing unfinished syntax or a trailing token. Source edits reset that continuation.
+Text coalescing keeps node limits consistent with a fresh parse.
 
 ### Open syntax and missing references
 

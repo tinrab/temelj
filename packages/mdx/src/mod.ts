@@ -48,6 +48,8 @@ export type { HeadingDepth } from "./heading.ts";
 
 export { formatHtml, type HtmlFormatOptions } from "./html-format.ts";
 
+export { HtmlStreamRenderer } from "./html-stream.ts";
+
 export { lowerHtml, type HtmlRenderOptions } from "./html-lower.ts";
 
 export {

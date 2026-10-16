@@ -140,6 +140,21 @@ export class SourceText {
     return -1;
   }
 
+  /** Finds one matching code unit without joining the chunks. The pattern must be global. */
+  public findCharacter(pattern: RegExp, from: number): number {
+    for (let index = this.chunkAt(from); index < this.#chunks.length; index++) {
+      const start = this.#starts[index];
+      // RegExp clamps a negative cursor to zero for later chunks.
+      pattern.lastIndex = from - start;
+
+      if (pattern.test(this.#chunks[index])) {
+        return start + pattern.lastIndex - 1;
+      }
+    }
+
+    return this.length;
+  }
+
   /** The last `search`, scanning chunks from the end. Matches may span chunks. */
   public lastIndexOf(search: string): number {
     for (let index = this.#chunks.length - 1; index >= 0; index--) {

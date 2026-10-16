@@ -49,8 +49,6 @@ export class ParserSession {
   #lineScanner: PhysicalLineScanner;
   readonly syntax: ResolvedSyntaxOptions;
   #grammarSource = SourceText.of("");
-  /** The source has no NUL, so its grammar source is the same text. */
-  #plain = true;
   #source = SourceText.of("");
 
   public constructor(options: ParserSessionOptions = {}) {
@@ -78,10 +76,9 @@ export class ParserSession {
   /** `source` is the whole source after the append, when the caller already built it. */
   public append(text: string, source?: SourceText): void {
     this.#source = source ?? this.#source.append(text);
-    this.#plain &&= !text.includes("\0");
 
     // Without NUL the grammar source is the source text itself.
-    this.#grammarSource = this.#plain
+    this.#grammarSource = this.#source.plain
       ? this.#source
       : this.#grammarSource.append(text.replaceAll("\0", "\uFFFD"));
 
@@ -105,9 +102,7 @@ export class ParserSession {
     const checkpointIndex = findCheckpoint(this.#checkpoints, edit.start);
     const checkpoint = this.#checkpoints[checkpointIndex];
     this.#source = SourceText.of(nextSource);
-    this.#plain = !nextSource.includes("\0");
-
-    this.#grammarSource = this.#plain
+    this.#grammarSource = this.#source.plain
       ? this.#source
       : SourceText.of(nextSource.replaceAll("\0", "\uFFFD"));
     this.#blockParser = this.#blockParser.fork(checkpoint.parser);
