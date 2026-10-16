@@ -38,38 +38,23 @@ deno add jsr:@temelj/mdx
 
 ## What this package does
 
-`@temelj/mdx` owns an MDX document from its first source character to its final
-output. It provides:
+`@temelj/mdx` takes MDX from source text to output:
 
-- one shared grammar for complete files, appended chunks, and source edits;
-- exact source files and plain, JSON-serializable semantic and HTML trees;
-- streaming previews in the same HTML tree, with pending kinds for open syntax;
-- a canonical MDX formatter and typed tree traversal;
-- safe HTML lowering and a non-evaluating JSX compiler that renders the same
-  elements as the HTML;
-- document and HTML plugins, plus optional Unified adapters.
+- **parse** complete files, streamed chunks, and edits with one grammar;
+- **work with** plain, JSON-serializable document and HTML trees;
+- **format** canonical MDX;
+- **render** inert HTML, safe by default;
+- **compile** to JavaScript without evaluating anything;
+- **extend** with document and HTML plugins, or Unified adapters.
 
-`parse()` feeds the complete source directly to the shared block parser and
-materializes the document. `MdxStream` retains an editable session around that
-parser for appends, previews, and source edits. Complete-document parsing skips
-edit checkpoints and preview bookkeeping while using the same grammar and
-strict validation. Streaming completion produces the same document regardless
-of how input was split into chunks.
-
-The package keeps parsing separate from execution. Parsing JSX, expressions, or
-ESM does not run them. HTML output remains inert by default, and compilation
-only produces JavaScript. The caller owns the boundary where trusted code is
-evaluated.
+Parsing never runs code. JSX, expressions, and ESM are parsed but not executed, HTML output is
+inert unless you opt in, and compilation only produces JavaScript. You decide where trusted
+code is evaluated.
 
 ## The MDX dialect
 
-The default language combines CommonMark 0.31.2 with GFM tables, task lists,
-strikethrough, literal autolinks, and footnotes. It also accepts MDX v3 JSX,
-expressions, and ESM. CommonMark support includes indented code, raw HTML,
-containers, lazy continuation lines, references, and the usual delimiter
-precedence rules.
-
-Optional syntax is enabled explicitly:
+The default dialect is CommonMark 0.31.2 with GFM (tables, task lists, strikethrough, literal
+autolinks, footnotes) and MDX v3 (JSX, expressions, ESM). Optional syntax is enabled per call:
 
 ```ts
 import { parse } from "@temelj/mdx";
@@ -87,155 +72,101 @@ const source = [
 ].join("\n");
 
 const result = parse(source, {
-  syntax: {
-    directives: true,
-    frontmatter: "auto",
-    math: "auto",
-    strikethroughMarkerCount: 2,
-  },
+  syntax: { directives: true, frontmatter: "auto", math: "auto" },
 });
 ```
 
-Frontmatter can be `"yaml"`, `"toml"`, or `"auto"`. Math can be `"dollar"`,
-`"tex"`, or `"auto"`. The strikethrough marker count can be `1` or `2`.
+- `frontmatter`: `"yaml"`, `"toml"`, or `"auto"`.
+- `math`: `"dollar"`, `"tex"`, or `"auto"`.
+- `strikethroughMarkerCount`: `1` or `2`.
 
-MDX syntax takes precedence only where it is valid. A valid JSX prefix after
-`<` starts JSX. HTML comments, declarations, CDATA, and other non-JSX HTML stay
-raw HTML. An unescaped `{` starts an expression outside code, and `import` or
-`export` starts ESM only at a valid flow boundary.
+MDX syntax applies only where it is valid. `<` starts JSX only before a valid JSX prefix
+(comments, declarations, and other HTML stay raw HTML), `{` starts an expression outside code,
+and `import`/`export` start ESM only at a block boundary. As in MDX, JSX children on the
+following lines are Markdown blocks and children on the same line are inline.
 
-Like MDX, JSX and expressions decide their own content model. Children on the
-lines after an opening tag are Markdown blocks; children on the same line are
-inline content. A paragraph that contains only JSX and expressions does not
-render a `p`, and a tag followed by more text on its line starts a paragraph.
-
-Strict completion treats ordinary unmatched Markdown delimiters as authored
-text. Closed but invalid MDX syntax is an error. Unfinished JSX, expressions,
-or ESM are also errors because silently changing executable syntax would hide a
-mistake.
+Unmatched Markdown delimiters are plain text. Invalid or unfinished JSX, expressions, and ESM
+are errors, because quietly reinterpreting executable syntax would hide a mistake.
 
 ### How the parser works
 
-The parser has two direct grammar phases. A line-oriented block parser continues
-containers, handles lazy lines, opens and closes containers, and advances the
-active leaf. It keeps decisions such as a paragraph becoming a Setext heading
-or table unresolved until another physical line settles them.
-
-The inline parser then reads the physical content ranges that belong to each
-block. Those ranges preserve their mapping through list and blockquote prefixes
-and virtual indentation. One output sequence, a delimiter stack, and a bracket
-stack resolve emphasis, links, images, code spans, and strikethrough directly.
-There is no public token or event tree between the grammar and semantic nodes.
-
-Grammar recognizers do not mutate parser state while testing a candidate. One
-private Acorn boundary handles expressions, JSX, spreads, and ESM, including JSX
-attribute values. Acorn ASTs do not enter the public document model.
+A line-oriented block parser handles containers, lazy lines, and leaf blocks. It leaves
+decisions such as "paragraph or Setext heading" open until the next line settles them. An
+inline parser then reads each block's content ranges, which keep their mapping to the source
+through list and quote prefixes, and resolves emphasis, links, code spans, and strikethrough
+with delimiter and bracket stacks. Expressions, JSX, and ESM go through one private Acorn
+boundary; no token stream or Acorn AST is exposed.
 
 ## Parse a complete document
 
-`parse()` accepts a string or a `SourceFile` and returns a `ParseResult`
-containing the source file, document, and diagnostics. Invalid syntax throws
-`ParseError`; exceeded limits throw `LimitError`. When you pass a `SourceFile`,
-the result and its diagnostic spans retain that file.
+`parse()` takes a string or a `SourceFile` and returns the file, the document, and any warning
+diagnostics:
 
 ```ts
 import { parse, SourceFile } from "@temelj/mdx";
 
-const file = new SourceFile({
-  name: "article.mdx",
-  text: "# Matrices\n\nMultiply **rows** by columns.",
-});
-
-const result = parse(file);
-
-console.log(result.document.children.length);
+const file = new SourceFile({ name: "article.mdx", text: "# Matrices\n\nMultiply **rows**." });
+const { document, diagnostics } = parse(file);
 ```
 
-Strict operations return successful values or throw errors extending `MdxError`.
-`ParseError` carries `file` and `diagnostics`. `LimitError` also carries the
-`limit`, configured `maximum`, and measured `actual` value when available.
-Successful results retain warning and informational diagnostics.
-Invalid configuration, offsets, and edit ranges also throw structured errors.
+Failures throw subclasses of `MdxError`: `ParseError` (with `file` and `diagnostics`) for
+invalid syntax, and `LimitError` (with `limit`, `maximum`, and `actual`) when a limit is
+exceeded. Invalid options, offsets, and edit ranges also throw.
 
 ## Work with the tree
 
-Nodes are plain, readonly objects with a `kind` discriminant. They can be
-serialized, cached, or sent from a server to a client. `origin` is a
-`{ start, end }` UTF-16 range in the result's `file`.
+Nodes are readonly plain objects with a `kind` discriminant, safe to serialize or send to a
+client. `origin` is a `{ start, end }` range in the result's `file`.
 
 ```ts
-import { formatMdx, nodeText, selectMdx } from "@temelj/mdx";
+import { formatMdx, nodeText, rewriteMdx, selectMdx } from "@temelj/mdx";
 
 for (const { node } of selectMdx(result.document, "heading")) {
-  console.log(node.depth, nodeText(node));
-
-  if (node.origin !== undefined) {
-    console.log(result.file.slice(node.origin));
-  }
+  console.log(node.depth, nodeText(node), node.origin && result.file.slice(node.origin));
 }
 
-console.log(formatMdx(result.document, { bullet: "-", emphasis: "_" }));
-```
-
-- `nodeText()` returns semantic text content.
-- `file.slice(node.origin)` returns the exact authored source.
-- `formatMdx()` formats canonical MDX for the enabled syntax and escapes
-  characters that would otherwise change meaning.
-- `indexDocument()` finds the first definition and footnote per identifier, and
-  `documentFrontmatter()` returns the frontmatter node.
-
-`walkMdx()`, `selectMdx()`, and `rewriteMdx()` traverse semantic trees;
-`walkHtml()`, `selectHtml()`, and `rewriteHtml()` traverse HTML trees. Rewrite
-handlers are keyed by kind. Returning `undefined` keeps a node, returning a node
-replaces it, and returning `null` removes it. An MDX handler for phrasing content
-may return any phrasing node, and one for flow content any flow node, so the tree
-stays valid; `isPhrasingContent()` and `isFlowContent()` test the categories.
-HTML handlers may return any node.
-
-Frontmatter data is plain JSON-like data too. A TOML date or time is a
-`{ kind: "temporal", type, value }` object with an ISO 8601 `value`.
-
-```ts
-import { rewriteMdx } from "@temelj/mdx";
-
-const withoutBreaks = rewriteMdx(document, {
+const cleaned = rewriteMdx(result.document, {
   thematicBreak: () => null,
   image: ({ node }) => ({ ...node, url: node.url.replace(/\.png$/u, ".webp") }),
 });
+
+console.log(formatMdx(cleaned, { bullet: "-", emphasis: "_" }));
 ```
+
+- `walkMdx`, `selectMdx`, and `rewriteMdx` traverse documents; `walkHtml`, `selectHtml`, and
+  `rewriteHtml` traverse HTML trees.
+- A rewrite handler returns `undefined` to keep a node, a node to replace it, or `null` to
+  remove it. Phrasing handlers must return phrasing content and flow handlers flow content
+  (`isPhrasingContent`, `isFlowContent`).
+- `formatMdx` writes canonical MDX and escapes characters that would change meaning.
+- `indexDocument` finds definitions and footnotes; `documentFrontmatter` returns the
+  frontmatter node. TOML dates and times become `{ kind: "temporal", type, value }`.
 
 ## Render inert HTML
 
-`lowerHtml()` lowers a document to an `HtmlRootNode`; `formatHtml()` serializes
-it. Pass the source file so inert fallbacks keep authored text.
+`lowerHtml()` turns a document into an HTML tree and `formatHtml()` serializes it:
 
 ```ts
 import { formatHtml, lowerHtml } from "@temelj/mdx";
 
-const html = lowerHtml(result.document, { source: result.file });
-console.log(formatHtml(html));
+console.log(formatHtml(lowerHtml(result.document, { source: result.file })));
 ```
 
-The output boundary is inert by default:
+Output is inert by default:
 
-- expressions and JSX become typed `expression` and `jsx` nodes whose
-  serialized form is their escaped authored source;
-- ESM is omitted;
-- raw HTML stays a `raw` node and `formatHtml()` escapes it unless
-  `rawHtml: "trusted"` is set;
-- unsafe link and image URLs are removed.
+- JSX and expressions become `jsx` and `expression` nodes that serialize as escaped source;
+- ESM is dropped;
+- raw HTML stays a `raw` node, which `formatHtml()` escapes unless given `rawHtml: "trusted"`;
+- unsafe URLs are removed. Links allow `http`, `https`, `irc`, `ircs`, `mailto`, and `xmpp`,
+  images allow `http` and `https`. Change this with `urlTransform`, or turn it off with
+  `allowUnsafeUrls`.
 
-By default, links accept `http`, `https`, `irc`, `ircs`, `mailto`, and `xmpp`;
-images accept `http` and `https`. `urlTransform(url, kind, sanitized)` replaces
-that policy, and `allowUnsafeUrls` disables it.
-
-Code blocks, math, footnote references, and the footnote section are semantic
-kinds that keep their inputs. `htmlFallback()` returns their default element,
-which `formatHtml()` and the React renderer use when nothing replaces them.
+Code blocks, math, and footnotes stay semantic nodes until rendered. `htmlFallback()` gives
+their default element, which `formatHtml()` and the React renderer use.
 
 ## Process documents with plugins
 
-`Processor` combines parsing, document plugins, HTML lowering, and HTML plugins.
+`Processor` runs parsing, document plugins, HTML lowering, and HTML plugins:
 
 ```ts
 import { formatHtml, Processor } from "@temelj/mdx";
@@ -244,190 +175,104 @@ import { HeadingIdPlugin, LowerHeadingPlugin, RemoveEsmPlugin } from "@temelj/md
 const processor = new Processor({
   syntax: { frontmatter: "auto", math: "auto" },
   documentPlugins: [new RemoveEsmPlugin()],
-  htmlPlugins: [new LowerHeadingPlugin({ offset: 1 }), new HeadingIdPlugin({ prefix: "article-" })],
+  htmlPlugins: [new LowerHeadingPlugin({ offset: 1 }), new HeadingIdPlugin({ prefix: "doc-" })],
 });
 
-const result = processor.processSync("# Introduction");
-
-console.log(formatHtml(result.html));
+console.log(formatHtml(processor.processSync("# Introduction").html));
 ```
 
-- `parse()` parses with the processor's syntax and limits.
-- `transform()` and `transformSync()` parse and run document plugins.
-- `process()` and `processSync()` also lower HTML and run HTML plugins.
+`parse()` only parses. `transform()` also runs document plugins, and `process()` also lowers HTML
+and runs HTML plugins. Both accept a source string, a `SourceFile`, or an earlier `ParseResult`,
+take an `AbortSignal` in their options, and have `transformSync()`/`processSync()` variants that
+reject async plugins.
 
-Transform and process methods accept a source string, a `SourceFile`, or an existing
-`ParseResult`. The asynchronous methods accept an `AbortSignal`. Synchronous
-methods throw a `ConfigurationError` for an asynchronous plugin.
+A plugin is `{ name, transform(context) }` returning a new tree or a promise of one. The context
+has the tree, the source file, a diagnostic reporter, the signal, and a `rewrite()` helper. An
+error diagnostic or a thrown exception stops the pipeline with a `TransformError` naming the
+plugin and stage.
 
-A plugin is an object with a `name` and a `transform(context)` method that
-returns a new tree or a promise of one. The context provides the current tree,
-the source file, a diagnostic reporter, the signal, and a `rewrite()` helper. A
-plugin that reports an error diagnostic stops the pipeline with `TransformError`.
-The error carries the source file, diagnostics, stage, and plugin name. Thrown
-plugin exceptions become `TransformError` with their original `cause`.
-
-The plugin entry point includes:
-
-- `RemoveEsmPlugin` for deleting imports and exports from the semantic tree;
-- `LowerHeadingPlugin` for shifting rendered heading levels;
-- `HeadingIdPlugin` for unique heading IDs;
-- `MathRenderPlugin` for a caller-supplied sync or async math renderer;
-- `SyntaxHighlightPlugin` for provider-neutral fenced-code highlighting.
-
-In `tolerant` mode, a provider failure keeps the fallback and adds a warning. In
-`strict` mode, the provider error is thrown. `parseCodeBlockMetadata()` returns
-metadata directly or throws `CodeBlockMetadataError` with field issues and
-partially parsed metadata. Tolerant highlighting uses that partial metadata.
+Built-in plugins (`@temelj/mdx/plugins`): `RemoveEsmPlugin`, `LowerHeadingPlugin`,
+`HeadingIdPlugin`, `MathRenderPlugin` (bring your own renderer), and `SyntaxHighlightPlugin`.
+`MathRenderPlugin` and `SyntaxHighlightPlugin` run in `tolerant` mode by default, keeping the
+fallback and adding a warning when rendering fails; `strict` mode throws instead.
 
 ## Compile MDX without evaluating it
 
-`compile()` takes a parse or transform result, validates optional frontmatter,
-and returns a `CompileResult` without executing JavaScript. The artifact type
-follows `outputFormat`, including the default `functionBody` format.
+`compile()` turns a parse or transform result into JavaScript, without running it:
 
 ```ts
 import { compile, Processor } from "@temelj/mdx";
 
 const processor = new Processor({ syntax: { frontmatter: "yaml" } });
-const result = await compile(await processor.transform(source), {
-  outputFormat: "functionBody",
-});
-
-console.log(result.artifact.code, result.frontmatter);
+const { artifact, frontmatter } = await compile(await processor.transform(source));
 ```
 
-Compiled content is emitted from the same lowered HTML as `lowerHtml()`, so both
-outputs share list tightness, footnote numbering and labels, and the URL policy.
-`CompileOptions` include the HTML render options.
-
-The default `functionBody` artifact contains plain transport data and no bare
-imports, so it can cross a server-function or loader boundary. Use
-`outputFormat: "program"` for an ESM module intended for a build tool.
-
-Pass `frontmatterSchema` to validate decoded frontmatter with Standard Schema.
-Schema failures throw `FrontmatterError` with `mdx.frontmatter.schema`
-diagnostics and the original schema issues. Unsupported transport values, such
-as functions, cyclic data, and class instances, throw `FrontmatterError` with
-`mdx.frontmatter.transport` diagnostics and the reason.
-
-At runtime, compiled content reads components from `props.components`
-(`CompiledComponents`): element overrides by tag name, authored JSX components
-by name, and the reserved `codeBlock`, `mathFormula`, and `wrapper` entries.
-Any JSX runtime can provide them; `@temelj/mdx-react` maps its registry with
-`compiledComponents()`.
-
-Each ESM block is parsed once; its bindings, JSX, and exports come from that
-parse. A function body receives the runtime as `__mdxRuntime`, resolves imports
-through `__resolveMdxImport`, and returns its exports with the content as
-`default`.
+- The default `outputFormat: "functionBody"` is plain transport data with no bare imports, so
+  it can cross a server or loader boundary. `"program"` emits an ESM module for build tools.
+- Compiled output comes from the same lowered HTML as `lowerHtml()`, so lists, footnotes, and
+  the URL policy match. `CompileOptions` accept the HTML options.
+- `frontmatterSchema` validates frontmatter with Standard Schema; failures throw
+  `FrontmatterError`.
+- At runtime the content reads `props.components`: element overrides by tag, authored JSX
+  components by name, and the reserved `codeBlock`, `mathFormula`, and `wrapper`.
+  `@temelj/mdx-react` builds them with `compiledComponents()`.
 
 ## Stream a document
 
-`MdxStream` parses a document while it arrives, such as a chat answer streamed
-token by token. Each append costs work proportional to the new text, not to the
-document.
+`MdxStream` parses a document as it arrives, such as a chat answer streamed token by token.
+Each append costs work proportional to the new text:
 
 ```ts
-import { formatHtml, formatMdx, MdxStream, previewDocument } from "@temelj/mdx";
+import { formatHtml, MdxStream, previewDocument } from "@temelj/mdx";
 
 const stream = new MdxStream({ syntax: { math: "auto" } });
 
-const before = stream.append("Read [the guide][guide].\n\n");
-const after = stream.append("[guide]: https://example.com/guide\n\nMore **text");
+stream.append("Read [the guide][guide].\n\n");
+const preview = stream.append("[guide]: https://example.com\n\nMore **text");
+console.log(formatHtml(previewDocument(preview)));
 
-console.assert(after.blocks[0]?.id === before.blocks[0]?.id);
-console.log(formatHtml(previewDocument(after)));
-
-const completion = stream.complete();
-
-console.log(formatMdx(completion.document));
+const { document } = stream.complete();
 ```
 
-A snapshot has `kind: "preview"`, the current `file`, the top-level `blocks`,
-the shared footnote section in `footnotes`, the diagnostics, and a `limit` when
-the source exceeds one. `previewDocument()` joins a preview into one HTML tree.
-`snapshot()` returns the current preview or the successful completion.
-
-Each block is plain data:
-
-- `id` is an opaque `BlockId` that survives appends and edits that do not touch
-  the block;
-- `nodes` is the block's lowered HTML;
-- `status` is `"valid"`, or `"invalid"` for a block that renders its authored
-  source as inert text;
-- `settled` is `true` once later input can no longer change the block's syntax;
-- `diagnostics` and `dependencies` list what the block reports and references.
+A preview snapshot holds the current `file`, the top-level `blocks`, the footnote section,
+diagnostics, and a `limit` if one was exceeded. Each block has a stable `id`, its lowered HTML
+`nodes`, a `status` (`"invalid"` blocks render their source as text), and `settled` once
+later input cannot change it. `edit({ start, end, text })` replaces a source range, and
+`snapshot()` returns the latest state.
 
 ### How appends stay cheap
 
-The parser emits each top-level block once it settles. A settled block is
-materialized and lowered once, and keeps its snapshot object afterwards. Every
-append finishes only a copy of the open tail: a trailing list, the open
-containers, and the active leaf.
+Settled blocks are parsed, materialized, and lowered once, and keep their objects; each append
+only re-finishes the open tail. Open paragraphs resume from the last line with nothing left
+open, open fences decode only new lines, and growing lists reuse their leading items. Source
+text lives in a shared, append-friendly buffer, and definitions, footnote numbers, and node
+counts are running totals, so a settled block re-renders only when a definition it uses
+changes. Unchanged nodes keep their identity, so renderers can skip them.
 
-- An open paragraph resumes its inline parse from the last line where nothing
-  was left open. Its decoded text, parsed nodes, and rendered nodes before that
-  line are reused in place, and a long paragraph's preview groups its children
-  into fragments, so a snapshot copies only the changed end.
-- An open fence decodes only the lines that arrived since the last append.
-- A growing list reuses the materialized and lowered output of its leading
-  items, so an append handles only the items that changed. The open list
-  extends its arrays in place, and its preview groups children into fragments.
-- The stream owns a `SourceBuffer`. Its files share text chunks, which merge
-  like a binary counter, and one line index that scans each character once; an
-  edit starts a new generation. The parser reads the chunks by offset, so a
-  growing document is never copied whole.
-- The parser grows the open leaf's line arrays in place. A tail draft's
-  extensions are undone before the parser reads them again.
-- Definitions, footnote numbers, node counts, and diagnostics are running
-  totals. A settled block renders again only when a definition or footnote
-  number it uses changes.
-
-Each snapshot has a new `blocks` array, since snapshots are immutable; it holds
-references to unchanged block objects. `subscribe()` reports which blocks
-changed, for consumers that apply changes instead of reading whole snapshots.
-
-Unchanged nodes keep their identity inside the open block too, so a renderer
-can skip them. `pnpm --filter @temelj/mdx bench:stream` compares streaming
-HTML output against remark and TanStack Markdown at several sizes.
-See [benchmarks](./benches/README.md) for parsing, HTML, and compilation
-comparisons, options, and measurement details.
+`pnpm --filter @temelj/mdx bench:stream` compares streaming against remark and TanStack
+Markdown; see [benchmarks](./benches/README.md) for the rest.
 
 ### Open syntax and missing references
 
-Previews use the same `HtmlNode` union as `lowerHtml()`, plus two kinds that
-only previews contain:
+Previews use the same HTML nodes as `lowerHtml()`, plus two preview-only kinds:
 
-- `pending` is a construct that is still open, such as `strong`, `link`,
-  `code`, `fence`, `inlineMath`, `displayMath`, `expression`, `esm`, or `jsx`.
-  `children` holds the content so far as inert HTML, and `pendingFallback()`
-  gives its provisional presentation. A pending link is not clickable and a
-  pending image does not load.
-- `unresolvedReference` is a link, image, or footnote reference whose
-  definition has not arrived. It renders its authored source until the
-  definition resolves it.
+- `pending`: a construct that is still open (`strong`, `link`, `fence`, `inlineMath`, `jsx`, …)
+  with its content so far. `pendingFallback()` gives its provisional element; pending links
+  are not clickable and pending images do not load.
+- `unresolvedReference`: a link, image, or footnote reference whose definition has not arrived
+  yet. It shows its source until the definition resolves it.
 
-Open flow JSX with a committed name and literal attributes is a `jsx` node with
-`state: "pending"` and its Markdown children so far. Expressions and spreads
-never execute, and open ESM renders nothing. A bare list, heading, or quote
-marker at the end renders nothing until content arrives.
+Nothing executes during streaming, and open ESM renders nothing. A closed but invalid construct,
+such as `{1+}`, invalidates only its block; exceeding a limit keeps the last valid blocks.
 
-A closed but invalid construct, such as `{1+}`, makes only its block invalid;
-the rest of the document keeps streaming. Exceeding a limit keeps the last valid
-blocks and sets `limit`. Block identities survive both states.
-
-`complete()` finishes the tail strictly and assembles the document from the
-settled blocks' nodes. Its blocks list the stream identities each block had. A
-successful completion is cached and terminal; later appends and edits throw. A
-failed completion throws `ParseError` or `LimitError` and leaves the stream
-open, so the source can be repaired. Completed snapshots have `kind: "complete"`.
+`complete()` finishes strictly and returns the document. Success is final; later appends and
+edits throw. Failure throws `ParseError` or `LimitError` and leaves the stream open, so the
+source can be fixed.
 
 ### Subscribe to changes
 
-`subscribe()` reports what changed after each append or edit. Blocks before
-`start` are the previous snapshot's objects, except the `refreshed` ones whose
-definitions changed.
+`subscribe()` reports each change: blocks before `start` are unchanged except the `refreshed`
+ones whose definitions changed.
 
 ```ts
 stream.subscribe(({ snapshot, start, refreshed }) => {
@@ -437,10 +282,9 @@ stream.subscribe(({ snapshot, start, refreshed }) => {
 
 ### Stream trees from a server
 
-Trees are plain data, so a server can run the stream and send blocks to a client
-that never parses. `streamBlockEvents()` turns text chunks into update events and
-a final completion event; `applyBlockEvent()` applies an update to the preview a
-client holds.
+Trees are plain data, so a server can parse and send blocks to a client that never parses.
+`streamBlockEvents()` turns text chunks into update events and a final completion event, and
+`applyBlockEvent()` applies an update on the client:
 
 ```ts
 import { streamBlockEvents } from "@temelj/mdx";
@@ -450,10 +294,7 @@ for await (const event of streamBlockEvents(chunks, { syntax: { math: "auto" } }
 }
 ```
 
-An update event sends only the blocks from `start` on and the refreshed ones.
-The completion event carries the completed document's HTML; pass `html` to
-lower it through a `Processor` with HTML plugins. `@temelj/mdx-react` renders
-these events with `useMdxBlocks()`.
+`@temelj/mdx-react` renders these events with `useMdxBlocks()`.
 
 ## Highlight fenced code
 
@@ -466,13 +307,12 @@ await worker.start();
 ```
 ````
 
-`highlightLines` and `commandLines` accept `true` or one-based inclusive ranges
-such as `"2,4-6"`. `lineNumbers` accepts `true` or an object such as
-`{"start":20,"lines":"1-8"}`. Unknown fields stay in `metadata.raw`.
+`highlightLines` and `commandLines` take `true` or one-based ranges like `"2,4-6"`; `lineNumbers`
+takes `true` or `{ "start": 20, "lines": "1-8" }`. Other fields stay in `metadata.raw`.
+`parseCodeBlockMetadata()` parses it directly.
 
-`SyntaxHighlightPlugin` accepts a provider-neutral `SyntaxHighlighter`. Shiki is
-an optional peer dependency; the adapter takes a caller-owned, preloaded
-highlighter:
+`SyntaxHighlightPlugin` takes any `SyntaxHighlighter`. For Shiki (an optional peer
+dependency), wrap a highlighter you created:
 
 ```ts
 import { Processor } from "@temelj/mdx";
@@ -480,7 +320,7 @@ import { createShikiHighlighter, SyntaxHighlightPlugin } from "@temelj/mdx/plugi
 import { createHighlighter } from "shiki";
 
 const shiki = await createHighlighter({
-  langs: ["text", "typescript"],
+  langs: ["typescript"],
   themes: ["github-light", "github-dark"],
 });
 
@@ -494,8 +334,8 @@ const processor = new Processor({ htmlPlugins: [new SyntaxHighlightPlugin({ high
 
 ## Use Unified plugins
 
-Unified support is optional and lives at `@temelj/mdx/unified`. Remark adapters
-run as document plugins and rehype adapters as HTML plugins.
+`@temelj/mdx/unified` runs remark plugins as document plugins and rehype plugins as HTML
+plugins:
 
 ```ts
 import { Processor } from "@temelj/mdx";
@@ -509,31 +349,28 @@ const processor = new Processor({
 });
 ```
 
-The adapters convert trees to Unist and back around each transform, and map
-VFile diagnostics to the original source. Semantic HTML nodes reach rehype as
-their fallback elements and return as semantic nodes when a plugin leaves them
-unchanged. Unified parser and compiler replacements are rejected.
+Trees convert to Unist and back around each plugin, and VFile messages map to the original
+source. Plugins that replace the parser or compiler are rejected.
 
 ## Limits and diagnostics
 
-| Limit                       |               Default |
-| --------------------------- | --------------------: |
-| `maximumSourceLength`       |                16 MiB |
-| `maximumNestingDepth`       |                 1,024 |
-| `maximumNodes`              |             1,000,000 |
-| `maximumPendingBlockLength` | 4 MiB for `MdxStream` |
+| Limit                       |              Default |
+| --------------------------- | -------------------: |
+| `maximumSourceLength`       |               16 MiB |
+| `maximumNestingDepth`       |                1,024 |
+| `maximumNodes`              |            1,000,000 |
+| `maximumPendingBlockLength` | 4 MiB (streams only) |
 
-Set limits with `limits` on `parse()`, `Processor`, and `MdxStream`. Only a
-stream accepts `maximumPendingBlockLength`, the longest top-level block that can
-contain open syntax.
-Diagnostics carry a severity, stable code, message, optional source span, notes,
-and related spans. Use `formatDiagnostic()` for plain text and
-`hasErrorDiagnostics()` for a quick error check.
+Pass `limits` to `parse()`, `Processor`, or `MdxStream`. `maximumPendingBlockLength` caps the
+longest top-level block that can still hold open syntax.
+
+Diagnostics have a severity, a stable code, a message, and optional source spans and notes.
+`formatDiagnostic()` renders one as text, and `hasErrorDiagnostics()` checks a list for errors.
 
 ## Entry points
 
-| Import                | Contents                                                                          |
-| --------------------- | --------------------------------------------------------------------------------- |
-| `@temelj/mdx`         | Source, parser, trees, formatter, HTML, compiler, processor, stream, traversal    |
-| `@temelj/mdx/plugins` | Plugin contracts, built-in plugins, code metadata, and the optional Shiki adapter |
-| `@temelj/mdx/unified` | Optional remark and rehype adapters                                               |
+| Import                | Contents                                                                   |
+| --------------------- | -------------------------------------------------------------------------- |
+| `@temelj/mdx`         | Source files, parser, trees, formatter, HTML, compiler, processor, streams |
+| `@temelj/mdx/plugins` | Plugin contracts, built-in plugins, code metadata, the Shiki adapter       |
+| `@temelj/mdx/unified` | Remark and rehype adapters                                                 |
