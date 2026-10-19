@@ -4,8 +4,8 @@
   "exports": "./src/mod.ts",
   "license": "MIT",
   "imports": {
-    "@temelj/mdx": "jsr:@temelj/mdx@^0.15.0",
-    "@temelj/mdx/plugins": "jsr:@temelj/mdx@^0.15.0/plugins",
+    "@temelj/mdx": "jsr:@temelj/mdx@^0.16.0",
+    "@temelj/mdx/plugins": "jsr:@temelj/mdx@^0.16.0/plugins",
     "property-information": "npm:property-information@7.2.0",
     "style-to-js": "npm:style-to-js@2.0.2",
     "@temelj/value": "jsr:@temelj/value@^0.15.0",
