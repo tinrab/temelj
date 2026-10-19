@@ -1,3 +1,5 @@
+import type { CloudflareWorkersModule } from "@cloudflare/workers-types";
+
 /** Minimal Cloudflare Workflow binding used by the Temelj adapter. */
 export interface CloudflareWorkflowBinding {
   create(options?: CloudflareWorkflowInstanceCreateOptions): Promise<CloudflareWorkflowInstance>;
@@ -21,7 +23,6 @@ export interface CloudflareWorkflowInstance {
   sendEvent(options: { readonly type: string; readonly payload?: unknown }): Promise<void>;
 }
 
-/** Status returned by a Cloudflare Workflow instance binding. */
 export interface CloudflareWorkflowInstanceStatus {
   readonly status:
     | "queued"
@@ -40,30 +41,13 @@ export interface CloudflareWorkflowInstanceStatus {
   readonly output?: unknown;
 }
 
-/** Minimal Cloudflare durable step context. */
-export interface CloudflareWorkflowStepContext {
-  readonly step: {
-    readonly name: string;
-    readonly count: number;
-  };
-  readonly attempt: number;
-  readonly config: CloudflareWorkflowStepConfig;
-}
+/** Cloudflare's context for static and dynamic retry configurations. */
+export type CloudflareWorkflowStepContext = CloudflareWorkersModule.WorkflowStepContext<
+  CloudflareWorkersModule.WorkflowDelayDuration | CloudflareWorkersModule.WorkflowDelayFunction
+>;
 
 /** Cloudflare retry and timeout configuration used by a durable step. */
-export interface CloudflareWorkflowStepConfig {
-  readonly retries?: {
-    readonly limit: number;
-    readonly delay:
-      | number
-      | ((input: {
-          readonly ctx: CloudflareWorkflowStepContext;
-          readonly error: Error;
-        }) => number | Promise<number>);
-    readonly backoff?: "constant" | "linear" | "exponential";
-  };
-  readonly timeout?: number;
-}
+export type CloudflareWorkflowStepConfig = CloudflareWorkersModule.WorkflowStepConfig;
 
 /** Event returned by Cloudflare after a matching `waitForEvent` call. */
 export interface CloudflareWorkflowStepEvent<TPayload = unknown> {
@@ -74,17 +58,17 @@ export interface CloudflareWorkflowStepEvent<TPayload = unknown> {
 
 /** Minimal Cloudflare durable step API used by the Temelj adapter. */
 export interface CloudflareWorkflowStep {
-  do<T>(
+  do(
     name: string,
     config: CloudflareWorkflowStepConfig,
-    callback: (context: CloudflareWorkflowStepContext) => T | Promise<T>,
-  ): Promise<T>;
+    callback: (context: CloudflareWorkflowStepContext) => Promise<string>,
+  ): Promise<string>;
   sleep(name: string, duration: number): Promise<void>;
   sleepUntil(name: string, timestamp: number): Promise<void>;
-  waitForEvent<T>(
+  waitForEvent(
     name: string,
-    options: { readonly type: string; readonly timeout: string | number },
-  ): Promise<CloudflareWorkflowStepEvent<T>>;
+    options: { readonly type: string; readonly timeout: number },
+  ): Promise<CloudflareWorkflowStepEvent>;
 }
 
 /** Event delivered to the generic Temelj Cloudflare entrypoint. */
@@ -99,7 +83,6 @@ export interface CloudflareWorkflowEvent<TPayload = unknown> {
   };
 }
 
-/** Constructor used to convert Temelj non-retryable errors for Cloudflare. */
 export interface CloudflareNonRetryableErrorConstructor {
   new (message: string, name?: string): Error;
 }

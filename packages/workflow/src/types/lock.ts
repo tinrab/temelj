@@ -1,27 +1,4 @@
-import { z } from "zod";
-
-import type { RunId } from "./run.ts";
-import type { StepId } from "./step-id.ts";
-
-import {
-  temporalInstantSchema,
-  nonBlankStringSchema,
-  positiveSafeIntegerSchema,
-} from "./common.ts";
-import { runIdSchema } from "./run-id.ts";
-import { stepIdSchema } from "./step-id.ts";
-
-export const workflowLockRecordSchema = z.object({
-  key: nonBlankStringSchema,
-  namespace: nonBlankStringSchema,
-  holderId: nonBlankStringSchema,
-  holderRunId: runIdSchema.optional(),
-  holderStepId: stepIdSchema.optional(),
-  fencingToken: positiveSafeIntegerSchema,
-  acquiredAt: temporalInstantSchema,
-  leaseExpiresAt: temporalInstantSchema,
-  releasedAt: temporalInstantSchema.optional(),
-});
+import type { RunId, StepId } from "./ids.ts";
 
 /** Stored lease-backed workflow lock state. */
 export interface LockRecord {
@@ -36,7 +13,6 @@ export interface LockRecord {
   readonly releasedAt?: Temporal.Instant;
 }
 
-/** Options for acquiring a workflow lock. */
 export interface AcquireLockOptions {
   readonly holderId: string;
   readonly holderRunId?: RunId;
@@ -48,8 +24,7 @@ export interface AcquireLockOptions {
   readonly now?: Temporal.Instant;
 }
 
-/** Options for acquiring a workflow lock from a durable step. */
-export interface WorkflowStepAcquireLockOptions {
+export interface StepAcquireLockOptions {
   readonly holderId?: string;
   readonly leaseDuration: Temporal.Duration;
   readonly wait?: boolean;
@@ -57,8 +32,7 @@ export interface WorkflowStepAcquireLockOptions {
   readonly now?: Temporal.Instant;
 }
 
-/** Options for releasing a workflow lock from a durable step. */
-export interface WorkflowStepReleaseLockOptions {
+export interface StepReleaseLockOptions {
   readonly holderId?: string;
   readonly now?: Temporal.Instant;
 }

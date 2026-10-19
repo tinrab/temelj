@@ -1,223 +1,49 @@
-import type { Logger } from "@temelj/log";
+import type { CompiledWorkflowFunction } from "./client.ts";
+import type { RegistryLike, WorkflowDefinition, WorkflowImplementation } from "./definition.ts";
+import type { RunId } from "./ids.ts";
+import type { ResultOptions } from "./result.ts";
+import type { RunArguments, StartOptions } from "./run-options.ts";
+import type { RunRecord, RunStatus } from "./run.ts";
 
-import { z } from "zod";
-
-import type { WorkflowBundle } from "../bundle.ts";
-import type {
-  CompiledWorkflowFunction,
-  WorkflowClientWorkersApi,
-  WorkflowRunHandle,
-} from "./client.ts";
-import type {
-  WorkflowDefinition,
-  WorkflowHandler,
-  WorkflowImplementation,
-  RegistryLike,
-  WorkflowStartTarget,
-} from "./definition.ts";
-import type {
-  WorkflowDeterministicBytesContext,
-  WorkflowDeterministicValueContext,
-  WorkflowExecutionLimits,
-  WorkflowRecordedIdContext,
-} from "./engine-options.ts";
-import type { WorkflowClientEngine, WorkflowWorkerEngine } from "./engine.ts";
-import type {
-  AcquireLockOptions,
-  LockRecord,
-  ReleaseLockOptions,
-  ReleaseStaleLockOptions,
-} from "./lock.ts";
-import type { WorkflowPage } from "./pagination.ts";
-import type { WorkflowListRunsOptions } from "./run-list.ts";
-import type {
-  WorkflowRunArguments,
-  ScheduleNextOptions,
-  WorkflowStartOptions,
-} from "./run-options.ts";
-import type { WorkflowLifecycleCallback, RunId, WorkflowRunRecord } from "./run.ts";
-import type {
-  ScheduleId,
-  ListSchedulesOptions,
-  ListSchedulesPageOptions,
-  ScheduleConfig,
-  ScheduleRecord,
-  TickSchedulesOptions,
-  TickSchedulesResult,
-} from "./schedule.ts";
-import type { Telemetry } from "./telemetry.ts";
-
-import { WorkflowRuntimeError } from "../errors/runtime.ts";
-
-const workflowRuntimeObjectPropertySchema = z.object({});
-const workflowRuntimeFunctionPropertySchema = z.custom<(...args: never[]) => unknown>(
-  (value) => typeof value === "function",
-);
-
-export const workflowRuntimeSchema = z.object({
-  runs: workflowRuntimeObjectPropertySchema,
-  schedules: workflowRuntimeObjectPropertySchema,
-  locks: workflowRuntimeObjectPropertySchema,
-  workers: workflowRuntimeObjectPropertySchema,
-  close: workflowRuntimeFunctionPropertySchema,
-  implementWorkflow: workflowRuntimeFunctionPropertySchema,
-  register: workflowRuntimeFunctionPropertySchema,
-  start: workflowRuntimeFunctionPropertySchema,
-});
-
-/** Asserts that a value has the minimum shape required by runtime helper functions. */
-export function parseWorkflowRuntime(value: unknown): asserts value is WorkflowRuntime {
-  const parsed = workflowRuntimeSchema.safeParse(value);
-  if (!parsed.success) {
-    WorkflowRuntimeError.invalid();
-  }
+/** What every host can do with a run it started. */
+export interface RunHandle<TOutput = unknown> {
+  readonly runId: RunId;
+  /** Workflow definition name stored on the run. */
+  readonly workflowName: string;
+  /** Workflow version stored on the run, when one was resolved. */
+  readonly workflowVersion?: string;
+  getRun(): Promise<RunRecord>;
+  status(): Promise<RunStatus>;
+  /** Waits for and returns the completed workflow output. */
+  result(options?: ResultOptions): Promise<TOutput>;
+  /** Cancels this run if it has not already reached a terminal status. */
+  cancel(): Promise<RunRecord>;
 }
 
-/** Options for workflow creation runtime. */
-interface CreateWorkflowRuntimeBaseOptions extends WorkflowExecutionLimits {
-  readonly engine?: WorkflowClientEngine;
-  readonly workerEngine?: WorkflowWorkerEngine;
-  /**
-   * Clock used for workflow timestamps and the first value recorded by
-   * deterministic time commands.
-   *
-   * Hosts that patch `Date.now()` during workflow execution should route
-   * patched calls through the same durable recording path.
-   */
-  readonly now?: () => Temporal.Instant;
-  readonly createRunId?: () => string;
-  readonly createRecordedId?: (context: WorkflowRecordedIdContext) => string;
-  /**
-   * Creates the first value recorded by deterministic random commands.
-   *
-   * Hosts that patch `Math.random()` during workflow execution should route
-   * patched calls through the same durable recording path.
-   */
-  readonly createDeterministicRandom?: (context: WorkflowDeterministicValueContext) => number;
-  /**
-   * Creates the first value recorded by deterministic UUID commands.
-   *
-   * Hosts that patch `crypto.randomUUID()` during workflow execution should
-   * route patched calls through the same durable recording path.
-   */
-  readonly createDeterministicUuid?: (context: WorkflowDeterministicValueContext) => string;
-  /**
-   * Creates the first value recorded by deterministic byte commands.
-   *
-   * Hosts that patch `crypto.getRandomValues()` during workflow execution
-   * should route patched calls through the same durable recording path.
-   */
-  readonly createDeterministicBytes?: (context: WorkflowDeterministicBytesContext) => Uint8Array;
-  readonly onLifecycleEvent?: WorkflowLifecycleCallback;
-  readonly onRunCompleted?: WorkflowLifecycleCallback;
-  readonly onRunFailed?: WorkflowLifecycleCallback;
-  readonly onRunCanceled?: WorkflowLifecycleCallback;
-  readonly onRunWaiting?: WorkflowLifecycleCallback;
-  readonly onRunRetry?: WorkflowLifecycleCallback;
-  readonly maximumStepAttemptsPerRun?: number;
-  readonly telemetry?: Telemetry | false;
-  readonly logger?: Logger | false;
-}
-
-/** Options for creating a workflow runtime with either a registry or an immutable bundle. */
-export type CreateWorkflowRuntimeOptions = CreateWorkflowRuntimeBaseOptions &
-  (
-    | { readonly registry?: RegistryLike; readonly workflows?: never }
-    | { readonly registry?: never; readonly workflows?: WorkflowBundle }
-  );
-
-/** Describes the workflow runtime contract. */
-export interface WorkflowRuntime {
-  /** Grouped run handle and run listing operations. */
-  readonly runs: WorkflowRuntimeRunsApi;
-  /** Grouped schedule management operations. */
-  readonly schedules: WorkflowRuntimeSchedulesApi;
-  /** Grouped workflow lock operations. */
-  readonly locks: WorkflowRuntimeLocksApi;
-  /** Grouped worker operations. */
-  readonly workers: WorkflowClientWorkersApi;
+/**
+ * What every host offers: the local client and the Cloudflare runtime both implement it, so
+ * application code that sticks to it runs on either. Each host adds its own capabilities on top.
+ */
+export interface WorkflowRuntime extends Pick<RegistryLike, "implementWorkflow" | "register"> {
+  readonly runs: RuntimeRunsApi;
   /** Flushes resources owned by this runtime. */
   close(): Promise<void>;
-  /** Creates and registers a workflow implementation. */
-  implementWorkflow<TInput, TOutput, TRawInput = TInput>(
-    definition: WorkflowDefinition<TInput, TOutput, TRawInput>,
-    handler: WorkflowHandler<TInput, TOutput>,
-  ): WorkflowImplementation<TInput, TOutput, TRawInput>;
-  /** Registers an existing workflow implementation. */
-  register<TInput, TOutput, TRawInput = TInput>(
-    implementation: WorkflowImplementation<TInput, TOutput, TRawInput>,
-  ): void;
-  /** Starts a registered workflow definition. */
+}
+
+export interface RuntimeRunsApi {
+  /** Starts a run of a definition. */
   start<TInput, TOutput, TRawInput = TInput>(
     workflow: WorkflowDefinition<TInput, TOutput, TRawInput>,
-    ...args: WorkflowRunArguments<TRawInput, WorkflowStartOptions>
-  ): Promise<WorkflowRunHandle<TOutput>>;
-  /** Registers and starts a workflow implementation. */
+    ...args: RunArguments<TRawInput, StartOptions>
+  ): Promise<RunHandle<TOutput>>;
+  /** Registers an implementation when needed, then starts a run of it. */
   start<TInput, TOutput, TRawInput = TInput>(
     workflow: WorkflowImplementation<TInput, TOutput, TRawInput>,
-    ...args: WorkflowRunArguments<TRawInput, WorkflowStartOptions>
-  ): Promise<WorkflowRunHandle<TOutput>>;
+    ...args: RunArguments<TRawInput, StartOptions>
+  ): Promise<RunHandle<TOutput>>;
   /** Starts a compiled workflow function produced by the workflow transform. */
   start<TArgs extends readonly unknown[], TOutput>(
     workflow: CompiledWorkflowFunction<TArgs, TOutput>,
     ...args: TArgs
-  ): Promise<WorkflowRunHandle<Awaited<TOutput>>>;
-}
-
-/** Describes runtime-level run operations. */
-export interface WorkflowRuntimeRunsApi {
-  /** Returns a typed handle for an existing run. */
-  getHandle<TOutput = unknown>(runId: RunId): Promise<WorkflowRunHandle<TOutput>>;
-  /** Lists workflow runs visible to the runtime client. */
-  list(options?: WorkflowListRunsOptions): Promise<readonly WorkflowRunRecord[]>;
-}
-
-/** Describes runtime-level schedule operations. */
-export interface WorkflowRuntimeSchedulesApi {
-  /** Schedules one workflow run at the next interval boundary. */
-  next<TInput, TOutput, TRawInput = TInput>(
-    workflow: WorkflowStartTarget<TInput, TOutput, TRawInput>,
-    input: TRawInput,
-    options: ScheduleNextOptions,
-  ): Promise<WorkflowRunHandle<TOutput>>;
-  /** Creates a recurring workflow schedule. */
-  create<TInput, TOutput, TRawInput = TInput>(
-    workflow: WorkflowStartTarget<TInput, TOutput, TRawInput>,
-    options: ScheduleConfig<TInput, TRawInput>,
-  ): Promise<ScheduleRecord<TInput>>;
-  /** Creates or updates a recurring workflow schedule. */
-  upsert<TInput, TOutput, TRawInput = TInput>(
-    workflow: WorkflowStartTarget<TInput, TOutput, TRawInput>,
-    options: ScheduleConfig<TInput, TRawInput>,
-  ): Promise<ScheduleRecord<TInput>>;
-  /** Returns a schedule by ID, if it exists. */
-  get(scheduleId: ScheduleId): Promise<ScheduleRecord | undefined>;
-  /** Lists schedules matching optional filters. */
-  list(options?: ListSchedulesOptions): Promise<readonly ScheduleRecord[]>;
-  /** Lists one page of schedules matching optional filters. */
-  page(options?: ListSchedulesPageOptions): Promise<WorkflowPage<ScheduleRecord>>;
-  /** Pauses an active schedule. */
-  pause(scheduleId: ScheduleId): Promise<ScheduleRecord>;
-  /** Resumes a paused or archived schedule. */
-  resume(scheduleId: ScheduleId): Promise<ScheduleRecord>;
-  /** Archives a schedule without deleting its record. */
-  archive(scheduleId: ScheduleId): Promise<ScheduleRecord>;
-  /** Marks a schedule as deleted. */
-  delete(scheduleId: ScheduleId): Promise<ScheduleRecord>;
-  /** Starts runs for schedules that are due. */
-  tick(options?: TickSchedulesOptions): Promise<TickSchedulesResult>;
-}
-
-/** Describes runtime-level workflow lock operations. */
-export interface WorkflowRuntimeLocksApi {
-  /** Acquires a workflow lock. */
-  acquire(key: string, options: AcquireLockOptions): Promise<LockRecord>;
-  /** Returns a workflow lock by key, if it exists. */
-  get(key: string): Promise<LockRecord | undefined>;
-  /** Lists workflow locks. */
-  list(): Promise<readonly LockRecord[]>;
-  /** Releases a workflow lock held by the supplied holder. */
-  release(key: string, options: ReleaseLockOptions): Promise<LockRecord>;
-  /** Releases a workflow lock only when its lease is stale. */
-  releaseStale(key: string, options?: ReleaseStaleLockOptions): Promise<LockRecord>;
+  ): Promise<RunHandle<Awaited<TOutput>>>;
 }

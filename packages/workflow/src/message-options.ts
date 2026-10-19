@@ -1,4 +1,5 @@
 import type { Schema } from "@temelj/standard-schema";
+import type { StorageValue } from "@temelj/storage";
 
 import type {
   BroadcastMessageChannelOptions,
@@ -9,55 +10,78 @@ import type {
   SendMessageOptions,
   MessageChannel,
   WaitForMessageChannelOptions,
-  WaitForMessageInput,
   WaitForMessageOptions,
 } from "./types/message.ts";
+import type { StepMessageApi } from "./types/step.ts";
 
 import { resolveMessageChannelSend, resolveMessageChannelWait } from "./definition.ts";
 
-export async function resolveSendMessageInput<TPayload, TKey>(
-  messageInput: SendMessageInput | MessageChannel<TPayload, TKey>,
-  channelOptions: SendMessageChannelOptions<TPayload, TKey> | undefined,
+export async function resolveSendMessageInput<TPayload, TRawPayload>(
+  messageInput: SendMessageInput | MessageChannel<TPayload, TRawPayload>,
+  channelOptions: SendMessageChannelOptions<TRawPayload> | undefined,
 ): Promise<SendMessageOptions> {
   if ("messageId" in messageInput) {
     return messageInput;
   }
+
   if ("channel" in messageInput) {
     return await resolveMessageChannelSend(messageInput.channel, messageInput);
   }
+
   return await resolveMessageChannelSend(messageInput, channelOptions);
 }
 
-export async function resolveBroadcastMessageInput<TPayload, TKey>(
-  messageInput: BroadcastMessageInput | MessageChannel<TPayload, TKey>,
-  channelOptions: BroadcastMessageChannelOptions<TPayload, TKey> | undefined,
+export async function resolveBroadcastMessageInput<TPayload, TRawPayload>(
+  messageInput: BroadcastMessageInput | MessageChannel<TPayload, TRawPayload>,
+  channelOptions: BroadcastMessageChannelOptions<TRawPayload> | undefined,
 ): Promise<BroadcastMessageOptions> {
   if ("messageId" in messageInput) {
     return messageInput;
   }
+
   if ("channel" in messageInput) {
     const send = await resolveMessageChannelSend(messageInput.channel, messageInput);
+
     return {
       ...send,
-      ...(messageInput.target === undefined ? {} : { target: messageInput.target }),
+      target: messageInput.target,
     };
   }
+
   const send = await resolveMessageChannelSend(messageInput, channelOptions);
+
   return {
     ...send,
-    ...(channelOptions?.target === undefined ? {} : { target: channelOptions.target }),
+    target: channelOptions?.target,
   };
 }
 
-export function resolveWaitForMessageInput<TKey>(
-  messageInput: WaitForMessageInput<Schema | undefined> | MessageChannel<unknown, TKey>,
-  channelOptions: WaitForMessageChannelOptions<TKey> | undefined,
-): WaitForMessageOptions<Schema | undefined> {
-  if ("channel" in messageInput) {
-    return resolveMessageChannelWait(messageInput.channel, messageInput);
+interface MessageWaitExecutor {
+  <TPayload>(
+    options: WaitForMessageOptions<Schema<unknown, TPayload> | undefined>,
+  ): Promise<TPayload | StorageValue | undefined>;
+}
+
+/** Dispatches raw and schema-validated waits without erasing the schema output type. */
+export function createMessageWait(execute: MessageWaitExecutor): StepMessageApi["wait"] {
+  function wait(options: WaitForMessageOptions): Promise<StorageValue | undefined>;
+  function wait<TPayload>(
+    options: WaitForMessageOptions<Schema<unknown, TPayload>> & {
+      readonly schema: Schema<unknown, TPayload>;
+    },
+  ): Promise<TPayload>;
+  function wait<TPayload>(
+    channel: MessageChannel<TPayload, unknown>,
+    options?: WaitForMessageChannelOptions,
+  ): Promise<TPayload>;
+  async function wait<TPayload>(
+    input:
+      | WaitForMessageOptions<Schema<unknown, TPayload> | undefined>
+      | MessageChannel<TPayload, unknown>,
+    options?: WaitForMessageChannelOptions,
+  ): Promise<TPayload | StorageValue | undefined> {
+    return await execute("messageId" in input ? input : resolveMessageChannelWait(input, options));
   }
-  if ("messageId" in messageInput) {
-    return messageInput;
-  }
-  return resolveMessageChannelWait(messageInput, channelOptions);
+
+  return wait;
 }

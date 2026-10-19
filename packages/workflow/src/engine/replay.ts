@@ -2,21 +2,18 @@ import type { StorageValue } from "@temelj/storage";
 
 import { deepEquals } from "@temelj/value";
 
-import type { WorkflowExecutionEnvironment } from "../types/engine.ts";
-import type { EventRecord } from "../types/events.ts";
-import type { RunId, WorkflowAttributePatch } from "../types/run.ts";
-import type { WorkflowStepRunConfig } from "../types/step.ts";
+import type { ExecutionEnvironment } from "../types/engine.ts";
+import type { SleepStartedEvent, EventRecord } from "../types/events.ts";
+import type { RunId, MessageId } from "../types/ids.ts";
+import type { AttributePatch } from "../types/run.ts";
+import type { StepRunConfig } from "../types/step.ts";
 
 import { workflowAttributePatchFromEvent } from "../attributes.ts";
 import { WorkflowReplayDivergenceError } from "../errors/mod.ts";
-import { type WorkflowStepIdentity } from "../history/mod.ts";
-import { MessageId } from "../types/message-id.ts";
-import { resolveWorkflowCommandIdentity } from "./command-identity.ts";
-import {
-  appendDurableStepStartedEvent,
-  appendDurableStepTerminalEvent,
-} from "./durable-command.ts";
-import { WorkflowSuspended } from "./state.ts";
+import { type StepIdentity } from "../history/replay.ts";
+import { resolveCommandIdentity } from "./command-identity.ts";
+import { appendDurableStepStartedEvent, appendDurableEvent } from "./durable-command.ts";
+import { Suspended } from "./signals.ts";
 
 export function isRunStepTerminalForStartedAttempt(
   terminal: Extract<EventRecord, { readonly kind: "step_completed" | "step_failed" }>,
@@ -25,34 +22,28 @@ export function isRunStepTerminalForStartedAttempt(
   return terminal.attempt === started.attempt;
 }
 
-export function requireRecordedDurableStepStarted(
-  identity: WorkflowStepIdentity,
-  started: boolean,
-): void {
+export function requireRecordedDurableStepStarted(identity: StepIdentity, started: boolean): void {
   if (started) {
     return;
   }
 
-  WorkflowReplayDivergenceError.diverged(
+  WorkflowReplayDivergenceError.atStep(
+    identity.id,
     `recorded ${identity.kind} step ${identity.id} has a terminal event without a started event`,
-    {
-      expectedStepId: identity.id,
-      actualStepId: identity.id,
-    },
   );
 }
 
 export function requireRecordedDurableTerminalStarted(
-  identity: WorkflowStepIdentity,
+  identity: StepIdentity,
   hasStartedEventBeforeTerminal: boolean,
 ): void {
   requireRecordedDurableStepStarted(identity, hasStartedEventBeforeTerminal);
 }
 
 export function requireRunStepReplayTimeoutMatches(
-  identity: WorkflowStepIdentity,
+  identity: StepIdentity,
   started: Extract<EventRecord, { readonly kind: "step_started" }> | undefined,
-  config: WorkflowStepRunConfig,
+  config: StepRunConfig,
 ): void {
   if (
     started === undefined ||
@@ -63,25 +54,24 @@ export function requireRunStepReplayTimeoutMatches(
 
   const recordedTimeout =
     started.timeoutAt === undefined ? "no timeout" : started.timeoutAt.toString();
+
   const replayTimeout = config.timeout === undefined ? "no timeout" : "a timeout";
-  WorkflowReplayDivergenceError.diverged(
+  WorkflowReplayDivergenceError.atStep(
+    identity.id,
     `recorded run step ${identity.id} had ${recordedTimeout}, ` +
       `but replay used ${replayTimeout}`,
-    {
-      expectedStepId: identity.id,
-      actualStepId: identity.id,
-    },
   );
 }
 
 export function requireMetadataReplayMatches(
-  identity: WorkflowStepIdentity,
+  identity: StepIdentity,
   recorded: Extract<EventRecord, { readonly kind: "metadata_set" }>,
   metadata: StorageValue,
 ): void {
   if (deepEquals(recorded.metadata, metadata)) {
     return;
   }
+
   WorkflowReplayDivergenceError.diverged(
     `recorded metadata step ${identity.id} used different metadata`,
     {
@@ -92,13 +82,14 @@ export function requireMetadataReplayMatches(
 }
 
 export function requireAttributesReplayMatches(
-  identity: WorkflowStepIdentity,
+  identity: StepIdentity,
   recorded: Extract<EventRecord, { readonly kind: "attributes_set" }>,
-  attributes: WorkflowAttributePatch,
+  attributes: AttributePatch,
 ): void {
   if (JSON.stringify(workflowAttributePatchFromEvent(recorded)) === JSON.stringify(attributes)) {
     return;
   }
+
   WorkflowReplayDivergenceError.diverged(
     `recorded attributes step ${identity.id} used different attributes`,
     {
@@ -109,7 +100,7 @@ export function requireAttributesReplayMatches(
 }
 
 export function requireMessageSendReplayMatches(
-  identity: WorkflowStepIdentity,
+  identity: StepIdentity,
   started: Extract<EventRecord, { readonly kind: "message_send_started" }> | undefined,
   terminal: Extract<
     EventRecord,
@@ -128,6 +119,7 @@ export function requireMessageSendReplayMatches(
   const recordedMessage = started?.messageId ?? terminal.messageId;
   const recordedPayload = started?.payload;
   const recordedIdempotencyKey = started?.idempotencyKey;
+
   if (
     recordedTargetRunId === next.targetRunId &&
     recordedMessage === next.messageId &&
@@ -143,22 +135,21 @@ export function requireMessageSendReplayMatches(
         `messageId ${recordedMessage} with different payload or idempotency key`
       : `recorded message-send step ${identity.id} targeted ${recordedTargetRunId} ` +
         `messageId ${recordedMessage}, but replay targeted ${next.targetRunId} messageId ${next.messageId}`;
-  WorkflowReplayDivergenceError.diverged(message, {
-    expectedStepId: identity.id,
-    actualStepId: identity.id,
-  });
+
+  WorkflowReplayDivergenceError.atStep(identity.id, message);
 }
 
 export async function sleepUntil(
-  environment: WorkflowExecutionEnvironment,
+  environment: ExecutionEnvironment,
   name: string,
   initialUntil: Temporal.Instant,
   options: { readonly duration?: Temporal.Duration },
 ): Promise<void> {
   const { history, now } = environment;
-  const identity = resolveWorkflowCommandIdentity(history, "sleep", name);
+  const identity = resolveCommandIdentity(history, "sleep", name);
   const started = history.startedSleep(identity.id);
   const completed = history.completedSleep(identity.id);
+
   if (completed !== undefined) {
     // Completed sleeps never wait during replay, but we still validate the recorded wait shape so a code change cannot silently reinterpret old history.
     requireRecordedDurableStepStarted(
@@ -166,39 +157,39 @@ export async function sleepUntil(
       history.hasStartedEventBeforeTerminalEvent(completed),
     );
     requireSleepReplayMatches(identity, started, initialUntil, options);
-    if (!(completed.timestamp instanceof Temporal.Instant)) {
-      WorkflowReplayDivergenceError.diverged(
-        `recorded sleep step ${identity.id} has invalid completion timestamp: ` +
-          String(completed.timestamp),
-        {
-          expectedStepId: identity.id,
-          actualStepId: identity.id,
-        },
-      );
-    }
+
+    recordedInstant("sleep", identity, "completion", completed.timestamp);
+
     return;
   }
 
-  const until = started === undefined ? initialUntil : recordedSleepUntil(identity, started.until);
+  const until =
+    started === undefined
+      ? initialUntil
+      : recordedInstant("sleep", identity, "wake", started.until);
+
   requireSleepReplayMatches(identity, started, initialUntil, options);
+
   if (started === undefined) {
-    await appendDurableStepStartedEvent(environment, {
+    const event: SleepStartedEvent = {
       kind: "sleep_started",
       timestamp: now(),
       stepId: identity.id,
       stepName: identity.name,
       count: identity.count,
       until,
-      ...(options.duration === undefined ? {} : { duration: options.duration }),
-    });
+      duration: options.duration,
+    };
+
+    await appendDurableStepStartedEvent(environment, event);
   }
 
   if (Temporal.Instant.compare(until, now()) > 0) {
     // Suspension is the durable wait mechanism: the run transitions to waiting and a worker will resume it after the stored wake time.
-    WorkflowSuspended.until(until);
+    Suspended.until(until);
   }
 
-  await appendDurableStepTerminalEvent(environment, {
+  await appendDurableEvent(environment, {
     kind: "sleep_completed",
     timestamp: now(),
     stepId: identity.id,
@@ -206,42 +197,8 @@ export async function sleepUntil(
   });
 }
 
-export function recordedStepCompletionTimestamp(
-  identity: WorkflowStepIdentity,
-  value: Temporal.Instant,
-): Temporal.Instant {
-  if (value instanceof Temporal.Instant) {
-    return value;
-  }
-
-  WorkflowReplayDivergenceError.diverged(
-    `recorded run step ${identity.id} has invalid completion timestamp: ${String(value)}`,
-    {
-      expectedStepId: identity.id,
-      actualStepId: identity.id,
-    },
-  );
-}
-
-function recordedSleepUntil(
-  identity: WorkflowStepIdentity,
-  value: Temporal.Instant,
-): Temporal.Instant {
-  if (value instanceof Temporal.Instant) {
-    return value;
-  }
-
-  WorkflowReplayDivergenceError.diverged(
-    `recorded sleep step ${identity.id} has invalid wake timestamp: ${String(value)}`,
-    {
-      expectedStepId: identity.id,
-      actualStepId: identity.id,
-    },
-  );
-}
-
 function requireSleepReplayMatches(
-  identity: WorkflowStepIdentity,
+  identity: StepIdentity,
   started: Extract<EventRecord, { readonly kind: "sleep_started" }> | undefined,
   until: Temporal.Instant,
   options: { readonly duration?: Temporal.Duration },
@@ -249,6 +206,7 @@ function requireSleepReplayMatches(
   if (started === undefined) {
     return;
   }
+
   if (started.duration !== undefined || options.duration !== undefined) {
     if (started.duration === undefined || options.duration === undefined) {
       if (started.duration === options.duration) {
@@ -257,25 +215,38 @@ function requireSleepReplayMatches(
     } else if (started.duration.toString() === options.duration.toString()) {
       return;
     }
-    WorkflowReplayDivergenceError.diverged(
+
+    WorkflowReplayDivergenceError.atStep(
+      identity.id,
       `recorded sleep step ${identity.id} waited for ${String(started.duration)}ms, ` +
         `but replay waited for ${String(options.duration)}ms`,
-      {
-        expectedStepId: identity.id,
-        actualStepId: identity.id,
-      },
     );
   }
+
   if (Temporal.Instant.compare(started.until, until) === 0) {
     return;
   }
 
-  WorkflowReplayDivergenceError.diverged(
+  WorkflowReplayDivergenceError.atStep(
+    identity.id,
     `recorded sleep step ${identity.id} waited until ${started.until.toString()}, ` +
       `but replay waited until ${until.toString()}`,
-    {
-      expectedStepId: identity.id,
-      actualStepId: identity.id,
-    },
+  );
+}
+
+/** A timestamp read from history; anything else in its place is a replay divergence. */
+export function recordedInstant(
+  kind: string,
+  identity: StepIdentity,
+  label: string,
+  value: Temporal.Instant,
+): Temporal.Instant {
+  if (value instanceof Temporal.Instant) {
+    return value;
+  }
+
+  WorkflowReplayDivergenceError.atStep(
+    identity.id,
+    `recorded ${kind} step ${identity.id} has invalid ${label} timestamp: ${String(value)}`,
   );
 }

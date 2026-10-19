@@ -1,5 +1,3 @@
-import type { StorageValue } from "@temelj/storage";
-
 import type { WorkflowPage } from "../types/pagination.ts";
 import type {
   ScheduleId,
@@ -9,74 +7,103 @@ import type {
 } from "../types/schedule.ts";
 import type { WorkflowStorage } from "../types/store.ts";
 
+import { omitUndefined, limitItems } from "../collection.ts";
+import { WorkflowErrorCode } from "../errors/codes.ts";
 import { WorkflowScheduleAlreadyExistsError, WorkflowScheduleError } from "../errors/mod.ts";
 import { makeScheduleCursorKey, pageItems } from "../pagination.ts";
 import { makeScheduleKey } from "../store-keys.ts";
-import { limitWorkflowItems } from "../utility.ts";
-import { compactWorkflowStoreRecord } from "./compaction.ts";
 import { querySchedules } from "./query.ts";
 import { toStorageValue } from "./storage-value.ts";
 import { isReadableScheduleRecord } from "./validation.ts";
 
-export async function createSchedule<TInput>(
+export async function createSchedule(
   storage: WorkflowStorage,
   namespace: string,
-  schedule: ScheduleRecord<TInput>,
-): Promise<ScheduleRecord<TInput>> {
+  schedule: ScheduleRecord,
+): Promise<ScheduleRecord> {
   if (schedule.namespace !== namespace) {
     WorkflowScheduleError.namespaceMismatch(schedule.namespace, namespace);
   }
+
   if (!isReadableScheduleRecord(schedule, namespace)) {
-    WorkflowScheduleError.recordInvalid();
+    throw new WorkflowScheduleError(
+      "Workflow schedule record is invalid",
+      WorkflowErrorCode.SCHEDULE_RECORD_INVALID,
+      undefined,
+    );
   }
-  const compact = compactWorkflowStoreRecord(schedule);
+
+  const compact = omitUndefined(schedule);
+
   const created = await storage.compareAndSet(
     makeScheduleKey(namespace, schedule.id),
     undefined,
     toStorageValue(compact),
   );
+
   if (!created) {
-    WorkflowScheduleAlreadyExistsError.alreadyExists(schedule.id);
+    throw new WorkflowScheduleAlreadyExistsError(schedule.id);
   }
+
   return compact;
 }
 
-export async function getReadableSchedule<TInput = StorageValue>(
+export async function getReadableSchedule(
   storage: WorkflowStorage,
   namespace: string,
   scheduleId: ScheduleId,
-): Promise<ScheduleRecord<TInput> | undefined> {
+): Promise<ScheduleRecord | undefined> {
   const schedule = await storage.get(makeScheduleKey(namespace, scheduleId));
-  return isReadableScheduleRecord<TInput>(schedule, namespace) ? schedule : undefined;
+
+  return isReadableScheduleRecord(schedule, namespace) ? schedule : undefined;
 }
 
-export async function updateScheduleIfCurrent<TInput>(
+export async function updateScheduleIfCurrent(
   storage: WorkflowStorage,
   namespace: string,
   current: ScheduleRecord,
-  next: ScheduleRecord<TInput>,
-): Promise<ScheduleRecord<TInput> | undefined> {
+  next: ScheduleRecord,
+): Promise<ScheduleRecord | undefined> {
   if (current.namespace !== namespace) {
     WorkflowScheduleError.namespaceMismatch(current.namespace, namespace);
   }
+
   if (next.namespace !== namespace) {
     WorkflowScheduleError.namespaceMismatch(next.namespace, namespace);
   }
+
   if (current.id !== next.id) {
-    WorkflowScheduleError.idChangeRejected();
+    throw new WorkflowScheduleError(
+      "Workflow schedule id cannot change",
+      WorkflowErrorCode.SCHEDULE_ID_CHANGE_REJECTED,
+      undefined,
+    );
   }
+
   if (!isReadableScheduleRecord(current, namespace)) {
-    WorkflowScheduleError.currentRecordInvalid();
+    throw new WorkflowScheduleError(
+      "Current workflow schedule record is invalid",
+      WorkflowErrorCode.SCHEDULE_CURRENT_RECORD_INVALID,
+      undefined,
+    );
   }
+
   if (!isReadableScheduleRecord(next, namespace)) {
-    WorkflowScheduleError.nextRecordInvalid();
+    throw new WorkflowScheduleError(
+      "Next workflow schedule record is invalid",
+      WorkflowErrorCode.SCHEDULE_NEXT_RECORD_INVALID,
+      undefined,
+    );
   }
-  const compact = compactWorkflowStoreRecord(next);
+
+  const compact = omitUndefined(next);
+
   const updated = await storage.compareAndSet(
     makeScheduleKey(namespace, current.id),
     toStorageValue(current),
     toStorageValue(compact),
   );
+
   return updated ? compact : undefined;
 }
 
@@ -88,7 +115,8 @@ export async function listSchedules(
   const schedules = await querySchedules(storage, namespace, options, {
     label: "Workflow schedule list options",
   });
-  return limitWorkflowItems(schedules, options?.limit);
+
+  return limitItems(schedules, options?.limit);
 }
 
 export async function listSchedulesPage(
@@ -102,5 +130,6 @@ export async function listSchedulesPage(
     { ...options, limit: undefined },
     { label: "Workflow schedule page options" },
   );
+
   return pageItems(schedules, options, "Workflow schedule page", makeScheduleCursorKey);
 }

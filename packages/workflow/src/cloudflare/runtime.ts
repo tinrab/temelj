@@ -1,30 +1,34 @@
-import type { StorageValue } from "@temelj/storage";
+import { isFunction } from "@temelj/value";
 
-import type { CompiledWorkflowFunction, WorkflowRunHandle } from "../types/client.ts";
+import type { CompiledWorkflowFunction } from "../types/client.ts";
 import type {
   WorkflowDefinition,
   WorkflowHandler,
   WorkflowImplementation,
   RegistryLike,
-  WorkflowStartTarget,
+  StartTarget,
 } from "../types/definition.ts";
+import type { RunId } from "../types/ids.ts";
 import type {
   SendMessageChannelOptions,
   SendMessageInput,
   MessageChannel,
+  MessageSender,
 } from "../types/message.ts";
 import type { ResultOptions } from "../types/result.ts";
-import type { WorkflowRunArguments, WorkflowStartOptions } from "../types/run-options.ts";
-import type { RunId, WorkflowRunRecord, WorkflowRunStatus } from "../types/run.ts";
-import type { WorkflowRuntime, WorkflowRuntimeRunsApi } from "../types/runtime.ts";
+import type { RunArguments, StartOptions } from "../types/run-options.ts";
+import type { RunRecord, RunStatus } from "../types/run.ts";
+import type { RunHandle, RuntimeRunsApi, WorkflowRuntime } from "../types/runtime.ts";
 import type {
+  CloudflareWorkflowInstanceCreateOptions,
   CloudflareWorkflowBinding,
   CloudflareWorkflowInstance,
   CloudflareWorkflowInstanceStatus,
 } from "./types.ts";
 
-import { getCompiledWorkflowDefinition } from "../compiled-function.ts";
-import { parseWorkflowInput } from "../definition.ts";
+import { getCompiledDefinition } from "../compiled-function.ts";
+import { defineFromTarget } from "../definition.ts";
+import { parseInput } from "../engine/serialization.ts";
 import {
   WorkflowCapabilityError,
   WorkflowDefinitionError,
@@ -33,16 +37,16 @@ import {
 } from "../errors/mod.ts";
 import { resolveSendMessageInput } from "../message-options.ts";
 import { Registry } from "../registry.ts";
-import { durationTotal } from "../utility.ts";
 import {
-  decodeCloudflareWorkflowValue,
-  encodeCloudflareWorkflowValue,
-  type CloudflareWorkflowEnvelope,
+  durationMilliseconds,
+  decodeCloudflareResult,
+  encodeCloudflareValue,
+  type CloudflareEnvelope,
 } from "./codec.ts";
-import { makeCloudflareWorkflowEventType } from "./name.ts";
-import { resolveCloudflareWorkflowImplementation } from "./registry.ts";
+import { makeCloudflareEventType } from "./name.ts";
 
 const DEFAULT_RESULT_POLL_INTERVAL = 100;
+
 const CLOUDFLARE_INSTANCE_ID_PATTERN = /^[a-zA-Z0-9_][a-zA-Z0-9-_]*$/;
 
 export interface CreateCloudflareWorkflowRuntimeOptions {
@@ -53,42 +57,28 @@ export interface CreateCloudflareWorkflowRuntimeOptions {
   readonly registration?: "dynamic" | "static";
 }
 
-export interface CloudflareWorkflowRuntimeRunsApi extends WorkflowRuntimeRunsApi {
+export interface CloudflareWorkflowRuntimeRunsApi extends RuntimeRunsApi {
   get<TInput, TOutput, TRawInput = TInput>(
-    workflow: WorkflowStartTarget<TInput, TOutput, TRawInput>,
+    workflow: StartTarget<TInput, TOutput, TRawInput>,
     runId: RunId,
-  ): Promise<WorkflowRunHandle<TOutput>>;
-}
-
-export interface CloudflareWorkflowMessagesApi {
-  send(runId: RunId, options: SendMessageInput): Promise<void>;
-  send<TPayload, TKey = void>(
-    runId: RunId,
-    channel: MessageChannel<TPayload, TKey>,
-    options?: SendMessageChannelOptions<TPayload, TKey>,
-  ): Promise<void>;
+  ): Promise<RunHandle<TOutput>>;
 }
 
 export interface CloudflareWorkflowRuntime extends WorkflowRuntime {
   readonly runs: CloudflareWorkflowRuntimeRunsApi;
-  readonly messages: CloudflareWorkflowMessagesApi;
+  readonly messages: MessageSender;
 }
 
 /** Creates a runtime facade over a generic Cloudflare Workflow binding. */
 export function createCloudflareWorkflowRuntime(
   options: CreateCloudflareWorkflowRuntimeOptions,
 ): CloudflareWorkflowRuntime {
-  return new CloudflareWorkflowRuntimeImpl(options);
+  return new CloudflareRuntimeImpl(options);
 }
 
-class CloudflareWorkflowRuntimeImpl implements CloudflareWorkflowRuntime {
+class CloudflareRuntimeImpl implements CloudflareWorkflowRuntime {
   readonly runs: CloudflareWorkflowRuntimeRunsApi;
-  readonly messages: CloudflareWorkflowMessagesApi;
-  readonly schedules = unsupportedApi<WorkflowRuntime["schedules"]>(
-    "Cloudflare workflow schedules",
-  );
-  readonly locks = unsupportedApi<WorkflowRuntime["locks"]>("Cloudflare workflow locks");
-  readonly workers = unsupportedApi<WorkflowRuntime["workers"]>("Cloudflare workflow workers");
+  readonly messages: MessageSender;
   readonly #binding: CloudflareWorkflowBinding;
   readonly #registry: RegistryLike;
   readonly #registration: "dynamic" | "static";
@@ -102,25 +92,63 @@ class CloudflareWorkflowRuntimeImpl implements CloudflareWorkflowRuntime {
       options.resultPollInterval === undefined
         ? DEFAULT_RESULT_POLL_INTERVAL
         : durationMilliseconds(options.resultPollInterval, "Cloudflare result poll interval");
+    // Defined here so the overloads can reach private members.
+    // oxlint-disable-next-line typescript/no-this-alias -- The overloaded function needs the instance.
+    const runtime = this;
+
+    async function start<TInput, TOutput, TRawInput = TInput>(
+      workflow: WorkflowDefinition<TInput, TOutput, TRawInput>,
+      ...args: RunArguments<TRawInput, StartOptions>
+    ): Promise<RunHandle<TOutput>>;
+    async function start<TInput, TOutput, TRawInput = TInput>(
+      workflow: WorkflowImplementation<TInput, TOutput, TRawInput>,
+      ...args: RunArguments<TRawInput, StartOptions>
+    ): Promise<RunHandle<TOutput>>;
+    async function start<TArgs extends readonly unknown[], TOutput>(
+      workflow: CompiledWorkflowFunction<TArgs, TOutput>,
+      ...args: TArgs
+    ): Promise<RunHandle<Awaited<TOutput>>>;
+    async function start(
+      workflow: StartTarget | Function,
+      ...args: unknown[]
+    ): Promise<RunHandle<unknown>> {
+      if (isFunction(workflow)) {
+        const implementation = getCompiledDefinition(workflow);
+
+        if (implementation === undefined) {
+          WorkflowDefinitionError.compiledMetadataMissing();
+        }
+
+        runtime.register(implementation);
+
+        return await runtime.#startTarget(implementation, args, undefined);
+      }
+
+      // SAFETY: The function overload was handled above. Both remaining overloads place WorkflowStartOptions in the second argument.
+      const [input, options] = args as [unknown, StartOptions?];
+
+      if (workflow.kind === "implementation") {
+        runtime.register(workflow);
+      }
+
+      return await runtime.#startTarget(workflow, input, options);
+    }
+
     this.runs = {
-      getHandle: async () =>
-        WorkflowCapabilityError.unsupported(
-          "Cloudflare run lookup without a workflow target; use runtime.runs.get(workflow, runId)",
-        ),
-      list: async () => WorkflowCapabilityError.unsupported("Cloudflare workflow run listing"),
+      start,
       get: async (workflow, runId) => this.#createHandle(workflow, runId),
     };
     this.messages = {
-      send: async <TPayload, TKey = void>(
+      send: async <TPayload, TRawPayload = TPayload>(
         runId: RunId,
-        input: SendMessageInput | MessageChannel<TPayload, TKey>,
-        channelOptions?: SendMessageChannelOptions<TPayload, TKey>,
+        input: SendMessageInput | MessageChannel<TPayload, TRawPayload>,
+        channelOptions?: SendMessageChannelOptions<TRawPayload>,
       ) => {
         const message = await resolveSendMessageInput(input, channelOptions);
         const instance = await this.#binding.get(runId);
         await instance.sendEvent({
-          type: makeCloudflareWorkflowEventType(message.messageId),
-          payload: encodeCloudflareWorkflowValue(message.payload),
+          type: makeCloudflareEventType(message.messageId),
+          payload: encodeCloudflareValue(message.payload),
         });
       },
     };
@@ -134,13 +162,16 @@ class CloudflareWorkflowRuntimeImpl implements CloudflareWorkflowRuntime {
   ): WorkflowImplementation<TInput, TOutput, TRawInput> {
     if (this.#registration === "static") {
       const implementation = this.#registry.get(definition);
+
       if (implementation === undefined || implementation.handler !== handler) {
         WorkflowDefinitionError.implementationNotBundled(
           workflowImplementationKey(definition.name, definition.version),
         );
       }
+
       return implementation;
     }
+
     return this.#registry.implementWorkflow(definition, handler);
   }
 
@@ -153,146 +184,114 @@ class CloudflareWorkflowRuntimeImpl implements CloudflareWorkflowRuntime {
           workflowImplementationKey(implementation.name, implementation.version),
         );
       }
+
       this.#registry.register(implementation);
     }
   }
 
-  start<TInput, TOutput, TRawInput = TInput>(
-    workflow: WorkflowDefinition<TInput, TOutput, TRawInput>,
-    ...args: WorkflowRunArguments<TRawInput, WorkflowStartOptions>
-  ): Promise<WorkflowRunHandle<TOutput>>;
-  start<TInput, TOutput, TRawInput = TInput>(
-    workflow: WorkflowImplementation<TInput, TOutput, TRawInput>,
-    ...args: WorkflowRunArguments<TRawInput, WorkflowStartOptions>
-  ): Promise<WorkflowRunHandle<TOutput>>;
-  start<TArgs extends readonly unknown[], TOutput>(
-    workflow: CompiledWorkflowFunction<TArgs, TOutput>,
-    ...args: TArgs
-  ): Promise<WorkflowRunHandle<Awaited<TOutput>>>;
-  async start(workflow: unknown, ...args: unknown[]): Promise<WorkflowRunHandle<unknown>> {
-    if (typeof workflow === "function") {
-      const implementation = getCompiledWorkflowDefinition(
-        workflow as (...args: never[]) => unknown,
-      );
-      if (implementation === undefined) {
-        WorkflowDefinitionError.compiledMetadataMissing();
-      }
-      this.register(implementation);
-      return await this.#startTarget(implementation, args, undefined);
-    }
-    const target = workflow as WorkflowStartTarget;
-    if (target.kind === "implementation") {
-      this.register(target);
-    }
-    return await this.#startTarget(target, args[0], args[1] as WorkflowStartOptions | undefined);
-  }
-
   async #startTarget<TInput, TOutput, TRawInput>(
-    target: WorkflowStartTarget<TInput, TOutput, TRawInput>,
+    target: StartTarget<TInput, TOutput, TRawInput>,
     rawInput: TRawInput,
-    startOptions: WorkflowStartOptions | undefined,
-  ): Promise<WorkflowRunHandle<TOutput>> {
+    startOptions: StartOptions | undefined,
+  ): Promise<RunHandle<TOutput>> {
     rejectUnsupportedStartOptions(startOptions);
-    const requestedVersion = startOptions?.workflowVersion ?? target.version;
-    const implementation = resolveCloudflareWorkflowImplementation(
-      this.#registry,
-      target.name,
-      requestedVersion,
-    );
+
+    if (
+      startOptions?.workflowVersion !== undefined &&
+      startOptions.workflowVersion !== target.version
+    ) {
+      throw new WorkflowDefinitionError("Cloudflare start target version mismatch");
+    }
+
+    const implementation = this.#registeredImplementation(target);
+
     if (implementation.config.retry !== undefined) {
       WorkflowCapabilityError.unsupported("Cloudflare workflow-level retry configuration");
     }
-    const input = await parseWorkflowInput(implementation.definition, rawInput);
-    const envelope: CloudflareWorkflowEnvelope = {
+
+    await parseInput(implementation.definition, rawInput);
+
+    const envelope: CloudflareEnvelope = {
       kind: "temelj-workflow",
       version: 1,
       workflowName: implementation.name,
-      ...(implementation.version === undefined ? {} : { workflowVersion: implementation.version }),
-      input: encodeCloudflareWorkflowValue(input),
+      workflowVersion: implementation.version,
+      input: encodeCloudflareValue(rawInput),
     };
+
     const id = await resolveInstanceId(implementation.name, implementation.version, startOptions);
     const createdAt = Temporal.Now.instant();
     let instance: CloudflareWorkflowInstance;
+
     if (startOptions?.idempotencyKey === undefined) {
-      instance = await this.#binding.create({
-        ...(id === undefined ? {} : { id }),
+      const createOptions: CloudflareWorkflowInstanceCreateOptions = {
+        id,
         params: envelope,
-      });
+      };
+
+      instance = await this.#binding.create(createOptions);
     } else {
       if (id === undefined) {
         throw new TypeError("Cloudflare idempotent workflow start requires a resolved instance id");
       }
+
       const instances = await this.#binding.createBatch([{ id, params: envelope }]);
       instance = instances[0] ?? (await this.#binding.get(id));
     }
-    return this.#handle(
-      implementation.definition as WorkflowDefinition<unknown, TOutput, unknown>,
-      instance,
-      createdAt,
-    );
+
+    return this.#handle(implementation.definition, instance, createdAt);
   }
 
   async #createHandle<TInput, TOutput, TRawInput>(
-    workflow: WorkflowStartTarget<TInput, TOutput, TRawInput>,
+    workflow: StartTarget<TInput, TOutput, TRawInput>,
     runId: RunId,
-  ): Promise<WorkflowRunHandle<TOutput>> {
-    const implementation = resolveCloudflareWorkflowImplementation(
-      this.#registry,
-      workflow.name,
-      workflow.version,
-    );
+  ): Promise<RunHandle<TOutput>> {
+    const implementation = this.#registeredImplementation(workflow);
+
     const instance = await this.#binding.get(runId);
-    return this.#handle(
-      implementation.definition as WorkflowDefinition<unknown, TOutput, unknown>,
-      instance,
-      Temporal.Now.instant(),
-    );
+
+    return this.#handle(implementation.definition, instance, Temporal.Now.instant());
+  }
+
+  #registeredImplementation<TInput, TOutput, TRawInput>(
+    target: StartTarget<TInput, TOutput, TRawInput>,
+  ): WorkflowImplementation<TInput, TOutput, TRawInput> {
+    const implementation = this.#registry.get(defineFromTarget(target));
+
+    if (implementation === undefined) {
+      throw new TypeError(
+        "Cloudflare Workflow target must use its registered definition: " + target.name,
+      );
+    }
+
+    return implementation;
   }
 
   #handle<TOutput>(
     definition: WorkflowDefinition<unknown, TOutput, unknown>,
     instance: CloudflareWorkflowInstance,
     createdAt: Temporal.Instant,
-  ): WorkflowRunHandle<TOutput> {
-    const status = async () => await instance.status();
-    const record = async (): Promise<WorkflowRunRecord> =>
+  ): RunHandle<TOutput> {
+    const status = () => instance.status();
+
+    const record = async (): Promise<RunRecord> =>
       workflowRunRecord(definition, instance.id, createdAt, await status());
+
     return {
       runId: instance.id,
       workflowName: definition.name,
-      ...(definition.version === undefined ? {} : { workflowVersion: definition.version }),
+      workflowVersion: definition.version,
       getRun: record,
       status: async () => cloudflareRunStatus((await status()).status),
-      events: async () => WorkflowCapabilityError.unsupported("Cloudflare workflow event history"),
-      timeline: async () => WorkflowCapabilityError.unsupported("Cloudflare workflow timeline"),
-      result: async (options) =>
-        await cloudflareWorkflowResult<TOutput>(instance, options, this.#resultPollInterval),
-      getStreamInfo: async () => WorkflowCapabilityError.unsupported("Cloudflare workflow streams"),
-      followStream: () => WorkflowCapabilityError.unsupported("Cloudflare workflow streams"),
-      waitForStream: async () => WorkflowCapabilityError.unsupported("Cloudflare workflow streams"),
-      waitForStreamChunk: async () =>
-        WorkflowCapabilityError.unsupported("Cloudflare workflow streams"),
-      waitForStreamTerminal: async () =>
-        WorkflowCapabilityError.unsupported("Cloudflare workflow streams"),
-      readStream: async () => WorkflowCapabilityError.unsupported("Cloudflare workflow streams"),
-      readStreamPage: async () =>
-        WorkflowCapabilityError.unsupported("Cloudflare workflow streams"),
-      reschedule: async () =>
-        WorkflowCapabilityError.unsupported("Cloudflare workflow rescheduling"),
-      releaseStaleLease: async () =>
-        WorkflowCapabilityError.unsupported("Cloudflare workflow worker leases"),
-      retryFailed: async () =>
-        WorkflowCapabilityError.unsupported("Cloudflare workflow manual retries"),
-      markPermanentlyFailed: async () =>
-        WorkflowCapabilityError.unsupported("Cloudflare permanent workflow failure"),
-      setMetadata: async () => WorkflowCapabilityError.unsupported("Cloudflare workflow metadata"),
-      setAttributes: async () =>
-        WorkflowCapabilityError.unsupported("Cloudflare workflow attributes"),
+      result: (options) =>
+        cloudflareResult<TOutput>(definition, instance, options, this.#resultPollInterval),
       async cancel() {
         const state = await instance.status();
+
         if (!isTerminalCloudflareStatus(state.status)) {
           await instance.terminate();
         }
+
         return await record();
       },
     };
@@ -307,7 +306,8 @@ function isTerminalCloudflareStatus(status: CloudflareWorkflowInstanceStatus["st
   return status === "complete" || status === "errored" || status === "terminated";
 }
 
-async function cloudflareWorkflowResult<TOutput>(
+async function cloudflareResult<TOutput>(
+  definition: WorkflowDefinition<unknown, TOutput>,
   instance: CloudflareWorkflowInstance,
   options: ResultOptions | undefined,
   defaultPollInterval: number,
@@ -316,36 +316,43 @@ async function cloudflareWorkflowResult<TOutput>(
     options?.pollInterval === undefined
       ? defaultPollInterval
       : durationMilliseconds(options.pollInterval, "Cloudflare result poll interval");
+
   const timeout =
     options?.timeout === undefined
       ? undefined
       : durationMilliseconds(options.timeout, "Cloudflare result timeout");
+
   const startedAt = Date.now();
+
   while (true) {
     const state = await instance.status();
+
     if (state.status === "complete") {
-      return decodeCloudflareWorkflowValue(
-        state.output,
-        `Cloudflare Workflow ${instance.id} output`,
-      ) as TOutput;
+      // SAFETY: The decoder verifies the workflow name/version; the entrypoint serializes output from that registered handler.
+      return decodeCloudflareResult(state, definition) as TOutput;
     }
+
     if (state.status === "errored") {
       const error = new Error(state.error?.message ?? "Cloudflare Workflow failed");
       error.name = state.error?.name ?? "Error";
       throw error;
     }
+
     if (state.status === "terminated") {
       WorkflowRunCanceledError.canceled(instance.id);
     }
+
     if (state.status === "unknown") {
       throw new TypeError("Cloudflare Workflow returned an unknown instance status");
     }
+
     if (timeout !== undefined && Date.now() - startedAt >= timeout) {
       WorkflowResultTimeoutError.timedOut(
         instance.id,
         Temporal.Duration.from({ milliseconds: timeout }),
       );
     }
+
     await new Promise<void>((resolve) => setTimeout(resolve, pollInterval));
   }
 }
@@ -355,31 +362,24 @@ function workflowRunRecord(
   runId: string,
   createdAt: Temporal.Instant,
   state: CloudflareWorkflowInstanceStatus,
-): WorkflowRunRecord {
+): RunRecord {
   const now = Temporal.Now.instant();
   const status = cloudflareRunStatus(state.status);
+
   return {
     id: runId,
     namespace: "cloudflare",
     workflowName: definition.name,
-    ...(definition.version === undefined ? {} : { workflowVersion: definition.version }),
+    workflowVersion: definition.version,
     status,
-    ...(state.status === "complete"
-      ? {
-          output: decodeCloudflareWorkflowValue(
-            state.output,
-            `Cloudflare Workflow ${runId} output`,
-          ) as StorageValue,
-        }
-      : {}),
-    ...(state.error === undefined
-      ? {}
-      : {
-          error: {
+    output: state.status === "complete" ? decodeCloudflareResult(state, definition) : undefined,
+    error:
+      state.error !== undefined
+        ? {
             name: state.error.name,
             message: state.error.message,
-          },
-        }),
+          }
+        : undefined,
     createdAt,
     updatedAt: now,
     lastTransitionAt: now,
@@ -395,15 +395,12 @@ function workflowRunRecord(
               : status === "running"
                 ? "started"
                 : "created",
-    ...(status === "completed" || status === "failed" || status === "canceled"
-      ? { finishedAt: now }
-      : {}),
+    finishedAt:
+      status === "completed" || status === "failed" || status === "canceled" ? now : undefined,
   };
 }
 
-function cloudflareRunStatus(
-  status: CloudflareWorkflowInstanceStatus["status"],
-): WorkflowRunStatus {
+function cloudflareRunStatus(status: CloudflareWorkflowInstanceStatus["status"]): RunStatus {
   switch (status) {
     case "queued":
       return "pending";
@@ -427,21 +424,26 @@ function cloudflareRunStatus(
 async function resolveInstanceId(
   workflowName: string,
   workflowVersion: string | undefined,
-  options: WorkflowStartOptions | undefined,
+  options: StartOptions | undefined,
 ): Promise<string | undefined> {
   if (options?.id !== undefined) {
     validateInstanceId(options.id);
+
     return options.id;
   }
+
   if (options?.idempotencyKey === undefined) {
     return undefined;
   }
+
   const input = new TextEncoder().encode(
     `${workflowName}\0${workflowVersion ?? ""}\0${options.idempotencyKey}`,
   );
+
   const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", input));
   const id = `temelj-${[...digest].map((byte) => byte.toString(16).padStart(2, "0")).join("")}`;
   validateInstanceId(id);
+
   return id;
 }
 
@@ -453,7 +455,7 @@ function validateInstanceId(id: string): void {
   }
 }
 
-function rejectUnsupportedStartOptions(options: WorkflowStartOptions | undefined): void {
+function rejectUnsupportedStartOptions(options: StartOptions | undefined): void {
   if (
     options?.availableAt !== undefined ||
     options?.deadlineAt !== undefined ||
@@ -465,23 +467,4 @@ function rejectUnsupportedStartOptions(options: WorkflowStartOptions | undefined
       "Cloudflare start context, parent, delayed availability, deadline, or version resolver",
     );
   }
-}
-
-function durationMilliseconds(duration: Temporal.Duration, label: string): number {
-  const milliseconds = durationTotal(duration);
-  if (!Number.isSafeInteger(milliseconds) || milliseconds < 0) {
-    throw new RangeError(`${label} must resolve to non-negative whole milliseconds`);
-  }
-  return milliseconds;
-}
-
-function unsupportedApi<T>(capability: string): T {
-  return new Proxy(
-    {},
-    {
-      get() {
-        return () => WorkflowCapabilityError.unsupported(capability);
-      },
-    },
-  ) as T;
 }

@@ -4,30 +4,28 @@ import { createPubSub } from "@temelj/event";
 
 import type { CleanupRunsResult } from "../types/cleanup.ts";
 import type { EventRecord, MessageSentEvent } from "../types/events.ts";
-import type { MessageId } from "../types/message-id.ts";
+import type { HookKind } from "../types/hook.ts";
+import type { MessageId, RunId } from "../types/ids.ts";
 import type {
   ChildWorkflowStartedObservationEvent,
   ObservationEmitter as ObservationEmitterContract,
   ObservationEventHandler,
   ObservationEventMap,
+  ObservationEventArgs,
   ObservationEventPattern,
-  RunObservationEvent,
   ScheduleRunCreatedObservationEvent,
   ScheduleTickObservationEvent,
   WorkerOperationObservationEvent,
 } from "../types/observation.ts";
-import type { RunId, WorkflowRunRecord } from "../types/run.ts";
+import type { RunRecord, WorkflowLifecycleEvent } from "../types/run.ts";
 import type { Telemetry, TelemetryContext } from "../types/telemetry.ts";
 
 import { getWorkflowEventStepAttemptKey } from "../events/descriptors.ts";
-import { workflowStepAttemptKey } from "../history/mod.ts";
-import { createWorkflowStepAttempts } from "../history/step-attempts.ts";
+import { createStepAttempts } from "../history/step-attempts.ts";
+import { stepAttemptKey } from "../store-keys.ts";
 import { observeTelemetry } from "../telemetry.ts";
 
-type WorkflowObservationEmit = <Key extends keyof ObservationEventMap>(
-  event: Key,
-  payload: ObservationEventMap[Key],
-) => unknown;
+type ObservationEmit = (...event: ObservationEventArgs) => void;
 
 export function createObservationEmitter(telemetry?: Telemetry): ObservationEmitterContract {
   return new ObservationEmitter(telemetry);
@@ -36,9 +34,9 @@ export function createObservationEmitter(telemetry?: Telemetry): ObservationEmit
 export class ObservationEmitter implements ObservationEmitterContract {
   readonly #events = createPubSub<ObservationEventMap>();
   readonly #telemetry?: Telemetry;
-  readonly #emit: WorkflowObservationEmit = (event, payload) => {
-    this.#events.emit(event, payload);
-    observeTelemetry(this.#telemetry, event, payload);
+  readonly #emit: ObservationEmit = (...event) => {
+    this.#events.emit(event[0], event[1]);
+    observeTelemetry(this.#telemetry, ...event);
   };
 
   constructor(telemetry?: Telemetry) {
@@ -54,7 +52,6 @@ export class ObservationEmitter implements ObservationEmitterContract {
     this.emitDurableEventAppended = this.emitDurableEventAppended.bind(this);
     this.emitMessageSent = this.emitMessageSent.bind(this);
     this.emitHookResumed = this.emitHookResumed.bind(this);
-    this.emitWebhookResumed = this.emitWebhookResumed.bind(this);
     this.emitChildWorkflowStarted = this.emitChildWorkflowStarted.bind(this);
     this.emitCleanupCompleted = this.emitCleanupCompleted.bind(this);
     this.emitRetentionApplied = this.emitRetentionApplied.bind(this);
@@ -100,11 +97,11 @@ export class ObservationEmitter implements ObservationEmitterContract {
     return pattern === undefined ? this.#events.listeners() : this.#events.listeners(pattern);
   }
 
-  emitRunEvent(run: WorkflowRunRecord, previousRun?: WorkflowRunRecord): void {
+  emitRunEvent(run: RunRecord, previousRun?: RunRecord): void {
     emitRunEvent(this.#emit, run, previousRun);
   }
 
-  emitRunMetadataUpdated(run: WorkflowRunRecord, previousRun?: WorkflowRunRecord): void {
+  emitRunMetadataUpdated(run: RunRecord, previousRun?: RunRecord): void {
     this.#emit("workflow:run-metadata-updated", makeRunObservationEvent(run, previousRun));
   }
 
@@ -123,41 +120,25 @@ export class ObservationEmitter implements ObservationEmitterContract {
   }
 
   emitMessageSent(runId: RunId, event: MessageSentEvent): void {
-    this.#emit("workflow:message-sent", {
+    const observation: ObservationEventMap["workflow:message-sent"] = {
       runId,
       messageId: event.messageId,
       payload: event.payload,
       timestamp: event.timestamp,
-      ...(event.telemetryContext === undefined ? {} : { traceContext: event.telemetryContext }),
-    });
+      traceContext: event.telemetryContext,
+    };
+
+    this.#emit("workflow:message-sent", observation);
   }
 
   emitHookResumed(
+    kind: HookKind,
     runId: RunId,
     messageId: MessageId,
     payload: StorageValue | undefined,
     traceContext: TelemetryContext | undefined,
   ): void {
-    this.#emit("workflow:hook-resumed", {
-      runId,
-      messageId,
-      ...(payload === undefined ? {} : { payload }),
-      ...(traceContext === undefined ? {} : { traceContext }),
-    });
-  }
-
-  emitWebhookResumed(
-    runId: RunId,
-    messageId: MessageId,
-    payload: StorageValue | undefined,
-    traceContext: TelemetryContext | undefined,
-  ): void {
-    this.#emit("workflow:webhook-resumed", {
-      runId,
-      messageId,
-      ...(payload === undefined ? {} : { payload }),
-      ...(traceContext === undefined ? {} : { traceContext }),
-    });
+    this.#emit(`workflow:${kind}-resumed`, { runId, messageId, payload, traceContext });
   }
 
   emitChildWorkflowStarted(event: ChildWorkflowStartedObservationEvent): void {
@@ -186,31 +167,37 @@ export class ObservationEmitter implements ObservationEmitterContract {
 }
 
 function emitStepAttemptUpdated(
-  emit: WorkflowObservationEmit,
+  emit: ObservationEmit,
   runId: RunId,
   event: EventRecord,
   events: readonly EventRecord[],
 ): void {
   let key: string | undefined;
+
   try {
     key = getWorkflowEventStepAttemptKey(event);
   } catch {
     return;
   }
+
   if (key === undefined) {
     return;
   }
-  const attempts = createWorkflowStepAttempts(runId, events);
+
+  const attempts = createStepAttempts(runId, events);
+
   const attempt = attempts.find(
-    (current) => workflowStepAttemptKey(current.stepId, current.attempt) === key,
+    (current) => stepAttemptKey(current.stepId, current.attempt) === key,
   );
+
   if (attempt === undefined) {
     return;
   }
+
   emit("workflow:step-attempt-updated", { runId, attempt });
 }
 
-function emitStreamUpdated(emit: WorkflowObservationEmit, runId: RunId, event: EventRecord): void {
+function emitStreamUpdated(emit: ObservationEmit, runId: RunId, event: EventRecord): void {
   if (
     event.kind !== "stream_started" &&
     event.kind !== "stream_chunk" &&
@@ -219,7 +206,8 @@ function emitStreamUpdated(emit: WorkflowObservationEmit, runId: RunId, event: E
   ) {
     return;
   }
-  emit("workflow:stream-updated", {
+
+  const observation: ObservationEventMap["workflow:stream-updated"] = {
     runId,
     streamId: event.streamId,
     streamName: event.stepName,
@@ -227,17 +215,20 @@ function emitStreamUpdated(emit: WorkflowObservationEmit, runId: RunId, event: E
     timestamp: event.timestamp,
     stepId: event.stepId,
     stepName: event.stepName,
-    ...(event.kind === "stream_chunk" ? { index: event.index } : {}),
-    ...(event.kind === "stream_failed" ? { error: event.error } : {}),
-  });
+    index: event.kind === "stream_chunk" ? event.index : undefined,
+    error: event.kind === "stream_failed" ? event.error : undefined,
+  };
+
+  emit("workflow:stream-updated", observation);
 }
 
 function emitRunEvent(
-  emit: WorkflowObservationEmit,
-  run: WorkflowRunRecord,
-  previousRun: WorkflowRunRecord | undefined,
+  emit: ObservationEmit,
+  run: RunRecord,
+  previousRun: RunRecord | undefined,
 ): void {
   const payload = makeRunObservationEvent(run, previousRun);
+
   switch (run.lastTransitionReason) {
     case "created":
       emit("workflow:run-created", payload);
@@ -282,9 +273,9 @@ function emitRunEvent(
 }
 
 function makeRunObservationEvent(
-  run: WorkflowRunRecord,
-  previousRun: WorkflowRunRecord | undefined,
-): RunObservationEvent {
+  run: RunRecord,
+  previousRun: RunRecord | undefined,
+): WorkflowLifecycleEvent {
   return {
     run,
     previousRun,
@@ -292,6 +283,6 @@ function makeRunObservationEvent(
     reason: run.lastTransitionReason,
     timestamp: run.lastTransitionAt,
     workflowName: run.workflowName,
-    ...(run.workflowVersion === undefined ? {} : { workflowVersion: run.workflowVersion }),
+    workflowVersion: run.workflowVersion,
   };
 }

@@ -1,0 +1,172 @@
+import type { StorageValue } from "@temelj/storage";
+
+import { ss } from "@temelj/standard-schema";
+import { describe, expectTypeOf, test } from "vitest";
+import { z } from "zod";
+
+import type { WorkflowRunHandle } from "./types/client.ts";
+import type { WorkflowDefinition, WorkflowImplementation } from "./types/definition.ts";
+import type { WorkflowStepContext } from "./types/step.ts";
+
+import { createWorkflowClient } from "./client/create.ts";
+import { implementWorkflow, defineMessageChannel, defineWorkflow } from "./definition.ts";
+import { defineWorkflowStep } from "./step-definition.ts";
+
+describe("workflow public type contracts", () => {
+  test("infers schema inputs and declared outputs from workflow defs", () => {
+    const inputSchema = ss.object({
+      userId: ss.string(),
+    });
+
+    const def = defineWorkflow<typeof inputSchema, { readonly ok: boolean }>({
+      name: "typed-schema",
+      schema: inputSchema,
+    });
+
+    expectTypeOf(def).toMatchTypeOf<
+      WorkflowDefinition<{ readonly userId: string }, { readonly ok: boolean }, unknown>
+    >();
+  });
+
+  test("preserves implementation, child workflow, and message payload types", () => {
+    const client = createWorkflowClient();
+
+    const parentDef = defineWorkflow<{ readonly userId: string }, { readonly ok: boolean }>({
+      name: "typed-parent",
+    });
+
+    const childDef = defineWorkflow<{ readonly childId: string }, number>({
+      name: "typed-child",
+    });
+
+    const typedStep = defineWorkflowStep(
+      { name: "typed-step" },
+      (context: WorkflowStepContext, value: number, suffix: string) => {
+        expectTypeOf(context.step.name).toEqualTypeOf<string>();
+
+        return `${value}${suffix}`;
+      },
+    );
+
+    const runnable = client.implementWorkflow(parentDef, async ({ input, step }) => {
+      expectTypeOf(input).toEqualTypeOf<{ readonly userId: string }>();
+
+      const stepOutput = await step.call(typedStep, 1, "!");
+      expectTypeOf(stepOutput).toEqualTypeOf<string>();
+
+      // @ts-expect-error step arguments must match the step definition
+      await step.call(typedStep, "1", "!");
+
+      const childOutput = await step.workflow.run(childDef, { childId: input.userId });
+      expectTypeOf(childOutput).toEqualTypeOf<number>();
+
+      const childRunId = await step.workflow.start(childDef, { childId: input.userId });
+      expectTypeOf(childRunId).toEqualTypeOf<string>();
+
+      expectTypeOf(step.hook.create({ name: "raw" }).wait()).toEqualTypeOf<
+        Promise<StorageValue | undefined>
+      >();
+      expectTypeOf(step.message.wait({ messageId: "raw" })).toEqualTypeOf<
+        Promise<StorageValue | undefined>
+      >();
+      // @ts-expect-error typed hook payloads require a schema, not a caller-selected type.
+      step.hook.create<{ approved: boolean }>({ name: "unchecked" });
+      // @ts-expect-error typed message payloads require a schema.
+      await step.message.wait<{ approved: boolean }>({ messageId: "unchecked" });
+
+      const hook = step.hook.create({
+        name: "approval",
+        schema: ss.object({
+          approved: ss.boolean(),
+        }),
+      });
+
+      expectTypeOf(hook.token).toEqualTypeOf<string>();
+      expectTypeOf(await hook.wait()).toEqualTypeOf<{ readonly approved: boolean }>();
+      expectTypeOf(await hook).toEqualTypeOf<{ readonly approved: boolean }>();
+
+      const signalPayload = await step.message.wait({
+        messageId: "approved",
+        schema: ss.object({
+          approved: ss.boolean(),
+        }),
+      });
+
+      expectTypeOf(signalPayload).toEqualTypeOf<{ readonly approved: boolean }>();
+
+      const channel = defineMessageChannel({
+        name: "typed-channel",
+        schema: ss.object({
+          approved: ss.boolean(),
+        }),
+      });
+
+      const channelPayload = await step.message.wait(channel);
+      expectTypeOf(channelPayload).toEqualTypeOf<{ readonly approved: boolean }>();
+      await step.message.send(childRunId, channel, { payload: { approved: true } });
+
+      const typedInputChannel = defineMessageChannel({
+        name: "typed-input",
+        schema: z.object({ approved: z.boolean() }),
+      });
+
+      // @ts-expect-error channel payload must match the schema input type.
+      await step.message.send(childRunId, typedInputChannel, { payload: { approved: "yes" } });
+
+      await step.run(
+        // @ts-expect-error rollback handlers are not part of the core step config
+        { name: "unsupported-rollback", rollback: () => undefined },
+        () => undefined,
+      );
+
+      // @ts-expect-error step definitions are the only accepted step.call target
+      await step.call({ name: "not-a-definition" });
+
+      return { ok: signalPayload.approved };
+    });
+
+    expectTypeOf(client.runs.start(runnable, { userId: "user_1" })).toEqualTypeOf<
+      Promise<WorkflowRunHandle<{ readonly ok: boolean }>>
+    >();
+    expectTypeOf(client.runs.start(parentDef, { userId: "user_1" })).toEqualTypeOf<
+      Promise<WorkflowRunHandle<{ readonly ok: boolean }>>
+    >();
+
+    // @ts-expect-error input shape must match the workflow def
+    void client.runs.start(parentDef, { count: 1 });
+
+    expectTypeOf<ReturnType<typeof client.hooks.resume>>().toEqualTypeOf<Promise<void>>();
+  });
+
+  test("preserves local workflow handler input and output types", () => {
+    const workflow = implementWorkflow<{ readonly value: number }, string>(
+      { name: "typed-local" },
+      ({ input }) => {
+        expectTypeOf(input).toEqualTypeOf<{ readonly value: number }>();
+
+        return input.value.toString();
+      },
+    );
+
+    expectTypeOf(workflow).toMatchTypeOf<
+      WorkflowImplementation<{ readonly value: number }, string, { readonly value: number }>
+    >();
+  });
+
+  test("starts client implementations with typed handles", () => {
+    const client = createWorkflowClient();
+
+    const def = defineWorkflow<{ readonly value: number }, string>({
+      name: "typed-facade",
+    });
+
+    const runnable = client.implementWorkflow(def, ({ input }) => input.value.toString());
+
+    expectTypeOf(runnable.definition).toEqualTypeOf<
+      WorkflowDefinition<{ readonly value: number }, string, { readonly value: number }>
+    >();
+    expectTypeOf(client.runs.start(runnable, { value: 1 })).toEqualTypeOf<
+      Promise<WorkflowRunHandle<string>>
+    >();
+  });
+});

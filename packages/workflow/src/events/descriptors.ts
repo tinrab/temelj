@@ -1,12 +1,20 @@
-import type { EventDescriptor, EventKind, EventRecord } from "../types/events.ts";
+import type {
+  EventDescriptor,
+  EventFieldName,
+  EventFieldValue,
+  EventKind,
+  EventRecord,
+} from "../types/events.ts";
+import type { StepId } from "../types/ids.ts";
 
-import { makeWorkflowStepAttemptKey } from "../history/attempt-key.ts";
-import { StepId } from "../types/step.ts";
+import { stepAttemptKey } from "../store-keys.ts";
 
 export type { EventDescriptor } from "../types/events.ts";
 
 type EventRecordFor<Kind extends EventKind> = Extract<EventRecord, { readonly kind: Kind }>;
+
 type EventField<Kind extends EventKind> = Extract<keyof EventRecordFor<Kind>, string>;
+
 type SharedEventField<Left extends EventKind, Right extends EventKind> = Extract<
   keyof EventRecordFor<Left> & keyof EventRecordFor<Right>,
   string
@@ -49,7 +57,7 @@ function defineEventDescriptors<
 
 // Descriptors are the central event metadata table.
 // Cleanup, idempotency, reconciliation, and materialized step-attempt keys all read these fields instead of duplicating per-event rules.
-export const WORKFLOW_EVENT_DESCRIPTORS = defineEventDescriptors({
+const WORKFLOW_EVENT_DESCRIPTORS = defineEventDescriptors({
   workflow_started: {
     kind: "workflow_started",
     category: "workflow",
@@ -287,18 +295,21 @@ const WORKFLOW_EVENT_KINDS_FOR_CLEANUP = new Set<string>(
 );
 
 const WORKFLOW_RECORDED_STEP_EVENT_KINDS = new Set<string>(
-  (Object.values(WORKFLOW_EVENT_DESCRIPTORS) as readonly EventDescriptor[])
-    .filter((descriptor) => descriptor.stepType !== undefined)
+  Object.values(WORKFLOW_EVENT_DESCRIPTORS)
+    .filter((descriptor) => "stepType" in descriptor)
     .map((descriptor) => descriptor.kind),
 );
 
 const WORKFLOW_TERMINAL_STEP_EVENT_KINDS = new Set<string>(
-  (Object.values(WORKFLOW_EVENT_DESCRIPTORS) as readonly EventDescriptor[])
-    .filter((descriptor) => descriptor.terminalStepAttempt === true)
+  Object.values(WORKFLOW_EVENT_DESCRIPTORS)
+    .filter(
+      (descriptor) =>
+        "terminalStepAttempt" in descriptor && descriptor.terminalStepAttempt === true,
+    )
     .map((descriptor) => descriptor.kind),
 );
 
-export function isEventKindForCleanup(kind: string): kind is EventKind {
+function isEventKindForCleanup(kind: string): kind is EventKind {
   return WORKFLOW_EVENT_KINDS_FOR_CLEANUP.has(kind);
 }
 
@@ -318,14 +329,17 @@ export function isWorkflowTerminalStepAttemptEvent(
 
 export function getWorkflowEventStepAttempt(event: EventRecord): number | undefined {
   const descriptor = getEventDescriptor(event.kind);
+
   // Some event families retry by explicit attempt number; sleep, message, stream, and
   // deterministic events are single-attempt steps and use attempt 1 for their materialized key.
   if (descriptor.stepAttempt === "single") {
     return 1;
   }
+
   if (descriptor.stepAttempt === "event" && "attempt" in event) {
     return event.attempt;
   }
+
   return undefined;
 }
 
@@ -333,10 +347,30 @@ export function getWorkflowEventStepAttemptKey(event: EventRecord): string | und
   if (!("stepId" in event)) {
     return undefined;
   }
+
   const attempt = getWorkflowEventStepAttempt(event);
-  return attempt === undefined ? undefined : makeWorkflowStepAttemptKey(event.stepId, attempt);
+
+  return attempt === undefined ? undefined : stepAttemptKey(event.stepId, attempt);
 }
 
 export function getEventDescriptor(kind: EventKind): EventDescriptor {
   return WORKFLOW_EVENT_DESCRIPTORS[kind];
+}
+
+/** Reads a descriptor-selected field from a durable event variant. */
+export function getEventField(
+  event: EventRecord,
+  field: EventFieldName,
+): EventFieldValue | undefined {
+  const fields: Partial<Record<EventFieldName, EventFieldValue>> = event;
+
+  return fields[field];
+}
+
+export function eventFieldsMatch(
+  left: EventRecord,
+  right: EventRecord,
+  fields: readonly EventFieldName[] = [],
+): boolean {
+  return fields.every((field) => getEventField(left, field) === getEventField(right, field));
 }

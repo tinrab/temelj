@@ -1,50 +1,54 @@
 import type { StorageCompareAndSetManyItem, StorageValue } from "@temelj/storage";
 
 import type { EventRecord } from "../types/events.ts";
-import type { RunId, WorkflowMaterializedStepType } from "../types/run.ts";
-import type { WorkflowStepAttemptRecord } from "../types/step-attempts.ts";
+import type { RunId } from "../types/ids.ts";
+import type { MaterializedStepType } from "../types/run.ts";
+import type { StepAttemptRecord } from "../types/step-attempts.ts";
 import type { WorkflowStorage } from "../types/store.ts";
 
 import { omitUndefined } from "../collection.ts";
 import { WorkflowStateError } from "../errors/base.ts";
+import { WorkflowErrorCode } from "../errors/codes.ts";
 import { getWorkflowEventStepAttemptKey } from "../events/descriptors.ts";
-import { applyWorkflowStepAttemptEvent, workflowStepAttemptKey } from "../history/mod.ts";
-import { createWorkflowStepAttempts } from "../history/step-attempts.ts";
-import { makeStepAttemptKey } from "../store-keys.ts";
-import { supportsWorkflowConditionalWrite } from "./capabilities.ts";
-import { rollbackAppendedEventIfCurrent } from "./event-history.ts";
-import { requireReadableStoredWorkflowRun } from "./run.ts";
+import { applyStepAttemptEvent } from "../history/replay.ts";
+import { createStepAttempts } from "../history/step-attempts.ts";
+import { makeStepAttemptKey, stepAttemptKey } from "../store-keys.ts";
+import { supportsConditionalWrite } from "./capabilities.ts";
+import { rollbackAppendedEventIfCurrent } from "./events.ts";
+import { requireReadableStoredRun } from "./run.ts";
 import { toStorageValue } from "./storage-value.ts";
-import { parseStoredWorkflowStepAttemptRecord } from "./validation.ts";
+import { parseStoredStepAttemptRecord } from "./validation.ts";
 
 const MAX_MATERIALIZE_STEP_ATTEMPT_ATTEMPTS = 16;
-type WorkflowMaterializedStepAttemptField = keyof WorkflowStepAttemptRecord;
-type WorkflowMaterializedStepDescriptor = {
-  readonly identityFields: readonly WorkflowMaterializedStepAttemptField[];
+
+type MaterializedStepAttemptField = keyof StepAttemptRecord;
+
+type MaterializedStepDescriptor = {
+  readonly identityFields: readonly MaterializedStepAttemptField[];
 };
 
-interface WorkflowStepAttemptMaterializationUpdate {
+interface StepAttemptMaterializationUpdate {
   readonly storageKey: string;
-  readonly next?: WorkflowStepAttemptRecord;
+  readonly next?: StepAttemptRecord;
   readonly shouldStore: boolean;
 }
 
-export interface WorkflowStepAttemptMaterializationStoragePlan {
+export interface StepAttemptMaterializationStoragePlan {
   readonly materializes: boolean;
   readonly storageKey?: string;
-  readonly current?: WorkflowStepAttemptRecord;
+  readonly current?: StepAttemptRecord;
   readonly item?: StorageCompareAndSetManyItem<StorageValue>;
 }
 
-export interface WorkflowStepAttemptAppendMaterializationOutcome {
+interface StepAttemptAppendMaterializationOutcome {
   readonly status: "appended" | "duplicate";
   readonly events: readonly EventRecord[];
   readonly previousEventHistory?: StorageValue;
 }
 
-interface StoredWorkflowStepAttempt {
+interface StoredStepAttempt {
   readonly raw: StorageValue | undefined;
-  readonly current: WorkflowStepAttemptRecord | undefined;
+  readonly current: StepAttemptRecord | undefined;
 }
 
 // Defines the fields that make each materialized step attempt distinct.
@@ -72,7 +76,7 @@ const WORKFLOW_MATERIALIZED_STEP_DESCRIPTORS = {
     identityFields: [],
   },
 } satisfies {
-  readonly [Kind in WorkflowMaterializedStepType]: WorkflowMaterializedStepDescriptor;
+  readonly [Kind in MaterializedStepType]: MaterializedStepDescriptor;
 };
 
 async function materializeStepAttempt(
@@ -81,13 +85,14 @@ async function materializeStepAttempt(
   runId: RunId,
   event: EventRecord,
 ): Promise<void> {
-  const storageKey = getWorkflowStepAttemptMaterializationStorageKey(namespace, runId, event);
+  const storageKey = getStepAttemptMaterializationStorageKey(namespace, runId, event);
+
   if (storageKey === undefined) {
     return;
   }
 
   await materializeStepAttemptIfCurrent(storage, runId, storageKey, (current) =>
-    applyWorkflowStepAttemptEvent(runId, event, current),
+    applyStepAttemptEvent(runId, event, current),
   );
 }
 
@@ -96,7 +101,7 @@ export async function materializeStepAttemptForAppendOutcome(
   namespace: string,
   runId: RunId,
   event: EventRecord,
-  outcome: WorkflowStepAttemptAppendMaterializationOutcome,
+  outcome: StepAttemptAppendMaterializationOutcome,
 ): Promise<void> {
   try {
     await materializeStepAttempt(storage, namespace, runId, event);
@@ -112,73 +117,76 @@ export async function materializeStepAttemptForAppendOutcome(
         outcome.previousEventHistory,
       );
     }
+
     throw error;
   }
 }
 
-function getWorkflowStepAttemptMaterializationStorageKey(
+function getStepAttemptMaterializationStorageKey(
   namespace: string,
   runId: RunId,
   event: EventRecord,
 ): string | undefined {
   let attemptKey: string | undefined;
+
   try {
     attemptKey = getWorkflowEventStepAttemptKey(event);
   } catch {
     attemptKey = undefined;
   }
+
   return attemptKey === undefined ? undefined : makeStepAttemptKey(namespace, runId, attemptKey);
 }
 
-function createWorkflowStepAttemptMaterializationUpdate(
+function createStepAttemptMaterializationUpdate(
   namespace: string,
   runId: RunId,
   event: EventRecord,
-  current: WorkflowStepAttemptRecord | undefined,
-): WorkflowStepAttemptMaterializationUpdate | undefined {
-  const storageKey = getWorkflowStepAttemptMaterializationStorageKey(namespace, runId, event);
+  current: StepAttemptRecord | undefined,
+): StepAttemptMaterializationUpdate | undefined {
+  const storageKey = getStepAttemptMaterializationStorageKey(namespace, runId, event);
+
   if (storageKey === undefined) {
     return undefined;
   }
-  const next = applyWorkflowStepAttemptEvent(runId, event, current);
+
+  const next = applyStepAttemptEvent(runId, event, current);
+
   return {
     storageKey,
-    ...(next === undefined ? {} : { next }),
+    next,
     shouldStore: next !== undefined && shouldStoreStepAttempt(current, next),
   };
 }
 
-export async function createWorkflowStepAttemptMaterializationStoragePlan(
+export async function createStepAttemptMaterializationStoragePlan(
   storage: WorkflowStorage,
   namespace: string,
   runId: RunId,
   event: EventRecord,
-): Promise<WorkflowStepAttemptMaterializationStoragePlan> {
-  const storageKey = getWorkflowStepAttemptMaterializationStorageKey(namespace, runId, event);
+): Promise<StepAttemptMaterializationStoragePlan> {
+  const storageKey = getStepAttemptMaterializationStorageKey(namespace, runId, event);
+
   if (storageKey === undefined) {
     return { materializes: false };
   }
 
-  const { raw, current } = await readStoredWorkflowStepAttempt(storage, storageKey);
-  const materialization = createWorkflowStepAttemptMaterializationUpdate(
-    namespace,
-    runId,
-    event,
-    current,
-  );
+  const { raw, current } = await readStoredStepAttempt(storage, storageKey);
+
+  const materialization = createStepAttemptMaterializationUpdate(namespace, runId, event, current);
+
   return {
     materializes: true,
     storageKey,
-    ...(current === undefined ? {} : { current }),
-    ...(materialization?.shouldStore === true && materialization.next !== undefined
-      ? {
-          item: {
+    current,
+    item:
+      materialization?.shouldStore === true && materialization.next !== undefined
+        ? {
             key: materialization.storageKey,
             expected: raw,
             value: toStorageValue(omitUndefined(materialization.next)),
-          },
-        }
-      : {}),
+          }
+        : undefined,
   };
 }
 
@@ -187,50 +195,48 @@ export async function reconcileStepAttempts(
   namespace: string,
   runId: RunId,
   events: readonly EventRecord[],
-): Promise<readonly WorkflowStepAttemptRecord[]> {
-  const attempts = createWorkflowStepAttempts(runId, events);
-  await requireReadableStoredWorkflowRun(storage, namespace, runId);
+): Promise<readonly StepAttemptRecord[]> {
+  const attempts = createStepAttempts(runId, events);
+  await requireReadableStoredRun(storage, namespace, runId);
   await Promise.all(
     attempts.map((attempt) =>
       materializeStepAttemptIfCurrent(
         storage,
         runId,
-        makeStepAttemptKey(
-          namespace,
-          runId,
-          workflowStepAttemptKey(attempt.stepId, attempt.attempt),
-        ),
+        makeStepAttemptKey(namespace, runId, stepAttemptKey(attempt.stepId, attempt.attempt)),
         () => attempt,
         { repairStatusMismatch: true },
       ),
     ),
   );
+
   return attempts;
 }
 
-export async function materializeStepAttemptIfCurrent(
+async function materializeStepAttemptIfCurrent(
   storage: WorkflowStorage,
   runId: RunId,
   storageKey: string,
-  createNext: (
-    current: WorkflowStepAttemptRecord | undefined,
-  ) => WorkflowStepAttemptRecord | undefined,
+  createNext: (current: StepAttemptRecord | undefined) => StepAttemptRecord | undefined,
   options: { readonly repairStatusMismatch?: boolean } = {},
 ): Promise<void> {
-  if (!supportsWorkflowConditionalWrite(storage)) {
+  if (!supportsConditionalWrite(storage)) {
     // Stores without CAS can still maintain the read model, but concurrent writers may race.
     // The CAS path below is used whenever the storage backend can reject stale writes.
-    const { current } = await readStoredWorkflowStepAttempt(storage, storageKey);
+    const { current } = await readStoredStepAttempt(storage, storageKey);
     const next = createNext(current);
+
     if (next !== undefined && shouldStoreStepAttempt(current, next, options)) {
       await storage.set(storageKey, toStorageValue(omitUndefined(next)));
     }
+
     return;
   }
 
   for (let attempt = 0; attempt < MAX_MATERIALIZE_STEP_ATTEMPT_ATTEMPTS; attempt++) {
-    const { raw, current } = await readStoredWorkflowStepAttempt(storage, storageKey);
+    const { raw, current } = await readStoredStepAttempt(storage, storageKey);
     const next = createNext(current);
+
     if (next === undefined || !shouldStoreStepAttempt(current, next, options)) {
       return;
     }
@@ -240,39 +246,50 @@ export async function materializeStepAttemptIfCurrent(
       raw,
       toStorageValue(omitUndefined(next)),
     );
+
     if (updated) {
       return;
     }
   }
 
-  WorkflowStateError.failedStepAttemptMaterialization(runId, MAX_MATERIALIZE_STEP_ATTEMPT_ATTEMPTS);
+  throw new WorkflowStateError(
+    `Failed to materialize workflow step attempt for run ${runId} after ${MAX_MATERIALIZE_STEP_ATTEMPT_ATTEMPTS} attempts`,
+    {
+      code: WorkflowErrorCode.STATE_STEP_ATTEMPT_MATERIALIZATION_FAILED,
+      details: { runId: runId, attempts: MAX_MATERIALIZE_STEP_ATTEMPT_ATTEMPTS },
+    },
+  );
 }
 
-async function readStoredWorkflowStepAttempt(
+async function readStoredStepAttempt(
   storage: WorkflowStorage,
   storageKey: string,
-): Promise<StoredWorkflowStepAttempt> {
+): Promise<StoredStepAttempt> {
   const raw = await storage.get(storageKey);
+
   return {
     raw,
-    current: parseStoredWorkflowStepAttemptRecord(raw),
+    current: parseStoredStepAttemptRecord(raw),
   };
 }
 
-export function shouldStoreStepAttempt(
-  current: WorkflowStepAttemptRecord | undefined,
-  next: WorkflowStepAttemptRecord,
+function shouldStoreStepAttempt(
+  current: StepAttemptRecord | undefined,
+  next: StepAttemptRecord,
   options: { readonly repairStatusMismatch?: boolean } = {},
 ): boolean {
   if (current === undefined) {
     return true;
   }
+
   if (!isSameStepAttemptIdentity(current, next)) {
     return true;
   }
+
   if ((current.status === "abandoned") !== (next.status === "abandoned")) {
     return true;
   }
+
   if (options.repairStatusMismatch === true && current.status !== next.status) {
     return true;
   }
@@ -281,24 +298,30 @@ export function shouldStoreStepAttempt(
   // When two events have the same timestamp, terminal states win over running so a completion is not lost.
   const currentTimestamp = current.finishedAt ?? current.startedAt;
   const nextTimestamp = next.finishedAt ?? next.startedAt;
+
   if (currentTimestamp === undefined) {
     return true;
   }
+
   if (nextTimestamp === undefined) {
     return false;
   }
+
   if (Temporal.Instant.compare(currentTimestamp, nextTimestamp) > 0) {
     return false;
   }
+
   if (Temporal.Instant.compare(currentTimestamp, nextTimestamp) < 0) {
     return true;
   }
+
   const nextRank =
     next.status === "running"
       ? 0
       : next.status === "abandoned" || next.status === "failed" || next.status === "completed"
         ? 1
         : 0;
+
   const currentRank =
     current.status === "running"
       ? 0
@@ -307,12 +330,13 @@ export function shouldStoreStepAttempt(
           current.status === "completed"
         ? 1
         : 0;
+
   return nextRank >= currentRank;
 }
 
 export function isSameStepAttemptIdentity(
-  current: WorkflowStepAttemptRecord,
-  next: WorkflowStepAttemptRecord,
+  current: StepAttemptRecord,
+  next: StepAttemptRecord,
 ): boolean {
   if (
     !(
@@ -326,6 +350,7 @@ export function isSameStepAttemptIdentity(
   ) {
     return false;
   }
+
   return isSameMaterializedStepAttemptFields(
     current,
     next,
@@ -334,9 +359,9 @@ export function isSameStepAttemptIdentity(
 }
 
 function isSameMaterializedStepAttemptFields(
-  current: WorkflowStepAttemptRecord,
-  next: WorkflowStepAttemptRecord,
-  fields: readonly WorkflowMaterializedStepAttemptField[],
+  current: StepAttemptRecord,
+  next: StepAttemptRecord,
+  fields: readonly MaterializedStepAttemptField[],
 ): boolean {
   return fields.every((field) => current[field] === next[field]);
 }

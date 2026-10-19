@@ -1,15 +1,17 @@
+import type { Unsubscribe } from "@temelj/event";
+
 import type { WorkflowBundle } from "../bundle.ts";
+import type { WorkflowEngine } from "../engine/create.ts";
 import type {
   WorkflowClient as WorkflowClientContract,
-  WorkflowClientAdminApi,
-  WorkflowClientHooksApi,
-  WorkflowClientLocksApi,
-  WorkflowClientMessagesApi,
-  WorkflowClientRunsApi,
-  WorkflowClientSchedulesApi,
-  WorkflowClientStreamsApi,
-  WorkflowClientWorkersApi,
-  WorkflowRunnable,
+  ClientAdminApi,
+  ClientHooksApi,
+  ClientLocksApi,
+  ClientMessagesApi,
+  ClientRunsApi,
+  ClientSchedulesApi,
+  ClientStreamsApi,
+  ClientWorkersApi,
 } from "../types/client.ts";
 import type {
   WorkflowDefinition,
@@ -18,31 +20,28 @@ import type {
   RegistryLike,
 } from "../types/definition.ts";
 import type { CreateWorkflowEngineOptions } from "../types/engine-options.ts";
-import type { WorkflowClientEngine, WorkflowWorkerEngine } from "../types/engine.ts";
+import type { ObservationEventHandler, ObservationEventPattern } from "../types/observation.ts";
 
-import { createWorkflowBundleRegistry } from "../bundle.ts";
 import {
-  createWorkflowClientAdminApi,
-  createWorkflowClientHooksApi,
-  createWorkflowClientLocksApi,
-  createWorkflowClientMessagesApi,
-  createWorkflowClientRunsApi,
-  createWorkflowClientSchedulesApi,
-  createWorkflowClientStreamsApi,
-  createWorkflowClientWorkersApi,
+  createClientAdminApi,
+  createClientHooksApi,
+  createClientLocksApi,
+  createClientMessagesApi,
+  createClientRunsApi,
+  createClientSchedulesApi,
+  createClientStreamsApi,
+  createClientWorkersApi,
 } from "../client/facades.ts";
 import { createWorkflowEngine } from "../engine/create.ts";
 import { Registry } from "../registry.ts";
 
-type WorkflowClientEngineOptions = Omit<CreateWorkflowEngineOptions, "storage" | "store">;
-
-interface CreateWorkflowClientBaseOptions extends WorkflowClientEngineOptions {
-  readonly engine?: WorkflowClientEngine;
-  readonly workerEngine?: WorkflowWorkerEngine;
+/** Engine options, such as `storage` or `store`, plus the workflows the client starts with. */
+export interface CreateWorkflowClientOptions extends CreateWorkflowEngineOptions {
+  readonly workflows?: WorkflowBundle;
 }
 
-/** Options for creating a workflow client with either a registry or an immutable bundle. */
-export type CreateWorkflowClientOptions = CreateWorkflowClientBaseOptions &
+/** Client options that share a registry with workers built over the same engine. Internal. */
+export type ClientForEngineOptions = CreateWorkflowEngineOptions &
   (
     | { readonly registry?: RegistryLike; readonly workflows?: never }
     | { readonly registry?: never; readonly workflows?: WorkflowBundle }
@@ -54,44 +53,66 @@ export function createWorkflowClient(
   return new WorkflowClient(options);
 }
 
-/** Workflow client facade implementation. */
+/** A client over an existing engine, so several clients and workers share one engine. Internal. */
+export function clientForEngine(
+  engine: WorkflowEngine,
+  options: ClientForEngineOptions = {},
+): WorkflowClientContract {
+  return new WorkflowClient(options, engine);
+}
+
 export class WorkflowClient implements WorkflowClientContract {
-  readonly runs: WorkflowClientRunsApi;
-  readonly admin: WorkflowClientAdminApi;
-  readonly schedules: WorkflowClientSchedulesApi;
-  readonly locks: WorkflowClientLocksApi;
-  readonly hooks: WorkflowClientHooksApi;
-  readonly streams: WorkflowClientStreamsApi;
-  readonly messages: WorkflowClientMessagesApi;
-  readonly workers: WorkflowClientWorkersApi;
-  readonly #engine: WorkflowClientEngine;
-  readonly #workerEngine?: WorkflowWorkerEngine;
+  readonly runs: ClientRunsApi;
+  readonly admin: ClientAdminApi;
+  readonly schedules: ClientSchedulesApi;
+  readonly locks: ClientLocksApi;
+  readonly hooks: ClientHooksApi;
+  readonly streams: ClientStreamsApi;
+  readonly messages: ClientMessagesApi;
+  readonly workers: ClientWorkersApi;
+  readonly #engine: WorkflowEngine;
   readonly #now: () => Temporal.Instant;
   readonly #registry: RegistryLike;
 
-  constructor(options: CreateWorkflowClientOptions = {}) {
-    const { engine, workerEngine, registry, workflows, now, ...engineOptions } = options;
+  constructor(options: ClientForEngineOptions = {}, engine?: WorkflowEngine) {
+    const { registry, workflows, now, ...engineOptions } = options;
+
     if (registry !== undefined && workflows !== undefined) {
       throw new TypeError("Workflow client options cannot include both registry and workflows");
     }
+
     this.#now = now ?? Temporal.Now.instant;
     this.#engine = engine ?? createWorkflowEngine({ ...engineOptions, now: this.#now });
-    this.#workerEngine = workerEngine ?? workflowWorkerEngineFromCandidate(this.#engine);
-    this.#registry =
-      registry ??
-      (workflows === undefined ? new Registry() : createWorkflowBundleRegistry(workflows));
-    this.runs = createWorkflowClientRunsApi(() => this.#engine, this.#now);
-    this.admin = createWorkflowClientAdminApi(() => this.#engine, this.#now);
-    this.schedules = createWorkflowClientSchedulesApi(() => this.#engine, this.#now);
-    this.locks = createWorkflowClientLocksApi(() => this.#engine);
-    this.hooks = createWorkflowClientHooksApi(() => this.#engine);
-    this.streams = createWorkflowClientStreamsApi(() => this.#engine);
-    this.messages = createWorkflowClientMessagesApi(() => this.#engine);
-    this.workers = createWorkflowClientWorkersApi(
-      () => this.#workerEngine,
-      () => this.#registry,
-      this.#now,
-    );
+    this.#registry = registry ?? new Registry(workflows?.workflows);
+    this.runs = createClientRunsApi(this.#engine, this.#now, this.#registry);
+    this.admin = createClientAdminApi(this.#engine, this.#now);
+    this.schedules = createClientSchedulesApi(this.#engine, this.#now);
+    this.locks = createClientLocksApi(this.#engine);
+    this.hooks = createClientHooksApi(this.#engine);
+    this.streams = createClientStreamsApi(this.#engine);
+    this.messages = createClientMessagesApi(this.#engine);
+    this.workers = createClientWorkersApi(this.#engine, this.#registry, this.#now);
+  }
+
+  on<Pattern extends ObservationEventPattern>(
+    pattern: Pattern,
+    handler: ObservationEventHandler<Pattern>,
+  ): Unsubscribe {
+    return this.#engine.observation.on(pattern, handler);
+  }
+
+  once<Pattern extends ObservationEventPattern>(
+    pattern: Pattern,
+    handler: ObservationEventHandler<Pattern>,
+  ): Unsubscribe {
+    return this.#engine.observation.once(pattern, handler);
+  }
+
+  off<Pattern extends ObservationEventPattern>(
+    pattern: Pattern,
+    handler: ObservationEventHandler<Pattern>,
+  ): void {
+    this.#engine.observation.off(pattern, handler);
   }
 
   async close(): Promise<void> {
@@ -111,45 +132,7 @@ export class WorkflowClient implements WorkflowClientContract {
     if (this.#registry.get(implementation.definition) === implementation) {
       return;
     }
+
     this.#registry.register(implementation);
   }
-
-  workflow<TInput, TOutput, TRawInput = TInput>(
-    definition: WorkflowDefinition<TInput, TOutput, TRawInput>,
-    handler: WorkflowHandler<TInput, TOutput>,
-  ): WorkflowRunnable<TInput, TOutput, TRawInput> {
-    this.#registry.implementWorkflow(definition, handler);
-    return {
-      definition,
-      run: (...runArgs) => this.runs.start(definition, ...runArgs),
-    };
-  }
-}
-
-function workflowWorkerEngineFromCandidate(
-  engine: WorkflowClientEngine,
-): WorkflowWorkerEngine | undefined {
-  return isWorkflowWorkerEngine(engine) ? engine : undefined;
-}
-
-function isWorkflowWorkerEngine(candidate: unknown): candidate is WorkflowWorkerEngine {
-  const engine = candidate as {
-    readonly getRun?: unknown;
-    readonly getRunSummary?: unknown;
-    readonly listSchedules?: unknown;
-    readonly resumeWorkflow?: unknown;
-    readonly store?: unknown;
-    readonly tickSchedules?: unknown;
-  };
-  if (
-    typeof engine.resumeWorkflow !== "function" ||
-    typeof engine.getRun !== "function" ||
-    typeof engine.getRunSummary !== "function" ||
-    typeof engine.listSchedules !== "function" ||
-    typeof engine.tickSchedules !== "function" ||
-    engine.store === undefined
-  ) {
-    return false;
-  }
-  return true;
 }

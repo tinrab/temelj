@@ -1,47 +1,17 @@
-import type {
-  WorkflowStepDefinition,
-  WorkflowStepDefinitionHandler,
-  WorkflowStepRunConfig,
-  WorkflowStepContext,
-} from "./types/step.ts";
+import type { StepDefinition, StepDefinitionHandler, StepRunConfig } from "./types/step.ts";
 
 import { WorkflowDefinitionError } from "./errors/mod.ts";
 
-type WorkflowStepHandler = (...args: never[]) => unknown;
-
-type WorkflowStepHandlerInputTuple<THandler extends WorkflowStepHandler> = THandler extends (
-  ...args: infer TArgs
-) => unknown
-  ? TArgs
-  : never;
-
-type WorkflowStepHandlerArgs<THandler extends WorkflowStepHandler> =
-  WorkflowStepHandlerInputTuple<THandler> extends [...infer TArgs, WorkflowStepContext]
-    ? TArgs
-    : WorkflowStepHandlerInputTuple<THandler>;
-
-type WorkflowStepHandlerOutput<THandler extends WorkflowStepHandler> = THandler extends (
-  ...args: never[]
-) => infer TOutput
-  ? Awaited<TOutput>
-  : never;
-
-/** Defines a workflow step. */
-export function defineWorkflowStep<THandler extends WorkflowStepHandler>(
-  config: WorkflowStepRunConfig,
-  handler: THandler,
-): WorkflowStepDefinition<WorkflowStepHandlerArgs<THandler>, WorkflowStepHandlerOutput<THandler>> {
+/** Defines a durable step whose handler receives context before its typed arguments. */
+export function defineWorkflowStep<TArgs extends readonly unknown[], TOutput>(
+  config: StepRunConfig,
+  handler: StepDefinitionHandler<TArgs, TOutput>,
+): StepDefinition<TArgs, TOutput> {
   const commandId = config.commandId ?? config.name;
+
   if (commandId === undefined) {
-    WorkflowDefinitionError.stepNameOrCommandIdRequired();
+    throw new WorkflowDefinitionError("Workflow step name or commandId is required");
   }
 
-  return {
-    config,
-    name: commandId,
-    handler: handler as unknown as WorkflowStepDefinitionHandler<
-      WorkflowStepHandlerArgs<THandler>,
-      WorkflowStepHandlerOutput<THandler>
-    >,
-  };
+  return { config, name: commandId, handler };
 }

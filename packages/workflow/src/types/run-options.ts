@@ -1,21 +1,20 @@
 import type { WorkflowDefinition } from "./definition.ts";
-import type { RunId } from "./run.ts";
-import type { StepId } from "./step-id.ts";
+import type { RunId, StepId } from "./ids.ts";
 
 /** Callback used to resolve the workflow version stored on a new run. */
-export type WorkflowVersionResolver = (
+export type VersionResolver = (
   workflowName: string,
   definition: WorkflowDefinition<unknown, unknown, unknown>,
 ) => string | undefined | Promise<string | undefined>;
 
 /** Options that control workflow run creation and scheduling. */
-export interface WorkflowStartOptions {
+export interface StartOptions {
   readonly id?: string;
   readonly idempotencyKey?: string;
   readonly workflowVersion?: string;
-  readonly workflowVersionResolver?: WorkflowVersionResolver;
+  readonly workflowVersionResolver?: VersionResolver;
   readonly context?: unknown;
-  readonly parent?: WorkflowRunParentOptions;
+  readonly parent?: RunParentOptions;
   readonly availableAt?: Temporal.Instant;
   readonly deadlineAt?: Temporal.Instant;
 }
@@ -26,9 +25,9 @@ export interface ScheduleNextOptions {
   readonly every: Temporal.Duration;
   readonly idempotencyKey: string;
   readonly workflowVersion?: string;
-  readonly workflowVersionResolver?: WorkflowVersionResolver;
+  readonly workflowVersionResolver?: VersionResolver;
   readonly context?: unknown;
-  readonly parent?: WorkflowRunParentOptions;
+  readonly parent?: RunParentOptions;
   readonly deadlineAt?: Temporal.Instant;
   readonly from?: Temporal.Instant;
 }
@@ -36,17 +35,16 @@ export interface ScheduleNextOptions {
 /** Resolved schedule-next options split into schedule metadata and run-start options. */
 export interface ResolvedScheduleNextOptions {
   readonly schedule: ScheduleNextOptions & { readonly from: Temporal.Instant };
-  readonly start: WorkflowStartOptions;
+  readonly start: StartOptions;
 }
 
-/** Single item in a batch workflow-start request. */
-export interface WorkflowBatchStartItem<TRawInput = unknown> {
+export interface BatchStartItem<TRawInput = unknown> {
   readonly input: TRawInput;
-  readonly options?: WorkflowStartOptions;
+  readonly options?: StartOptions;
 }
 
 /** Parent workflow metadata stored on a child workflow run. */
-export interface WorkflowRunParentOptions {
+export interface RunParentOptions {
   readonly runId: RunId;
   readonly stepId?: StepId;
   readonly stepName?: string;
@@ -54,47 +52,44 @@ export interface WorkflowRunParentOptions {
 }
 
 /** Options for executing or resuming a workflow run. */
-export interface WorkflowExecutionOptions {
-  readonly start?: WorkflowStartOptions;
+export interface ExecutionOptions {
+  readonly start?: StartOptions;
   readonly signal?: AbortSignal;
 }
 
 /** Options for creating a new run from an existing run record. */
-export interface WorkflowRerunOptions {
+export interface RerunOptions {
   readonly workflowName?: string;
   readonly workflowVersion?: string;
-  readonly workflowVersionResolver?: WorkflowVersionResolver;
-  readonly start?: WorkflowStartOptions;
+  readonly workflowVersionResolver?: VersionResolver;
+  readonly start?: StartOptions;
 }
 
 /** Options for moving a run back to pending at a new availability time. */
-export interface WorkflowRescheduleRunOptions {
+export interface RescheduleRunOptions {
   readonly availableAt?: Temporal.Instant;
 }
 
 /** Options for releasing an expired worker lease from a run. */
-export interface WorkflowReleaseStaleLeaseOptions {
+export interface ReleaseStaleLeaseOptions {
   readonly availableAt?: Temporal.Instant;
 }
 
-/** Options for retrying a failed workflow run. */
-export interface WorkflowRetryFailedRunOptions {
+export interface RetryFailedRunOptions {
   readonly availableAt?: Temporal.Instant;
   readonly force?: boolean;
 }
 
-/** Options for marking a run as permanently failed. */
-export interface WorkflowMarkRunPermanentlyFailedOptions {
+export interface MarkRunPermanentlyFailedOptions {
   readonly reason: string;
 }
 
-/** Options for resuming workflow execution. */
-export interface WorkflowResumeOptions {
+export interface ResumeOptions {
   readonly signal?: AbortSignal;
 }
 
 /** Typed argument tuple used by runnable workflow wrappers. */
-export type WorkflowRunArguments<TRawInput, TOptions> = [unknown] extends [TRawInput]
+export type RunArguments<TRawInput, TOptions> = [unknown] extends [TRawInput]
   ? [input: TRawInput, options?: TOptions]
   : [undefined] extends [TRawInput]
     ? [input?: TRawInput, options?: TOptions]

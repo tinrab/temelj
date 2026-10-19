@@ -1,5 +1,10 @@
-import { describe, expect, test } from "vitest";
+import { ss } from "@temelj/standard-schema";
+import { isFunction } from "@temelj/value";
+import { describe, expect, expectTypeOf, test } from "vitest";
+import { z } from "zod";
 
+import type { WorkflowRuntime } from "../types/runtime.ts";
+import type { CloudflareWorkflowRuntime } from "./runtime.ts";
 import type {
   CloudflareWorkflowBinding,
   CloudflareWorkflowEvent,
@@ -13,26 +18,106 @@ import type {
 } from "./types.ts";
 
 import { defineWorkflowBundle } from "../bundle.ts";
-import { implementWorkflow } from "../definition.ts";
+import { defineWorkflow, implementWorkflow } from "../definition.ts";
 import { WorkflowCapabilityError } from "../errors/mod.ts";
+import { Registry } from "../registry.ts";
 import { runCloudflareWorkflow } from "./execution.ts";
 import { createCloudflareWorkflowHost } from "./host.ts";
-import { createCloudflareWorkflowRegistry } from "./registry.ts";
 import { createCloudflareWorkflowRuntime } from "./runtime.ts";
+import { createCloudflareStepApi } from "./step.ts";
 
 describe("Cloudflare Workflow adapter", () => {
+  test("requires registered targets and dispatches their exact version", async () => {
+    const unversioned = implementWorkflow<undefined, string>(
+      { name: "exact-version" },
+      () => "unversioned",
+    );
+
+    const versioned = implementWorkflow<undefined, number>(
+      { name: "exact-version", version: "v1" },
+      () => 1,
+    );
+
+    const registry = new Registry([unversioned, versioned]);
+    const binding = new TestCloudflareBinding(registry);
+    const runtime = createCloudflareWorkflowRuntime({ registry, binding });
+
+    await expect(
+      runtime.runs.start(unversioned, undefined, { workflowVersion: "v1" }),
+    ).rejects.toThrow("version mismatch");
+    await expect(
+      runtime.runs.start(defineWorkflow({ name: "exact-version" }), undefined),
+    ).rejects.toThrow("registered definition");
+    expect(binding.createCount).toBe(0);
+
+    const handle = await runtime.runs.start(unversioned, undefined);
+    await expect(handle.result()).resolves.toBe("unversioned");
+  });
+
+  test("rejects results from a different workflow or version", async () => {
+    const first = implementWorkflow<undefined, string>(
+      { name: "result-owner", version: "v1" },
+      () => "first",
+    );
+
+    const second = implementWorkflow<undefined, number>(
+      { name: "result-owner", version: "v2" },
+      () => 2,
+    );
+
+    const unrelated = implementWorkflow<undefined, number>(
+      { name: "unrelated", version: "v1" },
+      () => 3,
+    );
+
+    const registry = new Registry([first, second, unrelated]);
+
+    const runtime = createCloudflareWorkflowRuntime({
+      registry,
+      binding: new TestCloudflareBinding(registry),
+    });
+
+    const handle = await runtime.runs.start(first, undefined);
+    await expect(handle.result()).resolves.toBe("first");
+
+    for (const target of [second, unrelated]) {
+      const wrong = await runtime.runs.get(target, handle.runId);
+      await expect(wrong.result()).rejects.toThrow("does not match");
+      await expect(wrong.getRun()).rejects.toThrow("does not match");
+    }
+  });
+
+  test("validates the original input when a workflow schema transforms it", async () => {
+    const workflow = implementWorkflow(
+      {
+        name: "cloudflare-transformed-input",
+        schema: z.string().transform((value) => Number(value) + 1),
+      },
+      ({ input }) => input + 1,
+    );
+
+    const registry = new Registry([workflow]);
+    const binding = new TestCloudflareBinding(registry);
+    const runtime = createCloudflareWorkflowRuntime({ binding, registry });
+    const handle = await runtime.runs.start(workflow, "40");
+
+    await expect(handle.result()).resolves.toBe(42);
+  });
+
   test("creates a static Cloudflare host from a workflow bundle", async () => {
     const workflow = implementWorkflow<number, number>(
       { name: "cloudflare-host" },
       ({ input }) => input * 2,
     );
+
     const host = createCloudflareWorkflowHost({
       workflows: defineWorkflowBundle([workflow]),
     });
-    const binding = new TestCloudflareBinding(createCloudflareWorkflowRegistry([workflow]));
+
+    const binding = new TestCloudflareBinding(new Registry([workflow]));
     const runtime = host.createRuntime(binding);
 
-    const handle = await runtime.start(workflow, 21, { id: "host-1" });
+    const handle = await runtime.runs.start(workflow, 21, { id: "host-1" });
 
     await expect(handle.result()).resolves.toBe(42);
     expect(host.Entrypoint).toBeTypeOf("function");
@@ -43,17 +128,20 @@ describe("Cloudflare Workflow adapter", () => {
       { name: "cloudflare-bundled" },
       () => "bundled",
     );
+
     const omitted = implementWorkflow<undefined, string>(
       { name: "cloudflare-omitted" },
       () => "omitted",
     );
+
     const host = createCloudflareWorkflowHost({
       workflows: defineWorkflowBundle([bundled]),
     });
-    const binding = new TestCloudflareBinding(createCloudflareWorkflowRegistry([bundled]));
+
+    const binding = new TestCloudflareBinding(new Registry([bundled]));
     const runtime = host.createRuntime(binding);
 
-    await expect(runtime.start(omitted, undefined)).rejects.toThrow(
+    await expect(runtime.runs.start(omitted, undefined)).rejects.toThrow(
       "Workflow implementation is not included in the workflow bundle: cloudflare-omitted",
     );
     expect(binding.createCount).toBe(0);
@@ -64,7 +152,8 @@ describe("Cloudflare Workflow adapter", () => {
       { name: "cloudflare-core" },
       async ({ input, step }) => {
         const random = await step.deterministic.random("seed");
-        const value = await step.task.run(
+
+        const value = await step.run(
           {
             name: "double",
             retry: {
@@ -77,18 +166,22 @@ describe("Cloudflare Workflow adapter", () => {
           ({ attempt, step: metadata }) => {
             expect(attempt).toBe(1);
             expect(metadata.name).toBe("double");
+
             return input.value * 2;
           },
         );
-        await step.task.sleep("pause", Temporal.Duration.from({ seconds: 1 }));
+
+        await step.sleep("pause", Temporal.Duration.from({ seconds: 1 }));
+
         return value + random;
       },
     );
-    const registry = createCloudflareWorkflowRegistry([workflow]);
+
+    const registry = new Registry([workflow]);
     const binding = new TestCloudflareBinding(registry);
     const runtime = createCloudflareWorkflowRuntime({ binding, registry });
 
-    const handle = await runtime.start(workflow, { value: 20 }, { id: "core-1" });
+    const handle = await runtime.runs.start(workflow, { value: 20 }, { id: "core-1" });
 
     const result = await handle.result();
     expect(result).toBeGreaterThanOrEqual(40);
@@ -99,9 +192,11 @@ describe("Cloudflare Workflow adapter", () => {
     expect(binding.step.sleeps[0]?.name).toMatch(/^pause-[a-z0-9]+$/);
     expect(binding.step.configurations[1]?.retries?.limit).toBe(3);
     const delay = binding.step.configurations[1]?.retries?.delay;
-    if (typeof delay !== "function") {
+
+    if (!isFunction(delay)) {
       throw new Error("Expected a dynamic retry delay");
     }
+
     expect(
       await delay({
         ctx: testStepContext("double", 2),
@@ -114,16 +209,18 @@ describe("Cloudflare Workflow adapter", () => {
     const workflow = implementWorkflow<undefined, { readonly approved: boolean }>(
       { name: "cloudflare-message" },
       async ({ step }) =>
-        await step.message.wait<{ readonly approved: boolean }>({
+        await step.message.wait({
+          schema: ss.object({ approved: ss.boolean() }),
           messageId: "approval.received",
           timeout: Temporal.Duration.from({ minutes: 5 }),
         }),
     );
-    const registry = createCloudflareWorkflowRegistry([workflow]);
+
+    const registry = new Registry([workflow]);
     const binding = new TestCloudflareBinding(registry);
     const runtime = createCloudflareWorkflowRuntime({ binding, registry });
 
-    const handle = await runtime.start(workflow, undefined, { id: "message-1" });
+    const handle = await runtime.runs.start(workflow, undefined, { id: "message-1" });
     await runtime.messages.send(handle.runId, {
       messageId: "approval.received",
       payload: { approved: true },
@@ -140,7 +237,7 @@ describe("Cloudflare Workflow adapter", () => {
     const workflow = implementWorkflow<undefined, void>(
       { name: "cloudflare-limits" },
       async ({ step }) => {
-        await step.task.run(
+        await step.run(
           {
             name: "unbounded",
             retry: { maximumAttempts: 0 },
@@ -149,13 +246,15 @@ describe("Cloudflare Workflow adapter", () => {
         );
       },
     );
-    const registry = createCloudflareWorkflowRegistry([workflow]);
+
+    const registry = new Registry([workflow]);
+
     const runtime = createCloudflareWorkflowRuntime({
       binding: new TestCloudflareBinding(registry),
       registry,
     });
 
-    const handle = await runtime.start(workflow, undefined, { id: "limits-1" });
+    const handle = await runtime.runs.start(workflow, undefined, { id: "limits-1" });
     await expect(handle.result()).rejects.toThrow(
       "Cloudflare Workflow steps support at most 10000 attempts",
     );
@@ -165,7 +264,7 @@ describe("Cloudflare Workflow adapter", () => {
     const workflow = implementWorkflow<undefined, void>(
       { name: "cloudflare-timeout-limit" },
       async ({ step }) => {
-        await step.task.run(
+        await step.run(
           {
             name: "too-long",
             timeout: Temporal.Duration.from({ minutes: 31 }),
@@ -174,13 +273,15 @@ describe("Cloudflare Workflow adapter", () => {
         );
       },
     );
-    const registry = createCloudflareWorkflowRegistry([workflow]);
+
+    const registry = new Registry([workflow]);
+
     const runtime = createCloudflareWorkflowRuntime({
       binding: new TestCloudflareBinding(registry),
       registry,
     });
 
-    const handle = await runtime.start(workflow, undefined, { id: "timeout-limit-1" });
+    const handle = await runtime.runs.start(workflow, undefined, { id: "timeout-limit-1" });
     await expect(handle.result()).rejects.toThrow(
       "Cloudflare Workflow step timeout must not exceed 1800000 milliseconds",
     );
@@ -191,25 +292,30 @@ describe("Cloudflare Workflow adapter", () => {
       { name: "cloudflare-cancel" },
       () => "done",
     );
-    const registry = createCloudflareWorkflowRegistry([workflow]);
+
+    const registry = new Registry([workflow]);
     const binding = new TestCloudflareBinding(registry);
     const runtime = createCloudflareWorkflowRuntime({ binding, registry });
-    const handle = await runtime.start(workflow, undefined, { id: "cancel-1" });
+    const handle = await runtime.runs.start(workflow, undefined, { id: "cancel-1" });
 
     await expect(handle.result()).resolves.toBe("done");
     await expect(handle.cancel()).resolves.toMatchObject({ status: "completed" });
     expect(binding.instance("cancel-1").terminateCount).toBe(0);
   });
 
-  test("keeps the full runtime shape and reports unsupported capabilities", async () => {
-    const registry = createCloudflareWorkflowRegistry();
-    const runtime = createCloudflareWorkflowRuntime({
-      binding: new TestCloudflareBinding(registry),
-      registry,
-    });
+  test("exposes only what Cloudflare supports, and keeps the full step API", async () => {
+    expectTypeOf<CloudflareWorkflowRuntime>().not.toHaveProperty("locks");
+    expectTypeOf<CloudflareWorkflowRuntime>().not.toHaveProperty("schedules");
+    expectTypeOf<CloudflareWorkflowRuntime>().not.toHaveProperty("workers");
+    expectTypeOf<CloudflareWorkflowRuntime["runs"]>().not.toHaveProperty("getHandle");
+    expectTypeOf<CloudflareWorkflowRuntime>().toExtend<WorkflowRuntime>();
 
-    expect(() => runtime.locks.list()).toThrow(WorkflowCapabilityError);
-    await expect(runtime.runs.getHandle("missing")).rejects.toThrow(WorkflowCapabilityError);
+    const step = createCloudflareStepApi({ step: new TestCloudflareStep() });
+    expect(() => step.stream.create("unsupported")).toThrow(WorkflowCapabilityError);
+
+    for (const api of [step.workflow, step.lock, step.runData, step.stream, step.hook]) {
+      await expect(Promise.resolve(api)).resolves.toBe(api);
+    }
   });
 });
 
@@ -217,9 +323,9 @@ class TestCloudflareBinding implements CloudflareWorkflowBinding {
   readonly step = new TestCloudflareStep();
   createCount = 0;
   readonly #instances = new Map<string, TestCloudflareInstance>();
-  readonly #registry: ReturnType<typeof createCloudflareWorkflowRegistry>;
+  readonly #registry: Registry;
 
-  constructor(registry: ReturnType<typeof createCloudflareWorkflowRegistry>) {
+  constructor(registry: Registry) {
     this.#registry = registry;
   }
 
@@ -228,12 +334,15 @@ class TestCloudflareBinding implements CloudflareWorkflowBinding {
   ): Promise<CloudflareWorkflowInstance> {
     this.createCount++;
     const id = options.id ?? crypto.randomUUID();
+
     if (this.#instances.has(id)) {
       throw new Error(`Duplicate instance: ${id}`);
     }
-    const instance = new TestCloudflareInstance(id, options.params, this.#registry, this.step);
+
+    const instance = new TestCloudflareInstance(id, options, this.#registry, this.step);
     this.#instances.set(id, instance);
     instance.start();
+
     return instance;
   }
 
@@ -241,28 +350,35 @@ class TestCloudflareBinding implements CloudflareWorkflowBinding {
     items: readonly CloudflareWorkflowInstanceCreateOptions[],
   ): Promise<readonly CloudflareWorkflowInstance[]> {
     const created: CloudflareWorkflowInstance[] = [];
+
     for (const item of items) {
       if (item.id !== undefined && this.#instances.has(item.id)) {
         continue;
       }
+
       created.push(await this.create(item));
     }
+
     return created;
   }
 
   async get(id: string): Promise<CloudflareWorkflowInstance> {
     const instance = this.#instances.get(id);
+
     if (instance === undefined) {
       throw new Error(`Instance not found: ${id}`);
     }
+
     return instance;
   }
 
   instance(id: string): TestCloudflareInstance {
     const instance = this.#instances.get(id);
+
     if (instance === undefined) {
       throw new Error(`Instance not found: ${id}`);
     }
+
     return instance;
   }
 }
@@ -272,39 +388,41 @@ class TestCloudflareInstance implements CloudflareWorkflowInstance {
   terminateCount = 0;
   #state: CloudflareWorkflowInstanceStatus = { status: "queued" };
   readonly #params: unknown;
-  readonly #registry: ReturnType<typeof createCloudflareWorkflowRegistry>;
+  readonly #registry: Registry;
   readonly #step: TestCloudflareStep;
 
   constructor(
     id: string,
-    params: unknown,
-    registry: ReturnType<typeof createCloudflareWorkflowRegistry>,
+    options: CloudflareWorkflowInstanceCreateOptions,
+    registry: Registry,
     step: TestCloudflareStep,
   ) {
     this.id = id;
-    this.#params = params;
+    this.#params = options.params;
     this.#registry = registry;
     this.#step = step;
   }
 
   start(): void {
     this.#state = { status: "running" };
+
     const event: CloudflareWorkflowEvent = {
       payload: this.#params,
       timestamp: new Date(),
       instanceId: this.id,
       workflowName: "temelj",
     };
+
     void runCloudflareWorkflow({ registry: this.#registry }, event, this.#step).then(
       (output) => {
         this.#state = { status: "complete", output };
       },
-      (error: unknown) => {
+      (cause: unknown) => {
         this.#state = {
           status: "errored",
           error: {
-            name: error instanceof Error ? error.name : "Error",
-            message: error instanceof Error ? error.message : String(error),
+            name: cause instanceof Error ? cause.name : "Error",
+            message: cause instanceof Error ? cause.message : String(cause),
           },
         };
       },
@@ -338,6 +456,7 @@ class TestCloudflareStep implements CloudflareWorkflowStep {
     callback: (context: CloudflareWorkflowStepContext) => T | Promise<T>,
   ): Promise<T> {
     this.configurations.push(config);
+
     return await callback(testStepContext(name, 1, this.#nextCount(name), config));
   }
 
@@ -347,16 +466,18 @@ class TestCloudflareStep implements CloudflareWorkflowStep {
 
   async sleepUntil(): Promise<void> {}
 
-  async waitForEvent<T>(
+  async waitForEvent(
     name: string,
-    options: { readonly type: string; readonly timeout: string | number },
-  ): Promise<CloudflareWorkflowStepEvent<T>> {
+    options: { readonly type: string; readonly timeout: number },
+  ): Promise<CloudflareWorkflowStepEvent> {
     this.waits.push({ name, type: options.type, timeout: Number(options.timeout) });
+
     while (!this.events.has(options.type)) {
       await new Promise<void>((resolve) => setTimeout(resolve, 0));
     }
+
     return {
-      payload: this.events.get(options.type) as T,
+      payload: this.events.get(options.type),
       timestamp: new Date(),
       type: options.type,
     };
@@ -365,6 +486,7 @@ class TestCloudflareStep implements CloudflareWorkflowStep {
   #nextCount(name: string): number {
     const count = (this.#counts.get(name) ?? 0) + 1;
     this.#counts.set(name, count);
+
     return count;
   }
 }

@@ -1,16 +1,17 @@
-import type { EventKind, EventRecord } from "../types/events.ts";
-import type { RunId, WorkflowMaterializedStepType } from "../types/run.ts";
-import type { WorkflowStepAttemptRecord } from "../types/step-attempts.ts";
+import type { EventFieldName, EventFieldValue, EventKind, EventRecord } from "../types/events.ts";
+import type { RunId, StepId } from "../types/ids.ts";
+import type { MaterializedStepType } from "../types/run.ts";
+import type { StepAttemptRecord } from "../types/step-attempts.ts";
 
+import { WorkflowErrorCode } from "../errors/codes.ts";
 import { WorkflowStateError } from "../errors/mod.ts";
-import { getEventDescriptor } from "../events/descriptors.ts";
-import { StepId } from "../types/step.ts";
+import { getEventDescriptor, getEventField } from "../events/descriptors.ts";
 
-export function applyWorkflowStepAttemptEvent(
+export function applyStepAttemptEvent(
   runId: RunId,
   event: EventRecord,
-  current: WorkflowStepAttemptRecord | undefined,
-): WorkflowStepAttemptRecord | undefined {
+  current: StepAttemptRecord | undefined,
+): StepAttemptRecord | undefined {
   // Projection is intentionally stateful for terminal events.
   // Completion/failure events only carry their outcome, so immutable fields such as timeout, input, and cancellation are copied from the matching started event when it is available.
   switch (event.kind) {
@@ -23,13 +24,15 @@ export function applyWorkflowStepAttemptEvent(
         status: "running",
         attempt: event.attempt,
         count: event.count,
-        ...(event.timeoutAt === undefined ? {} : { timeoutAt: event.timeoutAt }),
+        timeoutAt: event.timeoutAt,
         createdAt: event.timestamp,
         startedAt: event.timestamp,
       };
     }
+
     case "step_completed": {
       requireCurrentStepAttemptFieldsMatch(event, current);
+
       return {
         ...makeBaseProjectedStepAttempt(
           runId,
@@ -42,12 +45,13 @@ export function applyWorkflowStepAttemptEvent(
         ...current,
         status: "completed",
         output: event.result,
-        timeoutAt: current?.timeoutAt,
         finishedAt: event.timestamp,
       };
     }
+
     case "step_failed": {
       requireCurrentStepAttemptFieldsMatch(event, current);
+
       return {
         ...makeBaseProjectedStepAttempt(
           runId,
@@ -60,10 +64,10 @@ export function applyWorkflowStepAttemptEvent(
         ...current,
         status: "failed",
         error: event.error,
-        timeoutAt: current?.timeoutAt,
         finishedAt: event.timestamp,
       };
     }
+
     case "sleep_started": {
       return {
         runId,
@@ -74,13 +78,15 @@ export function applyWorkflowStepAttemptEvent(
         attempt: 1,
         count: event.count,
         until: event.until,
-        ...(event.duration === undefined ? {} : { duration: event.duration }),
+        duration: event.duration,
         createdAt: event.timestamp,
         startedAt: event.timestamp,
       };
     }
+
     case "sleep_completed": {
       requireCurrentStepAttemptFieldsMatch(event, current);
+
       return {
         ...makeBaseProjectedStepAttempt(
           runId,
@@ -92,11 +98,10 @@ export function applyWorkflowStepAttemptEvent(
         ),
         ...current,
         status: "completed",
-        until: current?.until,
-        duration: current?.duration,
         finishedAt: event.timestamp,
       };
     }
+
     case "child_workflow_started": {
       return {
         runId,
@@ -108,16 +113,18 @@ export function applyWorkflowStepAttemptEvent(
         count: event.count,
         childRunId: event.childRunId,
         workflowName: event.workflowName,
-        ...(event.workflowVersion === undefined ? {} : { workflowVersion: event.workflowVersion }),
-        ...(event.cancellation === undefined ? {} : { cancellation: event.cancellation }),
-        ...(event.input === undefined ? {} : { input: event.input }),
-        ...(event.timeoutAt === undefined ? {} : { timeoutAt: event.timeoutAt }),
+        workflowVersion: event.workflowVersion,
+        cancellation: event.cancellation,
+        input: event.input,
+        timeoutAt: event.timeoutAt,
         createdAt: event.timestamp,
         startedAt: event.timestamp,
       };
     }
+
     case "child_workflow_completed": {
       requireCurrentStepAttemptFieldsMatch(event, current);
+
       return {
         ...makeBaseProjectedStepAttempt(
           runId,
@@ -131,14 +138,13 @@ export function applyWorkflowStepAttemptEvent(
         status: "completed",
         output: event.result,
         childRunId: event.childRunId,
-        input: current?.input,
-        cancellation: current?.cancellation,
-        timeoutAt: current?.timeoutAt,
         finishedAt: event.timestamp,
       };
     }
+
     case "child_workflow_failed": {
       requireCurrentStepAttemptFieldsMatch(event, current);
+
       return {
         ...makeBaseProjectedStepAttempt(
           runId,
@@ -152,12 +158,10 @@ export function applyWorkflowStepAttemptEvent(
         status: "failed",
         error: event.error,
         childRunId: event.childRunId,
-        input: current?.input,
-        cancellation: current?.cancellation,
-        timeoutAt: current?.timeoutAt,
         finishedAt: event.timestamp,
       };
     }
+
     case "message_send_started": {
       return {
         runId,
@@ -169,13 +173,15 @@ export function applyWorkflowStepAttemptEvent(
         count: event.count,
         targetRunId: event.targetRunId,
         messageId: event.messageId,
-        ...(event.payload === undefined ? {} : { payload: event.payload }),
+        payload: event.payload,
         createdAt: event.timestamp,
         startedAt: event.timestamp,
       };
     }
+
     case "message_send_completed": {
       requireCurrentStepAttemptFieldsMatch(event, current);
+
       return {
         ...makeBaseProjectedStepAttempt(
           runId,
@@ -189,12 +195,13 @@ export function applyWorkflowStepAttemptEvent(
         status: "completed",
         targetRunId: event.targetRunId,
         messageId: event.messageId,
-        payload: current?.payload,
         finishedAt: event.timestamp,
       };
     }
+
     case "message_send_failed": {
       requireCurrentStepAttemptFieldsMatch(event, current);
+
       return {
         ...makeBaseProjectedStepAttempt(
           runId,
@@ -208,11 +215,11 @@ export function applyWorkflowStepAttemptEvent(
         status: "failed",
         targetRunId: event.targetRunId,
         messageId: event.messageId,
-        payload: current?.payload,
         error: event.error,
         finishedAt: event.timestamp,
       };
     }
+
     case "message_wait_started": {
       return {
         runId,
@@ -223,13 +230,15 @@ export function applyWorkflowStepAttemptEvent(
         attempt: 1,
         count: event.count,
         messageId: event.messageId,
-        ...(event.timeoutAt === undefined ? {} : { timeoutAt: event.timeoutAt }),
+        timeoutAt: event.timeoutAt,
         createdAt: event.timestamp,
         startedAt: event.timestamp,
       };
     }
+
     case "message_wait_completed": {
       requireCurrentStepAttemptFieldsMatch(event, current);
+
       return {
         ...makeBaseProjectedStepAttempt(
           runId,
@@ -247,8 +256,10 @@ export function applyWorkflowStepAttemptEvent(
         finishedAt: event.timestamp,
       };
     }
+
     case "message_wait_failed": {
       requireCurrentStepAttemptFieldsMatch(event, current);
+
       return {
         ...makeBaseProjectedStepAttempt(
           runId,
@@ -265,6 +276,7 @@ export function applyWorkflowStepAttemptEvent(
         finishedAt: event.timestamp,
       };
     }
+
     case "stream_started": {
       return {
         runId,
@@ -278,8 +290,10 @@ export function applyWorkflowStepAttemptEvent(
         startedAt: event.timestamp,
       };
     }
+
     case "stream_closed": {
       requireCurrentStepAttemptFieldsMatch(event, current);
+
       return {
         runId,
         stepId: event.stepId,
@@ -293,8 +307,10 @@ export function applyWorkflowStepAttemptEvent(
         finishedAt: event.timestamp,
       };
     }
+
     case "stream_failed": {
       requireCurrentStepAttemptFieldsMatch(event, current);
+
       return {
         runId,
         stepId: event.stepId,
@@ -309,6 +325,7 @@ export function applyWorkflowStepAttemptEvent(
         finishedAt: event.timestamp,
       };
     }
+
     case "stream_chunk":
       return undefined;
     case "deterministic_value_recorded": {
@@ -326,6 +343,7 @@ export function applyWorkflowStepAttemptEvent(
         finishedAt: event.timestamp,
       };
     }
+
     case "message_sent":
       return undefined;
     case "workflow_started":
@@ -337,23 +355,35 @@ export function applyWorkflowStepAttemptEvent(
 
 function requireCurrentStepAttemptFieldsMatch(
   event: EventRecord & Readonly<{ kind: EventKind; stepId: StepId }>,
-  current: WorkflowStepAttemptRecord | undefined,
+  current: StepAttemptRecord | undefined,
 ): void {
   // A missing current attempt is tolerated here so full-history reconciliation can ignore orphaned terminal events from partial histories.
   // When a current attempt exists, identity fields must still match the terminal event that is trying to update it.
   if (current === undefined) {
     return;
   }
+
   const descriptor = getEventDescriptor(event.kind);
+  const currentFields: Partial<Record<EventFieldName, EventFieldValue>> = current;
+
   for (const field of descriptor.startedEventMatchFields ?? []) {
     if (field === "stepId") {
       continue;
     }
-    const value = Reflect.get(event, field);
-    if (Reflect.get(current, field) === undefined || Reflect.get(current, field) === value) {
+
+    const value = getEventField(event, field);
+
+    if (currentFields[field] === undefined || currentFields[field] === value) {
       continue;
     }
-    WorkflowStateError.stepAttemptFieldMismatch(event.stepId, field);
+
+    throw new WorkflowStateError(
+      `Workflow step attempt ${event.stepId} ${field} must match started attempt`,
+      {
+        code: WorkflowErrorCode.STATE_STEP_ATTEMPT_FIELD_MISMATCH,
+        details: { stepId: event.stepId, field: field },
+      },
+    );
   }
 }
 
@@ -361,10 +391,10 @@ function makeBaseProjectedStepAttempt(
   runId: RunId,
   stepId: StepId,
   stepName: string,
-  kind: WorkflowMaterializedStepType,
+  kind: MaterializedStepType,
   attempt: number,
   timestamp: Temporal.Instant,
-): WorkflowStepAttemptRecord {
+): StepAttemptRecord {
   return {
     runId,
     stepId,

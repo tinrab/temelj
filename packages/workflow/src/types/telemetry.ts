@@ -1,18 +1,10 @@
-import { z } from "zod";
-
-import type { ObservationEventMap } from "./observation.ts";
+import type { ObservationEventArgs } from "./observation.ts";
 import type { ExecutionResult } from "./result.ts";
-import type { WorkflowResolvedStepRetryConfig } from "./retry.ts";
-import type { WorkflowRunRecord } from "./run.ts";
-import type { WorkflowStepMetadata } from "./step.ts";
-import type { WorkflowRunSummary, WorkflowRunSummaryOptions } from "./summary.ts";
-
-import { nonBlankStringSchema } from "./common.ts";
-
-export const workflowTelemetryContextSchema = z.object({
-  traceparent: nonBlankStringSchema.optional(),
-  tracestate: nonBlankStringSchema.optional(),
-});
+import type { ResolvedRetryConfig } from "./retry.ts";
+import type { ListRunsOptions } from "./run-list.ts";
+import type { RunRecord } from "./run.ts";
+import type { StepMetadata } from "./step.ts";
+import type { RunSummary } from "./summary.ts";
 
 /** Persisted W3C trace context captured when a workflow run is created. */
 export interface TelemetryContext {
@@ -22,7 +14,7 @@ export interface TelemetryContext {
 
 /** Context passed to telemetry adapters around workflow run execution. */
 export interface RunTelemetryContext {
-  readonly run: WorkflowRunRecord;
+  readonly run: RunRecord;
   readonly traceContext?: TelemetryContext;
 }
 
@@ -34,10 +26,10 @@ export interface RunTelemetryResultContext<TOutput = unknown> extends RunTelemet
 
 /** Context passed to telemetry adapters around durable task callback execution. */
 export interface StepTelemetryContext {
-  readonly run: WorkflowRunRecord;
-  readonly step: WorkflowStepMetadata;
+  readonly run: RunRecord;
+  readonly step: StepMetadata;
   readonly attempt: number;
-  readonly retry: WorkflowResolvedStepRetryConfig;
+  readonly retry: ResolvedRetryConfig;
   readonly timeoutAt?: Temporal.Instant;
 }
 
@@ -86,7 +78,7 @@ export interface StorageTelemetryContext {
 /** Minimal engine read model exposed to telemetry adapters after engine creation. */
 export interface TelemetryEngine {
   /** Returns aggregate run metrics for runs matching optional filters. */
-  getRunSummary(options?: WorkflowRunSummaryOptions): Promise<WorkflowRunSummary>;
+  getRunSummary(options?: ListRunsOptions): Promise<RunSummary>;
 }
 
 /** Optional telemetry hooks used to observe running workflow behavior. */
@@ -94,7 +86,10 @@ export interface Telemetry {
   /** Captures ambient trace context for a newly-created workflow run. */
   captureContext?(): TelemetryContext | undefined;
   /** Runs a workflow execution callback with telemetry context. */
-  withRunExecution?<T>(context: RunTelemetryContext, callback: () => Promise<T>): Promise<T>;
+  withRunExecution?<T extends ExecutionResult>(
+    context: RunTelemetryContext,
+    callback: () => Promise<T>,
+  ): Promise<T>;
   /** Runs a durable task callback with telemetry context. */
   withStepExecution?<T>(context: StepTelemetryContext, callback: () => Promise<T>): Promise<T>;
   /** Runs a workflow storage/backend operation callback with telemetry context. */
@@ -107,10 +102,7 @@ export interface Telemetry {
   /** Observes the final outcome of a durable task callback. */
   recordStepExecution?(context: StepTelemetryResultContext): void;
   /** Observes committed workflow observation events. */
-  observe?<Key extends keyof ObservationEventMap>(
-    name: Key,
-    payload: ObservationEventMap[Key],
-  ): void;
+  observe?(...event: ObservationEventArgs): void;
   /** Binds the telemetry adapter to an engine after engine creation. */
   bindEngine?(engine: TelemetryEngine): void;
   /** Releases telemetry resources owned by the adapter. */

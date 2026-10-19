@@ -1,9 +1,7 @@
 import type { StorageValue } from "@temelj/storage";
 
 import type { WorkflowErrorRecord } from "./error.ts";
-import type { WorkflowPage, PageOptions } from "./pagination.ts";
-import type { RunId } from "./run.ts";
-import type { StreamId } from "./stream-id.ts";
+import type { RunId, StreamId } from "./ids.ts";
 
 /** Writable durable stream created by workflow code and persisted in run history. */
 export interface Stream<TChunk = unknown> {
@@ -14,20 +12,20 @@ export interface Stream<TChunk = unknown> {
   /** Optional MIME type or content type associated with stream chunks. */
   readonly contentType?: string;
   /** Optional persisted stream metadata. */
-  readonly metadata?: unknown;
+  readonly metadata?: StorageValue;
   /** Appends one chunk to the stream. */
   write(chunk: TChunk): Promise<void>;
   /** Closes the stream successfully. */
   close(): Promise<void>;
   /** Fails the stream with an error that readers can observe. */
-  error(error: unknown): Promise<void>;
+  error(cause: unknown): Promise<void>;
 }
 
 /** Options for creating a durable stream from workflow code. */
 export interface CreateStreamOptions {
   readonly id?: StreamId;
   readonly contentType?: string;
-  readonly metadata?: unknown;
+  readonly metadata?: StorageValue;
   readonly maximumChunks?: number;
 }
 
@@ -37,9 +35,6 @@ export interface ReadStreamOptions {
   readonly fromTail?: number;
   readonly maxChunks?: number;
 }
-
-/** Paginated stream read options combining stream offsets with cursor paging. */
-export type ReadStreamPageOptions = ReadStreamOptions & PageOptions;
 
 /** Options for following stream updates until cancellation or a terminal stream event. */
 export interface FollowStreamOptions extends ReadStreamOptions {
@@ -59,14 +54,14 @@ export interface WaitStreamOptions {
 export type StreamStatus = "open" | "closed" | "failed";
 
 /** Single ordered value written to a durable workflow stream. */
-export interface StreamChunk<TChunk = unknown> {
+export interface StreamChunk<TChunk = StorageValue | undefined> {
   readonly index: number;
   readonly timestamp: Temporal.Instant;
   readonly value: TChunk;
 }
 
 /** Current durable stream state including chunk history and optional terminal error. */
-export interface StreamState<TChunk = unknown> {
+export interface StreamState<TChunk = StorageValue | undefined> {
   readonly runId: RunId;
   readonly id: StreamId;
   readonly name: string;
@@ -96,22 +91,6 @@ export interface StreamInfo {
   readonly error?: WorkflowErrorRecord;
 }
 
-/** Paginated durable stream state where chunks are returned as a page. */
-export interface StreamPage<TChunk = unknown> {
-  readonly runId: RunId;
-  readonly id: StreamId;
-  readonly name: string;
-  readonly status: StreamStatus;
-  readonly createdAt: Temporal.Instant;
-  readonly updatedAt: Temporal.Instant;
-  readonly contentType?: string;
-  readonly metadata?: StorageValue;
-  readonly chunkCount: number;
-  readonly lastIndex?: number;
-  readonly error?: WorkflowErrorRecord;
-  readonly chunks: WorkflowPage<StreamChunk<TChunk>>;
-}
-
 /** Incremental update emitted when a durable stream chunk is written. */
 export type StreamUpdateKind = "chunk" | "closed" | "failed";
 
@@ -124,7 +103,7 @@ export interface StreamUpdateBase {
 }
 
 /** Incremental update emitted when a durable stream chunk is written. */
-export type StreamChunkUpdate<TChunk = unknown> = StreamUpdateBase & {
+export type StreamChunkUpdate<TChunk = StorageValue | undefined> = StreamUpdateBase & {
   readonly kind: "chunk";
   readonly chunk: StreamChunk<TChunk>;
 };
@@ -136,4 +115,6 @@ export type StreamTerminalUpdate = StreamUpdateBase & {
 };
 
 /** Incremental durable stream update yielded while following a stream. */
-export type StreamUpdate<TChunk = unknown> = StreamChunkUpdate<TChunk> | StreamTerminalUpdate;
+export type StreamUpdate<TChunk = StorageValue | undefined> =
+  | StreamChunkUpdate<TChunk>
+  | StreamTerminalUpdate;

@@ -1,5 +1,12 @@
+/** Returns a duration's total milliseconds, or NaN when Temporal cannot represent it safely. */
+export function durationTotal(value: Temporal.Duration): number {
+  const total = value.total({ unit: "millisecond" });
+
+  return Number.isFinite(total) ? total : Number.NaN;
+}
+
 /** Returns a non-negative millisecond duration between two instants. */
-export function durationBetweenMilliseconds(from: Temporal.Instant, to: Temporal.Instant): number {
+function durationBetweenMilliseconds(from: Temporal.Instant, to: Temporal.Instant): number {
   return Math.max(0, to.epochMilliseconds - from.epochMilliseconds);
 }
 
@@ -11,6 +18,7 @@ export function optionalDurationBetweenMilliseconds(
   if (from === undefined || to === undefined) {
     return undefined;
   }
+
   return durationBetweenMilliseconds(from, to);
 }
 
@@ -30,6 +38,7 @@ export function matchesTimestampRange(
   if (from === undefined && to === undefined) {
     return true;
   }
+
   return (
     (from === undefined || Temporal.Instant.compare(timestamp, from) >= 0) &&
     (to === undefined || Temporal.Instant.compare(timestamp, to) <= 0)
@@ -45,9 +54,11 @@ export function matchesOptionalTimestampRange(
   if (from === undefined && to === undefined) {
     return true;
   }
+
   if (timestamp === undefined) {
     return false;
   }
+
   return matchesTimestampRange(timestamp, from, to);
 }
 
@@ -60,12 +71,15 @@ export function matchesOptionalDurationRange(
   if (from === undefined && to === undefined) {
     return true;
   }
+
   if (value === undefined) {
     return false;
   }
+
   const current = value.total({ unit: "millisecond" });
-  const lower = from === undefined ? undefined : from.total({ unit: "millisecond" });
-  const upper = to === undefined ? undefined : to.total({ unit: "millisecond" });
+  const lower = from?.total({ unit: "millisecond" });
+  const upper = to?.total({ unit: "millisecond" });
+
   return (lower === undefined || current >= lower) && (upper === undefined || current <= upper);
 }
 
@@ -77,16 +91,18 @@ export function compareOptionalTimestamps(
   if (left !== undefined && right !== undefined) {
     return Temporal.Instant.compare(left, right);
   }
+
   if (left !== undefined) {
     return -1;
   }
+
   if (right !== undefined) {
     return 1;
   }
+
   return 0;
 }
 
-/** Returns the earlier of two optional timestamps. */
 export function earliestOptionalTimestamp(
   current: Temporal.Instant | undefined,
   next: Temporal.Instant | undefined,
@@ -94,13 +110,14 @@ export function earliestOptionalTimestamp(
   if (next === undefined) {
     return current;
   }
+
   if (current === undefined) {
     return next;
   }
+
   return Temporal.Instant.compare(next, current) < 0 ? next : current;
 }
 
-/** Returns the later of two optional timestamps. */
 export function latestOptionalTimestamp(
   current: Temporal.Instant | undefined,
   next: Temporal.Instant | undefined,
@@ -108,18 +125,10 @@ export function latestOptionalTimestamp(
   if (next === undefined) {
     return current;
   }
+
   if (current === undefined) {
     return next;
   }
-  return Temporal.Instant.compare(next, current) > 0 ? next : current;
-}
 
-/** Returns whether `next` should replace `current` as the earliest defined instant. */
-export function shouldReplaceWorkflowEarliestDefinedInstant(
-  current: Temporal.Instant | undefined,
-  next: Temporal.Instant | undefined,
-): boolean {
-  return (
-    next !== undefined && (current === undefined || Temporal.Instant.compare(next, current) < 0)
-  );
+  return Temporal.Instant.compare(next, current) > 0 ? next : current;
 }
