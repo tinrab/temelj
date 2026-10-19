@@ -10,6 +10,7 @@ export function delay(ms: number, options?: StandardOptions): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     if (options?.signal?.aborted) {
       reject(AbortError.create());
+
       return;
     }
 

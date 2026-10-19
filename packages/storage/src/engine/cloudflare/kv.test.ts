@@ -11,29 +11,10 @@ import { createStorage } from "../../storage.ts";
 import { StorageOperationError } from "../../types.ts";
 import { CloudflareKvStorageEngine } from "./kv.ts";
 
-const cloudflareModuleMock = vi.hoisted(() => ({
-  constructor: vi.fn<(options: unknown) => void>(),
-  instance: undefined as unknown,
-  toFile: vi.fn<(value: Uint8Array) => Promise<Uint8Array>>(
-    async (value: Uint8Array): Promise<Uint8Array> => value.slice(),
-  ),
-}));
-
-vi.mock("cloudflare", () => ({
-  default: class Cloudflare {
-    readonly kv: unknown;
-
-    constructor(options: unknown) {
-      cloudflareModuleMock.constructor(options);
-      this.kv = (cloudflareModuleMock.instance as { readonly kv: unknown }).kv;
-    }
-  },
-  toFile: cloudflareModuleMock.toFile,
-}));
-
 describe("Cloudflare KV engine", () => {
   test("stores strings directly in configured text mode", async () => {
     const { binding, put } = createMockCloudflareKvBinding();
+
     const storage = createStorage({
       codec: createTextStorageCodec(),
       engine: new CloudflareKvStorageEngine({ binding, format: "string" }),
@@ -46,9 +27,11 @@ describe("Cloudflare KV engine", () => {
 
   test("uses Worker KV bindings for storage operations", async () => {
     const { binding, put } = createMockCloudflareKvBinding();
+
     const storage = createStorage({
       codec: createSuperJsonStorageCodec({ format: "bytes" }),
       engine: new CloudflareKvStorageEngine({
+        format: "bytes",
         binding,
         minTtl: 60_000,
         prefix: "app",
@@ -76,9 +59,11 @@ describe("Cloudflare KV engine", () => {
 
   test("resolves Worker KV bindings from an env-like bindings object", async () => {
     const { binding } = createMockCloudflareKvBinding();
+
     const storage = createStorage({
       codec: createSuperJsonStorageCodec({ format: "bytes" }),
       engine: new CloudflareKvStorageEngine({
+        format: "bytes",
         binding: "STORAGE",
         bindings: { STORAGE: binding },
       }),
@@ -93,6 +78,7 @@ describe("Cloudflare KV engine", () => {
     const storage = createStorage({
       codec: createSuperJsonStorageCodec({ format: "bytes" }),
       engine: new CloudflareKvStorageEngine({
+        format: "bytes",
         binding: "STORAGE",
         bindings: {},
       }),
@@ -101,9 +87,11 @@ describe("Cloudflare KV engine", () => {
     const result = await storage.tryGet("users:1");
 
     expect(result.kind).toBe("error");
+
     if (result.kind !== "error") {
       throw new Error("Expected storage result to be an error");
     }
+
     expect(result.error).toBeInstanceOf(StorageOperationError);
     expect(result.error.cause).toBeInstanceOf(TypeError);
     expect(result.error.cause).toEqual(
@@ -114,9 +102,11 @@ describe("Cloudflare KV engine", () => {
   test("uses the Cloudflare API client when a client is provided", async () => {
     const { bulkDelete, bulkGet, bulkUpdate, client, deleteValue, listKeys, update } =
       createMockCloudflareKvClient();
+
     const storage = createStorage({
       codec: createSuperJsonStorageCodec({ format: "bytes" }),
       engine: new CloudflareKvStorageEngine({
+        format: "bytes",
         accountId: "account",
         client,
         namespaceId: "namespace",
@@ -131,7 +121,7 @@ describe("Cloudflare KV engine", () => {
         account_id: "account",
         expiration_ttl: 60,
         namespace_id: "namespace",
-        value: expect.any(Uint8Array),
+        value: expect.any(File),
       }),
     );
 
@@ -201,14 +191,17 @@ describe("Cloudflare KV engine", () => {
 
   test("round-trips arbitrary bytes through the text-only bulk API", async () => {
     const { client } = createMockCloudflareKvClient();
+
     const storage = createStorage({
       codec: createBytesStorageCodec(),
       engine: new CloudflareKvStorageEngine({
+        format: "bytes",
         accountId: "account",
         client,
         namespaceId: "namespace",
       }),
     });
+
     const bytes = new Uint8Array([0, 255, 128, 1]);
 
     await storage.setMany([{ key: "binary", value: bytes }]);
@@ -218,24 +211,30 @@ describe("Cloudflare KV engine", () => {
   });
 
   test("creates the Cloudflare package client lazily", async () => {
-    const { client } = createMockCloudflareKvClient();
-    cloudflareModuleMock.instance = client;
+    const fetch = vi.fn<typeof globalThis.fetch>(async () =>
+      Response.json({
+        success: true,
+        errors: [],
+        messages: [],
+        result: [],
+        result_info: { count: 0, cursor: "" },
+      }),
+    );
+
     const engine = new CloudflareKvStorageEngine({
+      format: "bytes",
       accountId: "account",
       apiToken: "token",
       namespaceId: "namespace",
+      fetch,
     });
 
+    expect(fetch).not.toHaveBeenCalled();
     expect(await engine.keys()).toEqual([]);
-    const constructor = cloudflareModuleMock.constructor;
-    expect(constructor).toHaveBeenCalledWith(
-      expect.objectContaining({
-        apiToken: "token",
-      }),
-    );
-    expect(constructor).not.toHaveBeenCalledWith(expect.objectContaining({ accountId: "account" }));
-    expect(constructor).not.toHaveBeenCalledWith(
-      expect.objectContaining({ namespaceId: "namespace" }),
-    );
+    expect(fetch).toHaveBeenCalledOnce();
+    const [input, init] = fetch.mock.calls[0]!;
+    const request = new Request(input, init);
+    expect(request.headers.get("authorization")).toBe("Bearer token");
+    expect(request.url).toContain("/accounts/account/storage/kv/namespaces/namespace/keys");
   });
 });

@@ -7,7 +7,7 @@ export interface Deferred<T> {
   /** Resolves the promise with the given value. */
   readonly resolve: (value: T | PromiseLike<T>) => void;
   /** Rejects the promise with the given reason. */
-  readonly reject: (reason?: unknown) => void;
+  readonly reject: (cause?: unknown) => void;
 }
 
 /**
@@ -15,5 +15,6 @@ export interface Deferred<T> {
  */
 export function defer<T>(): Deferred<T> {
   const { promise, resolve, reject } = Promise.withResolvers<T>();
+
   return { promise, resolve, reject };
 }

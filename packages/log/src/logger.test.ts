@@ -19,9 +19,10 @@ import {
 } from "@opentelemetry/sdk-trace-base";
 import { afterEach, describe, expect, test } from "vitest";
 
-import type { LogRecord, LogSink } from "./types.ts";
+import type { LogAttributes, LogRecord, LogSink } from "./types.ts";
 
 import { createJsonConsoleSink } from "./console.ts";
+import { serializeLogError, toJsonSafeValue } from "./errors.ts";
 import { createLevelFilterSink } from "./filter.ts";
 import { formatLogRecord } from "./format.ts";
 import { createLogger } from "./logger.ts";
@@ -37,6 +38,7 @@ describe("logger", () => {
 
   test("it works", async () => {
     const records: LogRecord[] = [];
+
     const logger = createLogger({
       sink: createMemorySink(records),
       level: "info",
@@ -65,7 +67,7 @@ describe("logger", () => {
   });
 
   test("formats errors and JSON-safe values", () => {
-    const circular: Record<string, unknown> = {};
+    const circular: LogAttributes = {};
     circular.self = circular;
     const error = new Error("boom");
 
@@ -91,6 +93,37 @@ describe("logger", () => {
     });
   });
 
+  test("serializes shared references without marking them circular", () => {
+    const shared = { count: 1 };
+    expect(toJsonSafeValue([shared, shared])).toEqual([{ count: 1 }, { count: 1 }]);
+    expect(toJsonSafeValue([undefined, Number.NaN, Infinity])).toEqual([null, null, null]);
+  });
+
+  test("terminates cyclic error causes and accepts thrown primitives", () => {
+    const error = new Error("failed");
+    error.cause = error;
+    expect(serializeLogError(error)).toMatchObject({
+      name: "Error",
+      message: "failed",
+      cause: { name: "Error", message: "[Circular]" },
+    });
+    expect(serializeLogError("failure")).toEqual({ name: "ThrownValue", message: "failure" });
+  });
+
+  test("preserves prototype-named metadata as data", () => {
+    const attributes = { ["__proto__"]: "data" };
+
+    const formatted = formatLogRecord({
+      level: "info",
+      message: "hello",
+      timestamp: Temporal.Now.instant(),
+      attributes,
+    });
+
+    expect(Object.getPrototypeOf(formatted)).toBe(Object.prototype);
+    expect(Object.getOwnPropertyDescriptor(formatted, "__proto__")?.value).toBe("data");
+  });
+
   test("preserves canonical formatted fields over attributes", () => {
     expect(
       formatLogRecord({
@@ -112,15 +145,16 @@ describe("logger", () => {
     });
   });
 
-  test("promotes attributes.error for error logs", () => {
+  test("records errors separately from attributes", () => {
     const records: LogRecord[] = [];
+
     const logger = createLogger({
       sink: createMemorySink(records),
       now: () => Temporal.Instant.from("2025-01-01T10:00:00Z"),
     });
 
     const error = new Error("boom");
-    logger.error("failed", { error, operation: "charge" });
+    logger.error("failed", error, { operation: "charge" });
 
     expect(records).toEqual([
       {
@@ -135,6 +169,7 @@ describe("logger", () => {
 
   test("tracks async sink writes and flushes them", async () => {
     const records: LogRecord[] = [];
+
     const logger = createLogger({
       sink: {
         write: async (record) => {
@@ -157,9 +192,11 @@ describe("logger", () => {
     const records: LogRecord[] = [];
     let releaseWrite!: () => void;
     const writeStarted = Promise.withResolvers<void>();
+
     const writeReleased = new Promise<void>((resolve) => {
       releaseWrite = resolve;
     });
+
     const logger = createLogger({
       sink: {
         write: async (record) => {
@@ -196,6 +233,7 @@ describe("logger", () => {
         },
       },
     });
+
     const strict = createLogger({
       sink: {
         write: () => {
@@ -212,6 +250,7 @@ describe("logger", () => {
   test("multiplexes sinks and supports level-filter sink", () => {
     const left: LogRecord[] = [];
     const right: LogRecord[] = [];
+
     const logger = createLogger({
       sink: createMultiplexSink([
         createMemorySink(left),
@@ -229,6 +268,7 @@ describe("logger", () => {
 
   test("writes JSON console records", () => {
     const messages: unknown[] = [];
+
     const logger = createLogger({
       sink: createJsonConsoleSink({
         writer: {
@@ -256,12 +296,15 @@ describe("logger", () => {
 
   test("attaches log records to the active OpenTelemetry span", async () => {
     const exporter = new InMemorySpanExporter();
+
     const provider = new BasicTracerProvider({
       spanProcessors: [new SimpleSpanProcessor(exporter)],
     });
+
     context.setGlobalContextManager(new TestContextManager());
     trace.setGlobalTracerProvider(provider);
     const tracer = trace.getTracer("temelj.log.test");
+
     const logger = createLogger({
       sink: createOpenTelemetryLogSink(),
       now: () => Temporal.Instant.from("2025-01-01T10:00:00Z"),
@@ -290,12 +333,13 @@ describe("logger", () => {
   test("can emit OpenTelemetry log records", () => {
     const provider = new TestLoggerProvider();
     logs.setGlobalLoggerProvider(provider);
+
     const logger = createLogger({
       sink: createOpenTelemetryLogSink({ attachToActiveSpan: false, emitLogs: true }),
       now: () => Temporal.Instant.from("2025-01-01T10:00:00Z"),
     });
 
-    logger.warn("careful", { answer: 42 });
+    logger.warn("careful", { answer: 42, homogeneous: [1, 2], mixed: [1, "two"] });
 
     expect(provider.records).toEqual([
       expect.objectContaining({
@@ -312,6 +356,11 @@ describe("logger", () => {
         timestamp: Temporal.Instant.from("2025-01-01T10:00:00Z").epochMilliseconds,
       }),
     ]);
+
+    expect(provider.records[0]?.attributes).toMatchObject({
+      homogeneous: [1, 2],
+      mixed: '[1,"two"]',
+    });
   });
 });
 
@@ -338,6 +387,7 @@ class TestContextManager implements ContextManager {
   ): ReturnType<F> {
     const previous = this.#active;
     this.#active = contextValue;
+
     try {
       return fn.apply(thisArg, args);
     } finally {
@@ -355,6 +405,7 @@ class TestContextManager implements ContextManager {
 
   disable(): this {
     this.#active = ROOT_CONTEXT;
+
     return this;
   }
 }

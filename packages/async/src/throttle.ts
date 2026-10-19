@@ -31,10 +31,12 @@ export function throttle<Args extends unknown[], R>(
       clearTimeout(timer);
       timer = undefined;
     }
+
     if (pendingDeferred) {
       pendingDeferred.reject(AbortError.create());
       pendingDeferred = undefined;
     }
+
     latestArgs = undefined;
   };
 
@@ -55,9 +57,11 @@ export function throttle<Args extends unknown[], R>(
         clearTimeout(timer);
         timer = undefined;
       }
+
       const d = defer<R>();
       pendingDeferred = undefined;
       invoke(args, d);
+
       return d.promise;
     }
 
@@ -72,6 +76,7 @@ export function throttle<Args extends unknown[], R>(
         timer = undefined;
         const d = pendingDeferred;
         pendingDeferred = undefined;
+
         if (d && latestArgs) {
           invoke(latestArgs, d);
           latestArgs = undefined;

@@ -73,9 +73,11 @@ export function generateUlidList(count: number, options: UlidOptions = {}): stri
   }
 
   const ids = [];
+
   for (let i = 0; i < count; i++) {
     ids.push(id128.UlidMonotonic.generate({ ...options }).toCanonical());
   }
+
   return ids;
 }
 
@@ -101,6 +103,7 @@ export function isUlidValid(id: string): boolean {
  */
 export function getUlidBytes(id: string): Uint8Array {
   const ulid = id128.Ulid.fromCanonicalTrusted(id);
+
   return ulid.bytes;
 }
 

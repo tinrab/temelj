@@ -1,8 +1,47 @@
+import { isString } from "@temelj/value";
 import { describe, expect, expectTypeOf, test } from "vitest";
 
 import { ss, StandardSchemaValidationError, type SchemaInput, type SchemaOutput } from "./mod";
 
 describe("ss", () => {
+  test("keeps function defaults as values and evaluates factories only when absent", () => {
+    const value = () => "result";
+    expect(ss.parseSync(ss.defaulted(ss.fn(), value), undefined)).toBe(value);
+    let calls = 0;
+
+    const schema = ss.defaultedWith(ss.string(), () => {
+      calls++;
+
+      return "default";
+    });
+
+    expect(ss.parseSync(schema, "provided")).toBe("provided");
+    expect(calls).toBe(0);
+    expect(ss.parseSync(schema, undefined)).toBe("default");
+    expect(calls).toBe(1);
+  });
+
+  test("infers unchecked array elements as unknown", () => {
+    const unchecked = ss.array();
+    const strings = ss.array(ss.string());
+    expectTypeOf<SchemaOutput<typeof unchecked>>().toEqualTypeOf<unknown[]>();
+    expectTypeOf<SchemaOutput<typeof strings>>().toEqualTypeOf<string[]>();
+  });
+
+  test("preserves symbol fields when making schemas optional", () => {
+    const key = Symbol("field");
+    const fields = ss.partial({ [key]: ss.string() });
+    expect(ss.parseSync(fields[key], undefined)).toBeUndefined();
+    expect(ss.parseSync(fields[key], "value")).toBe("value");
+  });
+
+  test("validates prototype-named fields as data", () => {
+    const schema = ss.object({ ["__proto__"]: ss.string() });
+    const result = ss.parseSync(schema, { ["__proto__"]: "data" });
+    expect(Object.getPrototypeOf(result)).toBe(Object.prototype);
+    expect(Object.getOwnPropertyDescriptor(result, "__proto__")?.value).toBe("data");
+  });
+
   test("validates primitives", () => {
     expect(ss.string()["~standard"].validate("hello")).toEqual({ value: "hello" });
     expect(ss.number()["~standard"].validate(1)).toEqual({ value: 1 });
@@ -35,7 +74,7 @@ describe("ss", () => {
 
   test("infers schema input types", () => {
     const schema = ss.schema<string, { readonly userId: string }>((value) =>
-      typeof value === "string" ? ss.success({ userId: value }) : ss.failure("Expected user id"),
+      isString(value) ? ss.success({ userId: value }) : ss.failure("Expected user id"),
     );
 
     expectTypeOf<SchemaInput<typeof schema>>().toEqualTypeOf<string>();
@@ -119,6 +158,7 @@ describe("ss", () => {
       name: ss.string(),
       version: ss.optional(ss.string()),
     };
+
     const extended = ss.extend(base, { enabled: ss.boolean() });
     const picked = ss.pick(extended, ["name", "enabled"] as const);
     const partial = ss.partial(picked);
@@ -138,7 +178,9 @@ describe("ss", () => {
     expect(ss.defaulted(ss.string(), "fallback")["~standard"].validate(undefined)).toEqual({
       value: "fallback",
     });
-    expect(ss.defaulted(ss.array(ss.string()), () => [])["~standard"].validate(undefined)).toEqual({
+    expect(
+      ss.defaultedWith(ss.array(ss.string()), () => [])["~standard"].validate(undefined),
+    ).toEqual({
       value: [],
     });
   });

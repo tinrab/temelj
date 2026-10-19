@@ -62,7 +62,8 @@ const defaultNetworkState: NetworkState = {
 };
 
 function getConnection(): NavigatorConnection | undefined {
-  const nav = navigator as NavigatorWithConnection;
+  const nav: NavigatorWithConnection = navigator;
+
   return nav.connection ?? nav.mozConnection ?? nav.webkitConnection;
 }
 
@@ -71,23 +72,28 @@ function getConnection(): NavigatorConnection | undefined {
  */
 export function useNetworkState(): NetworkState {
   const cache = React.useRef<NetworkState>(defaultNetworkState);
+
   const subscribe = React.useCallback((callback: () => void) => {
     if (!isBrowser) {
       return () => {};
     }
+
     window.addEventListener("online", callback, { passive: true });
     window.addEventListener("offline", callback, { passive: true });
     const connection = getConnection();
     connection?.addEventListener("change", callback);
+
     return () => {
       window.removeEventListener("online", callback);
       window.removeEventListener("offline", callback);
       connection?.removeEventListener("change", callback);
     };
   }, []);
+
   const getSnapshot = React.useCallback(() => {
     if (!isBrowser) return defaultNetworkState;
     const connection = getConnection();
+
     const next: NetworkState = {
       online: navigator.onLine,
       downlink: connection?.downlink ?? null,
@@ -97,17 +103,15 @@ export function useNetworkState(): NetworkState {
       saveData: connection?.saveData ?? null,
       type: connection?.type ?? null,
     };
-    if (
-      recordEquals(
-        cache.current as unknown as Record<string, unknown>,
-        next as unknown as Record<string, unknown>,
-        Object.is,
-      )
-    ) {
+
+    if (recordEquals(cache.current, next, Object.is)) {
       return cache.current;
     }
+
     cache.current = next;
+
     return next;
   }, []);
+
   return React.useSyncExternalStore(subscribe, getSnapshot, () => defaultNetworkState);
 }

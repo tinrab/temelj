@@ -1,4 +1,4 @@
-import { mkdtemp, readdir, rm } from "node:fs/promises";
+import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test, vi } from "vitest";
@@ -17,8 +17,22 @@ describe("file system engine", () => {
     );
   });
 
+  test.each([null, { expiresAt: "tomorrow" }, { expiresAt: null }])(
+    "rejects malformed persisted metadata: %j",
+    async (metadata) => {
+      const directory = await temporaryDirectory();
+      const engine = new FileSystemStorageEngine({ directory });
+      await engine.set("key", new Uint8Array([1]), { ttl: 60_000 });
+      const metadataFile = (await readdir(directory)).find((file) => file.endsWith(".meta.json"));
+      expect(metadataFile).toBeDefined();
+      await writeFile(join(directory, metadataFile!), JSON.stringify(metadata));
+      await expect(engine.get("key")).rejects.toThrow(TypeError);
+    },
+  );
+
   test("stores bytes, scans prefixes, and clears values", async () => {
     const directory = await temporaryDirectory();
+
     const storage = createStorage({
       codec: createSuperJsonStorageCodec({ format: "bytes" }),
       engine: new FileSystemStorageEngine({
@@ -46,6 +60,7 @@ describe("file system engine", () => {
 
   test("treats path-like keys as literal storage keys", async () => {
     const directory = await temporaryDirectory();
+
     const storage = createStorage({
       codec: createSuperJsonStorageCodec({ format: "bytes" }),
       engine: new FileSystemStorageEngine({ directory }),
@@ -61,6 +76,7 @@ describe("file system engine", () => {
 
   test("supports custom value and metadata extensions", async () => {
     const directory = await temporaryDirectory();
+
     const storage = createStorage({
       codec: createSuperJsonStorageCodec({ format: "bytes" }),
       engine: new FileSystemStorageEngine({
@@ -85,6 +101,7 @@ describe("file system engine", () => {
   test("expires values and does not count expired deletes", async () => {
     vi.useFakeTimers();
     const directory = await temporaryDirectory();
+
     const storage = createStorage({
       codec: createSuperJsonStorageCodec({ format: "bytes" }),
       engine: new FileSystemStorageEngine({ directory }),
@@ -101,6 +118,7 @@ describe("file system engine", () => {
 
   test("supports setMany and deleteMany", async () => {
     const directory = await temporaryDirectory();
+
     const storage = createStorage({
       codec: createSuperJsonStorageCodec({ format: "bytes" }),
       engine: new FileSystemStorageEngine({ directory }),
@@ -119,5 +137,6 @@ describe("file system engine", () => {
 async function temporaryDirectory(): Promise<string> {
   const directory = await mkdtemp(join(tmpdir(), "temelj-storage-"));
   directories.push(directory);
+
   return directory;
 }

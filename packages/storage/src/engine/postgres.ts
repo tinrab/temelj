@@ -6,8 +6,8 @@ import type {
   StorageEngineKeyOptions,
   StorageEngineSetManyItem,
   StorageEngineSetOptions,
-  StoredValue,
 } from "../types.ts";
+import type { DatabaseStoredValue, StoredValueFormat, StoredValueForFormat } from "../utility.ts";
 
 import {
   isExpired,
@@ -20,7 +20,7 @@ import {
 type PostgresRows<TRow extends object> = TRow[] & Iterable<TRow>;
 
 interface PostgresEngineTransactionClient {
-  unsafe<TRow extends object = Record<string, unknown>>(
+  unsafe<TRow extends object>(
     query: string,
     parameters?: readonly unknown[],
   ): Promise<PostgresRows<TRow>>;
@@ -39,7 +39,10 @@ export interface PostgresEngineClient extends PostgresEngineTransactionClient {
 /**
  * Options for {@link PostgresStorageEngine}.
  */
-export interface PostgresEngineOptions {
+export interface PostgresEngineOptions<TFormat extends StoredValueFormat = "string"> {
+  /** Persisted representation checked when reading rows. */
+  readonly format: TFormat;
+
   /**
    * Existing postgres-compatible client.
    */
@@ -82,7 +85,7 @@ export interface PostgresEngineOptions {
 }
 
 interface PostgresValueRow {
-  readonly value: unknown;
+  readonly value: DatabaseStoredValue;
   readonly expires_at: number | string | bigint | null;
 }
 
@@ -90,18 +93,18 @@ interface PostgresValueRow {
  * Storage engine backed by a Postgres table.
  */
 export class PostgresStorageEngine<
-  TStoredValue extends StoredValue = string,
-> implements StorageEngine<TStoredValue> {
+  TFormat extends StoredValueFormat = "string",
+> implements StorageEngine<StoredValueForFormat<TFormat>> {
   readonly name = "postgres";
 
   #client: PostgresEngineClient | undefined;
-  readonly #options: PostgresEngineOptions;
+  readonly #options: PostgresEngineOptions<TFormat>;
   readonly #tableName: string;
   readonly #prefix: string;
   readonly #separator: string;
   readonly #shouldDispose: boolean;
 
-  constructor(options: PostgresEngineOptions = {}) {
+  constructor(options: PostgresEngineOptions<TFormat>) {
     this.#options = options;
     this.#client = options.client;
     this.#tableName = quoteIdentifier(options.tableName ?? "temelj_storage");
@@ -110,50 +113,70 @@ export class PostgresStorageEngine<
     this.#shouldDispose = options.dispose ?? options.client === undefined;
   }
 
-  async get(key: string): Promise<TStoredValue | undefined> {
+  async get(key: string): Promise<StoredValueForFormat<TFormat> | undefined> {
     const postgresClient = await this.#getClient();
     const storageKey = this.#prefixKey(key);
+
     const rows = await postgresClient.unsafe<PostgresValueRow>(
       `SELECT value, expires_at FROM ${this.#tableName} WHERE key = $1`,
       [storageKey],
     );
+
     const row = rows[0];
+
     if (row === undefined) {
       return undefined;
     }
+
     if (isExpired(row.expires_at)) {
       await this.#deleteRecord(postgresClient, storageKey);
+
       return undefined;
     }
-    return normalizeStoredValue<TStoredValue>(row.value);
+
+    return normalizeStoredValue(row.value, this.#options.format);
   }
 
-  async getMany(keys: readonly string[]): Promise<ReadonlyMap<string, TStoredValue>> {
+  async getMany(
+    keys: readonly string[],
+  ): Promise<ReadonlyMap<string, StoredValueForFormat<TFormat>>> {
     if (keys.length === 0) {
       return new Map();
     }
+
     const postgresClient = await this.#getClient();
     await this.#deleteExpired(postgresClient);
     const storageKeys = keys.map((key) => this.#prefixKey(key));
+
     const rows = await postgresClient.unsafe<PostgresValueRow & { readonly key: string }>(
       `SELECT key, value FROM ${this.#tableName} WHERE key = ANY($1)`,
       [storageKeys],
     );
-    const result = new Map<string, TStoredValue>();
+
+    const result = new Map<string, StoredValueForFormat<TFormat>>();
+
     for (const row of rows) {
-      result.set(this.#unprefixKey(row.key), normalizeStoredValue<TStoredValue>(row.value));
+      result.set(this.#unprefixKey(row.key), normalizeStoredValue(row.value, this.#options.format));
     }
+
     return result;
   }
 
-  async set(key: string, value: TStoredValue, setOptions?: StorageEngineSetOptions): Promise<void> {
+  async set(
+    key: string,
+    value: StoredValueForFormat<TFormat>,
+    setOptions?: StorageEngineSetOptions,
+  ): Promise<void> {
     const postgresClient = await this.#getClient();
     const storageKey = this.#prefixKey(key);
     const expiresAt = resolveExpiresAt(setOptions);
+
     if (expiresAt !== undefined && expiresAt <= Date.now()) {
       await this.#deleteRecord(postgresClient, storageKey);
+
       return;
     }
+
     await postgresClient.unsafe(
       `
         INSERT INTO ${this.#tableName} (key, value, expires_at)
@@ -168,8 +191,8 @@ export class PostgresStorageEngine<
 
   async compareAndSet(
     key: string,
-    expected: TStoredValue | undefined,
-    value: TStoredValue | undefined,
+    expected: StoredValueForFormat<TFormat> | undefined,
+    value: StoredValueForFormat<TFormat> | undefined,
     setOptions?: StorageEngineSetOptions,
   ): Promise<boolean> {
     const postgresClient = await this.#getClient();
@@ -181,6 +204,7 @@ export class PostgresStorageEngine<
         `SELECT 1 AS exists FROM ${this.#tableName} WHERE key = $1`,
         [storageKey],
       );
+
       if (existing.length > 0) {
         return false;
       }
@@ -190,6 +214,7 @@ export class PostgresStorageEngine<
       }
 
       const expiresAt = resolveExpiresAt(setOptions);
+
       if (expiresAt !== undefined && expiresAt <= Date.now()) {
         return true;
       }
@@ -203,6 +228,7 @@ export class PostgresStorageEngine<
         `,
         [storageKey, storedValueParameter(value), expiresAt ?? null],
       );
+
       return rows.length > 0;
     }
 
@@ -215,10 +241,12 @@ export class PostgresStorageEngine<
         `,
         [storageKey, storedValueParameter(expected), Date.now()],
       );
+
       return rows.length > 0;
     }
 
     const expiresAt = resolveExpiresAt(setOptions);
+
     if (expiresAt !== undefined && expiresAt <= Date.now()) {
       const rows = await postgresClient.unsafe<{ readonly deleted: number }>(
         `
@@ -228,6 +256,7 @@ export class PostgresStorageEngine<
         `,
         [storageKey, storedValueParameter(expected), Date.now()],
       );
+
       return rows.length > 0;
     }
 
@@ -246,11 +275,12 @@ export class PostgresStorageEngine<
         Date.now(),
       ],
     );
+
     return rows.length > 0;
   }
 
   async compareAndSetMany(
-    items: readonly StorageEngineCompareAndSetManyItem<TStoredValue>[],
+    items: readonly StorageEngineCompareAndSetManyItem<StoredValueForFormat<TFormat>>[],
   ): Promise<boolean> {
     if (items.length === 0) {
       return true;
@@ -269,19 +299,24 @@ export class PostgresStorageEngine<
         `SELECT key, value FROM ${this.#tableName} WHERE key = ANY($1) ORDER BY key FOR UPDATE`,
         [storageKeys],
       );
+
       const current = new Map(rows.map((row) => [row.key, row.value] as const));
+
       for (let index = 0; index < items.length; index++) {
         const item = items[index]!;
         const existing = current.get(storageKeys[index]!);
+
         if (item.expected === undefined) {
           if (existing !== undefined) {
             throw COMPARE_AND_SET_MANY_ROLLBACK;
           }
+
           continue;
         }
+
         if (
           existing === undefined ||
-          !storedValuesEqual(normalizeStoredValue<TStoredValue>(existing), item.expected)
+          !storedValuesEqual(normalizeStoredValue(existing, this.#options.format), item.expected)
         ) {
           throw COMPARE_AND_SET_MANY_ROLLBACK;
         }
@@ -291,6 +326,7 @@ export class PostgresStorageEngine<
         const item = items[index]!;
         const storageKey = storageKeys[index]!;
         const expiresAt = resolveExpiresAt(item.options, now);
+
         if (item.value === undefined || (expiresAt !== undefined && expiresAt <= now)) {
           await postgresClient.unsafe(`DELETE FROM ${this.#tableName} WHERE key = $1`, [
             storageKey,
@@ -308,9 +344,11 @@ export class PostgresStorageEngine<
             `,
             [storageKey, storedValueParameter(item.value), expiresAt ?? null],
           );
+
           if (rows.length === 0) {
             throw COMPARE_AND_SET_MANY_ROLLBACK;
           }
+
           continue;
         }
 
@@ -330,6 +368,7 @@ export class PostgresStorageEngine<
     };
 
     const postgresClient = await this.#getClient();
+
     if (postgresClient.begin !== undefined) {
       try {
         return await postgresClient.begin(runTransaction);
@@ -337,25 +376,32 @@ export class PostgresStorageEngine<
         if (error === COMPARE_AND_SET_MANY_ROLLBACK) {
           return false;
         }
+
         throw error;
       }
     }
 
     await postgresClient.unsafe("BEGIN");
+
     try {
       await runTransaction(postgresClient);
       await postgresClient.unsafe("COMMIT");
+
       return true;
     } catch (error) {
       await postgresClient.unsafe("ROLLBACK");
+
       if (error === COMPARE_AND_SET_MANY_ROLLBACK) {
         return false;
       }
+
       throw error;
     }
   }
 
-  async setMany(items: readonly StorageEngineSetManyItem<TStoredValue>[]): Promise<void> {
+  async setMany(
+    items: readonly StorageEngineSetManyItem<StoredValueForFormat<TFormat>>[],
+  ): Promise<void> {
     for (const item of items) {
       await this.set(item.key, item.value, item.options);
     }
@@ -372,6 +418,7 @@ export class PostgresStorageEngine<
       `,
       [this.#prefixKey(key), Date.now()],
     );
+
     return rows.length > 0;
   }
 
@@ -379,6 +426,7 @@ export class PostgresStorageEngine<
     if (keys.length === 0) {
       return 0;
     }
+
     const rows = await (
       await this.#getClient()
     ).unsafe<{ readonly count: number | string | bigint }>(
@@ -389,6 +437,7 @@ export class PostgresStorageEngine<
       `,
       [keys.map((key) => this.#prefixKey(key)), Date.now()],
     );
+
     return rows.length;
   }
 
@@ -399,10 +448,12 @@ export class PostgresStorageEngine<
   async keys(keyOptions?: StorageEngineKeyOptions): Promise<readonly string[]> {
     const postgresClient = await this.#getClient();
     await this.#deleteExpired(postgresClient);
+
     const rows = await postgresClient.unsafe<{ readonly key: string }>(
       `SELECT key FROM ${this.#tableName} WHERE key LIKE $1 ESCAPE '\\'`,
       [likePattern(this.#prefixKey(keyOptions?.prefix ?? ""))],
     );
+
     return rows.map((row) => this.#unprefixKey(row.key));
   }
 
@@ -418,6 +469,7 @@ export class PostgresStorageEngine<
     if (this.#shouldDispose) {
       await this.#client?.end?.();
     }
+
     this.#client = undefined;
   }
 
@@ -453,7 +505,9 @@ export class PostgresStorageEngine<
     if (this.#prefix.length === 0) {
       return key;
     }
+
     const expectedPrefix = `${this.#prefix}${this.#separator}`;
+
     return key.startsWith(expectedPrefix) ? key.slice(expectedPrefix.length) : key;
   }
 }

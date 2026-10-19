@@ -22,15 +22,17 @@ export class Registry {
 
   public includeAllHelpers(): Registry {
     this.registerHelpers(getHelpers(this));
+
     return this;
   }
 
-  public compile(source: string, options?: CompileOptions): TemplateDelegate {
-    return this.handlebars.compile(source, options);
+  public compile<TData>(source: string, options?: CompileOptions): TemplateDelegate<TData> {
+    return this.handlebars.compile<TData>(source, options);
   }
 
-  public render(source: string, data?: unknown, options?: CompileOptions): string {
-    const compiledTemplate = this.compile(source, options);
+  public render<TData>(source: string, data?: TData, options?: CompileOptions): string {
+    const compiledTemplate = this.compile<TData | undefined>(source, options);
+
     return compiledTemplate(data);
   }
 

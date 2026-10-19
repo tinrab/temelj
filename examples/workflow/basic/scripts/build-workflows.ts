@@ -4,10 +4,13 @@ import { fileURLToPath } from "node:url";
 import { rolldown } from "rolldown";
 
 const rootUrl = new URL("../", import.meta.url);
+
 const outdirUrl = new URL("./dist/", rootUrl);
 
 await rm(outdirUrl, { recursive: true, force: true });
+
 await mkdir(outdirUrl, { recursive: true });
+
 const bundle = await rolldown({
   input: fileURLToPath(new URL("./src/main.ts", rootUrl)),
   external: (id) =>
@@ -17,8 +20,10 @@ const bundle = await rolldown({
     id.startsWith("@temelj/workflow/"),
   plugins: [workflowRolldownPlugin({ root: fileURLToPath(rootUrl) })],
 });
+
 await bundle.write({
   file: fileURLToPath(new URL("./main.mjs", outdirUrl)),
   format: "esm",
 });
+
 await bundle.close();

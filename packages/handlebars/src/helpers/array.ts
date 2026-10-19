@@ -14,7 +14,7 @@ export function getArrayHelpers(registry: Registry): HelperDeclareSpec {
     arrayItemAt: createHelper()
       .params(ss.array(), ss.number())
       .handle(([array, index]) => array[index]),
-    arrayContains: (array: unknown[], item: unknown): boolean =>
+    arrayContains: <TItem>(array: readonly TItem[], item: TItem): boolean =>
       array.findIndex((value) => deepEquals(value, item)) !== -1,
     arrayJoin: (array: unknown[], separator: string): string =>
       array.map((item) => String(item)).join(separator),

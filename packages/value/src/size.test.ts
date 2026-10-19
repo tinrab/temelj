@@ -40,7 +40,11 @@ test("sizeOf() uses byteLength for buffers and array buffer views", () => {
 });
 
 test("sizeOf() handles circular references once", () => {
-  const parent: { child?: unknown } = {};
+  interface Parent {
+    child?: { parent: Parent };
+  }
+
+  const parent: Parent = {};
   const child = { parent };
   parent.child = child;
 

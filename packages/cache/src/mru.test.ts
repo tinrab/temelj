@@ -5,6 +5,7 @@ import { MruCache } from "./mod.ts";
 describe("MruCache", () => {
   test("evicts the most recently used entry", () => {
     const evictions: string[] = [];
+
     const cache = new MruCache<string, number>({
       maxEntries: 2,
       onEvict: (event) => evictions.push(`${event.reason}:${event.key}`),

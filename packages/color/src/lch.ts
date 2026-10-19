@@ -20,6 +20,7 @@ export interface LchColor {
  */
 export function labToLch(color: LabColor): LchColor {
   const h = (Math.atan2(color.b, color.a) * 180) / Math.PI;
+
   return {
     l: color.l,
     c: Math.sqrt(color.a * color.a + color.b * color.b),
@@ -36,6 +37,7 @@ export function labToLch(color: LabColor): LchColor {
  */
 export function lchToLab(color: LchColor): LabColor {
   const hRad = (color.h * Math.PI) / 180;
+
   return {
     l: color.l,
     a: Math.cos(hRad) * color.c,

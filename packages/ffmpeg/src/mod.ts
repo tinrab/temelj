@@ -1,8 +1,13 @@
 export { FFmpegDefinitionError } from "./errors.ts";
+
 export { ffmpeg } from "./builder.ts";
+
 export { filterGraph, FilterGraph, FilterGraphStream } from "./filter-graph.ts";
+
 export { mapInputStream, mapAllStreams, mapLabel, unsafeMapLabel, disableMap } from "./mapping.ts";
+
 export { unsafe } from "./structured.ts";
+
 export type {
   BuildResult,
   FFmpegStartBuilder,
@@ -10,6 +15,7 @@ export type {
   FFmpegOutputBuilder,
   FFmpegReadyBuilder,
 } from "./builder.ts";
+
 export type {
   GlobalOptions,
   InputOptions,
@@ -42,6 +48,7 @@ export type {
   OneOrMany,
   UnsafeValue,
 } from "./types.ts";
+
 export type {
   FilterGraphMediaType,
   FilterScalar,
@@ -59,6 +66,7 @@ export type {
   PalettegenOptions,
   PaletteuseOptions,
 } from "./filter-graph.ts";
+
 export type {
   InputMapSpecifier,
   MapStreamType,
@@ -66,6 +74,7 @@ export type {
   StreamMetadataTarget,
   UnsafeMapTarget,
 } from "./mapping.ts";
+
 export type {
   MetadataAssignment,
   MetadataMap,

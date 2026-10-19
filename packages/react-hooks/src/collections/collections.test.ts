@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { act, renderHook } from "@testing-library/react";
+import { StrictMode } from "react";
 import { describe, expect, it } from "vitest";
 
 import "../test/setup.ts";
@@ -9,6 +10,48 @@ import { useQueue } from "./use-queue.ts";
 import { useSet } from "./use-set.ts";
 
 describe("collection hooks", () => {
+  it("rerenders derived collection values while preserving collection identity", () => {
+    const map = renderHook(
+      () => {
+        const value = useMap([["a", 1]]);
+
+        return { value, size: value.size };
+      },
+      { wrapper: StrictMode },
+    );
+
+    const set = renderHook(
+      () => {
+        const value = useSet(["a"]);
+
+        return { value, size: value.size };
+      },
+      { wrapper: StrictMode },
+    );
+
+    const originalMap = map.result.current.value;
+    const originalSet = set.result.current.value;
+    act(() => {
+      originalMap.set("b", 2);
+      originalSet.add("b");
+    });
+    expect(map.result.current.size).toBe(2);
+    expect(set.result.current.size).toBe(2);
+    expect(map.result.current.value).toBe(originalMap);
+    expect(set.result.current.value).toBe(originalSet);
+  });
+
+  it("observes earlier queue mutations within the same React batch", () => {
+    const { result } = renderHook(() => useQueue(["a", "b"]), { wrapper: StrictMode });
+    act(() => {
+      expect(result.current.remove()).toBe("a");
+      result.current.add("c");
+      expect(result.current.remove()).toBe("b");
+      expect(result.current.remove()).toBe("c");
+      expect(result.current.remove()).toBeUndefined();
+    });
+    expect(result.current.queue).toEqual([]);
+  });
   it("useList manages array mutations", () => {
     const { result } = renderHook(() => useList([1, 3]));
 

@@ -3,6 +3,7 @@ import type { Result } from "@temelj/result";
 import { err, ok } from "@temelj/result";
 import * as React from "react";
 
+import { mapThrownError } from "../internal/error.ts";
 import { isBrowser } from "../internal/mod.ts";
 import { BrowserHookError } from "./errors.ts";
 
@@ -21,7 +22,7 @@ function fallbackCopy(text: string) {
 /**
  * State and controls returned by useClipboardResult.
  */
-export interface ClipboardResultState<E = unknown> {
+export interface ClipboardResultState<E = Error> {
   /** Last copied value, or null before the first successful copy. */
   value: string | null;
   /** Latest copy Result, or null before the first attempt. */
@@ -39,35 +40,42 @@ export interface ClipboardResultState<E = unknown> {
 /**
  * Copies text to the clipboard and exposes the outcome as a Temelj Result.
  */
-export function useClipboardResult<E = unknown>(
-  mapError: (error: unknown) => E = (error) => error as E,
-): ClipboardResultState<E> {
-  const [state, setState] = React.useState<Omit<ClipboardResultState<E>, "copy" | "reset">>({
-    value: null,
-    result: null,
-    error: null,
-    copying: false,
-  });
+export function useClipboardResult<E = never>(
+  mapError?: (cause: unknown) => E,
+): ClipboardResultState<E | Error> {
+  const [state, setState] = React.useState<Omit<ClipboardResultState<E | Error>, "copy" | "reset">>(
+    {
+      value: null,
+      result: null,
+      error: null,
+      copying: false,
+    },
+  );
 
   const copy = React.useCallback(
-    async (value: string): Promise<Result<void, E>> => {
+    async (value: string): Promise<Result<void, E | Error>> => {
       setState((current) => ({ ...current, copying: true, error: null }));
+
       try {
         if (!isBrowser) {
           BrowserHookError.clipboardUnavailable();
         }
+
         if (navigator.clipboard?.writeText) {
           await navigator.clipboard.writeText(value);
         } else {
           fallbackCopy(value);
         }
+
         const result = ok<void>(undefined);
         setState({ value, result, error: null, copying: false });
+
         return result;
       } catch (error) {
-        const mapped = mapError(error);
+        const mapped = mapThrownError(error, mapError);
         const result = err(mapped);
         setState({ value: null, result, error: mapped, copying: false });
+
         return result;
       }
     },

@@ -9,13 +9,14 @@ export class Barrier {
   #count = 0;
   #waiters: Array<{
     resolve: () => void;
-    reject: (reason?: unknown) => void;
+    reject: (cause?: unknown) => void;
   }> = [];
 
   constructor(capacity: number) {
     if (capacity < 1) {
       AsyncOptionsError.barrierCapacity();
     }
+
     this.#capacity = capacity;
   }
 
@@ -36,8 +37,10 @@ export class Barrier {
       for (const waiter of this.#waiters) {
         waiter.resolve();
       }
+
       this.#waiters = [];
       this.#count = 0;
+
       return Promise.resolve();
     }
 
@@ -47,12 +50,15 @@ export class Barrier {
       if (signal) {
         const onAbort = () => {
           const index = this.#waiters.indexOf(waiter);
+
           if (index !== -1) {
             this.#waiters.splice(index, 1);
             this.#count--;
           }
+
           reject(AbortError.create());
         };
+
         signal.addEventListener("abort", onAbort, { once: true });
 
         const originalResolve = resolve;

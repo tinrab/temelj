@@ -126,177 +126,193 @@ export class FFmpegBuilder {
 
   private currentInput(): InputEntry {
     const entry = this._inputs.at(-1);
+
     if (!entry) {
       FFmpegDefinitionError.inputMissing();
     }
+
     return entry;
   }
 
   private currentOutput(): OutputEntry {
     const entry = this._outputs.at(-1);
+
     if (!entry) {
       FFmpegDefinitionError.outputMissing();
     }
+
     return entry;
   }
 
-  private as<TBuilder>(): TBuilder {
-    return this as unknown as TBuilder;
-  }
-
-  global(
-    opts: GlobalOptions,
-  ): FFmpegStartBuilder | FFmpegInputBuilder | FFmpegOutputBuilder | FFmpegReadyBuilder {
+  global(opts: GlobalOptions): this {
     Object.assign(this._global, opts);
-    return this.as();
+
+    return this;
   }
 
-  input(path: string, opts: InputOptions = {}): FFmpegInputBuilder | FFmpegReadyBuilder {
+  input(path: string, opts: InputOptions = {}): this {
     this._inputs.push({ path, opts });
-    return this._outputs.length > 0 ? this.as<FFmpegReadyBuilder>() : this.as<FFmpegInputBuilder>();
+
+    return this;
   }
 
-  seekInput(position: InputOptions["ss"]): FFmpegInputBuilder | FFmpegReadyBuilder {
+  seekInput(position: InputOptions["ss"]): this {
     this.currentInput().opts.ss = position;
-    return this.as();
+
+    return this;
   }
 
-  inputDuration(duration: InputOptions["t"]): FFmpegInputBuilder | FFmpegReadyBuilder {
+  inputDuration(duration: InputOptions["t"]): this {
     this.currentInput().opts.t = duration;
-    return this.as();
+
+    return this;
   }
 
-  inputFormat(format: InputOptions["f"]): FFmpegInputBuilder | FFmpegReadyBuilder {
+  inputFormat(format: InputOptions["f"]): this {
     this.currentInput().opts.f = format;
-    return this.as();
+
+    return this;
   }
 
-  inputOptions(opts: InputOptions): FFmpegInputBuilder | FFmpegReadyBuilder {
+  inputOptions(opts: InputOptions): this {
     Object.assign(this.currentInput().opts, opts);
-    return this.as();
+
+    return this;
   }
 
-  output(path: string, opts: OutputOptions = {}): FFmpegOutputBuilder | FFmpegReadyBuilder {
+  output(path: string, opts: OutputOptions = {}): this {
     this._outputs.push({ path, opts });
-    return this._inputs.length > 0 ? this.as<FFmpegReadyBuilder>() : this.as<FFmpegOutputBuilder>();
+
+    return this;
   }
 
-  videoCodec(codec: OutputOptions["videoCodec"]): FFmpegOutputBuilder | FFmpegReadyBuilder {
+  videoCodec(codec: OutputOptions["videoCodec"]): this {
     this.currentOutput().opts.videoCodec = codec;
-    return this.as();
+
+    return this;
   }
 
-  audioCodec(codec: OutputOptions["audioCodec"]): FFmpegOutputBuilder | FFmpegReadyBuilder {
+  audioCodec(codec: OutputOptions["audioCodec"]): this {
     this.currentOutput().opts.audioCodec = codec;
-    return this.as();
+
+    return this;
   }
 
-  subtitleCodec(codec: OutputOptions["subtitleCodec"]): FFmpegOutputBuilder | FFmpegReadyBuilder {
+  subtitleCodec(codec: OutputOptions["subtitleCodec"]): this {
     this.currentOutput().opts.subtitleCodec = codec;
-    return this.as();
+
+    return this;
   }
 
-  videoBitrate(bitrate: OutputOptions["videoBitrate"]): FFmpegOutputBuilder | FFmpegReadyBuilder {
+  videoBitrate(bitrate: OutputOptions["videoBitrate"]): this {
     this.currentOutput().opts.videoBitrate = bitrate;
-    return this.as();
+
+    return this;
   }
 
-  audioBitrate(bitrate: OutputOptions["audioBitrate"]): FFmpegOutputBuilder | FFmpegReadyBuilder {
+  audioBitrate(bitrate: OutputOptions["audioBitrate"]): this {
     this.currentOutput().opts.audioBitrate = bitrate;
-    return this.as();
+
+    return this;
   }
 
-  crf(value: OutputOptions["crf"]): FFmpegOutputBuilder | FFmpegReadyBuilder {
+  crf(value: OutputOptions["crf"]): this {
     this.currentOutput().opts.crf = value;
-    return this.as();
+
+    return this;
   }
 
-  strict(value: OutputOptions["strict"]): FFmpegOutputBuilder | FFmpegReadyBuilder {
+  strict(value: OutputOptions["strict"]): this {
     this.currentOutput().opts.strict = value;
-    return this.as();
+
+    return this;
   }
 
-  avoidNegativeTs(
-    value: OutputOptions["avoidNegativeTs"],
-  ): FFmpegOutputBuilder | FFmpegReadyBuilder {
+  avoidNegativeTs(value: OutputOptions["avoidNegativeTs"]): this {
     this.currentOutput().opts.avoidNegativeTs = value;
-    return this.as();
+
+    return this;
   }
 
-  size(value: OutputOptions["s"]): FFmpegOutputBuilder | FFmpegReadyBuilder {
+  size(value: OutputOptions["s"]): this {
     this.currentOutput().opts.s = value;
-    return this.as();
+
+    return this;
   }
 
-  pixelFormat(value: OutputOptions["pixFmt"]): FFmpegOutputBuilder | FFmpegReadyBuilder {
+  pixelFormat(value: OutputOptions["pixFmt"]): this {
     this.currentOutput().opts.pixFmt = value;
-    return this.as();
+
+    return this;
   }
 
-  videoFilter(value: OutputOptions["vf"]): FFmpegOutputBuilder | FFmpegReadyBuilder {
+  videoFilter(value: OutputOptions["vf"]): this {
     this.currentOutput().opts.vf = value;
-    return this.as();
+
+    return this;
   }
 
-  audioFilter(value: OutputOptions["af"]): FFmpegOutputBuilder | FFmpegReadyBuilder {
+  audioFilter(value: OutputOptions["af"]): this {
     this.currentOutput().opts.af = value;
-    return this.as();
+
+    return this;
   }
 
-  noVideo(): FFmpegOutputBuilder | FFmpegReadyBuilder {
+  noVideo(): this {
     this.currentOutput().opts.vn = true;
-    return this.as();
+
+    return this;
   }
 
-  noAudio(): FFmpegOutputBuilder | FFmpegReadyBuilder {
+  noAudio(): this {
     this.currentOutput().opts.an = true;
-    return this.as();
+
+    return this;
   }
 
-  noSubtitle(): FFmpegOutputBuilder | FFmpegReadyBuilder {
+  noSubtitle(): this {
     this.currentOutput().opts.sn = true;
-    return this.as();
+
+    return this;
   }
 
-  outputOptions(opts: OutputOptions): FFmpegOutputBuilder | FFmpegReadyBuilder {
+  outputOptions(opts: OutputOptions): this {
     Object.assign(this.currentOutput().opts, opts);
-    return this.as();
+
+    return this;
   }
 
-  filterComplex(
-    filter: FilterGraph | string,
-  ): FFmpegStartBuilder | FFmpegInputBuilder | FFmpegOutputBuilder | FFmpegReadyBuilder {
+  filterComplex(filter: FilterGraph | string): this {
     this._global.filterComplex = String(filter);
     this._filterGraph = filter instanceof FilterGraph ? filter : null;
-    return this.as();
+
+    return this;
   }
 
-  map(mapTarget: string): FFmpegOutputBuilder | FFmpegReadyBuilder {
+  map(mapTarget: string): this {
     const output = this.currentOutput();
     const existing = output.opts.map;
+
     if (Array.isArray(existing)) {
       output.opts.map = [...existing, mapTarget];
-    } else if (typeof existing === "string") {
+    } else if (existing !== undefined) {
       output.opts.map = [existing, mapTarget];
     } else {
       output.opts.map = [mapTarget];
     }
-    return this.as();
+
+    return this;
   }
 
-  mapInputStream(
-    fileIndex: number,
-    streamType?: MapStreamType,
-    streamIndex?: number,
-  ): FFmpegOutputBuilder | FFmpegReadyBuilder {
+  mapInputStream(fileIndex: number, streamType?: MapStreamType, streamIndex?: number): this {
     return this.map(serializeMapInputStream(fileIndex, streamType, streamIndex));
   }
 
-  mapLabel(label: FilterGraphStream): FFmpegOutputBuilder | FFmpegReadyBuilder {
+  mapLabel(label: FilterGraphStream): this {
     return this.map(serializeMapLabel(label));
   }
 
-  unsafeMapLabel(label: string): FFmpegOutputBuilder | FFmpegReadyBuilder {
+  unsafeMapLabel(label: string): this {
     return this.map(createUnsafeMapLabel(label).raw);
   }
 
@@ -306,6 +322,7 @@ export class FFmpegBuilder {
 
   toCommandLine(): string {
     const args = this.toArgs();
+
     return args.map(quoteShellArg).join(" ");
   }
 
@@ -321,9 +338,11 @@ export class FFmpegBuilder {
     for (const output of this._outputs) {
       const maps = output.opts.map;
       const values = maps === undefined ? [] : Array.isArray(maps) ? maps : [maps];
+
       for (const value of values) {
         if (!value.startsWith("[") || !value.endsWith("]")) continue;
         const label = value.slice(1, -1);
+
         if (!this._filterGraph.hasOutputLabel(label)) {
           FFmpegDefinitionError.mappedFilterLabelMissing(label);
         }
@@ -352,7 +371,7 @@ export class FFmpegBuilder {
 }
 
 export function ffmpeg(): FFmpegStartBuilder {
-  return new FFmpegBuilder() as FFmpegStartBuilder;
+  return new FFmpegBuilder();
 }
 
 function quoteShellArg(value: string): string {

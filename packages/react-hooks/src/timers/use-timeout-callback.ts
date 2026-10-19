@@ -30,6 +30,7 @@ export function useTimeoutCallback<Args extends unknown[]>(
       clearTimeout(timeoutRef.current);
       timeoutRef.current = null;
     }
+
     setRunning(false);
   }, []);
 

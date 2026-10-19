@@ -16,7 +16,6 @@
     "./value": "./src/value/mod.ts"
   },
   "license": "MIT",
-  "nodeModulesDir": "auto",
   "imports": {
     "@temelj/async": "jsr:@temelj/async@^0.13.0",
     "@temelj/color": "jsr:@temelj/color@^0.13.0",
@@ -28,8 +27,8 @@
     "@temelj/math": "jsr:@temelj/math@^0.13.0",
     "@temelj/request": "jsr:@temelj/request@^0.13.0",
     "@temelj/result": "jsr:@temelj/result@^0.13.0",
-    "@temelj/string": "jsr:@temelj/string@^0.14.0",
-    "@temelj/value": "jsr:@temelj/value@^0.14.0"
+    "@temelj/string": "jsr:@temelj/string@^0.15.0",
+    "@temelj/value": "jsr:@temelj/value@^0.15.0"
   },
   "publish": {
     "include": ["src/**/*.ts"],

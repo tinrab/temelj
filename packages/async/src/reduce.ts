@@ -23,17 +23,21 @@ export async function reduce<T, R>(
   let index = 0;
 
   if (Symbol.asyncIterator in Object(input)) {
+    // SAFETY: the declared iterable union and async iterator member select AsyncIterable<T>.
     for await (const item of input as AsyncIterable<T>) {
       if (signal?.aborted) {
         AbortError.aborted();
       }
+
       accumulator = await reducer(accumulator, item, index++);
     }
   } else {
+    // SAFETY: an input without the async iterator member must provide the synchronous protocol.
     for (const item of input as Iterable<T>) {
       if (signal?.aborted) {
         AbortError.aborted();
       }
+
       accumulator = await reducer(accumulator, item, index++);
     }
   }

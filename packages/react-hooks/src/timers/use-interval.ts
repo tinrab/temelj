@@ -19,6 +19,7 @@ export function useInterval(callback: () => void, ms: number | null): () => void
   React.useEffect(() => {
     if (ms === null) return undefined;
     intervalRef.current = setInterval(() => callbackRef.current(), ms);
+
     return clear;
   }, [callbackRef, clear, ms]);
 

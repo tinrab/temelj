@@ -4,9 +4,12 @@ import type {
   OutputOptions,
   RawOptionBag,
   SerializedOptionScalar,
+  SerializedOptionValue,
 } from "./types.ts";
 
 import {
+  type OptionDefinition,
+  type OptionKind,
   generatedInputDefs,
   generatedInputStreamDefs,
   generatedOutputDefs,
@@ -16,21 +19,16 @@ import {
 } from "./generated/serialize.ts";
 import { normalizeOutputOptions } from "./structured.ts";
 
-interface Entry {
-  flag: string;
-  isFlag: boolean;
-  isArray: boolean;
-}
-
-interface ScopedOptions {
-  [key: string]: unknown;
+function isOptionArray(value: SerializedOptionValue): value is readonly SerializedOptionScalar[] {
+  return Array.isArray(value);
 }
 
 function appendRawValue(args: string[], flag: string, value: SerializedOptionScalar): void {
-  if (typeof value === "boolean") {
+  if (value === true || value === false) {
     if (value) {
       args.push(flag);
     }
+
     return;
   }
 
@@ -47,48 +45,59 @@ function serializeRaw(args: string[], raw: RawOptionBag | undefined): void {
       continue;
     }
 
-    if (Array.isArray(value)) {
-      for (const item of value as readonly SerializedOptionScalar[]) {
+    if (isOptionArray(value)) {
+      for (const item of value) {
         appendRawValue(args, flag, item);
       }
+
       continue;
     }
 
-    appendRawValue(args, flag, value as SerializedOptionScalar);
+    appendRawValue(args, flag, value);
   }
 }
 
-function appendDefinedValue(args: string[], def: Entry, flag: string, value: unknown): void {
+function appendDefinedValue(
+  args: string[],
+  kind: OptionKind,
+  flag: string,
+  value: SerializedOptionValue | undefined,
+): void {
   if (value === undefined || value === null) {
     return;
   }
 
-  if (def.isArray && Array.isArray(value)) {
+  if (kind === "array" && isOptionArray(value)) {
     for (const item of value) {
-      args.push(flag, typeof item === "string" ? item : String(item));
+      args.push(flag, String(item));
     }
+
     return;
   }
 
-  if (def.isFlag) {
+  if (kind === "flag") {
     if (value) {
       args.push(flag);
     }
+
     return;
   }
 
-  if (typeof value === "string" || typeof value === "number") {
+  if (value !== true && value !== false && !isOptionArray(value)) {
     args.push(flag, String(value));
   }
 }
 
 function flagWithSpecifier(flag: string, specifier: string): string {
   const fixedSpecifierMatch = flag.match(/^(-[^:]+):([A-Za-z])$/);
+
   if (fixedSpecifierMatch) {
     const [, , fixedSpecifier] = fixedSpecifierMatch;
+
     if (specifier === fixedSpecifier) {
       return flag;
     }
+
     if (specifier.startsWith(`${fixedSpecifier}:`)) {
       return `${flag}${specifier.slice(fixedSpecifier.length)}`;
     }
@@ -97,10 +106,10 @@ function flagWithSpecifier(flag: string, specifier: string): string {
   return `${flag}:${specifier}`;
 }
 
-function serializeScoped(
+function serializeScoped<TOptions>(
   args: string[],
-  bag: Record<string, ScopedOptions> | undefined,
-  defs: Record<string, Entry>,
+  bag: Partial<Record<string, TOptions>> | undefined,
+  defs: readonly OptionDefinition<TOptions>[],
   getFlag: (flag: string, specifier: string) => string = (flag, specifier) =>
     `${flag}:${specifier}`,
 ): void {
@@ -109,20 +118,22 @@ function serializeScoped(
   }
 
   for (const [specifier, scoped] of Object.entries(bag)) {
-    for (const [key, def] of Object.entries(defs)) {
-      appendDefinedValue(args, def, getFlag(def.flag, specifier), scoped[key]);
+    if (scoped === undefined) continue;
+
+    for (const def of defs) {
+      appendDefinedValue(args, def.kind, getFlag(def.flag, specifier), def.read(scoped));
     }
   }
 }
 
-function serializeDefined(
-  opts: Record<string, unknown> & { raw?: RawOptionBag },
-  defs: Record<string, Entry>,
+function serializeDefined<TOptions extends { raw?: RawOptionBag }>(
+  opts: TOptions,
+  defs: readonly OptionDefinition<TOptions>[],
 ): string[] {
   const args: string[] = [];
 
-  for (const [key, def] of Object.entries(defs)) {
-    appendDefinedValue(args, def, def.flag, opts[key]);
+  for (const def of defs) {
+    appendDefinedValue(args, def.kind, def.flag, def.read(opts));
   }
 
   serializeRaw(args, opts.raw);
@@ -132,42 +143,29 @@ function serializeDefined(
 
 export function serializeGlobal(opts: GlobalOptions): string[] {
   return serializeDefined(
-    opts as Record<string, unknown> & { raw?: RawOptionBag },
+    {
+      ...opts,
+      filterComplex: opts.filterComplex === undefined ? undefined : String(opts.filterComplex),
+    },
     generatedGlobalDefs,
   );
 }
 
 export function serializeInput(opts: InputOptions): string[] {
-  const args = serializeDefined(
-    opts as Record<string, unknown> & { raw?: RawOptionBag },
-    generatedInputDefs,
-  );
-  serializeScoped(
-    args,
-    opts.streams as Record<string, ScopedOptions> | undefined,
-    generatedInputStreamDefs,
-  );
+  const args = serializeDefined(opts, generatedInputDefs);
+
+  serializeScoped(args, opts.streams, generatedInputStreamDefs);
+
   return args;
 }
 
 export function serializeOutput(opts: OutputOptions): string[] {
-  const normalized = normalizeOutputOptions(
-    opts as unknown as import("./generated/options.ts").OutputOptions,
-  );
-  const args = serializeDefined(
-    normalized as Record<string, unknown> & { raw?: RawOptionBag },
-    generatedOutputDefs,
-  );
-  serializeScoped(
-    args,
-    normalized.streams as Record<string, ScopedOptions> | undefined,
-    generatedOutputStreamDefs,
-    flagWithSpecifier,
-  );
-  serializeScoped(
-    args,
-    normalized.metadataScopes as Record<string, ScopedOptions> | undefined,
-    generatedOutputMetadataDefs,
-  );
+  const normalized = normalizeOutputOptions(opts);
+
+  const args = serializeDefined(normalized, generatedOutputDefs);
+
+  serializeScoped(args, normalized.streams, generatedOutputStreamDefs, flagWithSpecifier);
+  serializeScoped(args, normalized.metadataScopes, generatedOutputMetadataDefs);
+
   return args;
 }

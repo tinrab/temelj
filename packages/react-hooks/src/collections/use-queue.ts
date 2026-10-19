@@ -26,15 +26,26 @@ export interface QueueControls<T> {
 export function useQueue<T>(initialValue: T[] = []): QueueControls<T> {
   const [queue, setQueue] = React.useState(initialValue);
   const queueRef = React.useRef(queue);
-  queueRef.current = queue;
 
-  const add = React.useCallback((element: T) => setQueue((value) => [...value, element]), []);
+  const add = React.useCallback((element: T) => {
+    const next = [...queueRef.current, element];
+    queueRef.current = next;
+    setQueue(next);
+  }, []);
+
   const remove = React.useCallback(() => {
     const first = queueRef.current[0];
-    setQueue(([, ...rest]) => rest);
+    const next = queueRef.current.slice(1);
+    queueRef.current = next;
+    setQueue(next);
+
     return first;
   }, []);
-  const clear = React.useCallback(() => setQueue([]), []);
+
+  const clear = React.useCallback(() => {
+    queueRef.current = [];
+    setQueue([]);
+  }, []);
 
   return {
     add,

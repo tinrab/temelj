@@ -37,4 +37,12 @@ $ deno add jsr:@temelj/async # or jsr add @temelj/async
 
 ## About
 
+`attempt(fn, args)` requires the argument tuple, including `[]` for a function with no arguments.
+`timeout(promise, ms)` accepts a promise. Use `Promise.try(fn)` to create one from a callback.
+An undefined timeout fallback means no fallback and rejects with `TimeoutError`.
+
+Retry options use `delay` for a fixed duration and `backoff` for a function of the attempt number.
+`AsyncStream.retry(options)` retries all preceding pipeline operations. Each retry consumes
+the source again, so use a repeatable iterable when restarting from the beginning is required.
+
 This package is part of [Temelj](https://github.com/tinrab/temelj) - a core library for TypeScript.

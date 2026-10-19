@@ -15,17 +15,22 @@ export function usePointerVector<T extends Element>(): [Vector2, React.RefObject
 
   useIsoLayoutEffect(() => {
     if (!isBrowser) return undefined;
+
     const handlePointerMove = (event: PointerEvent) => {
       const node = ref.current;
+
       if (!node) {
         setPosition(vector2.of(event.clientX, event.clientY));
+
         return;
       }
+
       const bounds = node.getBoundingClientRect();
       setPosition(vector2.of(event.clientX - bounds.left, event.clientY - bounds.top));
     };
 
     window.addEventListener("pointermove", handlePointerMove, { passive: true });
+
     return () => window.removeEventListener("pointermove", handlePointerMove);
   }, []);
 

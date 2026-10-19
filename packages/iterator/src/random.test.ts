@@ -30,6 +30,7 @@ test("sampleList() works", () => {
 
 test("sampleListUnique() works", () => {
   const array = ["a", "b", "c"];
+
   for (let i = 0; i < 10; i++) {
     const list = sampleListUnique(array, 2);
     expect(list.length).toStrictEqual(2);

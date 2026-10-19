@@ -43,6 +43,7 @@ test("minBy() finds minimum element", () => {
     { name: "Bob", age: 25 },
     { name: "Charlie", age: 35 },
   ];
+
   expect(minBy(users, (u: { name: string; age: number }) => u.age)).toEqual({
     name: "Bob",
     age: 25,
@@ -62,6 +63,7 @@ test("maxBy() finds maximum element", () => {
     { name: "Bob", age: 25 },
     { name: "Charlie", age: 35 },
   ];
+
   expect(maxBy(users, (u: { name: string; age: number }) => u.age)).toEqual({
     name: "Charlie",
     age: 35,
@@ -139,6 +141,7 @@ test("groupBy() groups elements by key", () => {
     { name: "Bob", group: "B" },
     { name: "Charlie", group: "A" },
   ];
+
   const byGroup = groupBy(users, (u: { name: string; group: string }) => u.group);
   expect(byGroup.get("A")).toEqual([
     { name: "Alice", group: "A" },
@@ -165,6 +168,7 @@ test("unique() with identity function", () => {
     { id: 2, name: "Bob" },
     { id: 1, name: "Alice Duplicate" },
   ];
+
   expect(unique(users, (u: { id: number; name: string }) => u.id)).toEqual([
     { id: 1, name: "Alice" },
     { id: 2, name: "Bob" },

@@ -2,59 +2,48 @@ import * as React from "react";
 
 import { isBrowser } from "../internal/mod.ts";
 
-function readQueries<const T extends Record<string, string>>(
-  queries: T,
-): { [K in keyof T]: boolean } {
-  const result = {} as { [K in keyof T]: boolean };
+/** Named media queries. */
+export type MediaQueries<K extends string> = Readonly<Record<K, string>>;
 
-  for (const key of Object.keys(queries) as Array<keyof T>) {
-    result[key] = isBrowser && window.matchMedia(queries[key]).matches;
-  }
+/** Match state for each query name. */
+export type MediaQueryMatches<K extends string> = { readonly [P in K]: boolean };
 
-  return result;
-}
+/** Returns a boolean result for each own enumerable query name. */
+export function useMediaQueries<K extends string>(queries: MediaQueries<K>): MediaQueryMatches<K> {
+  const entries = Object.entries<string>(queries);
 
-function readServerQueries<const T extends Record<string, string>>(
-  queries: T,
-): { [K in keyof T]: boolean } {
-  const result = {} as { [K in keyof T]: boolean };
+  const subscribe = React.useCallback(
+    (callback: () => void) => {
+      if (!isBrowser) return () => {};
 
-  for (const key of Object.keys(queries) as Array<keyof T>) {
-    result[key] = false;
-  }
+      const lists = Object.values<string>(queries).map((query) => window.matchMedia(query));
 
-  return result;
-}
+      for (const list of lists) list.addEventListener("change", callback);
 
-/**
- * Returns a boolean result for each named media query.
- */
-export function useMediaQueries<const T extends Record<string, string>>(
-  queries: T,
-): { [K in keyof T]: boolean } {
-  const [result, setResult] = React.useState(() => readServerQueries(queries));
-  const queriesRef = React.useRef(queries);
-  queriesRef.current = queries;
-  const querySignature = Object.entries(queries)
-    .map(([key, query]) => `${key}:${query}`)
-    .join("\n");
+      return () => {
+        for (const list of lists) list.removeEventListener("change", callback);
+      };
+    },
+    [queries],
+  );
 
-  React.useEffect(() => {
-    const currentQueries = queriesRef.current;
-    setResult(readQueries(currentQueries));
+  const getSnapshot = React.useCallback(
+    () =>
+      Object.values<string>(queries)
+        .map((query) => (isBrowser && window.matchMedia(query).matches ? "1" : "0"))
+        .join(""),
+    [queries],
+  );
 
-    if (!isBrowser) {
-      return;
-    }
-    const media = Object.values(currentQueries).map((query) => window.matchMedia(query));
-    const update = () => setResult(readQueries(queriesRef.current));
+  const getServerSnapshot = React.useCallback(
+    () => "0".repeat(Object.keys(queries).length),
+    [queries],
+  );
 
-    for (const query of media) query.addEventListener("change", update);
+  const matches = React.useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 
-    return () => {
-      for (const query of media) query.removeEventListener("change", update);
-    };
-  }, [querySignature]);
-
-  return result;
+  // SAFETY: Each own enumerable query key is copied exactly once, with its corresponding boolean snapshot value.
+  return Object.fromEntries(
+    entries.map(([key], index) => [key, matches[index] === "1"]),
+  ) as MediaQueryMatches<K>;
 }

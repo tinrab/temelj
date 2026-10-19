@@ -23,12 +23,14 @@ test(
     await using container = await startRustFsContainer();
     const endpoint = `http://${container.getHost()}:${container.getMappedPort(9000)}`;
     const bucket = `temelj-storage-${Date.now()}`;
+
     const client = new S3Client({
       credentials: rustFsCredentials,
       endpoint,
       forcePathStyle: true,
       region: "us-east-1",
     });
+
     await client.send(new CreateBucketCommand({ Bucket: bucket }));
 
     const storage = createStorage({
@@ -75,15 +77,18 @@ test("s3 engine treats prefixes as literal strings", { tags: ["container"] }, as
   await using container = await startRustFsContainer();
   const endpoint = `http://${container.getHost()}:${container.getMappedPort(9000)}`;
   const bucket = `temelj-storage-literal-${Date.now()}`;
+
   const client = new S3Client({
     credentials: rustFsCredentials,
     endpoint,
     forcePathStyle: true,
     region: "us-east-1",
   });
+
   await client.send(new CreateBucketCommand({ Bucket: bucket }));
 
   const namespace = "temelj-storage-[literal]*?";
+
   const storage = createStorage({
     codec: createSuperJsonStorageCodec({ format: "bytes" }),
     engine: new S3StorageEngine({
@@ -92,6 +97,7 @@ test("s3 engine treats prefixes as literal strings", { tags: ["container"] }, as
       prefix: namespace,
     }),
   });
+
   const adjacentStorage = createStorage({
     codec: createSuperJsonStorageCodec({ format: "bytes" }),
     engine: new S3StorageEngine({
@@ -122,6 +128,7 @@ test("s3 engine treats prefixes as literal strings", { tags: ["container"] }, as
 
 async function startRustFsContainer() {
   const { GenericContainer, Wait } = await import("testcontainers");
+
   return new GenericContainer("rustfs/rustfs:latest")
     .withExposedPorts(9000)
     .withEnvironment({
@@ -136,6 +143,7 @@ async function startRustFsContainer() {
 
 async function emptyBucket(client: S3Client, bucket: string): Promise<void> {
   let continuationToken: string | undefined;
+
   do {
     const result = await client.send(
       new ListObjectsV2Command({
@@ -143,10 +151,13 @@ async function emptyBucket(client: S3Client, bucket: string): Promise<void> {
         ContinuationToken: continuationToken,
       }),
     );
+
     continuationToken = result.IsTruncated === true ? result.NextContinuationToken : undefined;
+
     const keys = (result.Contents ?? [])
       .map((item) => item.Key)
       .filter((key): key is string => key !== undefined);
+
     await Promise.all(
       keys.map((key) => client.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }))),
     );

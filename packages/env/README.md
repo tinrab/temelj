@@ -110,6 +110,8 @@ const env = unwrap(envResult);
 If no source is provided, `@temelj/env` reads from `process.env` on the server and `import.meta.env` in the browser.
 You can pass a source explicitly:
 
+Source values accept strings, booleans, and `undefined`, matching Node and Vite environment sources. Schema validation produces the application types.
+
 ```ts
 const env = parseEnv(
   {

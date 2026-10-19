@@ -1,8 +1,40 @@
 import { ss } from "@temelj/standard-schema";
-import { deepEquals, isObjectPrimitive, type PrimitiveValue } from "@temelj/value";
+import {
+  deepEquals,
+  isPlainObject,
+  isString,
+  isNumber,
+  isBoolean,
+  isBigInt,
+  isSymbol,
+  isFunction,
+  isObject,
+  type PrimitiveValue,
+  type Primitive,
+  type JsonValue,
+} from "@temelj/value";
 
 import { createHelper } from "../helper_builder";
 import { type HelperDeclareSpec, SafeString } from "../types";
+
+type JsValue =
+  | Primitive
+  | Function
+  | Date
+  | RegExp
+  | readonly JsValue[]
+  | ReadonlyMap<JsValue, JsValue>
+  | ReadonlySet<JsValue>
+  | JsObject
+  | JsonConvertible;
+
+interface JsObject {
+  readonly [key: string]: JsValue;
+}
+
+interface JsonConvertible {
+  readonly toJSON: () => JsValue;
+}
 
 export function getValueHelpers(): HelperDeclareSpec {
   return {
@@ -16,7 +48,7 @@ export function getValueHelpers(): HelperDeclareSpec {
     or: (...args: unknown[]) => Array.prototype.slice.call(args, 0, -1).some(Boolean),
     not: (x: number | boolean) => !x,
 
-    orElse: (value: unknown, defaultValue: unknown) => value || defaultValue,
+    orElse: <TValue, TDefault>(value: TValue, defaultValue: TDefault) => value || defaultValue,
 
     json: createHelper()
       .params(ss.unknown(), ss.defaulted(ss.boolean(), false))
@@ -24,43 +56,55 @@ export function getValueHelpers(): HelperDeclareSpec {
         return pretty ? JSON.stringify(value, undefined, 2) : JSON.stringify(value);
       }),
 
-    isEmpty: (obj: unknown) => {
+    isEmpty: (obj: PrimitiveValue) => {
       return Array.isArray(obj)
         ? obj.length === 0
-        : isObjectPrimitive(obj)
+        : isPlainObject(obj)
           ? Object.keys(obj).length === 0
           : Boolean(obj) === false;
     },
 
-    jsValue: (value: unknown): SafeString => {
+    jsValue: (value: JsValue): SafeString => {
       return new SafeString(renderJsValue(value));
     },
   };
 }
 
-function renderJsValue(value: unknown): string {
+function renderJsValue(value: JsValue): string {
   if (value === null) {
     return "null";
   }
+
   if (value === undefined) {
     return "undefined";
   }
 
-  switch (typeof value) {
-    case "string":
-      return JSON.stringify(value);
-    case "number":
-      if (Number.isNaN(value)) return "NaN";
-      if (!Number.isFinite(value)) return value > 0 ? "Infinity" : "-Infinity";
-      return String(value);
-    case "bigint":
-      return `${String(value)}n`;
-    case "boolean":
-      return String(value);
-    case "symbol":
-      return `Symbol(${value.description ? JSON.stringify(value.description) : ""})`;
-    case "function":
-      return Function.prototype.toString.call(value);
+  if (isString(value)) {
+    return JSON.stringify(value);
+  }
+
+  if (isNumber(value)) {
+    if (Number.isNaN(value)) return "NaN";
+
+    if (!Number.isFinite(value)) return value > 0 ? "Infinity" : "-Infinity";
+
+    return String(value);
+  }
+
+  if (isBigInt(value)) {
+    return String(value) + "n";
+  }
+
+  if (isBoolean(value)) {
+    return String(value);
+  }
+
+  if (isSymbol(value)) {
+    return "Symbol(" + (value.description ? JSON.stringify(value.description) : "") + ")";
+  }
+
+  if (isFunction(value)) {
+    return Function.prototype.toString.call(value);
   }
 
   if (Array.isArray(value)) {
@@ -71,6 +115,7 @@ function renderJsValue(value: unknown): string {
     const entries = Array.from(value.entries())
       .map(([k, v]) => `[${renderJsValue(k)}, ${renderJsValue(v)}]`)
       .join(", ");
+
     return `new Map([${entries}])`;
   }
 
@@ -78,6 +123,7 @@ function renderJsValue(value: unknown): string {
     const elements = Array.from(value.values())
       .map((item) => renderJsValue(item))
       .join(", ");
+
     return `new Set([${elements}])`;
   }
 
@@ -90,35 +136,36 @@ function renderJsValue(value: unknown): string {
   }
 
   if (
-    typeof value === "object" &&
+    isObject(value) &&
     value !== null &&
     (value.constructor === Object || Object.getPrototypeOf(value) === null)
   ) {
     const properties = Object.entries(value)
       .map(([k, v]) => `${JSON.stringify(k)}: ${renderJsValue(v)}`)
       .join(", ");
+
     return `{${properties}}`;
   }
 
-  if (typeof value === "object" && value !== null) {
-    if (typeof (value as { toJSON?: () => any }).toJSON === "function") {
+  if (isObject(value) && value !== null) {
+    if ("toJSON" in value && isFunction(value.toJSON)) {
       try {
-        return renderJsValue((value as { toJSON: () => any }).toJSON());
-      } catch (e: any) {
-        return `/* Error in toJSON for ${String(value)}: ${String(e.message)} */`;
+        return renderJsValue(value.toJSON());
+      } catch (cause) {
+        return `/* Error in toJSON for ${String(value)}: ${String(cause instanceof Error ? cause.message : cause)} */`;
       }
     }
 
     try {
       const jsonStr = JSON.stringify(value);
+
       if (jsonStr !== undefined) {
-        if (jsonStr.startsWith("{") || jsonStr.startsWith("[")) {
-          return renderJsValue(JSON.parse(jsonStr));
-        }
-        return renderJsValue(JSON.parse(jsonStr));
+        const parsed: JsonValue = JSON.parse(jsonStr);
+
+        return renderJsValue(parsed);
       }
-    } catch (e: any) {
-      return `/* Unserializable object: ${String(value)} (stringify error: ${e.message}) */`;
+    } catch (cause) {
+      return `/* Unserializable object: ${String(value)} (stringify error: ${cause instanceof Error ? cause.message : String(cause)}) */`;
     }
 
     return `/* Unhandled object type: ${String(value)} */`;

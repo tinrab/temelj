@@ -13,10 +13,12 @@ export function useHover<T extends Element>(): [React.RefCallback<T>, boolean] {
     (node: T | null) => {
       previousNode.current?.removeEventListener("mouseenter", handleMouseEnter);
       previousNode.current?.removeEventListener("mouseleave", handleMouseLeave);
+
       if (node) {
         node.addEventListener("mouseenter", handleMouseEnter);
         node.addEventListener("mouseleave", handleMouseLeave);
       }
+
       previousNode.current = node;
     },
     [handleMouseEnter, handleMouseLeave],

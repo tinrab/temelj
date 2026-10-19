@@ -3,6 +3,28 @@ import { describe, expect, expectTypeOf, test, vi } from "vitest";
 import { AsyncLruCache, CacheOptionsError, LruCache, memoizeLru, type Cache } from "./mod.ts";
 
 describe("LruCache", () => {
+  test("reuses released slots with undefined keys and values", () => {
+    const cache = new LruCache<string | undefined, number | undefined>({
+      maxEntries: 2,
+      ttl: 1000,
+    });
+
+    cache.set(undefined, undefined);
+    cache.set("other", 1);
+    expect(cache.has(undefined)).toBe(true);
+    expect(cache.delete(undefined)).toBe(true);
+    cache.set("replacement", 2);
+    expect([...cache]).toEqual([
+      ["replacement", 2],
+      ["other", 1],
+    ]);
+    cache.set(undefined, undefined);
+    expect([...cache]).toEqual([
+      [undefined, undefined],
+      ["replacement", 2],
+    ]);
+  });
+
   test("stores and reads values", () => {
     const cache = new LruCache<string, number>({ maxEntries: 2 });
 
@@ -15,6 +37,7 @@ describe("LruCache", () => {
 
   test("evicts the least recently used entry by maxEntries", () => {
     const evictions: string[] = [];
+
     const cache = new LruCache<string, number>({
       maxEntries: 2,
       onEvict: (event) => evictions.push(`${event.reason}:${event.key}`),
@@ -77,6 +100,7 @@ describe("LruCache", () => {
 
   test("rejects oversized entries without storing them", () => {
     const evictions: string[] = [];
+
     const cache = new LruCache<string, string>({
       maxSize: 4,
       sizeOf: ({ value }) => value.length,
@@ -93,8 +117,10 @@ describe("LruCache", () => {
 
   test("expires values by ttl", () => {
     vi.useFakeTimers();
+
     try {
       const evictions: string[] = [];
+
       const cache = new LruCache<string, number>({
         maxEntries: 2,
         ttl: 100,
@@ -116,6 +142,7 @@ describe("LruCache", () => {
 
   test("supports per-entry ttl and explicit pruning", () => {
     vi.useFakeTimers();
+
     try {
       const cache = new LruCache<string, number>({ maxEntries: 4 });
 
@@ -132,6 +159,7 @@ describe("LruCache", () => {
 
   test("deletes, clears, and reports reasons", () => {
     const evictions: string[] = [];
+
     const cache = new LruCache<string, number>({
       maxEntries: 3,
       onEvict: (event) => evictions.push(`${event.reason}:${event.key}`),
@@ -210,11 +238,13 @@ describe("LruCache", () => {
 describe("AsyncLruCache", () => {
   test("deduplicates concurrent loads and stores loaded values", async () => {
     let calls = 0;
+
     const cache = new AsyncLruCache<string, number>({
       maxEntries: 2,
       async loader(key) {
         calls++;
         await Promise.resolve();
+
         return key.length;
       },
     });
@@ -233,20 +263,20 @@ describe("AsyncLruCache", () => {
     let resolve: ((value: number) => void) | undefined;
     const cache = new AsyncLruCache<string, number>();
     const controller = new AbortController();
-    const promise = cache.getOrLoad(
-      "a",
-      () =>
+
+    const promise = cache.getOrLoad("a", {
+      loader: () =>
         new Promise<number>((done) => {
           resolve = done;
         }),
-      { signal: controller.signal },
-    );
+      signal: controller.signal,
+    });
 
     controller.abort();
     await expect(promise).rejects.toMatchObject({ name: "AbortError" });
 
     resolve?.(1);
-    await expect(cache.getOrLoad("a", async () => 2)).resolves.toBe(1);
+    await expect(cache.getOrLoad("a", { loader: async () => 2 })).resolves.toBe(1);
   });
 
   test("does not start loaders for pre-aborted calls", async () => {
@@ -257,14 +287,14 @@ describe("AsyncLruCache", () => {
     controller.abort();
 
     await expect(
-      cache.getOrLoad(
-        "a",
-        async () => {
+      cache.getOrLoad("a", {
+        loader: async () => {
           calls++;
+
           return 1;
         },
-        { signal: controller.signal },
-      ),
+        signal: controller.signal,
+      }),
     ).rejects.toMatchObject({ name: "AbortError" });
     expect(calls).toBe(0);
   });
@@ -273,9 +303,11 @@ describe("AsyncLruCache", () => {
 describe("memoizeLru", () => {
   test("memoizes async functions and deduplicates concurrent calls", async () => {
     let calls = 0;
+
     const add = memoizeLru(
       async (left: number, right: number) => {
         calls++;
+
         return left + right;
       },
       { maxEntries: 2 },

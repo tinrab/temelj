@@ -13,7 +13,91 @@
     "promise",
     "vitest"
   ],
+  "ignorePatterns": [
+    ".agent/**",
+    ".agents/**",
+    ".claude/**",
+    ".codex/**",
+    ".continue/**",
+    ".cursor/**",
+    ".gemini/**",
+    ".opencode/**",
+    ".pi/**",
+    ".roo/**",
+    ".windsurf/**",
+    "scripts/oxlint/anti-slop/**"
+  ],
+  "jsPlugins": [
+    {
+      "name": "anti-slop",
+      "specifier": "./scripts/oxlint/anti-slop/index.ts"
+    }
+  ],
   "rules": {
-    "typescript/no-base-to-string": "off"
-  }
+    "typescript/no-base-to-string": "off",
+    "oxc/no-accumulating-spread": "error",
+    "anti-slop/no-array-filter-map": "error",
+    "anti-slop/no-reduce-accumulator-copy": "error",
+    "anti-slop/no-chained-type-assertions": "error",
+    "anti-slop/no-conditional-empty-object-spread": "error",
+    "anti-slop/no-known-value-widening": "error",
+    "anti-slop/no-module-mocking": "error",
+    "anti-slop/no-object-parameters": "error",
+    "anti-slop/no-reflect-apply": "error",
+    "anti-slop/no-reflect-get": "error",
+    "anti-slop/no-runtime-typeof": "error",
+    "anti-slop/no-shape-in-symbol-names": "error",
+    "anti-slop/no-unknown-parameters": "error",
+    "anti-slop/no-unknown-returns": "error",
+    "anti-slop/no-unknown-type-aliases": "error",
+    "anti-slop/no-unsafe-dictionary-type": "error",
+    "anti-slop/no-widen-then-assert": "error",
+    "anti-slop/require-readable-spacing": "error",
+    "anti-slop/require-safety-comment-for-type-assertion": "error"
+  },
+  "overrides": [
+    {
+      "files": [
+        "packages/value/src/equal.ts",
+        "packages/value/src/size.ts",
+        "packages/value/src/ops.ts"
+      ],
+      "rules": {
+        "anti-slop/no-unknown-parameters": "off",
+        "anti-slop/no-object-parameters": "off"
+      }
+    },
+    {
+      "files": ["packages/value/src/check.ts", "packages/value/src/promise.ts"],
+      "rules": {
+        "anti-slop/no-runtime-typeof": [
+          "error",
+          {
+            "allowInTypeGuards": true
+          }
+        ]
+      }
+    },
+    {
+      "files": [
+        "packages/mdx/**/*.ts",
+        "packages/mdx-react/**/*.ts",
+        "packages/mdx-react/**/*.tsx",
+        "examples/mdx-react/basic/**/*.ts",
+        "examples/mdx-react/basic/**/*.tsx"
+      ],
+      "rules": {
+        "curly": "error",
+        "typescript/no-unsafe-type-assertion": "error",
+        "unicorn/no-lonely-if": "error",
+        "unicorn/no-useless-undefined": "error"
+      }
+    },
+    {
+      "files": ["packages/mdx/src/unified/tree-bridge.ts", "packages/mdx/src/unified/runtime.ts"],
+      "rules": {
+        "anti-slop/no-unknown-parameters": "off"
+      }
+    }
+  ]
 }

@@ -11,12 +11,15 @@ export function usePageLeave(callback: (event: MouseEvent) => void): void {
     if (!isBrowser) {
       return undefined;
     }
+
     const handler = (event: MouseEvent) => {
       if (!event.relatedTarget && event.clientY <= 0) {
         callbackRef.current(event);
       }
     };
+
     document.addEventListener("mouseout", handler);
+
     return () => document.removeEventListener("mouseout", handler);
   }, [callbackRef]);
 }

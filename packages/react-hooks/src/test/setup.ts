@@ -4,6 +4,7 @@ import { afterEach, vi } from "vitest";
 
 function createMemoryStorage(): Storage {
   const values = new Map<string, string>();
+
   return {
     get length() {
       return values.size;
@@ -33,6 +34,7 @@ if (!window.sessionStorage) {
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
   vi.useRealTimers();
   document.head.innerHTML = "";
   document.body.innerHTML = "";

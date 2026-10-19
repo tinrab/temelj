@@ -19,7 +19,8 @@ export interface AsyncLruCacheOptions<K, V> extends LruCacheOptions<K, V> {
   readonly loader?: LruCacheLoader<K, V>;
 }
 
-export interface AsyncLruCacheGetOptions extends CacheSetOptions {
+export interface AsyncLruCacheGetOptions<K, V> extends CacheSetOptions {
+  readonly loader?: LruCacheLoader<K, V>;
   readonly signal?: AbortSignal;
 }
 
@@ -76,6 +77,7 @@ export class AsyncLruCache<K, V> {
 
   delete(key: K): boolean {
     this.cancel(key);
+
     return this.cache.delete(key);
   }
 
@@ -84,36 +86,38 @@ export class AsyncLruCache<K, V> {
     this.cache.clear();
   }
 
-  async getOrLoad(
-    key: K,
-    loaderOrOptions?: LruCacheLoader<K, V> | AsyncLruCacheGetOptions,
-    options: AsyncLruCacheGetOptions = {},
-  ): Promise<V | undefined> {
+  async getOrLoad(key: K, options: AsyncLruCacheGetOptions<K, V> = {}): Promise<V | undefined> {
     const cached = this.cache.get(key);
+
     if (cached !== undefined) {
       return cached;
     }
 
-    const loader = typeof loaderOrOptions === "function" ? loaderOrOptions : this.#loader;
-    const setOptions = typeof loaderOrOptions === "function" ? options : (loaderOrOptions ?? {});
+    const loader = options.loader ?? this.#loader;
+
     if (loader === undefined) {
       return undefined;
     }
-    if (setOptions.signal?.aborted) {
+
+    if (options.signal?.aborted) {
       AbortError.aborted();
     }
 
-    const pending = this.#pending.get(key) ?? this.#load(key, loader, setOptions);
-    return abortablePromise(pending.promise, setOptions.signal);
+    const pending = this.#pending.get(key) ?? this.#load(key, loader, options);
+
+    return abortablePromise(pending.promise, options.signal);
   }
 
   cancel(key: K): boolean {
     const pending = this.#pending.get(key);
+
     if (pending === undefined) {
       return false;
     }
+
     pending.controller.abort();
     this.#pending.delete(key);
+
     return true;
   }
 
@@ -121,21 +125,29 @@ export class AsyncLruCache<K, V> {
     for (const pending of this.#pending.values()) {
       pending.controller.abort();
     }
+
     this.#pending.clear();
   }
 
-  #load(key: K, loader: LruCacheLoader<K, V>, options: AsyncLruCacheGetOptions): PendingLoad<V> {
+  #load(
+    key: K,
+    loader: LruCacheLoader<K, V>,
+    options: AsyncLruCacheGetOptions<K, V>,
+  ): PendingLoad<V> {
     const controller = new AbortController();
+
     const promise = Promise.resolve()
       .then(() => loader(key, { key, cache: this.cache, signal: controller.signal }))
       .then((value) => {
         if (value !== undefined && !controller.signal.aborted) {
           this.cache.set(key, value, options);
         }
+
         return value;
       })
       .finally(() => {
         const current = this.#pending.get(key);
+
         if (current?.promise === promise) {
           this.#pending.delete(key);
         }
@@ -143,6 +155,7 @@ export class AsyncLruCache<K, V> {
 
     const pending = { promise, controller };
     this.#pending.set(key, pending);
+
     return pending;
   }
 }
@@ -160,11 +173,13 @@ export function memoizeLru<Args extends readonly unknown[], V>(
   return (...args) => {
     const key = keyOf(...args);
     const cached = cache.get(key);
+
     if (cached !== undefined) {
       return Promise.resolve(cached);
     }
 
     const current = pending.get(key);
+
     if (current !== undefined) {
       return current;
     }
@@ -172,6 +187,7 @@ export function memoizeLru<Args extends readonly unknown[], V>(
     const promise = fn(...args)
       .then((value) => {
         cache.set(key, value);
+
         return value;
       })
       .finally(() => {
@@ -179,6 +195,7 @@ export function memoizeLru<Args extends readonly unknown[], V>(
       });
 
     pending.set(key, promise);
+
     return promise;
   };
 }
@@ -203,9 +220,9 @@ function abortablePromise<T>(promise: Promise<T>, signal: AbortSignal | undefine
         signal.removeEventListener("abort", onAbort);
         resolve(value);
       },
-      (error: unknown) => {
+      (cause: unknown) => {
         signal.removeEventListener("abort", onAbort);
-        reject(error);
+        reject(cause);
       },
     );
   });

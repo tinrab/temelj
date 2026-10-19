@@ -121,10 +121,10 @@ type FirstMediaType<TMediaTypes extends readonly FilterGraphMediaType[]> =
     ...(readonly FilterGraphMediaType[]),
   ]
     ? TFirst
-    : "unknown";
+    : TMediaTypes[number] | "unknown";
 
 function escapeFilterValue(value: FilterScalar): string {
-  if (typeof value === "boolean") {
+  if (value === true || value === false) {
     return value ? "1" : "0";
   }
 
@@ -139,9 +139,9 @@ function serializeFilter(spec: FilterNodeSpec): string {
   }
 
   if (spec.named) {
-    const entries = Object.entries(spec.named)
-      .filter(([, value]) => value !== undefined)
-      .map(([key, value]) => `${key}=${escapeFilterValue(value as FilterScalar)}`);
+    const entries = Object.entries(spec.named).flatMap(([key, value]) =>
+      value === undefined ? [] : [`${key}=${escapeFilterValue(value)}`],
+    );
 
     if (entries.length > 0) {
       parts.push(...entries);
@@ -200,6 +200,7 @@ export class FilterGraphChain<
 
   raw(filter: string): this {
     this.filters.push(filter);
+
     return this;
   }
 
@@ -209,6 +210,7 @@ export class FilterGraphChain<
     named: FilterNamedOptions = {},
   ): this {
     this.filters.push(serializeFilter({ name, positional, named }));
+
     return this;
   }
 
@@ -332,82 +334,70 @@ export class FilterGraphChain<
     });
   }
 
-  split(
-    ...labels: string[]
-  ): readonly [
-    FilterGraphStream<string, "video">,
-    FilterGraphStream<string, "video">,
-    ...FilterGraphStream<string, "video">[],
-  ] {
+  split(...labels: string[]): readonly FilterGraphStream<string, "video">[] {
     const outputLabels =
       labels.length > 0 ? labels : [this.graph.nextAutoLabel("v"), this.graph.nextAutoLabel("v")];
 
     return this.commit(
-      outputLabels,
-      outputLabels.map(() => "video") as readonly "video"[],
+      outputLabels.map((label) => new FilterGraphStream(label, "video")),
       serializeFilter({ name: "split", named: { outputs: outputLabels.length } }),
-    ) as readonly [
-      FilterGraphStream<string, "video">,
-      FilterGraphStream<string, "video">,
-      ...FilterGraphStream<string, "video">[],
-    ];
+    );
   }
 
-  asplit(
-    ...labels: string[]
-  ): readonly [
-    FilterGraphStream<string, "audio">,
-    FilterGraphStream<string, "audio">,
-    ...FilterGraphStream<string, "audio">[],
-  ] {
+  asplit(...labels: string[]): readonly FilterGraphStream<string, "audio">[] {
     const outputLabels =
       labels.length > 0 ? labels : [this.graph.nextAutoLabel("a"), this.graph.nextAutoLabel("a")];
 
     return this.commit(
-      outputLabels,
-      outputLabels.map(() => "audio") as readonly "audio"[],
+      outputLabels.map((label) => new FilterGraphStream(label, "audio")),
       serializeFilter({ name: "asplit", named: { outputs: outputLabels.length } }),
-    ) as readonly [
-      FilterGraphStream<string, "audio">,
-      FilterGraphStream<string, "audio">,
-      ...FilterGraphStream<string, "audio">[],
-    ];
+    );
+  }
+
+  private firstMediaType(): FirstMediaType<TOutputMediaTypes> {
+    // SAFETY: a nonempty tuple uses its first element; dynamic or empty arrays may use the explicit unknown fallback.
+    return (this.outputMediaTypes[0] ?? "unknown") as FirstMediaType<TOutputMediaTypes>;
   }
 
   label<TLabel extends string>(
     label: TLabel,
   ): FilterGraphStream<TLabel, FirstMediaType<TOutputMediaTypes>> {
-    return this.commit(
-      [label],
-      [this.outputMediaTypes[0] ?? "unknown"],
-      undefined,
-    )[0] as FilterGraphStream<TLabel, FirstMediaType<TOutputMediaTypes>>;
+    const output = new FilterGraphStream(label, this.firstMediaType());
+    this.commit([output]);
+
+    return output;
   }
 
   labels(
     ...labels: string[]
-  ): readonly FilterGraphStream<string, FirstMediaType<TOutputMediaTypes>>[] {
+  ): readonly FilterGraphStream<
+    string,
+    TOutputMediaTypes[number] | FirstMediaType<TOutputMediaTypes>
+  >[] {
     return this.commit(
-      labels,
       labels.map(
-        (_, index) => this.outputMediaTypes[index] ?? this.outputMediaTypes[0] ?? "unknown",
-      ) as unknown as TOutputMediaTypes,
-    ) as readonly FilterGraphStream<string, FirstMediaType<TOutputMediaTypes>>[];
+        (label, index) =>
+          new FilterGraphStream(label, this.outputMediaTypes[index] ?? this.firstMediaType()),
+      ),
+    );
   }
 
   autoLabel(prefix?: string): FilterGraphStream<string, FirstMediaType<TOutputMediaTypes>> {
     const mediaType = this.outputMediaTypes[0] ?? "unknown";
+
     const fallbackPrefix =
       prefix ?? (mediaType === "audio" ? "a" : mediaType === "video" ? "v" : "out");
+
     return this.label(this.graph.nextAutoLabel(fallbackPrefix));
   }
 
-  private commit(
-    labels: readonly string[],
-    outputMediaTypes: readonly FilterGraphMediaType[],
+  private commit<TStreams extends readonly FilterGraphStream[]>(
+    outputs: TStreams,
     terminalFilter?: string,
-  ): readonly FilterGraphStream[] {
+  ): TStreams {
+    const labels = outputs.map((output) => output.label);
     const chain = [...this.filters];
+
     if (terminalFilter) {
       chain.push(terminalFilter);
     }
@@ -421,9 +411,7 @@ export class FilterGraphChain<
       labels,
     );
 
-    return labels.map(
-      (label, index) => new FilterGraphStream(label, outputMediaTypes[index] ?? "unknown"),
-    );
+    return outputs;
   }
 }
 
@@ -435,6 +423,7 @@ export class FilterGraph {
   nextAutoLabel(prefix: string): string {
     const label = `${prefix}${this.autoLabelId}`;
     this.autoLabelId += 1;
+
     return label;
   }
 
@@ -447,8 +436,10 @@ export class FilterGraph {
       if (this.outputLabels.has(label)) {
         FFmpegDefinitionError.duplicateFilterGraphOutputLabel(label);
       }
+
       this.outputLabels.add(label);
     }
+
     this.segments.push(segment);
   }
 
@@ -490,6 +481,7 @@ export class FilterGraph {
     ...streams: TStreams
   ): FilterGraphChain<readonly [TStreams[0]["mediaType"]]> {
     const mediaType = streams[0].mediaType;
+
     return new FilterGraphChain(this, streams, [mediaType] as const);
   }
 
@@ -555,9 +547,7 @@ export class FilterGraph {
     return new FilterGraphChain(
       this,
       streams,
-      (outputMediaTypes.length > 0
-        ? outputMediaTypes
-        : ["unknown"]) as readonly FilterGraphMediaType[],
+      outputMediaTypes.length > 0 ? outputMediaTypes : ["unknown"],
     ).filter("concat", [], {
       n: options.segments,
       v: videoStreams,

@@ -1,3 +1,4 @@
+import { isFunction } from "@temelj/value";
 import * as React from "react";
 
 /**
@@ -19,16 +20,18 @@ export function useControllableState<T>(
   options: ControllableStateOptions<T>,
 ): [T, React.Dispatch<React.SetStateAction<T>>] {
   const { value, defaultValue, onChange } = options;
-  const [uncontrolledValue, setUncontrolledValue] = React.useState(defaultValue);
+  const [uncontrolledValue, setUncontrolledValue] = React.useState(() => defaultValue);
   const isControlled = value !== undefined;
   const currentValue = isControlled ? value : uncontrolledValue;
 
   const setValue = React.useCallback<React.Dispatch<React.SetStateAction<T>>>(
     (next) => {
-      const nextValue = typeof next === "function" ? (next as (value: T) => T)(currentValue) : next;
+      const nextValue = isFunction(next) ? next(currentValue) : next;
+
       if (!isControlled) {
-        setUncontrolledValue(nextValue);
+        setUncontrolledValue(() => nextValue);
       }
+
       onChange?.(nextValue);
     },
     [currentValue, isControlled, onChange],

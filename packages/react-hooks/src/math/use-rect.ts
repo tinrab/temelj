@@ -16,6 +16,7 @@ export function useRect<T extends Element>(): [React.RefCallback<T>, Rectangle |
 
     if (!node || !isBrowser) {
       setRect(null);
+
       return;
     }
 
@@ -29,5 +30,6 @@ export function useRect<T extends Element>(): [React.RefCallback<T>, Rectangle |
   }, []);
 
   React.useEffect(() => () => observerRef.current?.disconnect(), []);
+
   return [ref, rect];
 }

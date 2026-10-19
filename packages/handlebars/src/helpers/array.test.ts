@@ -21,6 +21,7 @@ test("Handlebars arrayFilter helper", () => {
     { id: 3, name: "carrot", active: true, type: "vegetable", price: 7 },
     { id: 4, name: "date", active: true, type: "fruit", price: 15 },
   ];
+
   const itemsWithOwner = [
     { name: "item1", owner: { name: "Alice" } },
     { name: "item2", owner: { name: "Bob" } },
@@ -65,6 +66,7 @@ test("Handlebars arrayFilter helper", () => {
     items: items,
     filterValue: "fruit",
   };
+
   template = `{{#each (arrayFilter items "{{eq this.type @root.filterValue}}")}}[{{this.name}}]{{/each}}`;
   expect(r.render(template, contextWithRootValue)).toBe("[apple][banana][date]");
 

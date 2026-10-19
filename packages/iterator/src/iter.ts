@@ -9,15 +9,26 @@ import { IteratorOptionsError } from "./errors";
  * @param map An optional function that takes an element from the iterable and returns a value.
  * @returns A record where the keys are the result of calling `getKey` on each element, and the values are the result of calling `map` on each element.
  */
-export function collectMap<K extends keyof any, V, V1 = V>(
+export function collectMap<K extends PropertyKey, V>(
   it: Iterable<V>,
   getKey: (e: V) => K,
-  map: (e: V) => V1 = (v) => v as unknown as V1,
-): Record<K, V1> {
-  const result = {} as Record<K, V1>;
+): Partial<Record<K, V>>;
+export function collectMap<K extends PropertyKey, V, V1>(
+  it: Iterable<V>,
+  getKey: (e: V) => K,
+  map: (e: V) => V1,
+): Partial<Record<K, V1>>;
+export function collectMap<K extends PropertyKey, V, V1>(
+  it: Iterable<V>,
+  getKey: (e: V) => K,
+  map?: (e: V) => V1,
+): Partial<Record<K, V | V1>> {
+  const result: Partial<Record<K, V | V1>> = {};
+
   for (const e of it) {
-    result[getKey(e)] = map(e);
+    result[getKey(e)] = map === undefined ? e : map(e);
   }
+
   return result;
 }
 
@@ -34,6 +45,7 @@ export function minBy<T>(iterable: Iterable<T>, selector: (item: T) => number): 
 
   for (const item of iterable) {
     const value = selector(item);
+
     if (value < minValue) {
       minValue = value;
       minItem = item;
@@ -56,6 +68,7 @@ export function maxBy<T>(iterable: Iterable<T>, selector: (item: T) => number): 
 
   for (const item of iterable) {
     const value = selector(item);
+
     if (value > maxValue) {
       maxValue = value;
       maxItem = item;
@@ -82,6 +95,7 @@ export function chunk<T>(iterable: Iterable<T>, size: number): T[][] {
 
   for (const item of iterable) {
     currentChunk.push(item);
+
     if (currentChunk.length === size) {
       result.push(currentChunk);
       currentChunk = [];
@@ -112,9 +126,11 @@ export function window<T>(iterable: Iterable<T>, size: number): T[][] {
 
   for (const item of iterable) {
     buffer.push(item);
+
     if (buffer.length > size) {
       buffer.shift();
     }
+
     if (buffer.length === size) {
       result.push([...buffer]);
     }
@@ -155,16 +171,12 @@ export function zip<T, U>(a: Iterable<T>, b: Iterable<U>): [T, U][] {
  * @param iterable The iterable to flatten.
  * @returns An array of flattened elements.
  */
-export function flatten<T>(iterable: Iterable<Iterable<T> | T>): T[] {
+export function flatten<T>(iterable: Iterable<Iterable<T>>): T[] {
   const result: T[] = [];
 
   for (const item of iterable) {
-    if (typeof item === "object" && item !== null && Symbol.iterator in item) {
-      for (const inner of item as Iterable<T>) {
-        result.push(inner);
-      }
-    } else {
-      result.push(item as T);
+    for (const inner of item) {
+      result.push(inner);
     }
   }
 
@@ -180,15 +192,18 @@ export function flatten<T>(iterable: Iterable<Iterable<T> | T>): T[] {
  */
 export function groupBy<T, K>(it: Iterable<T>, getKey: (item: T) => K): Map<K, T[]> {
   const map = new Map<K, T[]>();
+
   for (const item of it) {
     const key = getKey(item);
     const group = map.get(key);
+
     if (group) {
       group.push(item);
     } else {
       map.set(key, [item]);
     }
   }
+
   return map;
 }
 
@@ -200,12 +215,13 @@ export function groupBy<T, K>(it: Iterable<T>, getKey: (item: T) => K): Map<K, T
  * @param identity An optional function that returns a value to use for uniqueness comparison.
  * @returns An array of unique items.
  */
-export function unique<T>(iterable: Iterable<T>, identity?: (item: T) => unknown): T[] {
+export function unique<T, K = T>(iterable: Iterable<T>, identity?: (item: T) => K): T[] {
   const result: T[] = [];
-  const seen = new Set<unknown>();
+  const seen = new Set<T | K>();
 
   for (const item of iterable) {
     const key = identity ? identity(item) : item;
+
     if (!seen.has(key)) {
       seen.add(key);
       result.push(item);
@@ -273,6 +289,7 @@ export function take<T>(iterable: Iterable<T>, n: number): T[] {
   for (const item of iterable) {
     result.push(item);
     count++;
+
     if (count >= n) {
       break;
     }
@@ -300,6 +317,7 @@ export function skip<T>(iterable: Iterable<T>, n: number): T[] {
     if (count >= n) {
       result.push(item);
     }
+
     count++;
   }
 
@@ -315,6 +333,7 @@ export function skip<T>(iterable: Iterable<T>, n: number): T[] {
 export function first<T>(iterable: Iterable<T>): T | undefined {
   const iterator = iterable[Symbol.iterator]();
   const result = iterator.next();
+
   return result.done ? undefined : result.value;
 }
 
@@ -344,6 +363,7 @@ export function last<T>(iterable: Iterable<T>): T | undefined {
  */
 export function isEmpty<T>(iterable: Iterable<T>): boolean {
   const iterator = iterable[Symbol.iterator]();
+
   return iterator.next().done ?? true;
 }
 
@@ -361,6 +381,7 @@ export function takeWhile<T>(iterable: Iterable<T>, predicate: (item: T) => bool
     if (!predicate(item)) {
       break;
     }
+
     result.push(item);
   }
 
@@ -405,6 +426,7 @@ export function find<T>(iterable: Iterable<T>, predicate: (item: T) => boolean):
       return item;
     }
   }
+
   return undefined;
 }
 
@@ -421,6 +443,7 @@ export function any<T>(iterable: Iterable<T>, predicate: (item: T) => boolean): 
       return true;
     }
   }
+
   return false;
 }
 
@@ -437,6 +460,7 @@ export function all<T>(iterable: Iterable<T>, predicate: (item: T) => boolean): 
       return false;
     }
   }
+
   return true;
 }
 

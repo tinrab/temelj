@@ -1,29 +1,33 @@
-import * as React from "react";
+import { useMutableCollection } from "../internal/use-mutable-collection.ts";
 
 /**
  * Returns a Set that triggers rerenders when mutated through add, delete, or clear.
  */
 export function useSet<T>(values?: Iterable<T>): Set<T> {
-  const setRef = React.useRef(new Set(values));
-  const [, rerender] = React.useReducer((value: number) => value + 1, 0);
-
-  return React.useMemo(() => {
-    const set = setRef.current;
-
+  return useMutableCollection((notify) => {
+    const set = new Set(values);
+    const originalAdd = set.add.bind(set);
+    const originalDelete = set.delete.bind(set);
+    const originalClear = set.clear.bind(set);
     set.add = function add(value: T) {
-      const result = Set.prototype.add.call(this, value);
-      rerender();
+      const result = originalAdd(value);
+      notify();
+
       return result;
     };
+
     set.delete = function deleteValue(value: T) {
-      const result = Set.prototype.delete.call(this, value);
-      rerender();
+      const result = originalDelete(value);
+      notify();
+
       return result;
     };
+
     set.clear = function clear() {
-      Set.prototype.clear.call(this);
-      rerender();
+      originalClear();
+      notify();
     };
+
     return set;
-  }, []);
+  });
 }

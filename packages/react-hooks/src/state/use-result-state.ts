@@ -31,12 +31,15 @@ export function useResultState<T, E>(
 
   const setOk = React.useCallback((value: T) => setResult(ok(value)), []);
   const setErr = React.useCallback((error: E) => setResult(err(error)), []);
+
   const mapResult = React.useCallback((fn: (value: T) => T) => {
     setResult((current) => (current === null ? null : map(current, fn)));
   }, []);
+
   const mapErrorResult = React.useCallback((fn: (error: E) => E) => {
     setResult((current) => (current === null ? null : mapErr(current, fn)));
   }, []);
+
   const reset = React.useCallback(() => setResult(null), []);
 
   return [result, { setOk, setErr, set: setResult, map: mapResult, mapErr: mapErrorResult, reset }];

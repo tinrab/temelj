@@ -35,7 +35,8 @@ export async function map<T, R>(
   let inputDone = false;
 
   let resolvePromise: (value: R[]) => void;
-  let rejectPromise: (reason?: unknown) => void;
+  let rejectPromise: (cause?: unknown) => void;
+
   const promise = new Promise<R[]>((resolve, reject) => {
     resolvePromise = resolve;
     rejectPromise = reject;
@@ -56,32 +57,40 @@ export async function map<T, R>(
 
   function checkDone() {
     if (settled) return;
+
     if (inputDone && activeCount === 0) {
       settled = true;
       cleanup();
+
       if (errors.length > 0) {
         rejectPromise(AsyncAggregateError.create(errors));
       } else {
         const output: R[] = [];
+
         for (let i = 0; i <= maxIndex; i++) {
           if (!skipped.has(i)) {
+            // SAFETY: every non-skipped index has a result when input is done and no mapper is active.
             output.push(results.get(i) as R);
           }
         }
+
         resolvePromise(output);
       }
     }
   }
 
-  function handleError(error: unknown) {
+  function handleError(cause: unknown) {
     if (settled) return;
+
     if (stopOnError) {
       settled = true;
       cleanup();
-      rejectPromise(error);
+      rejectPromise(cause);
+
       return;
     }
-    errors.push(error);
+
+    errors.push(cause);
     activeCount--;
     checkDone();
     void consume();
@@ -89,23 +98,28 @@ export async function map<T, R>(
 
   function handleResult(index: number, value: R | SkipSymbol) {
     if (settled) return;
+
     if (value === Skip) {
       skipped.add(index);
     } else {
       results.set(index, value);
     }
+
     activeCount--;
     checkDone();
     void consume();
   }
 
   let iterator: Iterator<T> | AsyncIterator<T>;
+
   if (input instanceof Promise) {
     const resolved = await input;
     iterator = resolved[Symbol.iterator]();
   } else if (Symbol.asyncIterator in Object(input)) {
+    // SAFETY: the declared iterable union and async iterator member select AsyncIterable<T>.
     iterator = (input as AsyncIterable<T>)[Symbol.asyncIterator]();
   } else {
+    // SAFETY: an input without the async iterator member must provide the synchronous protocol.
     iterator = (input as Iterable<T>)[Symbol.iterator]();
   }
 
@@ -115,6 +129,7 @@ export async function map<T, R>(
 
       try {
         const { done, value } = await iterator.next();
+
         if (done) {
           inputDone = true;
           activeCount--;
@@ -126,6 +141,7 @@ export async function map<T, R>(
         maxIndex = Math.max(maxIndex, index);
 
         const result = mapper(value, index);
+
         if (result instanceof Promise) {
           result.then(
             (val) => handleResult(index, val),

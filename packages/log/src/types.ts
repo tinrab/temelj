@@ -2,7 +2,17 @@ export const LOG_LEVELS = ["trace", "debug", "info", "warn", "error", "fatal"] a
 
 export type LogLevel = (typeof LOG_LEVELS)[number];
 
-export type LogAttributes = Record<string, unknown>;
+import type { JsonValue, Primitive } from "@temelj/value";
+
+export type LogAttributeValue =
+  | Primitive
+  | Date
+  | Temporal.Instant
+  | Error
+  | LogAttributeValue[]
+  | { [key: string]: LogAttributeValue };
+
+export type LogAttributes = Record<string, LogAttributeValue>;
 
 export interface LogRecord {
   level: LogLevel;
@@ -24,8 +34,8 @@ export interface Logger {
   debug(message: string, attributes?: LogAttributes): void;
   info(message: string, attributes?: LogAttributes): void;
   warn(message: string, attributes?: LogAttributes): void;
-  error(message: string, attributes?: LogAttributes & { error?: unknown }): void;
-  fatal(message: string, attributes?: LogAttributes & { error?: unknown }): void;
+  error(message: string, cause: unknown, attributes?: LogAttributes): void;
+  fatal(message: string, cause: unknown, attributes?: LogAttributes): void;
   child(attributes: LogAttributes): Logger;
   flush(): Promise<void>;
   close(): Promise<void>;
@@ -41,4 +51,4 @@ export interface CreateLoggerOptions {
   sinkFailureMode?: LogSinkFailureMode;
 }
 
-export type FormattedLogRecord = Record<string, unknown>;
+export type FormattedLogRecord = Record<string, JsonValue>;

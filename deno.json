@@ -1,0 +1,27 @@
+{
+  "workspace": [
+    "./packages/value",
+    "./packages/async",
+    "./packages/string",
+    "./packages/color",
+    "./packages/ffmpeg",
+    "./packages/result",
+    "./packages/standard-schema",
+    "./packages/event",
+    "./packages/log",
+    "./packages/iterator",
+    "./packages/math",
+    "./packages/react-hooks",
+    "./packages/id",
+    "./packages/request",
+    "./packages/env",
+    "./packages/handlebars",
+    "./packages/mdx",
+    "./packages/mdx-react",
+    "./packages/cache",
+    "./packages/storage",
+    "./lib"
+  ],
+  "nodeModulesDir": "manual",
+  "lock": false
+}

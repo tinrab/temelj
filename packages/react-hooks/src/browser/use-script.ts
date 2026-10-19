@@ -1,59 +1,82 @@
 import * as React from "react";
 
-import { isBrowser, useLatest } from "../internal/mod.ts";
+import { isBrowser } from "../internal/mod.ts";
 
-/**
- * Loading status returned by useScript.
- */
+/** Loading status returned by useScript. */
 export type ScriptStatus = "unknown" | "loading" | "ready" | "error";
 
-/**
- * Loads a script element and tracks its loading status.
- */
+const subscriptions = new WeakMap<
+  HTMLScriptElement,
+  { count: number; removeWhenUnused: boolean }
+>();
+
+function findScript(src: string): HTMLScriptElement | undefined {
+  return Array.from(document.scripts).find((script) => script.getAttribute("src") === src);
+}
+
+function readStatus(src: string): ScriptStatus {
+  if (!isBrowser) return "loading";
+  const script = findScript(src);
+
+  if (!script) return "loading";
+  const status = script.getAttribute("data-status");
+
+  return status === "loading" || status === "ready" || status === "error" ? status : "unknown";
+}
+
+/** Loads a shared script and observes load/error events until the last subscriber detaches. */
 export function useScript(src: string, options: { removeOnUnmount?: boolean } = {}): ScriptStatus {
-  const [status, setStatus] = React.useState<ScriptStatus>("loading");
-  const optionsRef = useLatest(options);
+  const removeOnUnmount = options.removeOnUnmount === true;
 
-  React.useEffect(() => {
-    if (!isBrowser) {
-      return undefined;
-    }
-    let script = document.querySelector<HTMLScriptElement>(`script[src="${src}"]`);
-    const existingStatus = script?.getAttribute("data-status") as ScriptStatus | null;
-    if (existingStatus) {
-      setStatus(existingStatus);
-      return undefined;
-    }
+  const subscribe = React.useCallback(
+    (callback: () => void) => {
+      if (!isBrowser) return () => {};
 
-    if (!script) {
-      const removeOnUnmount = optionsRef.current.removeOnUnmount;
-      script = document.createElement("script");
-      script.src = src;
-      script.async = true;
-      script.setAttribute("data-status", "loading");
-      document.body.appendChild(script);
+      let script = findScript(src);
+
+      if (!script) {
+        script = document.createElement("script");
+        script.setAttribute("src", src);
+        script.async = true;
+        script.setAttribute("data-status", "loading");
+        document.body.appendChild(script);
+      }
+
+      const element = script;
+      const subscription = subscriptions.get(element) ?? { count: 0, removeWhenUnused: false };
+      subscription.count++;
+      subscription.removeWhenUnused ||= removeOnUnmount;
+      subscriptions.set(element, subscription);
 
       const handleLoad = () => {
-        script?.setAttribute("data-status", "ready");
-        setStatus("ready");
+        element.setAttribute("data-status", "ready");
+        callback();
       };
+
       const handleError = () => {
-        script?.setAttribute("data-status", "error");
-        setStatus("error");
+        element.setAttribute("data-status", "error");
+        callback();
       };
 
-      script.addEventListener("load", handleLoad);
-      script.addEventListener("error", handleError);
+      element.addEventListener("load", handleLoad);
+      element.addEventListener("error", handleError);
+
       return () => {
-        script?.removeEventListener("load", handleLoad);
-        script?.removeEventListener("error", handleError);
-        if (removeOnUnmount) script?.remove();
+        element.removeEventListener("load", handleLoad);
+        element.removeEventListener("error", handleError);
+        subscription.count--;
+
+        if (subscription.count === 0) {
+          subscriptions.delete(element);
+
+          if (subscription.removeWhenUnused) element.remove();
+        }
       };
-    }
+    },
+    [src, removeOnUnmount],
+  );
 
-    setStatus("unknown");
-    return undefined;
-  }, [src, optionsRef]);
+  const getSnapshot = React.useCallback(() => readStatus(src), [src]);
 
-  return status;
+  return React.useSyncExternalStore(subscribe, getSnapshot, () => "loading");
 }

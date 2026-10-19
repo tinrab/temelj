@@ -37,4 +37,8 @@ $ deno add jsr:@temelj/iterator # or jsr add @temelj/iterator
 
 ## About
 
+`collectMap` returns a partial record, since an iterable may not contain every possible key.
+`flatten` accepts nested iterables and concatenates their elements by one level.
+`arrayCombineMerge` returns elements from either input, merging plain objects at matching indexes.
+
 This package is part of [Temelj](https://github.com/tinrab/temelj) - a core library for TypeScript.

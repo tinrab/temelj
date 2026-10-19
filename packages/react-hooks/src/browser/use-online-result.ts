@@ -19,8 +19,10 @@ export interface OfflineError {
  */
 export function useOnlineResult(): Result<NetworkState, OfflineError> {
   const network = useNetworkState();
+
   if (network.online) {
     return ok(network);
   }
+
   return err({ code: "offline", message: "Browser is offline" });
 }

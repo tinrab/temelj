@@ -37,4 +37,8 @@ $ deno add jsr:@temelj/result # or jsr add @temelj/result
 
 ## About
 
+`unwrapOr(result, value)` returns the fallback value when the result is an error.
+Function values are returned without being called. Use `unwrapOrElse(result, () => value)`
+to compute a fallback only when the result is an error.
+
 This package is part of [Temelj](https://github.com/tinrab/temelj) - a core library for TypeScript.

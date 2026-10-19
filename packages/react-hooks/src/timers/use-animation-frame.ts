@@ -19,7 +19,9 @@ export function useAnimationFrame(callback: (time: DOMHighResTimeStamp) => void)
     if (!isBrowser) {
       return undefined;
     }
+
     frameRef.current = requestAnimationFrame(callback);
+
     return cancel;
   }, [callback, cancel]);
 

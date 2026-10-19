@@ -1,11 +1,18 @@
 import type { LogSink } from "./types.ts";
 
-import { isPromiseLike } from "./utility.ts";
-
 export function createMultiplexSink(sinks: LogSink[]): LogSink {
   return {
     write: (record) => {
-      const writes = sinks.map((sink) => sink.write(record)).filter(isPromiseLike);
+      const writes: Promise<void>[] = [];
+
+      for (const sink of sinks) {
+        const write = sink.write(record);
+
+        if (write !== undefined) {
+          writes.push(write);
+        }
+      }
+
       return writes.length === 0 ? undefined : Promise.all(writes).then(() => {});
     },
     flush: async () => {

@@ -1,3 +1,5 @@
+import { isNumber, isString, isObject } from "@temelj/value";
+
 import {
   StorageEngineError,
   type StorageEngine,
@@ -20,7 +22,7 @@ export interface IndexedDbFactory {
  * Minimal IndexedDB open request interface used by the engine.
  */
 export interface IndexedDbOpenRequest extends IndexedDbRequest<IndexedDbDatabase> {
-  onupgradeneeded: ((event: unknown) => void) | null;
+  onupgradeneeded: ((event: IDBVersionChangeEvent) => void) | null;
 }
 
 /**
@@ -29,8 +31,8 @@ export interface IndexedDbOpenRequest extends IndexedDbRequest<IndexedDbDatabase
 export interface IndexedDbRequest<TResult> {
   readonly error: unknown;
   readonly result: TResult;
-  onerror: ((event: unknown) => void) | null;
-  onsuccess: ((event: unknown) => void) | null;
+  onerror: ((event: Event) => void) | null;
+  onsuccess: ((event: Event) => void) | null;
 }
 
 /**
@@ -41,7 +43,7 @@ export interface IndexedDbDatabase {
     contains(name: string): boolean;
   };
   close(): void;
-  createObjectStore(name: string): unknown;
+  createObjectStore(name: string): IndexedDbObjectStore;
   transaction(
     storeName: string,
     mode: "readonly" | "readwrite",
@@ -57,7 +59,7 @@ export interface IndexedDbObjectStore {
   delete(key: string): IndexedDbRequest<undefined>;
   get(key: string): IndexedDbRequest<unknown>;
   getAllKeys(): IndexedDbRequest<unknown[]>;
-  put(value: unknown, key: string): IndexedDbRequest<unknown>;
+  put(value: IndexedDbRecord, key: string): IndexedDbRequest<IDBValidKey>;
 }
 
 /**
@@ -90,7 +92,7 @@ export interface IndexedDbEngineOptions {
   readonly separator?: string;
 }
 
-interface IndexedDbRecord<TStoredValue extends StoredValue = StoredValue> {
+export interface IndexedDbRecord<TStoredValue extends StoredValue = StoredValue> {
   readonly value: TStoredValue;
   readonly expiresAt?: number;
 }
@@ -110,9 +112,8 @@ export class IndexedDbStorageEngine<
   #databasePromise: Promise<IndexedDbDatabase> | undefined;
 
   constructor(options: IndexedDbEngineOptions = {}) {
-    const factory =
-      options.indexedDB ??
-      (globalThis as typeof globalThis & { readonly indexedDB?: IndexedDbFactory }).indexedDB;
+    const factory = options.indexedDB ?? globalThis.indexedDB;
+
     if (factory === undefined) {
       StorageEngineError.unavailable("indexedDB");
     }
@@ -128,17 +129,22 @@ export class IndexedDbStorageEngine<
 
   async get(key: string): Promise<TStoredValue | undefined> {
     const record = await this.#readRecord(this.#prefixedKey(key));
-    return record === undefined ? undefined : copyValue(record.value);
+
+    // SAFETY: This engine namespace is written with TStoredValue; reads validate the stored representation.
+    return record === undefined ? undefined : (copyValue(record.value) as TStoredValue);
   }
 
   async set(key: string, value: TStoredValue, setOptions?: StorageEngineSetOptions): Promise<void> {
     const storageKey = this.#prefixedKey(key);
     const expiresAt = resolveExpiresAt(setOptions);
     const database = await this.#getDatabase();
+
     if (expiresAt !== undefined && expiresAt <= Date.now()) {
       await deleteRecord(database, this.#storeName, storageKey);
+
       return;
     }
+
     await requestResult(
       database
         .transaction(this.#storeName, "readwrite")
@@ -154,6 +160,7 @@ export class IndexedDbStorageEngine<
     setOptions?: StorageEngineSetOptions,
   ): Promise<boolean> {
     const database = await this.#getDatabase();
+
     return compareAndSetRecord(
       database.transaction(this.#storeName, "readwrite").objectStore(this.#storeName),
       this.#prefixedKey(key),
@@ -167,6 +174,7 @@ export class IndexedDbStorageEngine<
     items: readonly StorageEngineCompareAndSetManyItem<TStoredValue>[],
   ): Promise<boolean> {
     const database = await this.#getDatabase();
+
     return await compareAndSetRecords(
       database.transaction(this.#storeName, "readwrite").objectStore(this.#storeName),
       items.map((item) => ({
@@ -188,16 +196,19 @@ export class IndexedDbStorageEngine<
     const storageKey = this.#prefixedKey(key);
     const exists = (await this.#readRecord(storageKey)) !== undefined;
     await deleteRecord(await this.#getDatabase(), this.#storeName, storageKey);
+
     return exists;
   }
 
   async deleteMany(keys: readonly string[]): Promise<number> {
     let deleted = 0;
+
     for (const key of keys) {
       if (await this.delete(key)) {
         deleted++;
       }
     }
+
     return deleted;
   }
 
@@ -208,16 +219,19 @@ export class IndexedDbStorageEngine<
   async keys(keyOptions?: StorageEngineKeyOptions): Promise<readonly string[]> {
     const keys = await this.#matchingKeys(keyOptions);
     const result: string[] = [];
+
     for (const key of keys) {
       if ((await this.#readRecord(key)) !== undefined) {
         result.push(this.#unprefixKey(key));
       }
     }
+
     return result;
   }
 
   async clear(keyOptions?: StorageEngineKeyOptions): Promise<void> {
     const database = await this.#getDatabase();
+
     for (const key of await this.#matchingKeys(keyOptions)) {
       await deleteRecord(database, this.#storeName, key);
     }
@@ -231,6 +245,7 @@ export class IndexedDbStorageEngine<
 
   #getDatabase(): Promise<IndexedDbDatabase> {
     this.#databasePromise ??= openDatabase(this.#factory, this.#databaseName, this.#storeName);
+
     return this.#databasePromise;
   }
 
@@ -242,31 +257,39 @@ export class IndexedDbStorageEngine<
     return this.#prefix.length === 0 ? key : key.slice(this.#prefix.length);
   }
 
-  async #readRecord(key: string): Promise<IndexedDbRecord<TStoredValue> | undefined> {
+  async #readRecord(key: string): Promise<IndexedDbRecord | undefined> {
     const database = await this.#getDatabase();
-    const record = (await requestResult(
+
+    const record = await requestResult(
       database.transaction(this.#storeName, "readonly").objectStore(this.#storeName).get(key),
-    )) as IndexedDbRecord<TStoredValue> | undefined;
+    );
+
+    if (record !== undefined && !isIndexedDbRecord(record)) {
+      throw new TypeError("Invalid IndexedDB storage record");
+    }
 
     if (record?.expiresAt !== undefined && record.expiresAt <= Date.now()) {
       await deleteRecord(database, this.#storeName, key);
+
       return undefined;
     }
+
     return record;
   }
 
   async #allKeys(): Promise<string[]> {
     const database = await this.#getDatabase();
+
     const keys = await requestResult(
       database.transaction(this.#storeName, "readonly").objectStore(this.#storeName).getAllKeys(),
     );
-    return keys.filter(
-      (key): key is string => typeof key === "string" && key.startsWith(this.#prefix),
-    );
+
+    return keys.filter((key): key is string => isString(key) && key.startsWith(this.#prefix));
   }
 
   async #matchingKeys(keyOptions: StorageEngineKeyOptions | undefined): Promise<string[]> {
     const matchPrefix = this.#prefixedKey(keyOptions?.prefix ?? "");
+
     return (await this.#allKeys()).filter((key) => key.startsWith(matchPrefix));
   }
 }
@@ -279,10 +302,12 @@ function openDatabase(
   const request = factory.open(databaseName, 1);
   request.onupgradeneeded = () => {
     const database = request.result;
+
     if (!database.objectStoreNames.contains(storeName)) {
       database.createObjectStore(storeName);
     }
   };
+
   return requestResult(request);
 }
 
@@ -314,7 +339,14 @@ function compareAndSetRecord<TStoredValue extends StoredValue>(
     const getRequest = objectStore.get(key);
     getRequest.onerror = () => reject(getRequest.error);
     getRequest.onsuccess = () => {
-      const record = getRequest.result as IndexedDbRecord | undefined;
+      const record = getRequest.result;
+
+      if (record !== undefined && !isIndexedDbRecord(record)) {
+        reject(new TypeError("Invalid IndexedDB storage record"));
+
+        return;
+      }
+
       const current =
         record?.expiresAt !== undefined && record.expiresAt <= Date.now() ? undefined : record;
 
@@ -326,6 +358,7 @@ function compareAndSetRecord<TStoredValue extends StoredValue>(
             .then(resolve)
             .catch(reject);
         };
+
         return;
       }
 
@@ -348,10 +381,17 @@ async function compareAndSetRecords<TStoredValue extends StoredValue>(
   items: readonly IndexedDbCompareAndSetRecordItem<TStoredValue>[],
 ): Promise<boolean> {
   const currentRecords = new Map<string, IndexedDbRecord | undefined>();
+
   for (const item of items) {
-    const record = (await requestResult(objectStore.get(item.key))) as IndexedDbRecord | undefined;
+    const record = await requestResult(objectStore.get(item.key));
+
+    if (record !== undefined && !isIndexedDbRecord(record)) {
+      throw new TypeError("Invalid IndexedDB storage record");
+    }
+
     const current =
       record?.expiresAt !== undefined && record.expiresAt <= Date.now() ? undefined : record;
+
     currentRecords.set(item.key, current);
   }
 
@@ -369,10 +409,12 @@ async function compareAndSetRecords<TStoredValue extends StoredValue>(
       await requestResult(objectStore.delete(item.key));
       continue;
     }
+
     await requestResult(
       objectStore.put({ value: copyValue(item.value), expiresAt: item.expiresAt }, item.key),
     );
   }
+
   return true;
 }
 
@@ -383,6 +425,7 @@ function compareAndSetExpectedMatches<TStoredValue extends StoredValue>(
   if (expected === undefined) {
     return current === undefined;
   }
+
   return current !== undefined && storedValuesEqual(current.value, expected);
 }
 
@@ -404,6 +447,7 @@ async function applyCompareAndSetWrite<TStoredValue extends StoredValue>(
     }
 
     await requestResult(objectStore.put({ value: copyValue(value), expiresAt }, key));
+
     return true;
   }
 
@@ -413,15 +457,28 @@ async function applyCompareAndSetWrite<TStoredValue extends StoredValue>(
 
   if (value === undefined || (expiresAt !== undefined && expiresAt <= Date.now())) {
     await requestResult(objectStore.delete(key));
+
     return true;
   }
 
   await requestResult(objectStore.put({ value: copyValue(value), expiresAt }, key));
+
   return true;
 }
 
+function isIndexedDbRecord(value: unknown): value is IndexedDbRecord {
+  return (
+    isObject(value) &&
+    "value" in value &&
+    (isString(value.value) || isNumber(value.value) || value.value instanceof Uint8Array) &&
+    (!("expiresAt" in value) ||
+      value.expiresAt === undefined ||
+      (isNumber(value.expiresAt) && Number.isFinite(value.expiresAt)))
+  );
+}
+
 function copyValue<TValue extends StoredValue>(value: TValue): TValue {
-  return (value instanceof Uint8Array ? value.slice() : value) as TValue;
+  return value instanceof Uint8Array ? structuredClone(value) : value;
 }
 
 /**

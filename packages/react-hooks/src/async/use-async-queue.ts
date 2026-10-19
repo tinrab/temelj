@@ -37,7 +37,7 @@ export interface AsyncQueueControls {
   pause: () => void;
   /** Resumes pending task execution. */
   resume: () => void;
-  /** Clears queued tasks that have not started yet. */
+  /** Rejects queued tasks with AbortError; running tasks continue. */
   clear: () => void;
   /** Resolves when the queue has no queued or active tasks. */
   onIdle: () => Promise<void>;
@@ -47,60 +47,20 @@ export interface AsyncQueueControls {
  * Creates a React-aware wrapper around Queue.
  */
 export function useAsyncQueue(options: UseAsyncQueueOptions = {}): AsyncQueueControls {
-  const queueRef = React.useRef<Queue | null>(null);
-  const pausedRef = React.useRef(options.autoStart === false);
-  const [, rerender] = React.useReducer((value: number) => value + 1, 0);
-
-  if (queueRef.current === null) {
-    queueRef.current = new Queue(options);
-  }
-
-  const refresh = React.useCallback(() => rerender(), []);
+  const [queue] = React.useState(() => new Queue(options));
+  const state = React.useSyncExternalStore(queue.subscribe, queue.getSnapshot, queue.getSnapshot);
 
   const add = React.useCallback(
-    async <T>(fn: () => PromiseLike<T> | T, addOptions?: AsyncQueueAddOptions): Promise<T> => {
-      const queue = queueRef.current as Queue;
-      refresh();
-      try {
-        return await queue.add(fn, addOptions);
-      } finally {
-        refresh();
-      }
-    },
-    [refresh],
+    <T>(fn: () => PromiseLike<T> | T, addOptions?: AsyncQueueAddOptions) =>
+      queue.add(fn, addOptions),
+    [queue],
   );
 
-  const pause = React.useCallback(() => {
-    pausedRef.current = true;
-    queueRef.current?.pause();
-    refresh();
-  }, [refresh]);
+  const pause = React.useCallback(() => queue.pause(), [queue]);
+  const resume = React.useCallback(() => queue.resume(), [queue]);
+  const clear = React.useCallback(() => queue.clear(), [queue]);
+  const onIdle = React.useCallback(() => queue.onIdle, [queue]);
+  React.useEffect(() => () => queue.clear(), [queue]);
 
-  const resume = React.useCallback(() => {
-    pausedRef.current = false;
-    queueRef.current?.resume();
-    refresh();
-  }, [refresh]);
-
-  const clear = React.useCallback(() => {
-    queueRef.current?.clear();
-    refresh();
-  }, [refresh]);
-
-  const onIdle = React.useCallback(async () => {
-    await queueRef.current?.onIdle;
-    refresh();
-  }, [refresh]);
-
-  const queue = queueRef.current;
-  return {
-    size: queue.size,
-    pending: queue.pending,
-    paused: pausedRef.current,
-    add,
-    pause,
-    resume,
-    clear,
-    onIdle,
-  };
+  return { ...state, add, pause, resume, clear, onIdle };
 }

@@ -26,6 +26,7 @@ export interface NotificationResult {
 export async function calculateFraudScore(input: CheckoutInput): Promise<number> {
   "use step";
   await delay(input.customerTier === "priority" ? 8 : 15);
+
   return Math.min(99, input.items * 7 + input.orderId.length);
 }
 
@@ -33,22 +34,26 @@ export async function chargeOrder(input: CheckoutInput, fraudScore: number): Pro
   "use step";
   await delay(12);
   const baseCents = input.items * 1299;
+
   return fraudScore > 70 ? Math.round(baseCents * 1.03) : baseCents;
 }
 
 export async function packShipment(input: CheckoutInput): Promise<number> {
   "use step";
   await delay(input.items * 3);
+
   return input.items;
 }
 
 export async function checkoutWorkflow(input: CheckoutInput): Promise<CheckoutResult> {
   "use workflow";
   const fraudScore = await calculateFraudScore(input);
+
   const [chargedCents, packedItems] = await Promise.all([
     chargeOrder(input, fraudScore),
     packShipment(input),
   ]);
+
   const confirmationId = `compiled-${input.orderId}-${fraudScore.toString(36)}`;
 
   return {
@@ -66,16 +71,19 @@ export async function deliverNotification(
 ): Promise<"delivered" | "failed"> {
   "use step";
   await delay(5 + (recipient.length % 4));
+
   return (incidentId.length + recipient.length) % 11 === 0 ? "failed" : "delivered";
 }
 
 export async function notificationWorkflow(input: NotificationInput): Promise<NotificationResult> {
   "use workflow";
+
   const settled = await Promise.allSettled(
     input.recipients.map(
       async (recipient) => await deliverNotification(input.incidentId, recipient),
     ),
   );
+
   const delivered = settled.filter(
     (item) => item.status === "fulfilled" && item.value === "delivered",
   ).length;

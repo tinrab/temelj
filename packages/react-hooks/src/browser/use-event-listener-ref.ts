@@ -19,9 +19,9 @@ export function useEventListenerRef<K extends keyof HTMLElementEventMap, T exten
       cleanupRef.current = null;
 
       if (!node) return;
-      const listener = (event: Event) => handlerRef.current(event as HTMLElementEventMap[K]);
-      node.addEventListener(eventName, listener, options);
-      cleanupRef.current = () => node.removeEventListener(eventName, listener, options);
+      const listener = (event: HTMLElementEventMap[K]) => handlerRef.current(event);
+      node.addEventListener<K>(eventName, listener, options);
+      cleanupRef.current = () => node.removeEventListener<K>(eventName, listener, options);
     },
     [eventName, handlerRef, options],
   );

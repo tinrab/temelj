@@ -7,7 +7,7 @@ export class Mutex {
   #locked = false;
   #waiting: Array<{
     resolve: (release: () => void) => void;
-    reject: (reason?: unknown) => void;
+    reject: (cause?: unknown) => void;
   }> = [];
 
   /**
@@ -23,6 +23,7 @@ export class Mutex {
 
     if (!this.#locked) {
       this.#locked = true;
+
       return Promise.resolve(this._createRelease());
     }
 
@@ -32,11 +33,14 @@ export class Mutex {
       if (signal) {
         const onAbort = () => {
           const index = this.#waiting.indexOf(waiter);
+
           if (index !== -1) {
             this.#waiting.splice(index, 1);
           }
+
           reject(AbortError.create());
         };
+
         signal.addEventListener("abort", onAbort, { once: true });
 
         const originalResolve = resolve;
@@ -58,6 +62,7 @@ export class Mutex {
    */
   async runExclusive<T>(fn: () => Promise<T>, signal?: AbortSignal): Promise<T> {
     const release = await this.acquire(signal);
+
     try {
       return await fn();
     } finally {
@@ -67,10 +72,12 @@ export class Mutex {
 
   private _createRelease(): () => void {
     let released = false;
+
     return () => {
       if (released) {
         return;
       }
+
       released = true;
 
       if (this.#waiting.length > 0) {

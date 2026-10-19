@@ -13,11 +13,14 @@ export function useScrollLock<T extends HTMLElement>(
     if (!enabled || !isBrowser) {
       return undefined;
     }
+
     const element = target?.current ?? document.body;
-    const previousOverflow = element.style.overflow;
-    element.style.overflow = "hidden";
+    const previousOverflow = element.style.getPropertyValue("overflow");
+    const previousPriority = element.style.getPropertyPriority("overflow");
+    element.style.setProperty("overflow", "hidden");
+
     return () => {
-      element.style.overflow = previousOverflow;
+      element.style.setProperty("overflow", previousOverflow, previousPriority);
     };
   }, [enabled, target]);
 }

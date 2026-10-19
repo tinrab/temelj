@@ -21,8 +21,9 @@ export function useDisclosure(initialOpen = false): [boolean, DisclosureControls
   const [isOpen, setOpen] = React.useState(initialOpen);
   const open = React.useCallback(() => setOpen(true), []);
   const close = React.useCallback(() => setOpen(false), []);
+
   const toggle = React.useCallback((next?: boolean) => {
-    setOpen((current) => (typeof next === "boolean" ? next : !current));
+    setOpen((current) => next ?? !current);
   }, []);
 
   return [isOpen, { open, close, toggle, setOpen }];

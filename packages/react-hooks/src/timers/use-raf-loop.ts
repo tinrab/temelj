@@ -30,6 +30,7 @@ export function useRafLoop(
   const stop = React.useCallback(() => {
     runningRef.current = false;
     setRunning(false);
+
     if (frameRef.current !== null && isBrowser) {
       cancelAnimationFrame(frameRef.current);
       frameRef.current = null;
@@ -40,11 +41,13 @@ export function useRafLoop(
     if (!isBrowser || runningRef.current) return;
     runningRef.current = true;
     setRunning(true);
+
     const tick = (time: DOMHighResTimeStamp) => {
       if (!runningRef.current) return;
       callbackRef.current(time);
       frameRef.current = requestAnimationFrame(tick);
     };
+
     frameRef.current = requestAnimationFrame(tick);
   }, [callbackRef]);
 
@@ -52,6 +55,7 @@ export function useRafLoop(
     if (startImmediately) {
       start();
     }
+
     return stop;
   }, [start, startImmediately, stop]);
 

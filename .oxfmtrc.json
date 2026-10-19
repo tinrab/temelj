@@ -1,6 +1,23 @@
 {
   "$schema": "./node_modules/oxfmt/configuration_schema.json",
-  "ignorePatterns": ["**/*.gen.ts"],
+  "ignorePatterns": [
+    "packages/mdx/benches/fixtures/tanstack/**",
+    "**/*.gen.ts",
+    "packages/mdx/fixtures/*.json",
+    "packages/mdx/src/syntax/generated/**",
+    ".agent/**",
+    ".agents/**",
+    ".claude/**",
+    ".codex/**",
+    ".continue/**",
+    ".cursor/**",
+    ".gemini/**",
+    ".opencode/**",
+    ".pi/**",
+    ".roo/**",
+    ".windsurf/**",
+    "scripts/oxlint/anti-slop/**"
+  ],
   "experimentalTailwindcss": {
     "attributes": ["class", "className"],
     "functions": ["clsx", "cn"],

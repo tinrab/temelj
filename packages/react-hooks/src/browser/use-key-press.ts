@@ -14,35 +14,13 @@ function resolveTarget<T extends EventTarget>(target: EventTargetLike<T>): T | u
   if (!target) {
     return undefined;
   }
+
   if ("current" in target) {
     return target.current ?? undefined;
   }
+
   return target;
 }
-
-function useEventListener<K extends keyof WindowEventMap>(
-  /** Target to attach the listener to. */
-  target: EventTargetLike<Window>,
-  eventName: K,
-  handler: (event: WindowEventMap[K]) => void,
-  options?: AddEventListenerOptions,
-): void;
-
-function useEventListener<K extends keyof DocumentEventMap>(
-  /** Target to attach the listener to. */
-  target: EventTargetLike<Document>,
-  eventName: K,
-  handler: (event: DocumentEventMap[K]) => void,
-  options?: AddEventListenerOptions,
-): void;
-
-function useEventListener<K extends keyof HTMLElementEventMap, T extends HTMLElement>(
-  /** Target to attach the listener to. */
-  target: EventTargetLike<T>,
-  eventName: K,
-  handler: (event: HTMLElementEventMap[K]) => void,
-  options?: AddEventListenerOptions,
-): void;
 
 function useEventListener(
   /** Target to attach the listener to. */
@@ -54,11 +32,14 @@ function useEventListener(
   const handlerRef = useLatest(handler);
   React.useEffect(() => {
     const node = resolveTarget(target);
+
     if (!node) {
       return undefined;
     }
+
     const listener = (event: Event) => handlerRef.current(event);
     node.addEventListener(eventName, listener, options);
+
     return () => node.removeEventListener(eventName, listener, options);
   }, [eventName, handlerRef, options, target]);
 }
@@ -85,7 +66,7 @@ export function useKeyPress(
 ): void {
   const { event = "keydown", target = getDefaultTarget(), eventOptions } = options;
   useEventListener(
-    target as EventTargetLike<Window>,
+    target,
     event,
     (keyboardEvent) => {
       if (keyboardEvent instanceof KeyboardEvent && keyboardEvent.key === key) {

@@ -1,88 +1,130 @@
-import type { FormattedLogRecord } from "./types.ts";
+import {
+  isBigInt,
+  isBoolean,
+  isNumber,
+  isPrimitive,
+  isString,
+  isSymbol,
+  type JsonObject,
+  type JsonValue,
+} from "@temelj/value";
+
+import type { FormattedLogRecord, LogAttributeValue } from "./types.ts";
 
 export interface SerializedLogError {
   readonly name: string;
   readonly message: string;
   readonly stack?: string;
-  readonly cause?: unknown;
+  readonly cause?: JsonValue;
 }
 
-export function serializeLogError(error: unknown): SerializedLogError {
-  if (error instanceof Error) {
-    return {
-      name: error.name,
-      message: error.message,
-      ...(error.stack === undefined ? {} : { stack: error.stack }),
-      ...(error.cause === undefined ? {} : { cause: toJsonSafeValue(error.cause) }),
-    };
+export function serializeLogError(cause: unknown): SerializedLogError {
+  return serializeError(cause, new WeakSet());
+}
+
+function serializeError(cause: unknown, seen: WeakSet<object>): SerializedLogError {
+  if (!(cause instanceof Error)) {
+    return { name: "ThrownValue", message: String(cause) };
   }
-  return {
-    name: typeof error,
-    message: String(error),
+
+  if (seen.has(cause)) {
+    return { name: cause.name, message: "[Circular]" };
+  }
+
+  seen.add(cause);
+
+  const result: SerializedLogError = {
+    name: cause.name,
+    message: cause.message,
+    stack: cause.stack,
+    cause: cause.cause === undefined ? undefined : serializeCause(cause.cause, seen),
   };
+
+  seen.delete(cause);
+
+  return result;
 }
 
-export function errorFields(error: unknown): FormattedLogRecord {
-  const serialized = serializeLogError(error);
-  return {
+function serializeCause(cause: unknown, seen: WeakSet<object>): JsonValue {
+  if (isPrimitive(cause)) {
+    return toJsonSafeValueDeep(cause, seen) ?? null;
+  }
+
+  return errorObject(serializeError(cause, seen));
+}
+
+function errorObject(error: SerializedLogError): JsonObject {
+  const result: JsonObject = { name: error.name, message: error.message };
+
+  if (error.stack !== undefined) result.stack = error.stack;
+
+  if (error.cause !== undefined) result.cause = error.cause;
+
+  return result;
+}
+
+export function errorFields(cause: unknown): FormattedLogRecord {
+  const serialized = serializeLogError(cause);
+
+  const result: FormattedLogRecord = {
     "error.name": serialized.name,
     "error.message": serialized.message,
-    ...(serialized.stack === undefined ? {} : { "error.stack": serialized.stack }),
-    ...(serialized.cause === undefined ? {} : { "error.cause": serialized.cause }),
   };
+
+  if (serialized.stack !== undefined) result["error.stack"] = serialized.stack;
+
+  if (serialized.cause !== undefined) result["error.cause"] = serialized.cause;
+
+  return result;
 }
 
-// TODO: Move to another package?
-export function toJsonSafeValue(value: unknown): unknown {
-  return toJsonSafeValueDeep(value, new WeakSet<object>());
+export function toJsonSafeValue(value: LogAttributeValue): JsonValue | undefined {
+  return toJsonSafeValueDeep(value, new WeakSet());
 }
 
-function toJsonSafeValueDeep(value: unknown, seen: WeakSet<object>): unknown {
-  if (
-    value === null ||
-    typeof value === "string" ||
-    typeof value === "number" ||
-    typeof value === "boolean"
-  ) {
-    return value;
-  }
-  if (typeof value === "bigint") {
-    return value.toString();
-  }
-  if (typeof value === "undefined") {
-    return undefined;
-  }
-  if (typeof value === "symbol" || typeof value === "function") {
-    return String(value);
-  }
-  if (value instanceof Temporal.Instant) {
-    return value.toString();
-  }
-  if (value instanceof Date) {
-    return value.toISOString();
-  }
-  if (value instanceof Error) {
-    return serializeLogError(value);
-  }
-  if (Array.isArray(value)) {
-    if (seen.has(value)) {
-      return "[Circular]";
+function toJsonSafeValueDeep(
+  value: LogAttributeValue,
+  seen: WeakSet<object>,
+): JsonValue | undefined {
+  if (value === null || isString(value) || isBoolean(value)) return value;
+
+  if (isNumber(value)) return Number.isFinite(value) ? value : null;
+
+  if (value === undefined) return undefined;
+
+  if (isBigInt(value) || isSymbol(value)) return String(value);
+
+  if (value instanceof Temporal.Instant) return value.toString();
+
+  if (value instanceof Date) return value.toJSON();
+
+  if (value instanceof Error) return errorObject(serializeError(value, seen));
+
+  if (seen.has(value)) return "[Circular]";
+  seen.add(value);
+
+  try {
+    if (Array.isArray(value)) {
+      return value.map((item) => toJsonSafeValueDeep(item, seen) ?? null);
     }
-    seen.add(value);
-    return value.map((item) => toJsonSafeValueDeep(item, seen));
-  }
-  if (typeof value === "object") {
-    if (seen.has(value)) {
-      return "[Circular]";
+
+    const result: JsonObject = {};
+
+    for (const [key, item] of Object.entries(value)) {
+      const converted = toJsonSafeValueDeep(item, seen);
+
+      if (converted !== undefined) {
+        Object.defineProperty(result, key, {
+          value: converted,
+          enumerable: true,
+          configurable: true,
+          writable: true,
+        });
+      }
     }
-    seen.add(value);
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>)
-        .map(([key, item]) => [key, toJsonSafeValueDeep(item, seen)] as const)
-        .filter(
-          (entry): entry is readonly [string, NonNullable<unknown>] => entry[1] !== undefined,
-        ),
-    );
+
+    return result;
+  } finally {
+    seen.delete(value);
   }
-  return String(value);
 }

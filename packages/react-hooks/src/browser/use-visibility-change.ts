@@ -10,12 +10,16 @@ export function useVisibilityChange(): boolean {
     if (!isBrowser) {
       return () => {};
     }
+
     document.addEventListener("visibilitychange", callback);
+
     return () => document.removeEventListener("visibilitychange", callback);
   }, []);
+
   const getSnapshot = React.useCallback(
     () => isBrowser && document.visibilityState === "visible",
     [],
   );
+
   return React.useSyncExternalStore(subscribe, getSnapshot, () => true);
 }

@@ -22,6 +22,7 @@ export function mix(a: Color, b: Color, weight = 0.5): Color {
  */
 export function lighten(color: Color, amount: number): Color {
   const hsl = rgbToHsl(color);
+
   return hslToRgb({
     ...hsl,
     lightness: Math.min(1, hsl.lightness + amount),
@@ -37,6 +38,7 @@ export function lighten(color: Color, amount: number): Color {
  */
 export function darken(color: Color, amount: number): Color {
   const hsl = rgbToHsl(color);
+
   return hslToRgb({
     ...hsl,
     lightness: Math.max(0, hsl.lightness - amount),
@@ -52,6 +54,7 @@ export function darken(color: Color, amount: number): Color {
  */
 export function saturate(color: Color, amount: number): Color {
   const hsl = rgbToHsl(color);
+
   return hslToRgb({
     ...hsl,
     saturation: Math.min(1, hsl.saturation + amount),
@@ -67,6 +70,7 @@ export function saturate(color: Color, amount: number): Color {
  */
 export function desaturate(color: Color, amount: number): Color {
   const hsl = rgbToHsl(color);
+
   return hslToRgb({
     ...hsl,
     saturation: Math.max(0, hsl.saturation - amount),

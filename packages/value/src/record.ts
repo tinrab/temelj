@@ -15,15 +15,19 @@ export function recordEquals<V>(
   compare?: (a: V, b: V) => boolean,
 ): boolean {
   const aEntries = Object.entries(a);
+
   if (aEntries.length !== Object.keys(b).length) {
     return false;
   }
+
   if (compare === undefined) {
     for (const [aKey, aValue] of aEntries) {
       const bValue = b[aKey];
+
       if (bValue === undefined) {
         return false;
       }
+
       if (!deepEquals(aValue, bValue)) {
         return false;
       }
@@ -31,14 +35,17 @@ export function recordEquals<V>(
   } else {
     for (const [aKey, aValue] of aEntries) {
       const bValue = b[aKey];
+
       if (bValue === undefined) {
         return false;
       }
+
       if (!compare(aValue, bValue)) {
         return false;
       }
     }
   }
+
   return true;
 }
 
@@ -57,8 +64,8 @@ export function recordIsEmpty<V>(value: Record<string, V>): boolean {
  */
 export interface RecordMergeOptions {
   clone?: boolean;
-  arrayMerge?: <T, S>(target: T[], source: S[]) => (T & S)[];
-  isMergable?: (value: unknown) => boolean;
+  arrayMerge?: deepmerge.Options["arrayMerge"];
+  isMergeable?: deepmerge.Options["isMergeableObject"];
 }
 
 /**
@@ -72,9 +79,9 @@ export function recordMerge<T>(
   values: Partial<T>[],
   options: RecordMergeOptions = { clone: true },
 ): T {
-  return deepmerge.all(values, {
+  return deepmerge.all<T>(values, {
     clone: options.clone,
     arrayMerge: options.arrayMerge,
-    isMergeableObject: options.isMergable,
-  } as deepmerge.Options) as T;
+    isMergeableObject: options.isMergeable,
+  });
 }

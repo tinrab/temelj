@@ -10,5 +10,6 @@ export function useLatestRef<T>(value: T): React.RefObject<T> {
   useIsoLayoutEffect(() => {
     ref.current = value;
   });
+
   return ref;
 }

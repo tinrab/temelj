@@ -14,7 +14,8 @@ export interface BenchSizes {
 const BASELINE_NAME = "@temelj/cache (LruCache)";
 
 function getMeanThroughput(task: Task): number | undefined {
-  const r = task.result as unknown as { state: string; throughput?: { mean: number } };
+  const r = task.result;
+
   if (
     (r.state === "completed" || r.state === "aborted-with-statistics") &&
     r.throughput !== undefined
@@ -24,7 +25,8 @@ function getMeanThroughput(task: Task): number | undefined {
 }
 
 function getMeanLatency(task: Task): number | undefined {
-  const r = task.result as unknown as { state: string; latency?: { mean: number } };
+  const r = task.result;
+
   if (
     (r.state === "completed" || r.state === "aborted-with-statistics") &&
     r.latency !== undefined
@@ -35,12 +37,14 @@ function getMeanLatency(task: Task): number | undefined {
 
 function baselineConverter(bench: Bench): ConsoleTableConverter {
   const baselineTask = bench.tasks.find((t) => t.name === BASELINE_NAME);
+
   const baselineThroughput =
     baselineTask !== undefined ? (getMeanThroughput(baselineTask) ?? 1) : 1;
 
-  return (task: Task): Record<string, number | string> => {
+  return (task: Task) => {
     const thr = getMeanThroughput(task);
     const lat = getMeanLatency(task);
+
     if (thr === undefined || lat === undefined) {
       return {
         "Task name": task.name,
@@ -68,61 +72,71 @@ function baselineConverter(bench: Bench): ConsoleTableConverter {
 }
 
 function logBaselineTable(bench: Bench, heading: string): void {
-  const rows = bench.tasks.map(baselineConverter(bench)) as Record<string, string>[];
+  const rows = bench.tasks.map(baselineConverter(bench));
   const headers = ["Task name", "Latency avg (µs)", "Throughput avg (ops/s)", "vs baseline"];
 
   console.log(`\n### ${heading}`);
   console.log(`| ${headers.join(" | ")} |`);
   console.log(`|${headers.map(() => "---").join(" | ")}|`);
+
   for (const row of rows) {
     console.log(`| ${headers.map((h) => row[h]).join(" | ")} |`);
   }
 }
 
-function populate(cache: { set(key: string, value: number): unknown }, size: number): string[] {
+function populate(cache: { set(key: string, value: number): void }, size: number): string[] {
   const keys: string[] = [];
+
   for (let i = 0; i < size; i++) {
     const key = `key:${i}`;
     keys.push(key);
     cache.set(key, i);
   }
+
   return keys;
 }
 
 function prepareKeys(size: number): string[] {
   const keys: string[] = [];
+
   for (let i = 0; i < size; i++) {
     keys.push(`key:${i}`);
   }
+
   return keys;
 }
 
 function runSet(capacity: number, sample: number) {
   const keys = prepareKeys(sample);
+
   return async (): Promise<void> => {
     const bench = new Bench({ time: 200 });
 
     bench
       .add("@temelj/cache (LruCache)", () => {
         const c = new LruCache<string, number>({ maxEntries: capacity });
+
         for (let i = 0; i < sample; i++) {
           c.set(keys[i], i);
         }
       })
       .add("lru-cache", () => {
         const c = new OtherLruCache<string, number>({ max: capacity });
+
         for (let i = 0; i < sample; i++) {
           c.set(keys[i], i);
         }
       })
       .add("quick-lru", () => {
         const c = new QuickLRU<string, number>({ maxSize: capacity });
+
         for (let i = 0; i < sample; i++) {
           c.set(keys[i], i);
         }
       })
       .add("mnemonist (LRUCache)", () => {
         const c = new MnemonistLRU<string, number>(capacity);
+
         for (let i = 0; i < sample; i++) {
           c.set(keys[i], i);
         }
@@ -135,6 +149,7 @@ function runSet(capacity: number, sample: number) {
 
 function runGetHit(capacity: number, sample: number) {
   const keys = prepareKeys(sample);
+
   return async (): Promise<void> => {
     const bench = new Bench({ time: 200 });
 
@@ -179,6 +194,7 @@ function runGetHit(capacity: number, sample: number) {
 
 function runGetMiss(capacity: number, sample: number) {
   const keys = prepareKeys(sample);
+
   return async (): Promise<void> => {
     const bench = new Bench({ time: 200 });
 
@@ -216,6 +232,7 @@ function runGetMiss(capacity: number, sample: number) {
 
 function runUpdate(capacity: number, sample: number) {
   const keys = prepareKeys(sample);
+
   return async (): Promise<void> => {
     const bench = new Bench({ time: 200 });
 
@@ -260,6 +277,7 @@ function runUpdate(capacity: number, sample: number) {
 
 function runMixed(capacity: number, sample: number) {
   const keys = prepareKeys(sample);
+
   return async (): Promise<void> => {
     const bench = new Bench({ time: 200 });
 
@@ -325,24 +343,28 @@ function runEviction(capacity: number, overfill: number) {
     bench
       .add("@temelj/cache (LruCache)", () => {
         const c = new LruCache<string, number>({ maxEntries: capacity });
+
         for (let i = 0; i < overfill; i++) {
           c.set(`key:${i}`, i);
         }
       })
       .add("lru-cache", () => {
         const c = new OtherLruCache<string, number>({ max: capacity });
+
         for (let i = 0; i < overfill; i++) {
           c.set(`key:${i}`, i);
         }
       })
       .add("quick-lru", () => {
         const c = new QuickLRU<string, number>({ maxSize: capacity });
+
         for (let i = 0; i < overfill; i++) {
           c.set(`key:${i}`, i);
         }
       })
       .add("mnemonist (LRUCache)", () => {
         const c = new MnemonistLRU<string, number>(capacity);
+
         for (let i = 0; i < overfill; i++) {
           c.set(`key:${i}`, i);
         }
@@ -355,6 +377,7 @@ function runEviction(capacity: number, overfill: number) {
 
 function runZigzag(capacity: number, sample: number) {
   const keys = prepareKeys(sample);
+
   return async (): Promise<void> => {
     const bench = new Bench({ time: 200 });
 
@@ -403,6 +426,7 @@ function runZigzag(capacity: number, sample: number) {
 
 function runDelete(capacity: number, sample: number) {
   const keys = prepareKeys(sample);
+
   return async (): Promise<void> => {
     const bench = new Bench({ time: 200 });
 
@@ -410,6 +434,7 @@ function runDelete(capacity: number, sample: number) {
       .add("@temelj/cache (LruCache)", () => {
         const c = new LruCache<string, number>({ maxEntries: capacity });
         populate(c, capacity);
+
         for (let i = 0; i < sample; i++) {
           c.delete(keys[i]);
         }
@@ -417,6 +442,7 @@ function runDelete(capacity: number, sample: number) {
       .add("lru-cache", () => {
         const c = new OtherLruCache<string, number>({ max: capacity });
         populate(c, capacity);
+
         for (let i = 0; i < sample; i++) {
           c.delete(keys[i]);
         }
@@ -424,6 +450,7 @@ function runDelete(capacity: number, sample: number) {
       .add("quick-lru", () => {
         const c = new QuickLRU<string, number>({ maxSize: capacity });
         populate(c, capacity);
+
         for (let i = 0; i < sample; i++) {
           c.delete(keys[i]);
         }
@@ -431,6 +458,7 @@ function runDelete(capacity: number, sample: number) {
       .add("mnemonist (LRUCacheWithDelete)", () => {
         const c = new MnemonistLRUDelete<string, number>(capacity);
         populate(c, capacity);
+
         for (let i = 0; i < sample; i++) {
           c.delete(keys[i]);
         }
@@ -443,6 +471,7 @@ function runDelete(capacity: number, sample: number) {
 
 function runHas(capacity: number, sample: number) {
   const keys = prepareKeys(sample);
+
   return async (): Promise<void> => {
     const bench = new Bench({ time: 200 });
 
@@ -485,7 +514,7 @@ function runHas(capacity: number, sample: number) {
   };
 }
 
-export function createBenchSuite(sizes: BenchSizes): Record<string, () => Promise<void>> {
+export function createBenchSuite(sizes: BenchSizes) {
   return {
     set: runSet(sizes.capacity, sizes.sample),
     "get-hit": runGetHit(sizes.capacity, sizes.sample),

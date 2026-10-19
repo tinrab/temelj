@@ -44,6 +44,7 @@ export function useRandomInterval(
     };
 
     tick();
+
     return clear;
   }, [callbackRef, clear, minDelay, maxDelay]);
 

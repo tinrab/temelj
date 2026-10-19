@@ -1,7 +1,7 @@
 import { ss } from "@temelj/standard-schema";
-import { isObjectPrimitive } from "@temelj/value";
+import { isPlainObject, isString, type PrimitiveValue } from "@temelj/value";
 
-import type { HelperDeclareSpec, HelperDelegate } from "../types";
+import type { HelperDeclareSpec } from "../types";
 
 import { createHelper } from "../helper_builder";
 
@@ -10,18 +10,26 @@ export function getObjectHelpers(): HelperDeclareSpec {
     object: createHelper()
       .hash(ss.record(ss.unknown()))
       .handle((hash) => hash),
-    objectPick: ((obj: unknown, ...keys: string[]) => {
-      if (!isObjectPrimitive(obj)) {
+    objectPick: (obj: PrimitiveValue, ...keys: unknown[]) => {
+      if (!isPlainObject(obj)) {
         return {};
       }
-      const result: Record<string, unknown> = {};
-      const objRecord = obj as Record<string, unknown>;
-      for (const key of keys) {
-        if (key in objRecord) {
-          result[key] = objRecord[key];
+
+      const selectedKeys = keys.filter(isString);
+      const result: Record<string, PrimitiveValue> = {};
+
+      for (const [key, value] of Object.entries(obj)) {
+        if (selectedKeys.includes(key)) {
+          Object.defineProperty(result, key, {
+            value,
+            enumerable: true,
+            configurable: true,
+            writable: true,
+          });
         }
       }
+
       return result;
-    }) as unknown as HelperDelegate,
+    },
   };
 }

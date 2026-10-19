@@ -1,3 +1,5 @@
+import { isNumber, isObject, isString } from "@temelj/value";
+
 import {
   StorageEngineError,
   type StorageEngine,
@@ -66,6 +68,7 @@ class WebStorageEngine implements StorageEngine<string> {
 
   async get(key: string): Promise<string | undefined> {
     const record = this.#readRecord(this.#prefixedKey(key));
+
     return record?.value;
   }
 
@@ -81,16 +84,19 @@ class WebStorageEngine implements StorageEngine<string> {
   ): Promise<boolean> {
     const storageKey = this.#prefixedKey(key);
     const current = this.#readRecord(storageKey);
+
     if (current?.value !== expected) {
       return false;
     }
 
     if (value === undefined) {
       this.#storage.removeItem(storageKey);
+
       return true;
     }
 
     this.#writeRecord(storageKey, value, resolveExpiresAt(options));
+
     return true;
   }
 
@@ -101,8 +107,10 @@ class WebStorageEngine implements StorageEngine<string> {
       ...item,
       storageKey: this.#prefixedKey(item.key),
     }));
+
     for (const item of records) {
       const current = this.#readRecord(item.storageKey);
+
       if (current?.value !== item.expected) {
         return false;
       }
@@ -115,6 +123,7 @@ class WebStorageEngine implements StorageEngine<string> {
         this.#writeRecord(item.storageKey, item.value, resolveExpiresAt(item.options));
       }
     }
+
     return true;
   }
 
@@ -128,16 +137,19 @@ class WebStorageEngine implements StorageEngine<string> {
     const storageKey = this.#prefixedKey(key);
     const exists = this.#readRecord(storageKey) !== undefined;
     this.#storage.removeItem(storageKey);
+
     return exists;
   }
 
   async deleteMany(keys: readonly string[]): Promise<number> {
     let deleted = 0;
+
     for (const key of keys) {
       if (await this.delete(key)) {
         deleted++;
       }
     }
+
     return deleted;
   }
 
@@ -146,9 +158,9 @@ class WebStorageEngine implements StorageEngine<string> {
   }
 
   async keys(options?: StorageEngineKeyOptions): Promise<readonly string[]> {
-    return this.#matchingKeys(options)
-      .filter((key) => this.#readRecord(key) !== undefined)
-      .map((key) => this.#unprefixKey(key));
+    return this.#matchingKeys(options).flatMap((key) =>
+      this.#readRecord(key) !== undefined ? [this.#unprefixKey(key)] : [],
+    );
   }
 
   async clear(options?: StorageEngineKeyOptions): Promise<void> {
@@ -167,39 +179,61 @@ class WebStorageEngine implements StorageEngine<string> {
 
   #readRecord(key: string): WebStorageRecord | undefined {
     const item = this.#storage.getItem(key);
+
     if (item === null) {
       return undefined;
     }
 
-    const record = JSON.parse(item) as WebStorageRecord;
+    const parsed: unknown = JSON.parse(item);
+
+    if (!isObject(parsed) || !("value" in parsed) || !isString(parsed.value)) {
+      throw new TypeError("Invalid Web Storage record");
+    }
+
+    const expiresAt = "expiresAt" in parsed ? parsed.expiresAt : undefined;
+
+    if (expiresAt !== undefined && (!isNumber(expiresAt) || !Number.isFinite(expiresAt))) {
+      throw new TypeError("Invalid storage expiration");
+    }
+
+    const record: WebStorageRecord = { value: parsed.value, expiresAt };
+
     if (record.expiresAt !== undefined && record.expiresAt <= Date.now()) {
       this.#storage.removeItem(key);
+
       return undefined;
     }
+
     return record;
   }
 
   #writeRecord(key: string, value: string, expiresAt: number | undefined): void {
     if (expiresAt !== undefined && expiresAt <= Date.now()) {
       this.#storage.removeItem(key);
+
       return;
     }
+
     this.#storage.setItem(key, JSON.stringify({ value, expiresAt }));
   }
 
   #allStorageKeys(): string[] {
     const keys: string[] = [];
+
     for (let index = 0; index < this.#storage.length; index++) {
       const key = this.#storage.key(index);
+
       if (key !== null && key.startsWith(this.#prefix)) {
         keys.push(key);
       }
     }
+
     return keys;
   }
 
   #matchingKeys(options: StorageEngineKeyOptions | undefined): string[] {
     const matchPrefix = this.#prefixedKey(options?.prefix ?? "");
+
     return this.#allStorageKeys().filter((key) => key.startsWith(matchPrefix));
   }
 }

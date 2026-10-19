@@ -25,9 +25,11 @@ export function* traverseBfs<T>(root: T, getChildren: (node: T) => Iterable<T>):
 
   while (queue.length > 0) {
     const node = queue.shift();
+
     if (node === undefined) {
       continue;
     }
+
     yield node;
 
     for (const child of getChildren(node)) {

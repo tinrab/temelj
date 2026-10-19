@@ -9,6 +9,7 @@ export function registerTemporalStorageSerialization(
   if (registeredSuperJSONInstances.has(superjson)) {
     return;
   }
+
   registeredSuperJSONInstances.add(superjson);
 
   superjson.registerCustom<Temporal.ZonedDateTime, string>(
