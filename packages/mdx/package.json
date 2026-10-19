@@ -1,6 +1,6 @@
 {
   "name": "@temelj/mdx",
-  "version": "0.15.0",
+  "version": "0.16.0",
   "description": "MDX parsing, formatting, compilation, safe rendering, and streaming.",
   "keywords": [
     "markdown",

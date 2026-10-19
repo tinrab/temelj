@@ -28,7 +28,7 @@ import type {
 } from "./materialize-cache.ts";
 
 import { createDiagnostic, DiagnosticBag } from "../diagnostics.ts";
-import { decodeFrontmatter } from "../frontmatter.ts";
+import { decodeFrontmatter } from "../frontmatter-decode.ts";
 import { normalizeIdentifier } from "../identifier.ts";
 import { nodeText } from "../model.ts";
 import { sourceText } from "../source.ts";

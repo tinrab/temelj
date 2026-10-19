@@ -105,6 +105,8 @@ console.log(result.diagnostics); // Warnings; syntax errors throw ParseError.
 console.log(result.file.location(2)); // { offset: 2, line: 1, column: 3 }
 ```
 
+You can choose to parse only the frontmatter with `parseFrontmatter`.
+
 ## Parse into AST
 
 ```ts

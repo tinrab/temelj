@@ -8,8 +8,7 @@ export class SourceText {
   readonly #chunks: readonly string[];
   readonly #starts: readonly number[];
   public readonly length: number;
-  /** The text has no NUL, so the parser reads it as it is. */
-  public readonly plain: boolean;
+  #plain: boolean | undefined;
   #joined: string | undefined;
   readonly #single: string | undefined;
   /** The chunk of the last read, since reads cluster around one offset. */
@@ -19,19 +18,26 @@ export class SourceText {
     chunks: readonly string[],
     starts: readonly number[],
     length: number,
-    plain: boolean,
+    plain: boolean | undefined,
   ) {
     this.#chunks = chunks;
     this.#starts = starts;
     this.#single = chunks.length === 1 ? chunks[0] : undefined;
     this.length = length;
-    this.plain = plain;
+    this.#plain = plain;
   }
 
   public static of(this: void, text: string): SourceText {
     return text.length === 0
       ? new SourceText([], [], 0, true)
-      : new SourceText([text], [0], text.length, !text.includes("\0"));
+      : new SourceText([text], [0], text.length, undefined);
+  }
+
+  /** Lazily checks for NUL only when a consumer needs normalized grammar text. */
+  public get plain(): boolean {
+    this.#plain ??= this.#chunks.every((chunk) => !chunk.includes("\0"));
+
+    return this.#plain;
   }
 
   /** The text the parser reads: NUL becomes U+FFFD. */
@@ -43,7 +49,7 @@ export class SourceText {
   public flatten(): SourceText {
     return this.#chunks.length <= 1
       ? this
-      : new SourceText([this.toString()], [0], this.length, this.plain);
+      : new SourceText([this.toString()], [0], this.length, this.#plain);
   }
 
   public append(text: string): SourceText {

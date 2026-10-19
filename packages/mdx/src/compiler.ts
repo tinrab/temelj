@@ -1,4 +1,4 @@
-import type { Schema, SchemaIssue, SchemaOutput } from "@temelj/standard-schema";
+import type { Schema, SchemaOutput } from "@temelj/standard-schema";
 
 import { isObject, isBoolean, isNumber, isBigInt, isString } from "@temelj/value";
 
@@ -11,7 +11,6 @@ import type { SourceFile } from "./source.ts";
 
 import { analyzeDocument, type CompileAnalysis } from "./compile-analysis.ts";
 import { contentUsesAwait, emitContent } from "./compile-emit.ts";
-import { createDiagnostic } from "./diagnostics.ts";
 import {
   CompileError,
   ConfigurationError,
@@ -19,6 +18,7 @@ import {
   LimitError,
   MdxError,
 } from "./errors.ts";
+import { frontmatterSchemaValue } from "./frontmatter-schema.ts";
 import { lowerHtml } from "./html-lower.ts";
 import { javascriptPropertyName } from "./javascript-ast.ts";
 import { parseJavaScriptProgram } from "./javascript.ts";
@@ -219,20 +219,7 @@ export async function compile(
   if (options.frontmatterSchema !== undefined) {
     const validated = await options.frontmatterSchema["~standard"].validate(frontmatter);
 
-    if (validated.issues !== undefined) {
-      const diagnostics = validated.issues.map((issue) =>
-        createDiagnostic({
-          severity: "error",
-          code: "mdx.frontmatter.schema",
-          message: formatSchemaIssue(issue),
-          span: fileSpan(input.file, frontmatterNode?.origin),
-        }),
-      );
-
-      throw FrontmatterError.schemaValidationFailed(input.file, diagnostics, validated.issues);
-    }
-
-    frontmatter = validated.value;
+    frontmatter = frontmatterSchemaValue(validated, input.file, frontmatterNode?.origin);
   }
 
   const transported = copyTransportValue(frontmatter, "frontmatter", {
@@ -250,12 +237,6 @@ export async function compile(
     artifact,
     frontmatter,
   });
-}
-
-function formatSchemaIssue(issue: SchemaIssue): string {
-  const path = issue.path?.map((part) => String(isObject(part) ? part.key : part)).join(".");
-
-  return path === undefined || path.length === 0 ? issue.message : `${path}: ${issue.message}`;
 }
 
 interface FrontmatterTransportContext {
@@ -352,13 +333,6 @@ function copyTransportValue(
   ancestors.delete(value);
 
   return Object.freeze(output);
-}
-
-function fileSpan(
-  file: SourceFile,
-  range: SourceRange | undefined,
-): Readonly<{ file: SourceFile; start: number; end: number }> | undefined {
-  return range === undefined ? undefined : { file, start: range.start, end: range.end };
 }
 
 /**
