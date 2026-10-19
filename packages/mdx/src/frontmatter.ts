@@ -1,326 +1,219 @@
-import {
-  isBoolean,
-  isNumber,
-  isString,
-  isBigInt,
-  isFunction,
-  isSymbol,
-  isObject,
-  isPlainObject,
-} from "@temelj/value";
-import { parse as parseToml, TomlDate, TomlError } from "smol-toml";
-import { parseDocument } from "yaml";
+import type { Schema, SchemaOutput } from "@temelj/standard-schema";
 
-import type { DiagnosticReporter } from "./diagnostics.ts";
-import type { FrontmatterObject, FrontmatterTemporal, FrontmatterValue } from "./model.ts";
-import type { SourceSpan } from "./source.ts";
-import type { FrontmatterFormat } from "./syntax-options.ts";
+import { StandardSchemaAsyncValidationError } from "@temelj/standard-schema";
+import { isPromise } from "@temelj/value";
 
-interface DecodeOptions {
-  readonly diagnostics: DiagnosticReporter;
-  readonly format: FrontmatterFormat;
-  readonly source: string;
-  readonly span: SourceSpan;
+import type { Diagnostic } from "./diagnostics.ts";
+import type { FrontmatterObject } from "./model.ts";
+import type { ParserLimits } from "./parser/config.ts";
+import type { SourceRange } from "./ranges.ts";
+import type { SourceText } from "./source-text.ts";
+import type { FrontmatterFormat, FrontmatterMode } from "./syntax-options.ts";
+
+import { DiagnosticBag } from "./diagnostics.ts";
+import { LimitError, ParseError } from "./errors.ts";
+import { decodeFrontmatter } from "./frontmatter-decode.ts";
+import { frontmatterSchemaValue } from "./frontmatter-schema.ts";
+import { resolveParserLimits } from "./parser/config.ts";
+import { SourceFile, sourceText } from "./source.ts";
+
+export interface FrontmatterParseOptions {
+  /** Formats to recognize. Defaults to both YAML and TOML. */
+  readonly format?: FrontmatterMode;
+  /** Limits the entire input length in UTF-16 code units, without scanning its body. */
+  readonly limits?: Pick<ParserLimits, "maximumSourceLength">;
 }
 
-const maximumYamlAliases = 100;
-
-const maximumTomlDepth = 256;
-
-export function decodeFrontmatter(options: DecodeOptions): FrontmatterObject | undefined {
-  return options.format === "yaml" ? decodeYaml(options) : decodeToml(options);
+export interface FrontmatterParseSchemaOptions<
+  TSchema extends Schema,
+> extends FrontmatterParseOptions {
+  readonly frontmatterSchema: TSchema;
 }
 
-function decodeYaml(options: DecodeOptions): FrontmatterObject | undefined {
-  let document: ReturnType<typeof parseDocument>;
-
-  try {
-    document = parseDocument(options.source, {
-      customTags: [],
-      intAsBigInt: true,
-      logLevel: "silent",
-      prettyErrors: false,
-      resolveKnownTags: false,
-      schema: "core",
-      strict: true,
-      stringKeys: true,
-      uniqueKeys: true,
-      version: "1.2",
-    });
-  } catch (cause) {
-    addParserFailure(options, cause);
-
-    return undefined;
-  }
-
-  for (const warning of document.warnings) {
-    options.diagnostics.add({
-      code: yamlCode(warning.code),
-      message: warning.message,
-      severity: "warning",
-      span: relativeSpan(options.span, warning.pos[0], warning.pos[1]),
-    });
-  }
-
-  for (const error of document.errors) {
-    options.diagnostics.add({
-      code: yamlCode(error.code),
-      message: error.message,
-      severity: "error",
-      span: relativeSpan(options.span, error.pos[0], error.pos[1]),
-    });
-  }
-
-  if (document.errors.length > 0) {
-    return undefined;
-  }
-
-  let parsed: unknown;
-
-  try {
-    parsed = document.contents === null ? {} : document.toJS({ maxAliasCount: maximumYamlAliases });
-  } catch (cause) {
-    addParserFailure(options, cause);
-
-    return undefined;
-  }
-
-  return convertRoot(parsed, options);
+export interface FrontmatterParseResult<T = FrontmatterObject> {
+  readonly file: SourceFile;
+  readonly frontmatter: T;
+  /** Undefined when no complete, enabled frontmatter block was found. */
+  readonly format: FrontmatterFormat | undefined;
+  readonly diagnostics: readonly Diagnostic[];
 }
 
-function decodeToml(options: DecodeOptions): FrontmatterObject | undefined {
-  let parsed: unknown;
+/**
+ * Reads only the opening frontmatter block and optionally validates its metadata.
+ * @throws {ParseError} Invalid YAML or TOML.
+ * @throws {FrontmatterError} Schema validation fails.
+ * @throws {LimitError | ConfigurationError} Invalid or exceeded source-length limit.
+ */
+export function parseFrontmatter<TSchema extends Schema>(
+  input: string | SourceFile,
+  options: FrontmatterParseSchemaOptions<TSchema>,
+): Promise<FrontmatterParseResult<SchemaOutput<TSchema>>>;
+export function parseFrontmatter(
+  input: string | SourceFile,
+  options?: FrontmatterParseOptions,
+): Promise<FrontmatterParseResult>;
+export async function parseFrontmatter(
+  input: string | SourceFile,
+  options: FrontmatterParseOptions & { readonly frontmatterSchema?: Schema } = {},
+): Promise<FrontmatterParseResult<unknown>> {
+  const { result, origin } = readFrontmatter(input, options);
 
-  try {
-    parsed = parseToml(options.source, {
-      integersAsBigInt: "asNeeded",
-      maxDepth: maximumTomlDepth,
-    });
-  } catch (cause) {
-    if (cause instanceof TomlError) {
-      const offset = lineColumnOffset(options.source, cause.line, cause.column);
-      options.diagnostics.add({
-        code: "mdx.frontmatter.toml",
-        message: cause.message,
-        severity: "error",
-        span: relativeSpan(options.span, offset, offset + 1),
-      });
-    } else {
-      addParserFailure(options, cause);
-    }
-
-    return undefined;
+  if (options.frontmatterSchema === undefined) {
+    return result;
   }
 
-  return convertRoot(parsed, options);
-}
-
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- YAML/TOML root input is validated here.
-function convertRoot(value: unknown, options: DecodeOptions): FrontmatterObject | undefined {
-  if (!isPlainObject(value)) {
-    options.diagnostics.add({
-      code: "mdx.frontmatter.root",
-      message: "FrontmatterNode must contain a mapping at its root",
-      severity: "error",
-      span: options.span,
-    });
-
-    return undefined;
-  }
-
-  return convertObject(value, options, "$", new WeakSet<object>());
-}
-
-function convertValue(
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Recursively validates parser values before producing FrontmatterValue.
-  value: unknown,
-  options: DecodeOptions,
-  path: string,
-  active: WeakSet<object>,
-): FrontmatterValue | undefined {
-  if (value === null || isBoolean(value) || isNumber(value) || isString(value)) {
-    return value;
-  }
-
-  if (isBigInt(value)) {
-    return value >= BigInt(Number.MIN_SAFE_INTEGER) && value <= BigInt(Number.MAX_SAFE_INTEGER)
-      ? Number(value)
-      : value;
-  }
-
-  if (value instanceof TomlDate) {
-    return convertTemporal(value);
-  }
-
-  if (Array.isArray(value)) {
-    if (active.has(value)) {
-      return invalidValue(options, path, "cyclic alias");
-    }
-
-    active.add(value);
-    const converted: FrontmatterValue[] = [];
-
-    for (const [index, item] of value.entries()) {
-      const result = convertValue(item, options, `${path}[${index}]`, active);
-
-      if (result === undefined) {
-        return undefined;
-      }
-
-      converted.push(result);
-    }
-
-    active.delete(value);
-    Object.freeze(converted);
-
-    return converted;
-  }
-
-  if (isPlainObject(value)) {
-    return convertObject(value, options, path, active);
-  }
-
-  return invalidValue(options, path, describeValue(value));
-}
-
-function convertObject(
-  // oxlint-disable-next-line anti-slop/no-object-parameters -- YAML/TOML mapping boundary; every entry is converted to FrontmatterValue below.
-  value: object,
-  options: DecodeOptions,
-  path: string,
-  active: WeakSet<object>,
-): FrontmatterObject | undefined {
-  if (active.has(value)) {
-    return invalidValue(options, path, "cyclic alias");
-  }
-
-  active.add(value);
-  const converted: Record<string, FrontmatterValue> = {};
-
-  for (const [key, item] of Object.entries(value)) {
-    const itemPath = propertyPath(path, key);
-    const result = convertValue(item, options, itemPath, active);
-
-    if (result === undefined) {
-      return undefined;
-    }
-
-    Object.defineProperty(converted, key, {
-      configurable: false,
-      enumerable: true,
-      value: result,
-      writable: false,
-    });
-  }
-
-  active.delete(value);
-  Object.freeze(converted);
-
-  return converted;
-}
-
-function convertTemporal(value: TomlDate): FrontmatterTemporal {
-  const type = value.isDateTime()
-    ? value.isLocal()
-      ? "local-date-time"
-      : "offset-date-time"
-    : value.isDate()
-      ? "local-date"
-      : "local-time";
-
-  return Object.freeze({ kind: "temporal", type, value: value.toISOString() });
-}
-
-function invalidValue(options: DecodeOptions, path: string, description: string): undefined {
-  options.diagnostics.add({
-    code: "mdx.frontmatter.value",
-    message: `Unsupported frontmatter value at ${path}: ${description}`,
-    severity: "error",
-    span: options.span,
-  });
-
-  return undefined;
-}
-
-function addParserFailure(options: DecodeOptions, cause: unknown): void {
-  const message = cause instanceof Error ? cause.message : String(cause);
-  options.diagnostics.add({
-    code: `mdx.frontmatter.${options.format}`,
-    message,
-    severity: "error",
-    span: options.span,
-  });
-}
-
-function yamlCode(code: string): string {
-  return code === "RESOURCE_EXHAUSTION" ? "mdx.frontmatter.resource" : "mdx.frontmatter.yaml";
-}
-
-function relativeSpan(span: SourceSpan, start: number, end: number): SourceSpan {
-  const length = span.end - span.start;
-  const relativeStart = Math.max(0, Math.min(start, length));
-  const relativeEnd = Math.max(relativeStart, Math.min(end, length));
+  const validated = await options.frontmatterSchema["~standard"].validate(result.frontmatter);
 
   return Object.freeze({
-    file: span.file,
-    start: span.start + relativeStart,
-    end: span.start + relativeEnd,
+    ...result,
+    frontmatter: frontmatterSchemaValue(validated, result.file, origin),
   });
 }
 
-function lineColumnOffset(source: string, line: number, column: number): number {
-  const lineStart = lineStartOffsets(source)[Math.max(0, line - 1)] ?? source.length;
+/**
+ * Reads frontmatter synchronously, including synchronous schema validation.
+ * @throws {StandardSchemaAsyncValidationError} The schema returns a promise.
+ * @throws {ParseError | FrontmatterError | LimitError | ConfigurationError} Parsing fails.
+ */
+export function parseFrontmatterSync<TSchema extends Schema>(
+  input: string | SourceFile,
+  options: FrontmatterParseSchemaOptions<TSchema>,
+): FrontmatterParseResult<SchemaOutput<TSchema>>;
+export function parseFrontmatterSync(
+  input: string | SourceFile,
+  options?: FrontmatterParseOptions,
+): FrontmatterParseResult;
+export function parseFrontmatterSync(
+  input: string | SourceFile,
+  options: FrontmatterParseOptions & { readonly frontmatterSchema?: Schema } = {},
+): FrontmatterParseResult<unknown> {
+  const { result, origin } = readFrontmatter(input, options);
 
-  return Math.min(source.length, lineStart + Math.max(0, column - 1));
+  if (options.frontmatterSchema === undefined) {
+    return result;
+  }
+
+  const validated = options.frontmatterSchema["~standard"].validate(result.frontmatter);
+
+  if (isPromise(validated)) {
+    StandardSchemaAsyncValidationError.unsupported();
+  }
+
+  return Object.freeze({
+    ...result,
+    frontmatter: frontmatterSchemaValue(validated, result.file, origin),
+  });
 }
 
-function propertyPath(path: string, key: string): string {
-  return /^[A-Za-z_$][\w$]*$/u.test(key) ? `${path}.${key}` : `${path}[${JSON.stringify(key)}]`;
+interface ReadFrontmatterResult {
+  readonly result: FrontmatterParseResult;
+  readonly origin: SourceRange | undefined;
 }
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Describes a rejected value at the YAML/TOML validation boundary.
-function describeValue(value: unknown): string {
-  if (value === undefined) {
-    return "undefined";
+function readFrontmatter(
+  input: string | SourceFile,
+  options: FrontmatterParseOptions,
+): ReadFrontmatterResult {
+  const file = input instanceof SourceFile ? input : new SourceFile(input);
+  const { maximumSourceLength } = resolveParserLimits(options.limits);
+
+  if (file.length > maximumSourceLength) {
+    throw LimitError.exceeded(
+      file,
+      "maximumSourceLength",
+      maximumSourceLength,
+      undefined,
+      file.length,
+    );
   }
 
-  if (isFunction(value)) {
-    return "function";
-  }
+  const source = sourceText(file);
+  const opening = readLine(source, 0);
+  const fence = source.slice(0, opening.contentEnd).trim();
+  const format = fence === "---" ? "yaml" : fence === "+++" ? "toml" : undefined;
 
-  if (isSymbol(value)) {
-    return "symbol";
-  }
+  if (
+    format !== undefined &&
+    (options.format === undefined || options.format === "auto" || options.format === format)
+  ) {
+    const valueStart = opening.end;
 
-  if (value instanceof Map) {
-    return "Map";
-  }
+    for (let start = valueStart; start < source.length;) {
+      const line = readLine(source, start);
 
-  if (value instanceof Set) {
-    return "Set";
-  }
+      if (source.slice(start, line.contentEnd).trim() === fence) {
+        let valueEnd = start;
 
-  if (value instanceof Date) {
-    return "Date";
-  }
+        if (valueEnd > valueStart && source.char(valueEnd - 1) === "\n") {
+          valueEnd--;
+        }
 
-  return isObject(value) ? (value.constructor?.name ?? "object") : String(value);
-}
+        if (valueEnd > valueStart && source.char(valueEnd - 1) === "\r") {
+          valueEnd--;
+        }
 
-function lineStartOffsets(source: string): readonly number[] {
-  const offsets = [0];
+        const diagnostics = new DiagnosticBag();
 
-  for (let index = 0; index < source.length; index++) {
-    if (source[index] === "\r") {
-      if (source[index + 1] === "\n") {
-        index++;
+        const frontmatter = decodeFrontmatter({
+          diagnostics,
+          format,
+          source: source.slice(valueStart, valueEnd),
+          span: { file, start: valueStart, end: valueEnd },
+        });
+
+        if (frontmatter === undefined) {
+          const [first, ...rest] = diagnostics
+            .snapshot()
+            .filter((diagnostic) => diagnostic.severity === "error");
+
+          if (first === undefined) {
+            throw new Error("Invalid frontmatter did not produce an error diagnostic");
+          }
+
+          throw ParseError.invalidSyntax(file, [first, ...rest]);
+        }
+
+        return {
+          result: Object.freeze({ file, frontmatter, format, diagnostics: diagnostics.snapshot() }),
+          origin: { start: source.char(0) === "\uFEFF" ? 1 : 0, end: line.end },
+        };
       }
 
-      offsets.push(index + 1);
-    } else if (source[index] === "\n") {
-      offsets.push(index + 1);
+      start = line.end;
     }
   }
 
-  return offsets;
+  return {
+    result: Object.freeze({
+      file,
+      frontmatter: Object.freeze({}),
+      format: undefined,
+      diagnostics: Object.freeze([]),
+    }),
+    origin: undefined,
+  };
+}
+
+interface FrontmatterLine {
+  readonly contentEnd: number;
+  readonly end: number;
+}
+
+/** Reads one physical line without indexing or normalizing the rest of the document. */
+function readLine(source: SourceText, start: number): FrontmatterLine {
+  let end = start;
+
+  while (end < source.length) {
+    const character = source.char(end);
+
+    if (character === "\n" || character === "\r") {
+      const endingLength = character === "\r" && source.char(end + 1) === "\n" ? 2 : 1;
+
+      return { contentEnd: end, end: end + endingLength };
+    }
+
+    end++;
+  }
+
+  return { contentEnd: end, end };
 }

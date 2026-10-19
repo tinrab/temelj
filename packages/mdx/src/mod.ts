@@ -42,6 +42,8 @@ export {
 
 export type { FormatOptions } from "./format-context.ts";
 
+export * from "./frontmatter.ts";
+
 export { formatMdx } from "./format.ts";
 
 export type { HeadingDepth } from "./heading.ts";

@@ -42,6 +42,21 @@ describe("source files", () => {
 });
 
 describe("source text", () => {
+  it("normalizes NUL after lazy checks, flattening, and appends", () => {
+    for (const input of ["", "plain", "before\0after"]) {
+      const source = SourceText.of(input);
+      const appended = source.append("\0tail");
+
+      expect(source.plain).toBe(!input.includes("\0"));
+      expect(source.plain).toBe(!input.includes("\0"));
+      expect(source.grammar().toString()).toBe(input.replaceAll("\0", "\uFFFD"));
+      expect(appended.plain).toBe(false);
+      expect(appended.flatten().grammar().toString()).toBe(
+        `${input}\0tail`.replaceAll("\0", "\uFFFD"),
+      );
+    }
+  });
+
   it("reads appended chunks like one string", () => {
     const text = "alpha\nbeta $ gamma \\( delta\n".repeat(40);
     let chunked = SourceText.of("");
