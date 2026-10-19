@@ -29,18 +29,22 @@ export function arrayBinarySearch<T>(
 ): Result<number, number> {
   let lo = 0;
   let hi = arr.length;
+
   while (lo < hi) {
     const mid = (lo + hi) >>> 1;
     const cmp = compare(arr[mid], value);
+
     if (cmp === 0) {
       return ok(mid);
     }
+
     if (cmp < 0) {
       lo = mid + 1;
     } else {
       hi = mid;
     }
   }
+
   return err(lo);
 }
 
@@ -55,8 +59,10 @@ export function arrayContainsDuplicates<T>(arr: T[], compare?: (a: T, b: T) => b
   if (compare === undefined) {
     for (let i = 0; i < arr.length - 1; i++) {
       const a = arr[i];
+
       for (let j = i + 1; j < arr.length; j++) {
         const b = arr[j];
+
         if (deepEquals(a, b)) {
           return true;
         }
@@ -65,13 +71,16 @@ export function arrayContainsDuplicates<T>(arr: T[], compare?: (a: T, b: T) => b
   } else {
     for (let i = 0; i < arr.length - 1; i++) {
       const a = arr[i];
+
       for (let j = i + 1; j < arr.length; j++) {
         const b = arr[j];
+
         if (compare(a, b)) {
           return true;
         }
       }
     }
   }
+
   return false;
 }

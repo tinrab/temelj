@@ -1,8 +1,5 @@
 declare module "cloudflare:workers" {
-  export abstract class WorkflowEntrypoint<TEnv = unknown, TPayload = unknown> {
-    protected readonly env: TEnv;
-    abstract run(event: unknown, step: unknown): Promise<unknown>;
-  }
+  export const WorkflowEntrypoint: typeof import("@cloudflare/workers-types").CloudflareWorkersModule.WorkflowEntrypoint;
 }
 
 declare module "cloudflare:workflows" {

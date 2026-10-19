@@ -47,6 +47,7 @@ export function getStringHelpers(): HelperDeclareSpec {
       .params(ss.string(), ss.number(), ss.defaulted(ss.string(), "/"))
       .handle(([path, index]) => {
         const parts = path.split("/");
+
         return parts[index];
       }),
     splitPartSegment: createHelper()
@@ -55,13 +56,16 @@ export function getStringHelpers(): HelperDeclareSpec {
         const parts = path.split(separator);
         let result = "";
         const n = Math.min(to + 1, parts.length);
+
         for (let i = from; i < n; i++) {
           const part = parts[i];
           result += part;
+
           if (i < n - 1) {
             result += separator;
           }
         }
+
         return result;
       }),
 

@@ -2,31 +2,31 @@ import { validateStandardSchema, type Schema, type SchemaOutput } from "@temelj/
 
 import type {
   WorkflowDefinition,
-  WorkflowDefinitionConfig,
+  DefinitionConfig,
   WorkflowHandler,
   WorkflowImplementation,
-  WorkflowInputFromSchema,
-  WorkflowRawInputFromSchema,
-  WorkflowStartTarget,
+  InputFromSchema,
+  RawInputFromSchema,
+  StartTarget,
 } from "./types/definition.ts";
+import type { MessageId } from "./types/ids.ts";
 import type {
   SendMessageChannelOptions,
   MessageChannel,
   MessageChannelConfig,
-  MessageChannelKeyArgs,
   WaitForMessageChannelOptions,
-  MessageId,
+  WaitForMessageOptions,
 } from "./types/message.ts";
 
 /** Defines a durable workflow definition. */
 export function defineWorkflow<TInput = unknown, TOutput = unknown, TRawInput = TInput>(
-  config: WorkflowDefinitionConfig,
+  config: DefinitionConfig,
 ): WorkflowDefinition<TInput, TOutput, TRawInput>;
 
 /** Defines a durable workflow definition. */
 export function defineWorkflow<const TSchema extends Schema, TOutput = unknown>(
-  config: WorkflowDefinitionConfig<TSchema>,
-): WorkflowDefinition<SchemaOutput<TSchema>, TOutput, WorkflowRawInputFromSchema<TSchema, never>>;
+  config: DefinitionConfig<TSchema>,
+): WorkflowDefinition<SchemaOutput<TSchema>, TOutput, RawInputFromSchema<TSchema, never>>;
 
 /** Defines a durable workflow definition. */
 export function defineWorkflow<
@@ -35,53 +35,51 @@ export function defineWorkflow<
   TRawInput = TInput,
   const TSchema extends Schema | undefined = undefined,
 >(
-  config: WorkflowDefinitionConfig<TSchema>,
+  config: DefinitionConfig<TSchema>,
 ): WorkflowDefinition<
-  WorkflowInputFromSchema<TSchema, TInput>,
+  InputFromSchema<TSchema, TInput>,
   TOutput,
-  WorkflowRawInputFromSchema<TSchema, TRawInput>
+  RawInputFromSchema<TSchema, TRawInput>
 > {
   return {
     kind: "definition",
     config,
     name: config.name,
-    ...(config.version === undefined ? {} : { version: config.version }),
+    version: config.version,
   };
 }
 
 /** Creates a workflow definition from a resolved name and optional version. */
-export function defineWorkflowFromName<TInput = unknown, TOutput = unknown, TRawInput = TInput>(
+export function defineFromName<TInput = unknown, TOutput = unknown, TRawInput = TInput>(
   name: string,
   version?: string,
 ): WorkflowDefinition<TInput, TOutput, TRawInput> {
-  return defineWorkflow<TInput, TOutput, TRawInput>({
+  const config: DefinitionConfig = {
     name,
-    ...(version === undefined ? {} : { version }),
-  });
+    version,
+  };
+
+  return defineWorkflow<TInput, TOutput, TRawInput>(config);
 }
 
 /** Returns the durable definition for a workflow definition or implementation. */
-export function defineWorkflowFromTarget<TInput, TOutput, TRawInput>(
-  target: WorkflowStartTarget<TInput, TOutput, TRawInput>,
+export function defineFromTarget<TInput, TOutput, TRawInput>(
+  target: StartTarget<TInput, TOutput, TRawInput>,
 ): WorkflowDefinition<TInput, TOutput, TRawInput> {
   return target.kind === "implementation" ? target.definition : target;
 }
 
 /** Defines an executable workflow implementation from durable workflow config. */
 export function implementWorkflow<TInput = unknown, TOutput = unknown, TRawInput = TInput>(
-  config: WorkflowDefinitionConfig,
+  config: DefinitionConfig,
   handler: WorkflowHandler<TInput, TOutput>,
 ): WorkflowImplementation<TInput, TOutput, TRawInput>;
 
 /** Defines an executable workflow implementation from durable workflow config. */
 export function implementWorkflow<const TSchema extends Schema, TOutput = unknown>(
-  config: WorkflowDefinitionConfig<TSchema>,
+  config: DefinitionConfig<TSchema>,
   handler: WorkflowHandler<SchemaOutput<TSchema>, TOutput>,
-): WorkflowImplementation<
-  SchemaOutput<TSchema>,
-  TOutput,
-  WorkflowRawInputFromSchema<TSchema, never>
->;
+): WorkflowImplementation<SchemaOutput<TSchema>, TOutput, RawInputFromSchema<TSchema, never>>;
 
 /** Defines an executable workflow implementation from durable workflow config. */
 export function implementWorkflow<
@@ -90,115 +88,74 @@ export function implementWorkflow<
   TRawInput = TInput,
   const TSchema extends Schema | undefined = undefined,
 >(
-  config: WorkflowDefinitionConfig<TSchema>,
-  handler: WorkflowHandler<WorkflowInputFromSchema<TSchema, TInput>, TOutput>,
+  config: DefinitionConfig<TSchema>,
+  handler: WorkflowHandler<InputFromSchema<TSchema, TInput>, TOutput>,
 ): WorkflowImplementation<
-  WorkflowInputFromSchema<TSchema, TInput>,
+  InputFromSchema<TSchema, TInput>,
   TOutput,
-  WorkflowRawInputFromSchema<TSchema, TRawInput>
+  RawInputFromSchema<TSchema, TRawInput>
 > {
   const definition: WorkflowDefinition<
-    WorkflowInputFromSchema<TSchema, TInput>,
+    InputFromSchema<TSchema, TInput>,
     TOutput,
-    WorkflowRawInputFromSchema<TSchema, TRawInput>
+    RawInputFromSchema<TSchema, TRawInput>
   > = {
     kind: "definition",
     config,
     name: config.name,
-    ...(config.version === undefined ? {} : { version: config.version }),
+    version: config.version,
   };
+
   return {
     kind: "implementation",
     definition,
     config: definition.config,
     name: definition.name,
-    ...(definition.version === undefined ? {} : { version: definition.version }),
+    version: definition.version,
     handler,
   };
 }
 
-/** Defines workflow message channel for durable workflow use. */
-export function defineMessageChannel<
-  TPayload = unknown,
-  TKey = void,
-  const TSchema extends Schema | undefined = undefined,
->(
-  config: MessageChannelConfig<TKey, TSchema>,
-): MessageChannel<WorkflowInputFromSchema<TSchema, TPayload>, TKey> {
-  const name = config.name;
-
+/** Defines a message channel whose schema validates incoming payloads. */
+export function defineMessageChannel<TPayload, TRawPayload = unknown>(
+  config: MessageChannelConfig<TPayload, TRawPayload>,
+): MessageChannel<TPayload, TRawPayload> {
   return {
-    name,
-    ...(config.schema === undefined ? {} : { schema: config.schema }),
-    resolveMessageId: (...args: MessageChannelKeyArgs<TKey>) => {
-      const messageId = config.resolveMessageId?.(...args) ?? name;
-      return messageId;
-    },
+    name: config.name,
+    schema: config.schema,
   };
 }
 
-/** Normalizes and parses workflow message channel send. */
-export async function resolveMessageChannelSend<TPayload, TKey>(
-  channel: MessageChannel<TPayload, TKey>,
-  options: SendMessageChannelOptions<TPayload, TKey> = {},
-): Promise<{
+interface ResolvedMessageChannelSend<TPayload> {
   readonly messageId: MessageId;
   readonly payload?: TPayload;
   readonly idempotencyKey?: string;
-}> {
-  const payload =
-    channel.schema === undefined
-      ? options.payload
-      : ((await validateStandardSchema(
-          channel.schema,
-          options.payload,
-          "Workflow message validation failed",
-        )) as TPayload);
+}
+
+/** Validates a channel send and preserves its raw payload for the receiving schema. */
+export async function resolveMessageChannelSend<TPayload, TRawPayload>(
+  channel: MessageChannel<TPayload, TRawPayload>,
+  options: SendMessageChannelOptions<TRawPayload> = {},
+): Promise<ResolvedMessageChannelSend<TRawPayload>> {
+  const payload = options.payload;
+  await validateStandardSchema(channel.schema, payload, "Workflow message validation failed");
+
   return {
-    messageId: resolveMessageChannelMessageId(channel, options.key),
-    ...(payload === undefined ? {} : { payload }),
-    ...(options.idempotencyKey === undefined ? {} : { idempotencyKey: options.idempotencyKey }),
+    messageId: channel.name,
+    payload,
+    idempotencyKey: options.idempotencyKey,
   };
 }
 
-/** Normalizes and parses workflow message channel wait. */
-export function resolveMessageChannelWait<TKey>(
-  channel: MessageChannel<unknown, TKey>,
-  options: WaitForMessageChannelOptions<TKey> = {},
-) {
+export function resolveMessageChannelWait<TPayload>(
+  channel: MessageChannel<TPayload, unknown>,
+  options: WaitForMessageChannelOptions = {},
+): WaitForMessageOptions<Schema<unknown, TPayload>> {
   return {
     commandId: options.commandId ?? options.name ?? channel.name,
     name: options.name ?? channel.name,
-    messageId: resolveMessageChannelMessageId(channel, options.key),
-    ...(options.timeout === undefined ? {} : { timeout: options.timeout }),
-    ...(channel.schema === undefined ? {} : { schema: channel.schema }),
+    messageId: channel.name,
+    timeout: options.timeout,
+    schema: channel.schema,
   };
-}
-
-function resolveMessageChannelMessageId<TKey>(
-  channel: MessageChannel<unknown, TKey>,
-  key: TKey | undefined,
-): string {
-  return channel.resolveMessageId(...workflowMessageChannelKeyArgs(key));
-}
-
-function workflowMessageChannelKeyArgs<TKey>(key: TKey | undefined): MessageChannelKeyArgs<TKey> {
-  // TKey decides whether the channel resolver accepts an optional or required tuple.
-  return (key === undefined ? [] : [key]) as MessageChannelKeyArgs<TKey>;
-}
-
-/** Parses raw workflow input against the definition schema when one is configured. */
-export async function parseWorkflowInput<TInput>(
-  definition: WorkflowDefinition<TInput, unknown, unknown>,
-  input: unknown,
-): Promise<TInput> {
-  const schema = definition.config.schema;
-  if (schema === undefined) {
-    return input as TInput;
-  }
-  return (await validateStandardSchema(
-    schema,
-    input,
-    "Workflow input validation failed",
-  )) as TInput;
 }

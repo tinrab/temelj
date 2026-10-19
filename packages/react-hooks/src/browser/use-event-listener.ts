@@ -17,9 +17,11 @@ function resolveTarget<T extends EventTarget>(target: EventTargetLike<T>): T | u
   if (!target) {
     return undefined;
   }
+
   if ("current" in target) {
     return target.current ?? undefined;
   }
+
   return target;
 }
 
@@ -65,11 +67,14 @@ export function useEventListener(
   const handlerRef = useLatest(handler);
   React.useEffect(() => {
     const node = resolveTarget(target);
+
     if (!node) {
       return undefined;
     }
+
     const listener = (event: Event) => handlerRef.current(event);
     node.addEventListener(eventName, listener, options);
+
     return () => node.removeEventListener(eventName, listener, options);
   });
 }

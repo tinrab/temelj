@@ -2,12 +2,10 @@ import { type Deferred, defer } from "./defer";
 import { AbortError } from "./errors";
 
 interface QueueTask {
-  // oxlint-disable-next-line no-redundant-type-constituents
-  fn: () => PromiseLike<unknown> | unknown;
+  run: () => Promise<void>;
   priority: number;
   signal?: AbortSignal;
-  resolve: (value: unknown) => void;
-  reject: (reason?: unknown) => void;
+  reject: (cause?: unknown) => void;
 }
 
 interface QueueOptions {
@@ -20,6 +18,13 @@ interface AddOptions {
   signal?: AbortSignal;
 }
 
+/** Current queue counts and execution state. */
+export interface QueueState {
+  readonly size: number;
+  readonly pending: number;
+  readonly paused: boolean;
+}
+
 /**
  * A class-based task runner with priority support and concurrency control.
  */
@@ -29,11 +34,26 @@ export class Queue {
   #activeCount = 0;
   #paused: boolean;
   #idleDeferred?: Deferred<void>;
+  #listeners = new Set<() => void>();
+  #snapshot: QueueState;
 
   constructor(options?: QueueOptions) {
     this.#concurrency = options?.concurrency ?? Number.POSITIVE_INFINITY;
     this.#paused = options?.autoStart === false;
+    this.#snapshot = { size: 0, pending: 0, paused: this.#paused };
   }
+
+  /** Returns the same snapshot until queue state changes. */
+  getSnapshot = (): QueueState => this.#snapshot;
+
+  /** Subscribes to changes in waiting tasks, active tasks, or pause state. */
+  subscribe = (listener: () => void): (() => void) => {
+    this.#listeners.add(listener);
+
+    return () => {
+      this.#listeners.delete(listener);
+    };
+  };
 
   /**
    * Adds a task to the queue. Supports optional priority (higher executes sooner).
@@ -41,34 +61,45 @@ export class Queue {
   add<T>(fn: () => PromiseLike<T> | T, options?: AddOptions): Promise<T> {
     return new Promise<T>((resolve, reject) => {
       const signal = options?.signal;
+
       if (signal?.aborted) {
         reject(AbortError.create());
+
         return;
       }
 
       const task: QueueTask = {
-        fn: fn as () => unknown,
+        run: async () => {
+          const value = await fn();
+
+          if (signal?.aborted) {
+            AbortError.aborted();
+          }
+
+          resolve(value);
+        },
         priority: options?.priority ?? 0,
         signal,
-        resolve: resolve as (value: unknown) => void,
         reject,
       };
 
       if (signal) {
         const onAbort = () => {
           const index = this.#pending.indexOf(task);
+
           if (index !== -1) {
             this.#pending.splice(index, 1);
           }
-          reject(AbortError.create());
+
+          task.reject(AbortError.create());
+          this._notify();
+          this._checkIdle();
         };
+
         signal.addEventListener("abort", onAbort, { once: true });
 
-        const originalResolve = task.resolve;
-        task.resolve = (value) => {
-          signal.removeEventListener("abort", onAbort);
-          originalResolve(value);
-        };
+        const run = task.run;
+        task.run = () => run().finally(() => signal.removeEventListener("abort", onAbort));
 
         const originalReject = task.reject;
         task.reject = (reason) => {
@@ -79,6 +110,7 @@ export class Queue {
 
       this._enqueue(task);
       this._tryRun();
+      this._notify();
     });
   }
 
@@ -94,6 +126,7 @@ export class Queue {
    */
   pause(): void {
     this.#paused = true;
+    this._notify();
   }
 
   /**
@@ -102,13 +135,19 @@ export class Queue {
   resume(): void {
     this.#paused = false;
     this._tryRun();
+    this._notify();
   }
 
   /**
-   * Clears all pending tasks. Active tasks are not affected.
+   * Rejects pending tasks with AbortError. Active tasks continue.
    */
   clear(): void {
+    const tasks = this.#pending;
     this.#pending = [];
+
+    for (const task of tasks) task.reject(AbortError.create());
+    this._notify();
+    this._checkIdle();
   }
 
   /**
@@ -132,14 +171,17 @@ export class Queue {
     if (this.#activeCount === 0 && this.#pending.length === 0) {
       return Promise.resolve();
     }
+
     if (!this.#idleDeferred) {
       this.#idleDeferred = defer<void>();
     }
+
     return this.#idleDeferred.promise;
   }
 
   private _enqueue(task: QueueTask): void {
     let inserted = false;
+
     for (let i = 0; i < this.#pending.length; i++) {
       if (task.priority > this.#pending[i].priority) {
         this.#pending.splice(i, 0, task);
@@ -147,6 +189,7 @@ export class Queue {
         break;
       }
     }
+
     if (!inserted) {
       this.#pending.push(task);
     }
@@ -157,6 +200,7 @@ export class Queue {
 
     while (this.#activeCount < this.#concurrency && this.#pending.length > 0) {
       const task = this.#pending.shift();
+
       if (!task) break;
 
       if (task.signal?.aborted) {
@@ -170,31 +214,19 @@ export class Queue {
   }
 
   private _runTask(task: QueueTask): void {
-    let aborted = false;
-
-    function onAbort() {
-      aborted = true;
-    }
-
-    task.signal?.addEventListener("abort", onAbort, { once: true });
-
-    Promise.try(task.fn).then(
-      (value) => {
-        task.signal?.removeEventListener("abort", onAbort);
+    task.run().then(
+      () => {
         this.#activeCount--;
-        if (aborted) {
-          task.reject(AbortError.create());
-        } else {
-          task.resolve(value);
-        }
+
         this._tryRun();
+        this._notify();
         this._checkIdle();
       },
       (error) => {
-        task.signal?.removeEventListener("abort", onAbort);
         this.#activeCount--;
         task.reject(error);
         this._tryRun();
+        this._notify();
         this._checkIdle();
       },
     );
@@ -205,5 +237,19 @@ export class Queue {
       this.#idleDeferred?.resolve();
       this.#idleDeferred = undefined;
     }
+  }
+
+  private _notify(): void {
+    const next = { size: this.size, pending: this.pending, paused: this.#paused };
+
+    if (
+      next.size === this.#snapshot.size &&
+      next.pending === this.#snapshot.pending &&
+      next.paused === this.#snapshot.paused
+    )
+      return;
+    this.#snapshot = next;
+
+    for (const listener of this.#listeners) listener();
   }
 }

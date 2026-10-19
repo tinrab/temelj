@@ -160,14 +160,16 @@ export abstract class EntryCountCache<K, V> implements Cache<K, V> {
 }
 
 export function firstKey<K>(values: Map<K, unknown>): K | undefined {
-  return values.keys().next().value as K | undefined;
+  return values.keys().next().value;
 }
 
 export function lastKey<K>(values: Map<K, unknown>): K | undefined {
   let found: K | undefined;
+
   for (const key of values.keys()) {
     found = key;
   }
+
   return found;
 }
 

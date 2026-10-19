@@ -1,39 +1,32 @@
-import type { EventHandler, EventPattern, Unsubscribe } from "@temelj/event";
+import type { EventHandler, EventPattern } from "@temelj/event";
 import type { StorageValue } from "@temelj/storage";
 
 import type { CleanupRunsResult } from "./cleanup.ts";
+import type { WorkflowErrorRecord } from "./error.ts";
 import type {
   ChildWorkflowStartedEvent,
   EventRecord,
   MessageSentEvent,
-  StreamFailedError,
   StreamEventKind,
 } from "./events.ts";
-import type { MessageId } from "./message-id.ts";
-import type { RunId, WorkflowLifecycleEvent, WorkflowRunRecord } from "./run.ts";
+import type { HookKind } from "./hook.ts";
+import type { MessageId, RunId, StreamId, WorkerId } from "./ids.ts";
+import type { WorkflowLifecycleEvent, RunRecord } from "./run.ts";
 import type { ScheduleId, TickSchedulesResult } from "./schedule.ts";
-import type { WorkflowStepAttemptRecord } from "./step-attempts.ts";
-import type { StreamId } from "./stream-id.ts";
+import type { StepAttemptRecord } from "./step-attempts.ts";
 import type { TelemetryContext } from "./telemetry.ts";
-import type { WorkerId } from "./worker-id.ts";
 
-/** Describes the workflow run observation event contract. */
-export type RunObservationEvent = WorkflowLifecycleEvent;
-
-/** Describes the workflow durable event observation event contract. */
 export interface DurableEventObservationEvent {
   readonly runId: RunId;
   readonly event: EventRecord;
   readonly events: readonly EventRecord[];
 }
 
-/** Describes the workflow step attempt observation event contract. */
 export interface StepAttemptObservationEvent {
   readonly runId: RunId;
-  readonly attempt: WorkflowStepAttemptRecord;
+  readonly attempt: StepAttemptRecord;
 }
 
-/** Describes the workflow message observation event contract. */
 export interface MessageObservationEvent {
   readonly runId: RunId;
   readonly messageId: MessageId;
@@ -42,7 +35,6 @@ export interface MessageObservationEvent {
   readonly traceContext?: TelemetryContext;
 }
 
-/** Describes the workflow resume observation event contract. */
 export interface ResumeObservationEvent {
   readonly runId: RunId;
   readonly messageId: MessageId;
@@ -50,7 +42,6 @@ export interface ResumeObservationEvent {
   readonly traceContext?: TelemetryContext;
 }
 
-/** Describes the workflow stream observation event contract. */
 export interface StreamObservationEvent {
   readonly runId: RunId;
   readonly streamId: StreamId;
@@ -60,16 +51,14 @@ export interface StreamObservationEvent {
   readonly stepId: string;
   readonly stepName: string;
   readonly index?: number;
-  readonly error?: StreamFailedError;
+  readonly error?: WorkflowErrorRecord;
 }
 
-/** Describes a child workflow start observation event. */
 export interface ChildWorkflowStartedObservationEvent {
   readonly runId: RunId;
   readonly event: ChildWorkflowStartedEvent;
 }
 
-/** Describes the workflow cleanup observation event contract. */
 export interface CleanupObservationEvent {
   readonly result: CleanupRunsResult;
 }
@@ -81,7 +70,7 @@ export interface WorkerOperationObservationEvent {
   readonly operation: "poll" | "claim" | "heartbeat" | "lease_extension" | "lease_release";
   readonly status: "success" | "failure" | "claimed" | "empty";
   readonly timestamp: Temporal.Instant;
-  readonly run?: WorkflowRunRecord;
+  readonly run?: RunRecord;
   readonly error?: unknown;
 }
 
@@ -101,21 +90,20 @@ export interface ScheduleTickObservationEvent {
   readonly timestamp: Temporal.Instant;
 }
 
-/** Describes the workflow observation event map contract. */
 export interface ObservationEventMap {
-  readonly "workflow:run-created": RunObservationEvent;
-  readonly "workflow:run-claimed": RunObservationEvent;
-  readonly "workflow:run-started": RunObservationEvent;
-  readonly "workflow:run-waiting": RunObservationEvent;
-  readonly "workflow:run-rescheduled": RunObservationEvent;
-  readonly "workflow:run-lease-released": RunObservationEvent;
-  readonly "workflow:run-manual-retry": RunObservationEvent;
-  readonly "workflow:run-permanently-failed": RunObservationEvent;
-  readonly "workflow:run-retrying": RunObservationEvent;
-  readonly "workflow:run-completed": RunObservationEvent;
-  readonly "workflow:run-failed": RunObservationEvent;
-  readonly "workflow:run-canceled": RunObservationEvent;
-  readonly "workflow:run-metadata-updated": RunObservationEvent;
+  readonly "workflow:run-created": WorkflowLifecycleEvent;
+  readonly "workflow:run-claimed": WorkflowLifecycleEvent;
+  readonly "workflow:run-started": WorkflowLifecycleEvent;
+  readonly "workflow:run-waiting": WorkflowLifecycleEvent;
+  readonly "workflow:run-rescheduled": WorkflowLifecycleEvent;
+  readonly "workflow:run-lease-released": WorkflowLifecycleEvent;
+  readonly "workflow:run-manual-retry": WorkflowLifecycleEvent;
+  readonly "workflow:run-permanently-failed": WorkflowLifecycleEvent;
+  readonly "workflow:run-retrying": WorkflowLifecycleEvent;
+  readonly "workflow:run-completed": WorkflowLifecycleEvent;
+  readonly "workflow:run-failed": WorkflowLifecycleEvent;
+  readonly "workflow:run-canceled": WorkflowLifecycleEvent;
+  readonly "workflow:run-metadata-updated": WorkflowLifecycleEvent;
   readonly "workflow:durable-event-appended": DurableEventObservationEvent;
   readonly "workflow:step-attempt-updated": StepAttemptObservationEvent;
   readonly "workflow:message-sent": MessageObservationEvent;
@@ -130,16 +118,16 @@ export interface ObservationEventMap {
   readonly "workflow:schedule-run-created": ScheduleRunCreatedObservationEvent;
 }
 
-/** Type used for workflow observation event pattern values. */
+/** An observation name paired with its corresponding payload. */
+export type ObservationEventArgs = {
+  [Key in keyof ObservationEventMap]: [name: Key, payload: ObservationEventMap[Key]];
+}[keyof ObservationEventMap];
+
 export type ObservationEventPattern = EventPattern<ObservationEventMap>;
 
-/** Type used for workflow observation event handler values. */
 export type ObservationEventHandler<
   Pattern extends ObservationEventPattern = ObservationEventPattern,
 > = EventHandler<ObservationEventMap, Pattern>;
-
-/** Type used for workflow observation unsubscribe values. */
-export type ObservationUnsubscribe = Unsubscribe;
 
 /** Internal emitter facade used to publish workflow observation events. */
 export interface ObservationEmitter {
@@ -163,11 +151,8 @@ export interface ObservationEmitter {
   };
   readonly clearListeners: (pattern?: ObservationEventPattern) => void;
   readonly listenerCount: (pattern?: ObservationEventPattern) => number;
-  readonly emitRunEvent: (run: WorkflowRunRecord, previousRun?: WorkflowRunRecord) => void;
-  readonly emitRunMetadataUpdated: (
-    run: WorkflowRunRecord,
-    previousRun?: WorkflowRunRecord,
-  ) => void;
+  readonly emitRunEvent: (run: RunRecord, previousRun?: RunRecord) => void;
+  readonly emitRunMetadataUpdated: (run: RunRecord, previousRun?: RunRecord) => void;
   readonly emitDurableEventAppended: (
     runId: RunId,
     event: EventRecord,
@@ -175,12 +160,7 @@ export interface ObservationEmitter {
   ) => void;
   readonly emitMessageSent: (runId: RunId, event: MessageSentEvent) => void;
   readonly emitHookResumed: (
-    runId: RunId,
-    messageId: MessageId,
-    payload: StorageValue | undefined,
-    traceContext: TelemetryContext | undefined,
-  ) => void;
-  readonly emitWebhookResumed: (
+    kind: HookKind,
     runId: RunId,
     messageId: MessageId,
     payload: StorageValue | undefined,

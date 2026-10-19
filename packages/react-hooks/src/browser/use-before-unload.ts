@@ -11,12 +11,16 @@ export function useBeforeUnload(enabled: boolean, message = ""): void {
 
   React.useEffect(() => {
     if (!enabled || !isBrowser) return undefined;
+
     const handler = (event: BeforeUnloadEvent) => {
       event.preventDefault();
       event.returnValue = messageRef.current;
+
       return messageRef.current;
     };
+
     window.addEventListener("beforeunload", handler);
+
     return () => window.removeEventListener("beforeunload", handler);
   }, [enabled, messageRef]);
 }

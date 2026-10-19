@@ -8,7 +8,7 @@ import { AbortError } from "./errors";
  */
 export function attempt<T, Args extends unknown[]>(
   fn: (...args: Args) => T | PromiseLike<T>,
-  args: Args = [] as unknown as Args,
+  args: Args,
   options?: StandardOptions,
 ): Promise<T> {
   if (options?.signal?.aborted) {
@@ -19,6 +19,7 @@ export function attempt<T, Args extends unknown[]>(
     if (options?.signal?.aborted) {
       AbortError.aborted();
     }
+
     return result;
   });
 }

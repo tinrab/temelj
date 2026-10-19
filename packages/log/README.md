@@ -37,4 +37,15 @@ $ deno add jsr:@temelj/log # or jsr add @temelj/log
 
 ## About
 
+Attributes accept primitive values, arrays, records, dates, Temporal instants, and errors. Formatting converts them to JSON values, omits undefined object fields, and marks circular references.
+
+Pass caught errors separately from attributes:
+
+```ts
+logger.error("Payment failed", cause, { operation: "charge" });
+logger.fatal("Server stopped", cause, { service: "api" });
+```
+
+`error` and `fatal` accept any thrown cause. Non-Error causes use the name `ThrownValue` and a string message. Error causes preserve primitive values and serialize nested errors.
+
 This package is part of [Temelj](https://github.com/tinrab/temelj) - a core library for TypeScript.

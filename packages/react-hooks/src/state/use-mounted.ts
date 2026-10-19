@@ -8,6 +8,7 @@ export function useMounted(): () => boolean {
 
   React.useEffect(() => {
     mountedRef.current = true;
+
     return () => {
       mountedRef.current = false;
     };

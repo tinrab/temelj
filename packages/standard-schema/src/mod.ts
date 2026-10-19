@@ -1,5 +1,7 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 
+import { isString, isNumber, isBoolean, isFunction, isObject } from "@temelj/value";
+
 export type Schema<TInput = unknown, TOutput = TInput> = StandardSchemaV1<TInput, TOutput>;
 
 export type SchemaInput<TSchema extends Schema> = StandardSchemaV1.InferInput<TSchema>;
@@ -10,16 +12,17 @@ export type SchemaResult<TOutput> = StandardSchemaV1.Result<TOutput>;
 
 export type SchemaIssue = StandardSchemaV1.Issue;
 
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Standard Schema validators receive untrusted input before validating it.
 export type SchemaValidator<TOutput> = (value: unknown) => SchemaResult<TOutput>;
 
-export type SchemaShape = Record<string, Schema>;
+export type SchemaFields = Record<string, Schema>;
 
-export type ObjectOutput<TShape extends SchemaShape> = {
-  readonly [TKey in keyof TShape]: SchemaOutput<TShape[TKey]>;
+export type ObjectOutput<TFields extends SchemaFields> = {
+  readonly [TKey in keyof TFields]: SchemaOutput<TFields[TKey]>;
 };
 
-export type ObjectInput<TShape extends SchemaShape> = {
-  readonly [TKey in keyof TShape]: SchemaInput<TShape[TKey]>;
+export type ObjectInput<TFields extends SchemaFields> = {
+  readonly [TKey in keyof TFields]: SchemaInput<TFields[TKey]>;
 };
 
 export type SafeParseResult<T> =
@@ -59,7 +62,7 @@ export function failure(
     issues: [
       {
         message,
-        ...(path === undefined ? {} : { path }),
+        path,
       },
     ],
   };
@@ -103,26 +106,32 @@ export class StandardSchemaAsyncValidationError extends Error {
 
 export async function validateStandardSchema<TSchema extends Schema>(
   inputSchema: TSchema,
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Schema validation is the boundary that converts untrusted input to its declared output.
   value: unknown,
   message: string = "Schema validation failed",
 ): Promise<SchemaOutput<TSchema>> {
   const result = await inputSchema["~standard"].validate(value);
+
   if (!result.issues) {
+    // SAFETY: this success result was returned by the supplied TSchema validator.
     return result.value as SchemaOutput<TSchema>;
   }
+
   StandardSchemaValidationError.failed(message, result.issues);
 }
 
 export function validateStandardSchemaSync<TSchema extends Schema>(
   inputSchema: TSchema,
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Schema validation is the boundary that converts untrusted input to its declared output.
   value: unknown,
   message: string = "Schema validation failed",
 ): SchemaOutput<TSchema> {
-  const result = inputSchema["~standard"].validate(value);
-  ensureSynchronous(result);
+  const result = evaluate(inputSchema, value);
+
   if (!result.issues) {
-    return result.value as SchemaOutput<TSchema>;
+    return result.value;
   }
+
   StandardSchemaValidationError.failed(message, result.issues);
 }
 
@@ -131,6 +140,8 @@ export async function safeParse<TSchema extends Schema>(
   value: SchemaInput<TSchema>,
 ): Promise<SafeParseResult<SchemaOutput<TSchema>>> {
   const result = await inputSchema["~standard"].validate(value);
+
+  // SAFETY: the success value was returned by the supplied TSchema validator.
   return result.issues
     ? { success: false, issues: result.issues }
     : { success: true, value: result.value as SchemaOutput<TSchema> };
@@ -140,11 +151,11 @@ export function safeParseSync<TSchema extends Schema>(
   inputSchema: TSchema,
   value: SchemaInput<TSchema>,
 ): SafeParseResult<SchemaOutput<TSchema>> {
-  const result = inputSchema["~standard"].validate(value);
-  ensureSynchronous(result);
+  const result = evaluate(inputSchema, value);
+
   return result.issues
     ? { success: false, issues: result.issues }
-    : { success: true, value: result.value as SchemaOutput<TSchema> };
+    : { success: true, value: result.value };
 }
 
 export async function parse<TSchema extends Schema>(
@@ -168,11 +179,11 @@ export function unknown(): Schema<unknown> {
 }
 
 export function string(message: string = "Expected a string"): Schema<unknown, string> {
-  return schema((value) => (typeof value === "string" ? success(value) : failure(message)));
+  return schema((value) => (isString(value) ? success(value) : failure(message)));
 }
 
 export function number(message: string = "Expected a number"): Schema<unknown, number> {
-  return schema((value) => (typeof value === "number" ? success(value) : failure(message)));
+  return schema((value) => (isNumber(value) ? success(value) : failure(message)));
 }
 
 export function finite(message: string = "Expected a finite number"): Schema<unknown, number> {
@@ -240,17 +251,11 @@ export function nonBlankString(
 }
 
 export function boolean(message: string = "Expected a boolean"): Schema<unknown, boolean> {
-  return schema((value) => (typeof value === "boolean" ? success(value) : failure(message)));
+  return schema((value) => (isBoolean(value) ? success(value) : failure(message)));
 }
 
-export function fn(
-  message: string = "Expected a function",
-): Schema<unknown, (...args: readonly unknown[]) => unknown> {
-  return schema((value) =>
-    typeof value === "function"
-      ? success(value as (...args: readonly unknown[]) => unknown)
-      : failure(message),
-  );
+export function fn(message: string = "Expected a function"): Schema<unknown, Function> {
+  return schema((value) => (isFunction(value) ? success(value) : failure(message)));
 }
 
 export function instanceOf<T>(
@@ -271,11 +276,11 @@ export function picklist<const TValues extends readonly [unknown, ...unknown[]]>
   values: TValues,
   message: string = `Expected one of ${values.map(String).join(", ")}`,
 ): Schema<unknown, TValues[number]> {
-  return schema((value) =>
-    values.some((item) => Object.is(item, value))
-      ? success(value as TValues[number])
-      : failure(message),
-  );
+  return schema((value) => {
+    const match = values.findIndex((item) => Object.is(item, value));
+
+    return match === -1 ? failure(message) : success(values[match]);
+  });
 }
 
 export function union<const TSchemas extends readonly [Schema, ...Schema[]]>(
@@ -283,47 +288,46 @@ export function union<const TSchemas extends readonly [Schema, ...Schema[]]>(
   message: string = "Expected a union match",
 ): Schema<unknown, SchemaOutput<TSchemas[number]>> {
   return schema((value) => {
-    const issues: SchemaIssue[] = [];
-
     for (const itemSchema of schemas) {
-      const result:
-        | SchemaResult<SchemaOutput<TSchemas[number]>>
-        | Promise<SchemaResult<SchemaOutput<TSchemas[number]>>> =
-        itemSchema["~standard"].validate(value);
-      ensureSynchronous(result);
+      const result = evaluate<TSchemas[number]>(itemSchema, value);
+
       if (!result.issues) {
-        return success(result.value as SchemaOutput<TSchemas[number]>);
+        return success(result.value);
       }
-      issues.push(...result.issues);
     }
 
-    return issues.length > 0 ? failure(message) : failure(message);
+    return failure(message);
   });
 }
 
-export function array<TItem extends Schema = Schema<unknown>>(
+export function array(): Schema<unknown, unknown[]>;
+export function array<TItem extends Schema>(
+  itemSchema: TItem,
+  message?: string,
+): Schema<unknown, SchemaOutput<TItem>[]>;
+export function array<TItem extends Schema>(
   itemSchema?: TItem,
   message: string = "Expected an array",
-): Schema<unknown, SchemaOutput<TItem>[]> {
+): Schema<unknown, unknown[]> {
   return schema((value) => {
     if (!Array.isArray(value)) {
       return failure(message);
     }
 
     if (itemSchema === undefined) {
-      return success(value as SchemaOutput<TItem>[]);
+      return success(value);
     }
 
     const output: SchemaOutput<TItem>[] = [];
     const issues: SchemaIssue[] = [];
+
     for (let index = 0; index < value.length; index++) {
-      const result: SchemaResult<SchemaOutput<TItem>> | Promise<SchemaResult<SchemaOutput<TItem>>> =
-        itemSchema["~standard"].validate(value[index]);
-      ensureSynchronous(result);
+      const result: SchemaResult<SchemaOutput<TItem>> = evaluate(itemSchema, value[index]);
+
       if (result.issues) {
         issues.push(...result.issues.map((issue: SchemaIssue) => withPath(index, issue)));
       } else {
-        output.push(result.value as SchemaOutput<TItem>);
+        output.push(result.value);
       }
     }
 
@@ -331,63 +335,82 @@ export function array<TItem extends Schema = Schema<unknown>>(
   });
 }
 
-export function object<TShape extends SchemaShape>(
-  shape: TShape,
+export function object<TFields extends SchemaFields>(
+  fields: TFields,
   message: string = "Expected an object",
   options: ObjectOptions = {},
-): Schema<unknown, ObjectOutput<TShape>> {
+): Schema<unknown, ObjectOutput<TFields>> {
   return schema((value) => {
-    if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    if (!isObject(value) || Array.isArray(value)) {
       return failure(message);
     }
 
-    const input = value as Record<string, unknown>;
-    const output: Record<string, unknown> =
-      options.unknownKeys === "passthrough" ? { ...input } : {};
+    // SAFETY: the object check above establishes key lookup; each field remains unknown until its schema validates it.
+    // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- Temporary untrusted object at the schema parsing boundary.
+    const input = value as Record<PropertyKey, unknown>;
+
+    const output: Partial<{ -readonly [K in keyof TFields]: SchemaOutput<TFields[K]> }> = {};
+
+    if (options.unknownKeys === "passthrough") {
+      for (const key of Reflect.ownKeys(input)) {
+        if (!Object.prototype.propertyIsEnumerable.call(input, key)) {
+          continue;
+        }
+
+        Object.defineProperty(output, key, {
+          value: input[key],
+          enumerable: true,
+          writable: true,
+          configurable: true,
+        });
+      }
+    }
+
     const issues: SchemaIssue[] = [];
-    const shapeKeys = Object.keys(shape);
+    const fieldKeys = Object.keys(fields);
 
     if (options.unknownKeys === "strict") {
       for (const key of Object.keys(input)) {
-        if (!shapeKeys.includes(key)) {
+        if (!fieldKeys.includes(key)) {
           issues.push({ message: "Unexpected key", path: [key] });
         }
       }
     }
 
-    for (const key of shapeKeys as Array<keyof TShape & string>) {
-      const result:
-        | SchemaResult<SchemaOutput<TShape[typeof key]>>
-        | Promise<SchemaResult<SchemaOutput<TShape[typeof key]>>> = shape[key][
-        "~standard"
-      ].validate(input[key]);
-      ensureSynchronous(result);
+    // SAFETY: these are the enumerable keys of the supplied field schema object.
+    for (const key of fieldKeys as Array<keyof TFields & string>) {
+      const hasOwnField = Object.prototype.hasOwnProperty.call(input, key);
+      const result = evaluate(fields[key], hasOwnField ? input[key] : undefined);
+
       if (result.issues) {
         issues.push(...result.issues.map((issue: SchemaIssue) => withPath(key, issue)));
-      } else if (key in input || result.value !== undefined) {
-        output[key] = result.value as ObjectOutput<TShape>[typeof key];
+      } else if (hasOwnField || result.value !== undefined) {
+        Object.defineProperty(output, key, {
+          value: result.value,
+          enumerable: true,
+          writable: true,
+          configurable: true,
+        });
       }
     }
 
-    return issues.length > 0 ? { issues } : success(output as ObjectOutput<TShape>);
+    // SAFETY: all schema fields have succeeded; absent optional fields are represented by undefined in ObjectOutput.
+    return issues.length > 0 ? { issues } : success(output as ObjectOutput<TFields>);
   });
 }
 
-export function strictObject<TShape extends SchemaShape>(
-  shape: TShape,
+export function strictObject<TFields extends SchemaFields>(
+  fields: TFields,
   message: string = "Expected an object",
-): Schema<unknown, ObjectOutput<TShape>> {
-  return object(shape, message, { unknownKeys: "strict" });
+): Schema<unknown, ObjectOutput<TFields>> {
+  return object(fields, message, { unknownKeys: "strict" });
 }
 
-export function looseObject<TShape extends SchemaShape>(
-  shape: TShape,
+export function looseObject<TFields extends SchemaFields>(
+  fields: TFields,
   message: string = "Expected an object",
-): Schema<unknown, ObjectOutput<TShape> & Record<string, unknown>> {
-  return object(shape, message, { unknownKeys: "passthrough" }) as Schema<
-    unknown,
-    ObjectOutput<TShape> & Record<string, unknown>
-  >;
+): Schema<unknown, ObjectOutput<TFields>> {
+  return object(fields, message, { unknownKeys: "passthrough" });
 }
 
 export function record<TValue extends Schema>(
@@ -395,21 +418,20 @@ export function record<TValue extends Schema>(
   message: string = "Expected an object",
 ): Schema<unknown, Record<string, SchemaOutput<TValue>>> {
   return schema((value) => {
-    if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    if (!isObject(value) || Array.isArray(value)) {
       return failure(message);
     }
 
     const output: Record<string, SchemaOutput<TValue>> = {};
     const issues: SchemaIssue[] = [];
+
     for (const [key, item] of Object.entries(value)) {
-      const result:
-        | SchemaResult<SchemaOutput<TValue>>
-        | Promise<SchemaResult<SchemaOutput<TValue>>> = valueSchema["~standard"].validate(item);
-      ensureSynchronous(result);
+      const result = evaluate(valueSchema, item);
+
       if (result.issues) {
         issues.push(...result.issues.map((issue: SchemaIssue) => withPath(key, issue)));
       } else {
-        output[key] = result.value as SchemaOutput<TValue>;
+        output[key] = result.value;
       }
     }
 
@@ -425,29 +447,34 @@ export function optional<TSchema extends Schema>(
       return success(undefined);
     }
 
-    const result = inner["~standard"].validate(value);
-    ensureSynchronous(result);
+    const result = evaluate(inner, value);
+
     return result;
   });
 }
 
 export function defaulted<TSchema extends Schema>(
   inner: TSchema,
-  defaultValue: SchemaOutput<TSchema> | (() => SchemaOutput<TSchema>),
+  defaultValue: SchemaOutput<TSchema>,
 ): Schema<unknown, SchemaOutput<TSchema>> {
   return schema((value) => {
     if (value === undefined) {
-      return success(
-        typeof defaultValue === "function"
-          ? (defaultValue as () => SchemaOutput<TSchema>)()
-          : defaultValue,
-      );
+      return success(defaultValue);
     }
 
-    const result = inner["~standard"].validate(value);
-    ensureSynchronous(result);
+    const result = evaluate(inner, value);
+
     return result;
   });
+}
+
+export function defaultedWith<TSchema extends Schema>(
+  inner: TSchema,
+  createDefault: () => SchemaOutput<TSchema>,
+): Schema<unknown, SchemaOutput<TSchema>> {
+  return schema((value) =>
+    value === undefined ? success(createDefault()) : evaluate(inner, value),
+  );
 }
 
 export function refine<TSchema extends Schema, TOutput extends SchemaOutput<TSchema>>(
@@ -466,12 +493,13 @@ export function refine<TSchema extends Schema>(
   message: string = "Invalid value",
 ): Schema<SchemaInput<TSchema>, SchemaOutput<TSchema>> {
   return schema((value) => {
-    const result = inner["~standard"].validate(value);
-    ensureSynchronous(result);
+    const result = evaluate(inner, value);
+
     if (result.issues) {
       return result;
     }
-    return predicate(result.value as SchemaOutput<TSchema>) ? result : failure(message);
+
+    return predicate(result.value) ? result : failure(message);
   });
 }
 
@@ -480,12 +508,13 @@ export function transform<TSchema extends Schema, TOutput>(
   mapper: (value: SchemaOutput<TSchema>) => TOutput,
 ): Schema<SchemaInput<TSchema>, TOutput> {
   return schema((value) => {
-    const result = inner["~standard"].validate(value);
-    ensureSynchronous(result);
+    const result = evaluate(inner, value);
+
     if (result.issues) {
       return result;
     }
-    return success(mapper(result.value as SchemaOutput<TSchema>));
+
+    return success(mapper(result.value));
   });
 }
 
@@ -494,48 +523,70 @@ export function pipe<TLeft extends Schema, TRight extends Schema>(
   right: TRight,
 ): Schema<SchemaInput<TLeft>, SchemaOutput<TRight>> {
   return schema((value) => {
-    const leftResult = left["~standard"].validate(value);
-    ensureSynchronous(leftResult);
+    const leftResult = evaluate(left, value);
+
     if (leftResult.issues) {
       return leftResult;
     }
-    const rightResult = right["~standard"].validate(leftResult.value as SchemaOutput<TLeft>);
-    ensureSynchronous(rightResult);
-    return rightResult as SchemaResult<SchemaOutput<TRight>>;
+
+    const rightResult = evaluate(right, leftResult.value);
+
+    return rightResult;
   });
 }
 
-export function extend<TBase extends SchemaShape, TExtension extends SchemaShape>(
+export function extend<TBase extends SchemaFields, TExtension extends SchemaFields>(
   base: TBase,
   extension: TExtension,
-): TBase & TExtension {
+): Omit<TBase, keyof TExtension> & TExtension {
   return { ...base, ...extension };
 }
 
-export function pick<TShape extends SchemaShape, const TKeys extends readonly (keyof TShape)[]>(
-  shape: TShape,
+export function pick<TFields extends SchemaFields, const TKeys extends readonly (keyof TFields)[]>(
+  fields: TFields,
   keys: TKeys,
-): Pick<TShape, TKeys[number]> {
-  return Object.fromEntries(keys.map((key) => [key, shape[key]])) as Pick<TShape, TKeys[number]>;
+): Pick<TFields, TKeys[number]> {
+  // SAFETY: each requested key is constrained to TFields and is copied with its corresponding schema.
+  return Object.fromEntries(keys.map((key) => [key, fields[key]])) as Pick<TFields, TKeys[number]>;
 }
 
-export function omit<TShape extends SchemaShape, const TKeys extends readonly (keyof TShape)[]>(
-  shape: TShape,
+export function omit<TFields extends SchemaFields, const TKeys extends readonly (keyof TFields)[]>(
+  fields: TFields,
   keys: TKeys,
-): Omit<TShape, TKeys[number]> {
-  const keySet = new Set<PropertyKey>(keys as readonly PropertyKey[]);
-  return Object.fromEntries(Object.entries(shape).filter(([key]) => !keySet.has(key))) as Omit<
-    TShape,
-    TKeys[number]
-  >;
+): Omit<TFields, TKeys[number]> {
+  const result = { ...fields };
+
+  for (const key of keys) {
+    delete result[key];
+  }
+
+  return result;
 }
 
-export function partial<TShape extends SchemaShape>(
-  shape: TShape,
-): { readonly [TKey in keyof TShape]: Schema<unknown, SchemaOutput<TShape[TKey]> | undefined> } {
-  return Object.fromEntries(
-    Object.entries(shape).map(([key, value]) => [key, optional(value)]),
-  ) as { readonly [TKey in keyof TShape]: Schema<unknown, SchemaOutput<TShape[TKey]> | undefined> };
+export function partial<TFields extends SchemaFields>(
+  fields: TFields,
+): { readonly [TKey in keyof TFields]: Schema<unknown, SchemaOutput<TFields[TKey]> | undefined> } {
+  const entries = Reflect.ownKeys(fields).map((key) => {
+    // SAFETY: key is an own key of the supplied field schema object.
+    return [key, optional(fields[key as keyof TFields])];
+  });
+
+  // SAFETY: each own field is preserved under its key and optional retains its output type while adding undefined.
+  return Object.fromEntries(entries) as {
+    readonly [TKey in keyof TFields]: Schema<unknown, SchemaOutput<TFields[TKey]> | undefined>;
+  };
+}
+
+function evaluate<TSchema extends Schema>(
+  inputSchema: TSchema,
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- This helper invokes the schema validator on untrusted input.
+  value: unknown,
+): SchemaResult<SchemaOutput<TSchema>> {
+  const result = inputSchema["~standard"].validate(value);
+  ensureSynchronous(result);
+
+  // SAFETY: StandardSchemaV1 ties the validator success type to TSchema's declared output.
+  return result as SchemaResult<SchemaOutput<TSchema>>;
 }
 
 function ensureSynchronous<T>(value: T | Promise<T>): asserts value is T {
@@ -589,6 +640,7 @@ export const ss = {
   record,
   optional,
   defaulted,
+  defaultedWith,
   refine,
   transform,
   pipe,

@@ -12,6 +12,7 @@ export function useOrientation(): { angle: number; type: string } {
     if (!isBrowser) {
       return undefined;
     }
+
     const update = () => {
       if (window.screen?.orientation) {
         setOrientation({
@@ -22,9 +23,11 @@ export function useOrientation(): { angle: number; type: string } {
         setOrientation({ angle: 0, type: "unknown" });
       }
     };
+
     update();
     window.screen?.orientation?.addEventListener("change", update);
     window.addEventListener("orientationchange", update);
+
     return () => {
       window.screen?.orientation?.removeEventListener("change", update);
       window.removeEventListener("orientationchange", update);

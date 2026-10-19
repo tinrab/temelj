@@ -8,9 +8,9 @@ export class ValueConversionError extends Error {
     }
   }
 
-  static notPrimitive(this: void, value: unknown): never {
+  static notPrimitive(this: void, description: string): never {
     throw new ValueConversionError(
-      `Cannot convert value to primitive: ${JSON.stringify(value)}`,
+      `Cannot convert value to primitive: ${description}`,
       ValueConversionError.notPrimitive,
     );
   }

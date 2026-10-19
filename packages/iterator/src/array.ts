@@ -1,4 +1,4 @@
-import { deepEquals, isObjectPrimitive } from "@temelj/value";
+import { deepEquals, isPlainObject } from "@temelj/value";
 import merge from "deepmerge";
 
 /**
@@ -13,12 +13,15 @@ export function arrayEquals<T>(a: T[], b: T[], compare?: (a: T, b: T) => boolean
   if (a.length !== b.length) {
     return false;
   }
+
   if (a.length === 0) {
     if (b.length === 0) {
       return true;
     }
+
     return false;
   }
+
   if (b.length === 0) {
     return false;
   }
@@ -29,6 +32,7 @@ export function arrayEquals<T>(a: T[], b: T[], compare?: (a: T, b: T) => boolean
         return false;
       }
     }
+
     return true;
   }
 
@@ -37,6 +41,7 @@ export function arrayEquals<T>(a: T[], b: T[], compare?: (a: T, b: T) => boolean
       return false;
     }
   }
+
   return true;
 }
 
@@ -48,18 +53,21 @@ export function arrayEquals<T>(a: T[], b: T[], compare?: (a: T, b: T) => boolean
  * @param source The source array to combine from.
  * @returns A new array that is the combination of the target and source arrays.
  */
-export function arrayCombineMerge<A, B>(target: A[], source: B[]): (A & B)[] {
-  const result: unknown[] = [...target];
+export function arrayCombineMerge<A, B>(target: A[], source: B[]): (A | B)[] {
+  const result: (A | B)[] = [...target];
   let i = 0;
+
   for (const item of source) {
     if (result[i] === undefined) {
       result[i] = structuredClone(item);
-    } else if (isObjectPrimitive(item)) {
-      result[i] = merge(target[i] as any, item as any) as any;
+    } else if (isPlainObject(target[i]) && isPlainObject(item)) {
+      result[i] = merge<A, B>(target[i], item);
     } else if (target.find((targetItem) => deepEquals(targetItem, item)) === undefined) {
       result.push(item);
     }
+
     i++;
   }
-  return result as (A & B)[];
+
+  return result;
 }

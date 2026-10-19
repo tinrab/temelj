@@ -27,6 +27,7 @@ export class SlruCache<K, V> extends EntryCountCache<K, V> {
       options.protectedEntries ?? Math.max(1, Math.floor(this.maxEntriesValue / 2)),
       this.maxEntriesValue,
     );
+
     for (const [key, value] of options.entries ?? []) {
       this.set(key, value);
     }
@@ -38,20 +39,24 @@ export class SlruCache<K, V> extends EntryCountCache<K, V> {
 
   set(key: K, value: V): boolean {
     const protectedRecord = this.protected.get(key);
+
     if (protectedRecord !== undefined) {
       protectedRecord.value = value;
       this.protected.delete(key);
       this.protected.set(key, protectedRecord);
       this.emitSet({ key, value, source: "cache", size: 1, updated: true });
+
       return true;
     }
 
     const probationRecord = this.probation.get(key);
+
     if (probationRecord !== undefined) {
       probationRecord.value = value;
       this.probation.delete(key);
       this.probation.set(key, probationRecord);
       this.emitSet({ key, value, source: "cache", size: 1, updated: true });
+
       return true;
     }
 
@@ -62,38 +67,47 @@ export class SlruCache<K, V> extends EntryCountCache<K, V> {
     this.probation.set(key, { value });
     this.entryCount++;
     this.emitSet({ key, value, source: "cache", size: 1, updated: false });
+
     return true;
   }
 
   get(key: K): V | undefined {
     const protectedRecord = this.protected.get(key);
+
     if (protectedRecord !== undefined) {
       this.protected.delete(key);
       this.protected.set(key, protectedRecord);
       this.emitHit(key, protectedRecord.value);
+
       return protectedRecord.value;
     }
 
     const probationRecord = this.probation.get(key);
+
     if (probationRecord === undefined) {
       this.emitMiss(key);
+
       return undefined;
     }
 
     this.probation.delete(key);
     this.promote(key, probationRecord);
     this.emitHit(key, probationRecord.value);
+
     return probationRecord.value;
   }
 
   peek(key: K): V | undefined {
     const record = this.protected.get(key) ?? this.probation.get(key);
+
     if (record === undefined) {
       this.emitMiss(key);
+
       return undefined;
     }
 
     this.emitHit(key, record.value);
+
     return record.value;
   }
 
@@ -103,14 +117,17 @@ export class SlruCache<K, V> extends EntryCountCache<K, V> {
 
   delete(key: K): boolean {
     const protectedRecord = this.protected.get(key);
+
     if (protectedRecord !== undefined) {
       this.protected.delete(key);
       this.entryCount--;
       this.emitDelete(this.createEviction(key, protectedRecord.value, "delete"));
+
       return true;
     }
 
     const probationRecord = this.probation.get(key);
+
     if (probationRecord === undefined) {
       return false;
     }
@@ -118,6 +135,7 @@ export class SlruCache<K, V> extends EntryCountCache<K, V> {
     this.probation.delete(key);
     this.entryCount--;
     this.emitDelete(this.createEviction(key, probationRecord.value, "delete"));
+
     return true;
   }
 
@@ -125,12 +143,15 @@ export class SlruCache<K, V> extends EntryCountCache<K, V> {
     const entries = [...this.protected, ...this.probation].map(([key, record]) =>
       this.createEviction(key, record.value, "clear"),
     );
+
     this.protected.clear();
     this.probation.clear();
     this.entryCount = 0;
+
     for (const eviction of entries) {
       this.onEvict?.(eviction);
     }
+
     if (entries.length > 0) {
       this.emitClear({ source: "cache", entries });
     }
@@ -140,6 +161,7 @@ export class SlruCache<K, V> extends EntryCountCache<K, V> {
     if (options.maxEntries !== undefined) {
       this.maxEntriesValue = validateLimit(options.maxEntries, "maxEntries");
     }
+
     this.protectedEntriesValue = validateProtectedEntries(
       options.protectedEntries ?? Math.min(this.protectedEntriesValue, this.maxEntriesValue),
       this.maxEntriesValue,
@@ -148,6 +170,7 @@ export class SlruCache<K, V> extends EntryCountCache<K, V> {
     while (this.protected.size > this.protectedEntriesValue) {
       this.demoteProtectedLru();
     }
+
     this.evictOverflow();
     this.emitResize({
       source: "cache",
@@ -181,6 +204,7 @@ export class SlruCache<K, V> extends EntryCountCache<K, V> {
 
   private promote(key: K, record: EntryRecord<V>): void {
     this.protected.set(key, record);
+
     if (this.protected.size > this.protectedEntriesValue) {
       this.demoteProtectedLru();
     }
@@ -188,6 +212,7 @@ export class SlruCache<K, V> extends EntryCountCache<K, V> {
 
   private demoteProtectedLru(): void {
     const key = firstKey(this.protected);
+
     if (key === undefined) {
       return;
     }
@@ -200,10 +225,12 @@ export class SlruCache<K, V> extends EntryCountCache<K, V> {
   private evictOne(): void {
     let key = firstKey(this.probation);
     let records = this.probation;
+
     if (key === undefined) {
       key = firstKey(this.protected);
       records = this.protected;
     }
+
     if (key === undefined) {
       return;
     }
@@ -218,6 +245,7 @@ export class SlruCache<K, V> extends EntryCountCache<K, V> {
     for (const [key, record] of [...this.protected].reverse()) {
       yield [key, record.value] as const;
     }
+
     for (const [key, record] of [...this.probation].reverse()) {
       yield [key, record.value] as const;
     }

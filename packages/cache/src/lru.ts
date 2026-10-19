@@ -17,15 +17,10 @@ import {
   type CacheSizeOf,
 } from "./types.ts";
 
-type AnyCacheEventHandler<K, V> = (
-  payload: unknown,
-  event: string,
-) => ReturnType<CacheEventHandler<K, V>>;
-
 interface OnceSubscription<K, V> {
   readonly pattern: CacheEventPattern<K, V>;
   readonly handler: unknown;
-  readonly wrapper: AnyCacheEventHandler<K, V>;
+  unsubscribe: () => void;
   active: boolean;
 }
 
@@ -43,8 +38,8 @@ const EMPTY_VALUE = -1;
 
 export class LruCache<K, V> implements Cache<K, V> {
   private records: Map<K, number>;
-  private entryKeys: K[];
-  private entryVals: V[];
+  private entryKeys: (K | undefined)[];
+  private entryVals: (V | undefined)[];
   private next: number[];
   private prev: number[];
   private readonly pubsub = createPubSub<CacheEventMap<K, V>>();
@@ -99,10 +94,10 @@ export class LruCache<K, V> implements Cache<K, V> {
       // eslint-disable-next-line unicorn/no-new-array
       this.prev = new Array<number>(cap);
     } else {
-      this.entryKeys = [] as K[];
-      this.entryVals = [] as V[];
-      this.next = [] as number[];
-      this.prev = [] as number[];
+      this.entryKeys = [];
+      this.entryVals = [];
+      this.next = [];
+      this.prev = [];
     }
 
     if (this.sizeOf !== undefined) {
@@ -120,6 +115,7 @@ export class LruCache<K, V> implements Cache<K, V> {
 
   get size(): number {
     this.pruneExpired();
+
     return this.entryCount;
   }
 
@@ -129,6 +125,7 @@ export class LruCache<K, V> implements Cache<K, V> {
 
   get calculatedSize(): number {
     this.pruneExpired();
+
     return this.calculatedSizeValue;
   }
 
@@ -143,10 +140,12 @@ export class LruCache<K, V> implements Cache<K, V> {
     this.listenerCountValue++;
     const unsubscribe = this.pubsub.on(pattern, handler);
     let active = true;
+
     return () => {
       if (!active) {
         return;
       }
+
       active = false;
       this.listenerCountValue--;
       unsubscribe();
@@ -158,26 +157,32 @@ export class LruCache<K, V> implements Cache<K, V> {
     handler: CacheEventHandler<K, V, Pattern>,
   ): () => void {
     this.listenerCountValue++;
+
     const subscription: OnceSubscription<K, V> = {
       pattern,
       handler,
-      wrapper: (event, type) => {
-        if (subscription.active) {
-          subscription.active = false;
-          this.listenerCountValue--;
-        }
-        // @ts-ignore
-        return handler(event, type);
-      },
+      unsubscribe: () => {},
       active: true,
     };
+
+    const wrapper: CacheEventHandler<K, V, Pattern> = (event, type) => {
+      if (subscription.active) {
+        subscription.active = false;
+        this.listenerCountValue--;
+      }
+
+      return handler(event, type);
+    };
+
     this.onceSubscriptions.push(subscription);
-    const unsubscribe = this.pubsub.once(pattern, subscription.wrapper);
+    const unsubscribe = this.pubsub.once(pattern, wrapper);
+    subscription.unsubscribe = unsubscribe;
 
     return () => {
       if (!subscription.active) {
         return;
       }
+
       subscription.active = false;
       this.listenerCountValue--;
       unsubscribe();
@@ -189,10 +194,12 @@ export class LruCache<K, V> implements Cache<K, V> {
     handler: CacheEventHandler<K, V, Pattern>,
   ): void {
     const subscription = this.findActiveOnceSubscription(pattern, handler);
+
     if (subscription !== undefined) {
       subscription.active = false;
       this.listenerCountValue--;
-      this.pubsub.off(pattern, subscription.wrapper);
+      subscription.unsubscribe();
+
       return;
     }
 
@@ -213,8 +220,10 @@ export class LruCache<K, V> implements Cache<K, V> {
   clearListeners(pattern?: CacheEventPattern<K, V>): void {
     const removed =
       pattern === undefined ? this.listenerCountValue : this.pubsub.listenerCount(pattern);
+
     this.pubsub.clear(pattern);
     this.listenerCountValue -= removed;
+
     for (const subscription of this.onceSubscriptions) {
       if (subscription.active && (pattern === undefined || subscription.pattern === pattern)) {
         subscription.active = false;
@@ -251,11 +260,12 @@ export class LruCache<K, V> implements Cache<K, V> {
       if (existing !== undefined) {
         this.removeAt(existing, "set");
       }
+
       return false;
     }
 
     if (existing !== undefined) {
-      this.calculatedSizeValue += nextSize - (this.getSize(existing) as number);
+      this.calculatedSizeValue += nextSize - this.getSize(existing);
       this.setSize(existing, nextSize);
       this.entryVals[existing] = value;
       this.setExpires(existing, expiresAt);
@@ -282,6 +292,7 @@ export class LruCache<K, V> implements Cache<K, V> {
     }
 
     this.emitSet({ key, value, source: "cache", size: nextSize, updated });
+
     return true;
   }
 
@@ -290,52 +301,64 @@ export class LruCache<K, V> implements Cache<K, V> {
 
     if (existing !== undefined) {
       this.entryVals[existing] = value;
+
       if (existing !== this.tail) {
         const p = this.prev[existing];
         const n = this.next[existing];
+
         if (p !== EMPTY_VALUE) {
           this.next[p] = n;
         } else {
           this.head = n;
         }
+
         if (n !== EMPTY_VALUE) {
           this.prev[n] = p;
         } else {
           this.tail = p;
         }
+
         this.prev[existing] = this.tail;
+
         if (this.tail !== EMPTY_VALUE) {
           this.next[this.tail] = existing;
         } else {
           this.head = existing;
         }
+
         this.tail = existing;
       }
+
       return true;
     }
 
     if (this.entryCount >= this.maxEntriesValue) {
       const slot = this.head;
-      this.records.delete(this.entryKeys[slot]);
+      this.records.delete(this.keyAt(slot));
       const nextHead = this.next[slot];
       this.head = nextHead;
+
       if (nextHead !== EMPTY_VALUE) {
         this.prev[nextHead] = EMPTY_VALUE;
       } else {
         this.tail = EMPTY_VALUE;
       }
+
       this.entryKeys[slot] = key;
       this.entryVals[slot] = value;
       this.records.set(key, slot);
       this.prev[slot] = this.tail;
       this.next[slot] = EMPTY_VALUE;
+
       if (this.tail !== EMPTY_VALUE) {
         this.next[this.tail] = slot;
       } else {
         this.head = slot;
       }
+
       this.tail = slot;
       this.calculatedSizeValue++;
+
       return true;
     }
 
@@ -345,21 +368,26 @@ export class LruCache<K, V> implements Cache<K, V> {
     this.records.set(key, slot);
     this.prev[slot] = this.tail;
     this.next[slot] = EMPTY_VALUE;
+
     if (this.tail !== EMPTY_VALUE) {
       this.next[this.tail] = slot;
     } else {
       this.head = slot;
     }
+
     this.tail = slot;
     this.entryCount++;
     this.calculatedSizeValue++;
+
     return true;
   }
 
   get(key: K): V | undefined {
     const slot = this.records.get(key);
+
     if (slot === undefined) {
       this.emitMiss(key);
+
       return undefined;
     }
 
@@ -367,63 +395,77 @@ export class LruCache<K, V> implements Cache<K, V> {
       if (slot !== this.tail) {
         const p = this.prev[slot];
         const n = this.next[slot];
+
         if (p !== EMPTY_VALUE) {
           this.next[p] = n;
         } else {
           this.head = n;
         }
+
         if (n !== EMPTY_VALUE) {
           this.prev[n] = p;
         } else {
           this.tail = p;
         }
+
         this.prev[slot] = this.tail;
+
         if (this.tail !== EMPTY_VALUE) {
           this.next[this.tail] = slot;
         } else {
           this.head = slot;
         }
+
         this.tail = slot;
       }
-      return this.entryVals[slot];
+
+      return this.valueAt(slot);
     }
 
     if (this.isExpired(slot)) {
       this.removeAt(slot, "stale");
       this.emitMiss(key);
+
       return undefined;
     }
 
     this.moveToTail(slot);
     this.emitHit(slot);
-    return this.entryVals[slot];
+
+    return this.valueAt(slot);
   }
 
   peek(key: K): V | undefined {
     const slot = this.records.get(key);
+
     if (slot === undefined) {
       this.emitMiss(key);
+
       return undefined;
     }
 
     if (this.isExpired(slot)) {
       this.removeAt(slot, "stale");
       this.emitMiss(key);
+
       return undefined;
     }
 
     this.emitHit(slot);
-    return this.entryVals[slot];
+
+    return this.valueAt(slot);
   }
 
   has(key: K): boolean {
     const slot = this.records.get(key);
+
     if (slot === undefined) {
       return false;
     }
 
     if (this.isExpired(slot)) {
       this.removeAt(slot, "stale");
+
       return false;
     }
 
@@ -432,29 +474,34 @@ export class LruCache<K, V> implements Cache<K, V> {
 
   delete(key: K): boolean {
     const slot = this.records.get(key);
+
     if (slot === undefined) {
       return false;
     }
 
     this.removeAt(slot, "delete");
+
     return true;
   }
 
   clear(): void {
     const entries: CacheEviction<K, V>[] = [];
     let slot = this.head;
+
     while (slot !== EMPTY_VALUE) {
       const eviction = this.createEviction(slot, "clear");
       entries.push(eviction);
       this.onEvict?.(eviction);
       slot = this.next[slot];
     }
+
     this.records.clear();
     this.head = EMPTY_VALUE;
     this.tail = EMPTY_VALUE;
     this.freeSlots.length = 0;
     this.entryCount = 0;
     this.calculatedSizeValue = 0;
+
     if (entries.length > 0) {
       this.emitClear({ source: "cache", entries });
     }
@@ -463,14 +510,18 @@ export class LruCache<K, V> implements Cache<K, V> {
   pruneExpired(): number {
     let deleted = 0;
     let slot = this.head;
+
     while (slot !== EMPTY_VALUE) {
       const next = this.next[slot];
+
       if (this.isExpired(slot)) {
         this.removeAt(slot, "stale");
         deleted++;
       }
+
       slot = next;
     }
+
     return deleted;
   }
 
@@ -478,12 +529,15 @@ export class LruCache<K, V> implements Cache<K, V> {
     if (options.maxEntries !== undefined) {
       this.maxEntriesValue = validateLimit(options.maxEntries, "maxEntries");
     }
+
     if (options.maxSize !== undefined) {
       this.maxSizeValue = validateLimit(options.maxSize, "maxSize");
     }
+
     if (options.maxEntrySize !== undefined) {
       this.maxEntrySizeValue = validateLimit(options.maxEntrySize, "maxEntrySize");
     }
+
     this.countOnly =
       this.ttlValue === undefined &&
       this.sizeOf === undefined &&
@@ -499,13 +553,17 @@ export class LruCache<K, V> implements Cache<K, V> {
     });
 
     let slot = this.head;
+
     while (slot !== EMPTY_VALUE) {
       const next = this.next[slot];
+
       if (this.getSize(slot) > this.maxEntrySizeValue || this.getSize(slot) > this.maxSizeValue) {
         this.removeAt(slot, "evict");
       }
+
       slot = next;
     }
+
     this.evictOverflow();
   }
 
@@ -523,6 +581,7 @@ export class LruCache<K, V> implements Cache<K, V> {
 
   snapshot(): readonly CacheEntry<K, V>[] {
     this.pruneExpired();
+
     return [...this].map(([key, value]) => ({ key, value }));
   }
 
@@ -530,25 +589,39 @@ export class LruCache<K, V> implements Cache<K, V> {
     return this.entries();
   }
 
+  private keyAt(slot: number): K {
+    // SAFETY: callers obtain live slots from records or the occupied-slot list; each live slot has its key assigned before linking.
+    return this.entryKeys[slot] as K;
+  }
+
+  private valueAt(slot: number): V {
+    // SAFETY: callers obtain live slots from records or the occupied-slot list; each live slot has its value assigned before linking.
+    return this.entryVals[slot] as V;
+  }
+
   private allocSlot(): number {
     if (this.freeSlots.length > 0) {
       return this.freeSlots.pop()!;
     }
+
     const slot = this.entryKeys.length;
-    this.entryKeys.push(undefined as unknown as K);
-    this.entryVals.push(undefined as unknown as V);
+    this.entryKeys.push(undefined);
+    this.entryVals.push(undefined);
     this.next.push(EMPTY_VALUE);
     this.prev.push(EMPTY_VALUE);
+
     return slot;
   }
 
   private append(slot: number): void {
     this.prev[slot] = this.tail;
+
     if (this.tail !== EMPTY_VALUE) {
       this.next[this.tail] = slot;
     } else {
       this.head = slot;
     }
+
     this.tail = slot;
   }
 
@@ -579,40 +652,46 @@ export class LruCache<K, V> implements Cache<K, V> {
 
     const p = this.prev[slot];
     const n = this.next[slot];
+
     if (p !== EMPTY_VALUE) {
       this.next[p] = n;
     } else {
       this.head = n;
     }
+
     if (n !== EMPTY_VALUE) {
       this.prev[n] = p;
     } else {
       this.tail = p;
     }
+
     this.prev[slot] = this.tail;
+
     if (this.tail !== EMPTY_VALUE) {
       this.next[this.tail] = slot;
     } else {
       this.head = slot;
     }
+
     this.tail = slot;
   }
 
   private removeAt(slot: number, reason: CacheDeleteReason): void {
-    const key = this.entryKeys[slot];
+    const key = this.keyAt(slot);
+
     if (!this.records.delete(key)) {
       return;
     }
 
-    const value = this.entryVals[slot];
+    const value = this.valueAt(slot);
     const size = this.getSize(slot);
 
     this.unlink(slot);
     this.entryCount--;
     this.calculatedSizeValue -= size;
 
-    this.entryKeys[slot] = undefined as unknown as K;
-    this.entryVals[slot] = undefined as unknown as V;
+    this.entryKeys[slot] = undefined;
+    this.entryVals[slot] = undefined;
     this.freeSlots.push(slot);
 
     this.emitDelete({ key, value, reason, size });
@@ -631,6 +710,7 @@ export class LruCache<K, V> implements Cache<K, V> {
     if (this.expires === undefined) {
       return false;
     }
+
     return this.expires[slot] !== Number.POSITIVE_INFINITY && this.expires[slot] <= Date.now();
   }
 
@@ -638,6 +718,7 @@ export class LruCache<K, V> implements Cache<K, V> {
     if (this.sizes !== undefined) {
       return this.sizes[slot];
     }
+
     return 1;
   }
 
@@ -651,9 +732,11 @@ export class LruCache<K, V> implements Cache<K, V> {
     if (this.expires === undefined) {
       this.expires = [];
     }
+
     while (this.expires.length <= slot) {
       this.expires.push(Number.POSITIVE_INFINITY);
     }
+
     this.expires[slot] = expiresAt;
   }
 
@@ -661,9 +744,10 @@ export class LruCache<K, V> implements Cache<K, V> {
     if (!this.hasListeners()) {
       return;
     }
+
     this.pubsub.emit("cache:hit", {
-      key: this.entryKeys[slot],
-      value: this.entryVals[slot],
+      key: this.keyAt(slot),
+      value: this.valueAt(slot),
       source: "cache",
     });
   }
@@ -672,6 +756,7 @@ export class LruCache<K, V> implements Cache<K, V> {
     if (!this.hasListeners()) {
       return;
     }
+
     this.pubsub.emit("cache:miss", { key, source: "cache" });
   }
 
@@ -679,6 +764,7 @@ export class LruCache<K, V> implements Cache<K, V> {
     if (!this.hasListeners()) {
       return;
     }
+
     this.pubsub.emit("cache:set", event);
     this.pubsub.emit("cache:change", event);
   }
@@ -687,6 +773,7 @@ export class LruCache<K, V> implements Cache<K, V> {
     if (!this.hasListeners()) {
       return;
     }
+
     this.pubsub.emit("cache:clear", event);
     this.pubsub.emit("cache:change", event);
   }
@@ -695,17 +782,20 @@ export class LruCache<K, V> implements Cache<K, V> {
     if (!this.hasListeners()) {
       return;
     }
+
     this.pubsub.emit("cache:resize", event);
     this.pubsub.emit("cache:change", event);
   }
 
   private emitDelete(eviction: CacheEviction<K, V>): void {
     const hasListeners = this.hasListeners();
+
     if (this.onEvict === undefined && !hasListeners) {
       return;
     }
 
     this.onEvict?.(eviction);
+
     if (!hasListeners) {
       return;
     }
@@ -731,8 +821,8 @@ export class LruCache<K, V> implements Cache<K, V> {
 
   private createEviction(slot: number, reason: CacheDeleteReason): CacheEviction<K, V> {
     return {
-      key: this.entryKeys[slot],
-      value: this.entryVals[slot],
+      key: this.keyAt(slot),
+      value: this.valueAt(slot),
       reason,
       size: this.getSize(slot),
     };
@@ -740,14 +830,17 @@ export class LruCache<K, V> implements Cache<K, V> {
 
   private *iterateEntries(): IterableIterator<readonly [K, V]> {
     let slot = this.tail;
+
     while (slot !== EMPTY_VALUE) {
       const current = slot;
       slot = this.prev[current];
+
       if (this.isExpired(current)) {
         this.removeAt(current, "stale");
         continue;
       }
-      yield [this.entryKeys[current], this.entryVals[current]] as const;
+
+      yield [this.keyAt(current), this.valueAt(current)] as const;
     }
   }
 

@@ -1,4 +1,4 @@
-import { expect, test } from "vitest";
+import { expect, expectTypeOf, test } from "vitest";
 
 import { debounce } from "./debounce";
 import { delay } from "./delay";
@@ -7,8 +7,10 @@ import { throttle } from "./throttle";
 
 test("debounce delays execution", async () => {
   let callCount = 0;
+
   const fn = debounce(async (n: number) => {
     callCount++;
+
     return n;
   }, 50);
 
@@ -24,9 +26,11 @@ test("debounce delays execution", async () => {
 
 test("debounce leading edge", async () => {
   let callCount = 0;
+
   const fn = debounce(
     async (n: number) => {
       callCount++;
+
       return n;
     },
     50,
@@ -40,8 +44,10 @@ test("debounce leading edge", async () => {
 
 test("throttle limits call frequency", async () => {
   let callCount = 0;
+
   const fn = throttle(async (n: number) => {
     callCount++;
+
     return n;
   }, 50);
 
@@ -61,13 +67,65 @@ test("AsyncStream.from().map().toArray()", async () => {
   const result = await AsyncStream.from([1, 2, 3])
     .map(async (x) => x * 2)
     .toArray();
+
   expect(result).toEqual([2, 4, 6]);
+});
+
+test("AsyncStream keeps transformed types lazy and independent", async () => {
+  let calls = 0;
+  const source = AsyncStream.from([1, 2]);
+
+  const strings = source.map((value) => {
+    calls++;
+
+    return String(value);
+  });
+
+  const lengths = strings.map((value) => {
+    expectTypeOf(value).toEqualTypeOf<string>();
+
+    return value.length;
+  });
+
+  expect(calls).toBe(0);
+  expect(await source.toArray()).toEqual([1, 2]);
+  expect(await strings.toArray()).toEqual(["1", "2"]);
+  expect(await lengths.toArray()).toEqual([1, 1]);
+  expect(calls).toBe(4);
+});
+
+test("AsyncStream retry reruns the preceding pipeline", async () => {
+  let attempts = 0;
+
+  const pipeline = AsyncStream.from([3])
+    .map((value) => {
+      attempts++;
+
+      if (attempts === 1) {
+        throw new Error("temporary failure");
+      }
+
+      return value * 2;
+    })
+    .retry({ times: 2 });
+
+  expect(await pipeline.toArray()).toEqual([6]);
+  expect(attempts).toBe(2);
+});
+
+test("AsyncStream source preserves promise-valued items", async () => {
+  const value = Promise.resolve(42);
+  const values = await AsyncStream.from([value]).toArray();
+
+  expect(values).toEqual([value]);
+  expect(values[0]).toBe(value);
 });
 
 test("AsyncStream.from().filter().toArray()", async () => {
   const result = await AsyncStream.from([1, 2, 3, 4, 5])
     .filter((x) => x % 2 !== 0)
     .toArray();
+
   expect(result).toEqual([1, 3, 5]);
 });
 
@@ -76,6 +134,7 @@ test("AsyncStream.from().map().filter().toArray()", async () => {
     .map(async (x) => x * 10)
     .filter((x) => x > 20)
     .toArray();
+
   expect(result).toEqual([30, 40]);
 });
 
@@ -97,6 +156,7 @@ test("AsyncStream drain", async () => {
   await AsyncStream.from([1, 2, 3])
     .map(async (x) => {
       sideEffect += x;
+
       return x;
     })
     .drain();
@@ -109,9 +169,11 @@ test("AsyncStream with async iterable source", async () => {
     yield 20;
     yield 30;
   }
+
   const result = await AsyncStream.from(gen())
     .map(async (x) => x + 1)
     .toArray();
+
   expect(result).toEqual([11, 21, 31]);
 });
 
@@ -126,6 +188,7 @@ test("AsyncStream with concurrency", async () => {
         maxActive = Math.max(maxActive, active);
         await delay(10);
         active--;
+
         return x;
       },
       { concurrency: 2 },

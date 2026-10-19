@@ -77,9 +77,9 @@ export function unsafeMapLabel(label: string): UnsafeMapTarget {
   return { raw: normalizeLabel(label) };
 }
 
-export function disableMap(target: InputMapSpecifier | string): string {
-  if (typeof target === "string") {
-    return target.startsWith("-") ? target : `-${target}`;
+export function disableMap(target: InputMapSpecifier | UnsafeMapTarget): string {
+  if ("raw" in target) {
+    return target.raw.startsWith("-") ? target.raw : `-${target.raw}`;
   }
 
   return serializeInputMap({ ...target, disabled: true });

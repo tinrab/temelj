@@ -29,13 +29,14 @@ export function useIntervalCallback(
   const callbackRef = useLatestRef(callback);
   const intervalRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
   const [delay, setDelay] = React.useState(initialDelay);
-  const [running, setRunning] = React.useState(false);
+  const [running, setRunning] = React.useState(startImmediately);
 
   const stop = React.useCallback(() => {
     if (intervalRef.current !== null) {
       clearInterval(intervalRef.current);
       intervalRef.current = null;
     }
+
     setRunning(false);
   }, []);
 
@@ -54,11 +55,6 @@ export function useIntervalCallback(
       }
     };
   }, [callbackRef, delay, running]);
-
-  React.useEffect(() => {
-    if (startImmediately) start();
-    return stop;
-  }, [start, startImmediately, stop]);
 
   return { running, delay, start, stop, setDelay };
 }

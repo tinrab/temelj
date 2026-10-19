@@ -1,5 +1,7 @@
 import type LibSqlDatabase from "libsql";
 
+import { isString, isNumber, isBigInt, isObject } from "@temelj/value";
+
 import type {
   StorageEngine,
   StorageEngineCompareAndSetManyItem,
@@ -8,9 +10,12 @@ import type {
   StorageEngineSetOptions,
   StoredValue,
 } from "../types.ts";
+import type { DatabaseStoredValue, StoredValueFormat, StoredValueForFormat } from "../utility.ts";
 
 import {
   isExpired,
+  isDatabaseStoredValue,
+  parseDatabaseRows,
   normalizeStoredValue,
   resolveExpiresAt,
   storedValueParameter,
@@ -21,8 +26,8 @@ import {
  * Minimal libSQL client interface used by {@link LibSqlStorageEngine}.
  */
 export interface LibSqlEngineClient {
-  close?(): unknown;
-  exec(query: string): unknown;
+  close?(): void;
+  exec(query: string): void;
   prepare(query: string): LibSqlEngineStatement;
 }
 
@@ -31,7 +36,7 @@ export interface LibSqlEngineClient {
  */
 export interface LibSqlEngineStatement {
   all(...parameters: readonly unknown[]): unknown[];
-  get(...parameters: readonly unknown[]): unknown;
+  get: LibSqlDatabase.Statement<unknown[]>["get"];
   run(...parameters: readonly unknown[]): { readonly changes: number | bigint };
 }
 
@@ -48,7 +53,10 @@ export interface LibSqlEngineConnectionOptions extends LibSqlDatabase.Options {
 /**
  * Options for {@link LibSqlStorageEngine}.
  */
-export interface LibSqlEngineOptions {
+export interface LibSqlEngineOptions<TFormat extends StoredValueFormat = "string"> {
+  /** Persisted representation checked when reading rows. */
+  readonly format: TFormat;
+
   /**
    * Existing libSQL-compatible client.
    */
@@ -92,7 +100,7 @@ export interface LibSqlEngineOptions {
 
 interface LibSqlValueRow {
   readonly key?: string;
-  readonly value: unknown;
+  readonly value: DatabaseStoredValue;
   readonly expires_at?: number | string | bigint | null;
 }
 
@@ -100,18 +108,18 @@ interface LibSqlValueRow {
  * Storage engine backed by a libSQL table.
  */
 export class LibSqlStorageEngine<
-  TStoredValue extends StoredValue = string,
-> implements StorageEngine<TStoredValue> {
+  TFormat extends StoredValueFormat = "string",
+> implements StorageEngine<StoredValueForFormat<TFormat>> {
   readonly name = "libsql";
 
   #client: LibSqlEngineClient | undefined;
-  readonly #options: LibSqlEngineOptions;
+  readonly #options: LibSqlEngineOptions<TFormat>;
   readonly #tableName: string;
   readonly #prefix: string;
   readonly #separator: string;
   readonly #shouldDispose: boolean;
 
-  constructor(options: LibSqlEngineOptions = {}) {
+  constructor(options: LibSqlEngineOptions<TFormat>) {
     this.#options = options;
     this.#client = options.client;
     this.#tableName = quoteIdentifier(options.tableName ?? "temelj_storage");
@@ -142,51 +150,79 @@ export class LibSqlStorageEngine<
     libSqlClient.prepare(`DELETE FROM ${this.#tableName} WHERE key = ?`).run(storageKey);
   }
 
-  async get(key: string): Promise<TStoredValue | undefined> {
+  async get(key: string): Promise<StoredValueForFormat<TFormat> | undefined> {
     const libSqlClient = await this.#getClient();
     const storageKey = this.#prefixKey(key);
-    const row = libSqlClient
-      .prepare(`SELECT value, expires_at FROM ${this.#tableName} WHERE key = ?`)
-      .get(storageKey) as LibSqlValueRow | undefined;
+
+    const row = parseDatabaseRows(
+      libSqlClient
+        .prepare(`SELECT value, expires_at FROM ${this.#tableName} WHERE key = ?`)
+        .all(storageKey),
+      isLibSqlValueRow,
+    )[0];
+
     if (row === undefined) {
       return undefined;
     }
+
     if (isExpired(row.expires_at ?? null)) {
       this.#deleteRecord(libSqlClient, storageKey);
+
       return undefined;
     }
-    return normalizeStoredValue<TStoredValue>(row.value);
+
+    return normalizeStoredValue(row.value, this.#options.format);
   }
 
-  async getMany(keys: readonly string[]): Promise<ReadonlyMap<string, TStoredValue>> {
+  async getMany(
+    keys: readonly string[],
+  ): Promise<ReadonlyMap<string, StoredValueForFormat<TFormat>>> {
     if (keys.length === 0) {
       return new Map();
     }
+
     const libSqlClient = await this.#getClient();
     this.#deleteExpired(libSqlClient);
     const storageKeys = keys.map((key) => this.#prefixKey(key));
-    const rows = libSqlClient
-      .prepare(
-        `SELECT key, value FROM ${this.#tableName} WHERE key IN (${placeholders(storageKeys.length)})`,
-      )
-      .all(...storageKeys) as LibSqlValueRow[];
-    const result = new Map<string, TStoredValue>();
+
+    const rows = parseDatabaseRows(
+      libSqlClient
+        .prepare(
+          `SELECT key, value FROM ${this.#tableName} WHERE key IN (${placeholders(storageKeys.length)})`,
+        )
+        .all(...storageKeys),
+      isLibSqlValueRow,
+    );
+
+    const result = new Map<string, StoredValueForFormat<TFormat>>();
+
     for (const row of rows) {
       if (row.key !== undefined) {
-        result.set(this.#unprefixKey(row.key), normalizeStoredValue<TStoredValue>(row.value));
+        result.set(
+          this.#unprefixKey(row.key),
+          normalizeStoredValue(row.value, this.#options.format),
+        );
       }
     }
+
     return result;
   }
 
-  async set(key: string, value: TStoredValue, setOptions?: StorageEngineSetOptions): Promise<void> {
+  async set(
+    key: string,
+    value: StoredValueForFormat<TFormat>,
+    setOptions?: StorageEngineSetOptions,
+  ): Promise<void> {
     const libSqlClient = await this.#getClient();
     const storageKey = this.#prefixKey(key);
     const expiresAt = resolveExpiresAt(setOptions);
+
     if (expiresAt !== undefined && expiresAt <= Date.now()) {
       this.#deleteRecord(libSqlClient, storageKey);
+
       return;
     }
+
     libSqlClient
       .prepare(
         `
@@ -202,8 +238,8 @@ export class LibSqlStorageEngine<
 
   async compareAndSet(
     key: string,
-    expected: TStoredValue | undefined,
-    value: TStoredValue | undefined,
+    expected: StoredValueForFormat<TFormat> | undefined,
+    value: StoredValueForFormat<TFormat> | undefined,
     setOptions?: StorageEngineSetOptions,
   ): Promise<boolean> {
     const libSqlClient = await this.#getClient();
@@ -214,6 +250,7 @@ export class LibSqlStorageEngine<
       const row = libSqlClient
         .prepare(`SELECT 1 FROM ${this.#tableName} WHERE key = ?`)
         .get(storageKey);
+
       if (row !== undefined) {
         return false;
       }
@@ -223,6 +260,7 @@ export class LibSqlStorageEngine<
       }
 
       const expiresAt = resolveExpiresAt(setOptions);
+
       if (expiresAt !== undefined && expiresAt <= Date.now()) {
         return true;
       }
@@ -232,6 +270,7 @@ export class LibSqlStorageEngine<
           `INSERT OR IGNORE INTO ${this.#tableName} (key, value, expires_at) VALUES (?, ?, ?)`,
         )
         .run(storageKey, storedValueParameter(value), expiresAt ?? null);
+
       return Number(result.changes) > 0;
     }
 
@@ -244,10 +283,12 @@ export class LibSqlStorageEngine<
           `,
         )
         .run(storageKey, storedValueParameter(expected), Date.now());
+
       return Number(result.changes) > 0;
     }
 
     const expiresAt = resolveExpiresAt(setOptions);
+
     if (expiresAt !== undefined && expiresAt <= Date.now()) {
       const result = libSqlClient
         .prepare(
@@ -257,6 +298,7 @@ export class LibSqlStorageEngine<
           `,
         )
         .run(storageKey, storedValueParameter(expected), Date.now());
+
       return Number(result.changes) > 0;
     }
 
@@ -275,33 +317,40 @@ export class LibSqlStorageEngine<
         storedValueParameter(expected),
         Date.now(),
       );
+
     return Number(result.changes) > 0;
   }
 
   async compareAndSetMany(
-    items: readonly StorageEngineCompareAndSetManyItem<TStoredValue>[],
+    items: readonly StorageEngineCompareAndSetManyItem<StoredValueForFormat<TFormat>>[],
   ): Promise<boolean> {
     const libSqlClient = await this.#getClient();
+
     const storageItems = items.map((item) => ({
       key: this.#prefixKey(item.key),
       expected: item.expected,
       value: item.value,
       expiresAt: resolveExpiresAt(item.options),
     }));
+
     libSqlClient.exec("BEGIN IMMEDIATE");
+
     try {
       this.#deleteExpired(libSqlClient);
-      const currentValues = new Map<string, TStoredValue | undefined>();
+      const currentValues = new Map<string, StoredValueForFormat<TFormat> | undefined>();
+
       for (const item of storageItems) {
         currentValues.set(
           item.key,
-          getCurrentValue<TStoredValue>(libSqlClient, this.#tableName, item.key),
+          getCurrentValue(libSqlClient, this.#tableName, item.key, this.#options.format),
         );
       }
+
       if (
         storageItems.some((item) => !expectedMatches(currentValues.get(item.key), item.expected))
       ) {
         libSqlClient.exec("ROLLBACK");
+
         return false;
       }
 
@@ -313,6 +362,7 @@ export class LibSqlStorageEngine<
           this.#deleteRecord(libSqlClient, item.key);
           continue;
         }
+
         libSqlClient
           .prepare(
             `
@@ -325,7 +375,9 @@ export class LibSqlStorageEngine<
           )
           .run(item.key, storedValueParameter(item.value), item.expiresAt ?? null);
       }
+
       libSqlClient.exec("COMMIT");
+
       return true;
     } catch (error) {
       libSqlClient.exec("ROLLBACK");
@@ -333,7 +385,9 @@ export class LibSqlStorageEngine<
     }
   }
 
-  async setMany(items: readonly StorageEngineSetManyItem<TStoredValue>[]): Promise<void> {
+  async setMany(
+    items: readonly StorageEngineSetManyItem<StoredValueForFormat<TFormat>>[],
+  ): Promise<void> {
     for (const item of items) {
       await this.set(item.key, item.value, item.options);
     }
@@ -348,6 +402,7 @@ export class LibSqlStorageEngine<
         `,
       )
       .run(this.#prefixKey(key), Date.now());
+
     return Number(result.changes) > 0;
   }
 
@@ -355,6 +410,7 @@ export class LibSqlStorageEngine<
     if (keys.length === 0) {
       return 0;
     }
+
     const result = (await this.#getClient())
       .prepare(
         `
@@ -364,6 +420,7 @@ export class LibSqlStorageEngine<
         `,
       )
       .run(...keys.map((key) => this.#prefixKey(key)), Date.now());
+
     return Number(result.changes);
   }
 
@@ -374,11 +431,14 @@ export class LibSqlStorageEngine<
   async keys(keyOptions?: StorageEngineKeyOptions): Promise<readonly string[]> {
     const libSqlClient = await this.#getClient();
     this.#deleteExpired(libSqlClient);
-    const rows = libSqlClient
-      .prepare(`SELECT key FROM ${this.#tableName} WHERE key LIKE ? ESCAPE '\\'`)
-      .all(likePattern(this.#prefixKey(keyOptions?.prefix ?? ""))) as Array<{
-      readonly key: string;
-    }>;
+
+    const rows = parseDatabaseRows(
+      libSqlClient
+        .prepare(`SELECT key FROM ${this.#tableName} WHERE key LIKE ? ESCAPE '\\'`)
+        .all(likePattern(this.#prefixKey(keyOptions?.prefix ?? ""))),
+      isKeyRow,
+    );
+
     return rows.map((row) => this.#unprefixKey(row.key));
   }
 
@@ -392,6 +452,7 @@ export class LibSqlStorageEngine<
     if (this.#shouldDispose) {
       this.#client?.close?.();
     }
+
     this.#client = undefined;
   }
 
@@ -403,20 +464,25 @@ export class LibSqlStorageEngine<
     if (this.#prefix.length === 0) {
       return key;
     }
+
     const expectedPrefix = `${this.#prefix}${this.#separator}`;
+
     return key.startsWith(expectedPrefix) ? key.slice(expectedPrefix.length) : key;
   }
 }
 
-function getCurrentValue<TStoredValue extends StoredValue>(
+function getCurrentValue<TFormat extends StoredValueFormat>(
   libSqlClient: LibSqlEngineClient,
   tableName: string,
   storageKey: string,
-): TStoredValue | undefined {
-  const row = libSqlClient
-    .prepare(`SELECT value FROM ${tableName} WHERE key = ?`)
-    .get(storageKey) as Pick<LibSqlValueRow, "value"> | undefined;
-  return row === undefined ? undefined : normalizeStoredValue<TStoredValue>(row.value);
+  format: TFormat,
+): StoredValueForFormat<TFormat> | undefined {
+  const row = parseDatabaseRows(
+    libSqlClient.prepare(`SELECT value FROM ${tableName} WHERE key = ?`).all(storageKey),
+    isLibSqlValueRow,
+  )[0];
+
+  return row === undefined ? undefined : normalizeStoredValue(row.value, format);
 }
 
 function expectedMatches<TStoredValue extends StoredValue>(
@@ -424,6 +490,25 @@ function expectedMatches<TStoredValue extends StoredValue>(
   expected: TStoredValue | undefined,
 ): boolean {
   return storedValuesEqual(current, expected);
+}
+
+function isLibSqlValueRow(value: unknown): value is LibSqlValueRow {
+  return (
+    isObject(value) &&
+    "value" in value &&
+    isDatabaseStoredValue(value.value) &&
+    (!("key" in value) || value.key === undefined || isString(value.key)) &&
+    (!("expires_at" in value) ||
+      value.expires_at === undefined ||
+      value.expires_at === null ||
+      isString(value.expires_at) ||
+      isNumber(value.expires_at) ||
+      isBigInt(value.expires_at))
+  );
+}
+
+function isKeyRow(value: unknown): value is { readonly key: string } {
+  return isObject(value) && "key" in value && isString(value.key);
 }
 
 function quoteIdentifier(value: string): string {

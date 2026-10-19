@@ -15,8 +15,11 @@ import {
 export const otlpEndpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT ?? "http://localhost:4318";
 
 process.env.OTEL_EXPORTER_OTLP_ENDPOINT ??= otlpEndpoint;
+
 process.env.OTEL_EXPORTER_OTLP_PROTOCOL ??= "http/protobuf";
+
 process.env.OTEL_SERVICE_NAME ??= "temelj-workflow-basic";
+
 process.env.OTEL_RESOURCE_ATTRIBUTES ??= "deployment.environment=local";
 
 const sdk = new NodeSDK({

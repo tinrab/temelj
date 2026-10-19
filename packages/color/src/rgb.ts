@@ -52,6 +52,7 @@ const COLOR_RGB_REGEX =
  */
 export function parseRgb(value: string): Color | undefined {
   const match = value.match(COLOR_RGB_REGEX);
+
   if (!match || match.length < 9) {
     return undefined;
   }
@@ -61,6 +62,7 @@ export function parseRgb(value: string): Color | undefined {
   const blue = Number.parseInt(match[5], 10);
 
   let alpha: number | undefined;
+
   if (match[0].startsWith("rgba")) {
     if (match[8] !== undefined) {
       alpha = Number.parseFloat(match[8]);

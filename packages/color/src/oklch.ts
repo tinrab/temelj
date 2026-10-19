@@ -20,6 +20,7 @@ export interface OkLchColor {
  */
 export function okLabToOkLch(color: OkLabColor): OkLchColor {
   const h = (Math.atan2(color.b, color.a) * 180) / Math.PI;
+
   return {
     l: color.l,
     c: Math.sqrt(color.a * color.a + color.b * color.b),
@@ -36,6 +37,7 @@ export function okLabToOkLch(color: OkLabColor): OkLchColor {
  */
 export function okLchToOkLab(color: OkLchColor): OkLabColor {
   const hRad = (color.h * Math.PI) / 180;
+
   return {
     l: color.l,
     a: Math.cos(hRad) * color.c,

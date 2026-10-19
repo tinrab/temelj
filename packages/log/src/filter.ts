@@ -23,6 +23,7 @@ export function createLevelFilterSink(sink: LogSink, level: LogLevel): LogSink {
       if (!isLogLevelEnabled(record.level, level)) {
         return;
       }
+
       return sink.write(record);
     },
     flush: sink.flush === undefined ? undefined : async () => await sink.flush?.(),

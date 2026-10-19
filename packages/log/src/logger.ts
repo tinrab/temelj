@@ -46,17 +46,25 @@ class Logger implements LoggerContract {
   }
 
   log(level: LogLevel, message: string, attributes?: LogAttributes): void {
+    this.#emit(level, message, attributes);
+  }
+
+  #emit(level: LogLevel, message: string, attributes?: LogAttributes, cause?: unknown): void {
     if (!isLogLevelEnabled(level, this.#level)) {
       return;
     }
-    const normalized = normalizeAttributes(attributes);
+
     const record: LogRecord = {
       level,
       message,
       timestamp: this.#now(),
-      attributes: mergeAttributes(this.#attributes, normalized.attributes),
-      ...(normalized.error === undefined ? {} : { error: normalized.error }),
+      attributes: mergeAttributes(this.#attributes, attributes),
     };
+
+    if (cause !== undefined) {
+      record.error = cause;
+    }
+
     this.#write(record);
   }
 
@@ -76,12 +84,12 @@ class Logger implements LoggerContract {
     this.log("warn", message, attributes);
   }
 
-  error(message: string, attributes?: LogAttributes & { error?: unknown }): void {
-    this.log("error", message, attributes);
+  error(message: string, cause: unknown, attributes?: LogAttributes): void {
+    this.#emit("error", message, attributes, cause);
   }
 
-  fatal(message: string, attributes?: LogAttributes & { error?: unknown }): void {
-    this.log("fatal", message, attributes);
+  fatal(message: string, cause: unknown, attributes?: LogAttributes): void {
+    this.#emit("fatal", message, attributes, cause);
   }
 
   child(attributes: LogAttributes): LoggerContract {
@@ -108,6 +116,7 @@ class Logger implements LoggerContract {
   #write(record: LogRecord): void {
     try {
       const write = this.#sink.write(record);
+
       if (write !== undefined) {
         this.#track(write);
       }
@@ -121,9 +130,9 @@ class Logger implements LoggerContract {
   #track(write: Promise<void>): void {
     let tracked: Promise<void>;
     tracked = write
-      .catch((error: unknown) => {
+      .catch((cause: unknown) => {
         if (this.#sinkFailureMode === "throw") {
-          throw error;
+          throw cause;
         }
       })
       .finally(() => {
@@ -133,23 +142,10 @@ class Logger implements LoggerContract {
   }
 }
 
-function normalizeAttributes(attributes: LogAttributes | undefined): {
-  attributes?: LogAttributes;
-  error?: unknown;
-} {
-  if (attributes === undefined || !("error" in attributes)) {
-    return { attributes };
-  }
-  const { error, ...rest } = attributes;
-  return {
-    attributes: rest,
-    error,
-  };
-}
-
 function mergeAttributes(base: LogAttributes, overrides: LogAttributes | undefined): LogAttributes {
   if (overrides === undefined) {
     return base;
   }
+
   return { ...base, ...overrides };
 }

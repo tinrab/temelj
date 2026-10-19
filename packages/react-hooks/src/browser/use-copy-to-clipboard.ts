@@ -19,14 +19,18 @@ function fallbackCopy(text: string) {
  */
 export function useCopyToClipboard(): [string | null, (value: string) => Promise<void>] {
   const [copied, setCopied] = React.useState<string | null>(null);
+
   const copy = React.useCallback(async (value: string) => {
     if (!isBrowser) return;
+
     if (navigator.clipboard?.writeText) {
       await navigator.clipboard.writeText(value);
     } else {
       fallbackCopy(value);
     }
+
     setCopied(value);
   }, []);
+
   return [copied, copy];
 }

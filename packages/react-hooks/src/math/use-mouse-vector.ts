@@ -12,17 +12,22 @@ export function useMouseVector<T extends Element>(): [Vector2, React.RefObject<T
 
   useIsoLayoutEffect(() => {
     if (!isBrowser) return undefined;
+
     const handleMouseMove = (event: MouseEvent) => {
       const node = ref.current;
+
       if (!node) {
         setPosition(vector2.of(event.pageX, event.pageY));
+
         return;
       }
+
       const bounds = node.getBoundingClientRect();
       setPosition(vector2.of(event.clientX - bounds.left, event.clientY - bounds.top));
     };
 
     document.addEventListener("mousemove", handleMouseMove);
+
     return () => document.removeEventListener("mousemove", handleMouseMove);
   }, []);
 

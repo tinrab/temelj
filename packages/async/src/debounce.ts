@@ -34,10 +34,12 @@ export function debounce<Args extends unknown[], R>(
       clearTimeout(timer);
       timer = undefined;
     }
+
     if (pendingDeferred) {
       pendingDeferred.reject(AbortError.create());
       pendingDeferred = undefined;
     }
+
     latestArgs = undefined;
     isLeadingInvoked = false;
   };
@@ -75,14 +77,17 @@ export function debounce<Args extends unknown[], R>(
 
       if (trailing && latestArgs) {
         const d = pendingDeferred;
+
         if (!d) return;
         pendingDeferred = undefined;
+
         if (!leading || latestArgs !== args) {
           Promise.try(fn, ...latestArgs).then(
             (value) => d.resolve(value),
             (error) => d.reject(error),
           );
         }
+
         latestArgs = undefined;
       } else {
         pendingDeferred = undefined;

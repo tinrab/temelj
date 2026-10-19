@@ -1,16 +1,17 @@
-import { createWorkflowRuntime } from "@temelj/workflow";
+import { createWorkflowClient } from "@temelj/workflow";
 
 import { greetingWorkflow, workflows } from "./workflows.ts";
 
-const runtime = createWorkflowRuntime({ workflows });
+const client = createWorkflowClient({ workflows });
 
 try {
-  const handle = await runtime.start(greetingWorkflow.definition, {
-    name: process.argv[2] ?? "Ada",
+  const handle = await client.runs.start(greetingWorkflow, {
+    name: process.argv[2] ?? "Verso",
     waitForApproval: false,
   });
-  await runtime.workers.processRun(handle.runId);
+
+  await client.workers.processRun(handle.runId);
   console.log(await handle.result());
 } finally {
-  await runtime.close();
+  await client.close();
 }

@@ -1,5 +1,5 @@
 /** Retry policy for workflow runs after retryable workflow failures. */
-export interface WorkflowRetryConfig {
+export interface RetryConfig {
   readonly maximumAttempts?: number;
   readonly initialInterval?: Temporal.Duration;
   readonly backoffCoefficient?: number;
@@ -7,21 +7,15 @@ export interface WorkflowRetryConfig {
 }
 
 /** Retry policy after duration values and defaults have been normalized. */
-export interface WorkflowResolvedRetryConfig {
+export interface ResolvedRetryConfig {
   readonly maximumAttempts: number;
   readonly initialInterval?: Temporal.Duration;
   readonly backoffCoefficient: number;
   readonly maximumInterval?: Temporal.Duration;
 }
 
-/** Retry policy for durable task attempts. */
-export type WorkflowStepRetryConfig = WorkflowRetryConfig;
-
-/** Step retry policy after duration values and defaults have been normalized. */
-export type WorkflowResolvedStepRetryConfig = WorkflowResolvedRetryConfig;
-
 /** Resolved retry policy used after a worker cannot find a workflow implementation. */
-export interface WorkflowResolvedMissingImplementationRetryConfig {
+export interface ResolvedMissingImplementationRetryConfig {
   readonly initialInterval: Temporal.Duration;
   readonly backoffCoefficient: number;
   readonly maximumInterval?: Temporal.Duration;
@@ -29,23 +23,20 @@ export interface WorkflowResolvedMissingImplementationRetryConfig {
 }
 
 /** Required default values used to complete missing-implementation retry options. */
-export interface WorkflowMissingImplementationRetryDefaults {
+export interface MissingImplementationRetryDefaults {
   readonly initialInterval: Temporal.Duration;
   readonly backoffCoefficient: number;
   readonly maximumAttempts: number;
 }
 
 /** Required default values used to complete workflow and step retry options. */
-export interface WorkflowResolvedRetryDefaults {
+export interface ResolvedRetryDefaults {
   readonly maximumAttempts: number;
   readonly backoffCoefficient: number;
 }
 
-/** Parsed retry policy before runtime defaults are applied. */
-export type WorkflowParsedRetryConfig = WorkflowRetryConfig;
-
 /** Retry policy used when a worker cannot find an implementation for a claimed run. */
-export interface WorkflowMissingImplementationRetryConfig {
+export interface MissingImplementationRetryConfig {
   readonly initialInterval?: Temporal.Duration;
   readonly backoffCoefficient?: number;
   readonly maximumInterval?: Temporal.Duration;

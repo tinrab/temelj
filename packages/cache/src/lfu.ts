@@ -14,6 +14,7 @@ export class LfuCache<K, V> extends EntryCountCache<K, V> {
 
   constructor(options: LfuCacheOptions<K, V> = {}) {
     super(options);
+
     for (const [key, value] of options.entries ?? []) {
       this.set(key, value);
     }
@@ -22,6 +23,7 @@ export class LfuCache<K, V> extends EntryCountCache<K, V> {
   set(key: K, value: V): boolean {
     const existing = this.records.get(key);
     const updated = existing !== undefined;
+
     if (existing === undefined && this.entryCount >= this.maxEntriesValue) {
       this.evictOne();
     }
@@ -36,30 +38,37 @@ export class LfuCache<K, V> extends EntryCountCache<K, V> {
     }
 
     this.emitSet({ key, value, source: "cache", size: 1, updated });
+
     return true;
   }
 
   get(key: K): V | undefined {
     const record = this.records.get(key);
+
     if (record === undefined) {
       this.emitMiss(key);
+
       return undefined;
     }
 
     record.frequency++;
     record.sequence = this.sequence++;
     this.emitHit(key, record.value);
+
     return record.value;
   }
 
   peek(key: K): V | undefined {
     const record = this.records.get(key);
+
     if (record === undefined) {
       this.emitMiss(key);
+
       return undefined;
     }
 
     this.emitHit(key, record.value);
+
     return record.value;
   }
 
@@ -69,6 +78,7 @@ export class LfuCache<K, V> extends EntryCountCache<K, V> {
 
   delete(key: K): boolean {
     const record = this.records.get(key);
+
     if (record === undefined) {
       return false;
     }
@@ -76,6 +86,7 @@ export class LfuCache<K, V> extends EntryCountCache<K, V> {
     this.records.delete(key);
     this.entryCount--;
     this.emitDelete(this.createEviction(key, record.value, "delete"));
+
     return true;
   }
 
@@ -83,11 +94,14 @@ export class LfuCache<K, V> extends EntryCountCache<K, V> {
     const entries = [...this.records].map(([key, record]) =>
       this.createEviction(key, record.value, "clear"),
     );
+
     this.records.clear();
     this.entryCount = 0;
+
     for (const eviction of entries) {
       this.onEvict?.(eviction);
     }
+
     if (entries.length > 0) {
       this.emitClear({ source: "cache", entries });
     }
@@ -118,6 +132,7 @@ export class LfuCache<K, V> extends EntryCountCache<K, V> {
   private evictOne(): void {
     let evictedKey: K | undefined;
     let evictedRecord: LfuRecord<V> | undefined;
+
     for (const [key, record] of this.records) {
       if (
         evictedRecord === undefined ||
@@ -141,6 +156,7 @@ export class LfuCache<K, V> extends EntryCountCache<K, V> {
   private *iterateEntries(): IterableIterator<readonly [K, V]> {
     const entries = [...this.records].sort(([, left], [, right]) => {
       const frequency = right.frequency - left.frequency;
+
       return frequency === 0 ? right.sequence - left.sequence : frequency;
     });
 

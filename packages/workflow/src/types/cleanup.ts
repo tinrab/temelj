@@ -1,70 +1,34 @@
-import { z } from "zod";
-
-import type { RunId, WorkflowTerminalRunStatus } from "./run.ts";
-import type { StepId } from "./step-id.ts";
-
-import {
-  temporalInstantSchema,
-  nonBlankStringSchema,
-  nonNegativeSafeIntegerSchema,
-} from "./common.ts";
-import { runIdSchema } from "./run-id.ts";
-import { workflowTerminalRunStatusSchema } from "./run.ts";
-
-export const workflowCleanupModeSchema = z.literal("best_effort");
-
-export const workflowCleanupMarkerRecordSchema = z.object({
-  mode: workflowCleanupModeSchema,
-  runId: runIdSchema,
-  workflowName: nonBlankStringSchema,
-  workflowVersion: nonBlankStringSchema.optional(),
-  status: workflowTerminalRunStatusSchema,
-  createdAt: temporalInstantSchema,
-  finishedAt: temporalInstantSchema,
-  cleanupStartedAt: temporalInstantSchema,
-  events: nonNegativeSafeIntegerSchema,
-  stepAttempts: nonNegativeSafeIntegerSchema,
-  idempotencyKeys: nonNegativeSafeIntegerSchema,
-  messageIdempotencyKeys: nonNegativeSafeIntegerSchema,
-});
+import type { RunId } from "./ids.ts";
+import type { RunLinks, TerminalRunStatus } from "./run.ts";
 
 /** Cleanup strategy used when deleting terminal run data from the store. */
 export type CleanupMode = "best_effort";
 
-/** Options for workflow cleanup runs. */
-export interface CleanupRunsOptions extends WorkflowCleanupRunFilterOptions {
+export interface CleanupRunsOptions extends CleanupRunFilterOptions {
   readonly finishedAtBefore: Temporal.Instant;
 }
 
-/** Status filter accepted by workflow cleanup operations. */
-export type CleanupStatusFilter = WorkflowTerminalRunStatus | readonly WorkflowTerminalRunStatus[];
+export type CleanupStatusFilter = TerminalRunStatus | readonly TerminalRunStatus[];
 
-/** Options for workflow retention policy. */
-export interface RetentionPolicyOptions extends WorkflowCleanupRunFilterOptions {
+export interface RetentionPolicyOptions extends CleanupRunFilterOptions {
   readonly olderThan: Temporal.Duration;
   readonly now?: Temporal.Instant;
 }
 
-interface WorkflowCleanupRunFilterOptions {
+interface CleanupRunFilterOptions extends RunLinks {
   readonly status?: CleanupStatusFilter;
   readonly workflowName?: string;
   readonly workflowVersion?: string;
-  readonly idempotencyKey?: string;
-  readonly parentRunId?: RunId;
-  readonly parentStepId?: StepId;
-  readonly parentStepName?: string;
-  readonly parentStepAttempt?: number;
   readonly dryRun?: boolean;
   readonly limit?: number;
 }
 
-/** Stored record for workflow cleanup marker. */
 export interface CleanupMarkerRecord {
   readonly mode: CleanupMode;
   readonly runId: RunId;
   readonly workflowName: string;
   readonly workflowVersion?: string;
-  readonly status: WorkflowTerminalRunStatus;
+  readonly status: TerminalRunStatus;
   readonly createdAt: Temporal.Instant;
   readonly finishedAt: Temporal.Instant;
   readonly cleanupStartedAt: Temporal.Instant;
@@ -74,7 +38,6 @@ export interface CleanupMarkerRecord {
   readonly messageIdempotencyKeys: number;
 }
 
-/** Result returned by workflow cleanup runs. */
 export interface CleanupRunsResult {
   readonly mode: CleanupMode;
   readonly runIds: readonly RunId[];
@@ -94,21 +57,15 @@ export interface CleanupRunsResult {
   readonly deletedMessageIdempotencyKeys: number;
 }
 
-/** Result returned by workflow cleanup run. */
-export interface CleanupRunResult {
+export interface CleanupRunResult extends RunLinks {
   readonly mode: CleanupMode;
   readonly runId: RunId;
   readonly workflowName: string;
   readonly workflowVersion?: string;
-  readonly status: WorkflowTerminalRunStatus;
+  readonly status: TerminalRunStatus;
   readonly createdAt: Temporal.Instant;
   readonly updatedAt: Temporal.Instant;
   readonly finishedAt: Temporal.Instant;
-  readonly idempotencyKey?: string;
-  readonly parentRunId?: RunId;
-  readonly parentStepId?: StepId;
-  readonly parentStepName?: string;
-  readonly parentStepAttempt?: number;
   readonly events: number;
   readonly stepAttempts: number;
   readonly idempotencyKeys: number;

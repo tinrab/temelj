@@ -30,10 +30,16 @@ jobs:
       - name: Build packages
         run: pnpm run build
 
+      - name: Check types
+        run: pnpm run typecheck
+
       - name: Run lint
         run: |
           pnpm run format:check
           pnpm run lint
+
+      - name: Check JSR packages
+        run: pnpm run jsr:check
 
       - name: Run tests
         run: pnpm run test
@@ -44,26 +50,4 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish JSR packages
-        run: |
-          (cd "packages/value" && npx jsr publish)
-          (cd "packages/async" && npx jsr publish)
-          (cd "packages/string" && npx jsr publish)
-          (cd "packages/color" && npx jsr publish)
-          (cd "packages/ffmpeg" && npx jsr publish)
-          (cd "packages/result" && npx jsr publish)
-          (cd "packages/standard-schema" && npx jsr publish)
-          (cd "packages/event" && npx jsr publish)
-          (cd "packages/log" && npx jsr publish)
-          (cd "packages/iterator" && npx jsr publish)
-          (cd "packages/math" && npx jsr publish)
-          (cd "packages/react-hooks" && npx jsr publish)
-          (cd "packages/id" && npx jsr publish)
-          (cd "packages/request" && npx jsr publish)
-          (cd "packages/env" && npx jsr publish)
-          (cd "packages/handlebars" && npx jsr publish)
-          (cd "packages/mdx" && npx jsr publish)
-          (cd "packages/mdx-react" && npx jsr publish)
-          (cd "packages/cache" && npx jsr publish)
-          (cd "packages/storage" && npx jsr publish)
-
-          (cd lib && npx jsr publish)
+        run: npx jsr publish --allow-slow-types

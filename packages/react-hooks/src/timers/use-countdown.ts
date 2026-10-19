@@ -19,7 +19,7 @@ export interface CountdownOptions {
  */
 export function useCountdown(endTime: Date | number, options: CountdownOptions = {}): number {
   const { interval = 1000, onTick, onComplete } = options;
-  const end = typeof endTime === "number" ? endTime : endTime.getTime();
+  const end = endTime instanceof Date ? endTime.getTime() : endTime;
   const [remaining, setRemaining] = React.useState(() => Math.max(0, end - Date.now()));
   const completeRef = React.useRef(false);
   const onTickRef = useLatest(onTick);
@@ -27,10 +27,12 @@ export function useCountdown(endTime: Date | number, options: CountdownOptions =
 
   React.useEffect(() => {
     completeRef.current = false;
+
     const update = () => {
       const next = Math.max(0, end - Date.now());
       setRemaining(next);
       onTickRef.current?.(next);
+
       if (next === 0 && !completeRef.current) {
         completeRef.current = true;
         onCompleteRef.current?.();
@@ -39,6 +41,7 @@ export function useCountdown(endTime: Date | number, options: CountdownOptions =
 
     update();
     const id = setInterval(update, interval);
+
     return () => clearInterval(id);
   }, [end, interval, onTickRef, onCompleteRef]);
 

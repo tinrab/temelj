@@ -11,8 +11,10 @@ describe("postgres engine", () => {
       .withUsername("temelj")
       .withPassword("temelj")
       .start();
+
     const storage = createStorage({
       engine: new PostgresStorageEngine({
+        format: "string",
         prefix: `temelj-storage-${Date.now()}`,
         url: container.getConnectionUri(),
       }),
@@ -52,8 +54,10 @@ describe("postgres engine", () => {
       .withUsername("temelj")
       .withPassword("temelj")
       .start();
+
     const storage = createStorage({
       engine: new PostgresStorageEngine({
+        format: "string",
         prefix: `temelj-storage-cas-${Date.now()}`,
         url: container.getConnectionUri(),
       }),
@@ -89,16 +93,18 @@ describe("postgres engine", () => {
   test("removes expired rows during get and zero-ttl set", async () => {
     const rows: object[][] = [[{ value: new Uint8Array([1]), expires_at: Date.now() - 1 }], [], []];
     const calls: Array<{ readonly query: string; readonly parameters?: readonly unknown[] }> = [];
+
     const unsafe: PostgresEngineClient["unsafe"] = async <TRow extends object>(
       query: string,
       parameters?: readonly unknown[],
     ): Promise<TRow[]> => {
       calls.push({ query, parameters });
+
+      // SAFETY: This scripted batch matches the next SQL projection exercised by the test.
       return (rows.shift() ?? []) as TRow[];
     };
-    const engine = new PostgresStorageEngine<Uint8Array>({
-      client: { unsafe },
-    });
+
+    const engine = new PostgresStorageEngine({ format: "bytes", client: { unsafe } });
 
     expect(await engine.get("sessions:1")).toBeUndefined();
     await engine.set("sessions:2", new Uint8Array([2]), { ttl: 0 });
@@ -123,17 +129,20 @@ describe("postgres engine", () => {
       [],
       [{ deleted: 1 }],
     ];
+
     const calls: Array<{ readonly query: string; readonly parameters?: readonly unknown[] }> = [];
+
     const unsafe: PostgresEngineClient["unsafe"] = async <TRow extends object>(
       query: string,
       parameters?: readonly unknown[],
     ): Promise<TRow[]> => {
       calls.push({ query, parameters });
+
+      // SAFETY: This scripted batch matches the next SQL projection exercised by the test.
       return (rows.shift() ?? []) as TRow[];
     };
-    const engine = new PostgresStorageEngine<Uint8Array>({
-      client: { unsafe },
-    });
+
+    const engine = new PostgresStorageEngine({ format: "bytes", client: { unsafe } });
 
     await expect(engine.compareAndSet?.("users:1", undefined, new Uint8Array([1]))).resolves.toBe(
       true,
@@ -173,17 +182,20 @@ describe("postgres engine", () => {
       [{ key: "users:1", value: new Uint8Array([2]) }],
       [],
     ];
+
     const calls: Array<{ readonly query: string; readonly parameters?: readonly unknown[] }> = [];
+
     const unsafe: PostgresEngineClient["unsafe"] = async <TRow extends object>(
       query: string,
       parameters?: readonly unknown[],
     ): Promise<TRow[]> => {
       calls.push({ query, parameters });
+
+      // SAFETY: This scripted batch matches the next SQL projection exercised by the test.
       return (rows.shift() ?? []) as TRow[];
     };
-    const engine = new PostgresStorageEngine<Uint8Array>({
-      client: { unsafe },
-    });
+
+    const engine = new PostgresStorageEngine({ format: "bytes", client: { unsafe } });
 
     await expect(
       engine.compareAndSetMany?.([

@@ -14,6 +14,7 @@ export function useThrottle<T>(value: T, interval = 500): T {
     if (remaining <= 0) {
       lastUpdated.current = now;
       setThrottledValue(value);
+
       return undefined;
     }
 
@@ -21,6 +22,7 @@ export function useThrottle<T>(value: T, interval = 500): T {
       lastUpdated.current = Date.now();
       setThrottledValue(value);
     }, remaining);
+
     return () => clearTimeout(id);
   }, [value, interval]);
 

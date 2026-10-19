@@ -13,15 +13,15 @@ export interface EnumStateControls<T extends string> {
   /** Resets to the initial value. */
   reset: () => void;
   /** Allowed values for this state. */
-  values: readonly T[];
+  values: readonly [T, ...T[]];
 }
 
 /**
  * Manages state constrained to a fixed list of string values.
  */
 export function useEnumState<T extends string>(
-  values: readonly T[],
-  initialValue: T = values[0] as T,
+  values: readonly [T, ...T[]],
+  initialValue: T = values[0],
 ): [T, EnumStateControls<T>] {
   const initialRef = React.useRef(initialValue);
   const [value, setValue] = React.useState(initialValue);
@@ -36,14 +36,16 @@ export function useEnumState<T extends string>(
   const next = React.useCallback(() => {
     setValue((current) => {
       const index = values.indexOf(current);
-      return values[(index + 1) % values.length] as T;
+
+      return values[(index + 1) % values.length] ?? values[0];
     });
   }, [values]);
 
   const previous = React.useCallback(() => {
     setValue((current) => {
       const index = values.indexOf(current);
-      return values[(index - 1 + values.length) % values.length] as T;
+
+      return values[(index - 1 + values.length) % values.length] ?? values[0];
     });
   }, [values]);
 

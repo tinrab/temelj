@@ -12,8 +12,10 @@ describe("mysql engine", () => {
       .withUserPassword("temelj")
       .withRootPassword("root")
       .start();
+
     const storage = createStorage({
       engine: new MySqlStorageEngine({
+        format: "string",
         connection: {
           database: container.getDatabase(),
           host: container.getHost(),
@@ -60,8 +62,10 @@ describe("mysql engine", () => {
       .withUserPassword("temelj")
       .withRootPassword("root")
       .start();
+
     const storage = createStorage({
       engine: new MySqlStorageEngine({
+        format: "string",
         connection: {
           database: container.getDatabase(),
           host: container.getHost(),
@@ -109,9 +113,8 @@ describe("mysql engine", () => {
       ])
       .mockResolvedValueOnce([{ affectedRows: 1 }, undefined])
       .mockResolvedValueOnce([{ affectedRows: 1 }, undefined]);
-    const engine = new MySqlStorageEngine<Uint8Array>({
-      client: { execute },
-    });
+
+    const engine = new MySqlStorageEngine({ format: "bytes", client: { execute } });
 
     expect(await engine.get("sessions:1")).toBeUndefined();
     await engine.set("sessions:2", new Uint8Array([2]), { ttl: 0 });
@@ -132,6 +135,7 @@ describe("mysql engine", () => {
     const startError = new Error("start failed");
     const release = vi.fn<NonNullable<MySqlEngineConnection["release"]>>();
     const rollback = vi.fn<NonNullable<MySqlEngineConnection["rollback"]>>();
+
     const connection: MySqlEngineConnection = {
       beginTransaction: vi
         .fn<NonNullable<MySqlEngineConnection["beginTransaction"]>>()
@@ -140,7 +144,9 @@ describe("mysql engine", () => {
       release,
       rollback,
     };
-    const engine = new MySqlStorageEngine<Uint8Array>({
+
+    const engine = new MySqlStorageEngine({
+      format: "bytes",
       client: {
         execute: vi.fn<MySqlEngineClient["execute"]>(),
         getConnection: async () => connection,

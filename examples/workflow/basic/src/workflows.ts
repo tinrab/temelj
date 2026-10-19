@@ -18,15 +18,17 @@ export interface ReportResult {
 
 export const generateRows = defineWorkflowStep(
   { name: "generate-report-rows" },
-  (input: ReportInput, { log }: WorkflowStepContext): number => {
+  ({ log }: WorkflowStepContext, input: ReportInput): number => {
     log.info("generating report rows", {
       reportId: input.reportId,
       rows: input.rows,
     });
     let checksum = 0;
+
     for (let index = 0; index < input.rows; index++) {
       checksum = (checksum + (index * 31 + input.reportId.length)) % 1_000_000_007;
     }
+
     return checksum;
   },
 );
@@ -34,8 +36,8 @@ export const generateRows = defineWorkflowStep(
 export const reportWorkflow: WorkflowImplementation<ReportInput, ReportResult> = implementWorkflow<
   ReportInput,
   ReportResult
->({ name: "basic.report", version: "v1" }, async ({ input, log, step }) => {
-  log.info("report workflow started", {
+>({ name: "basic.report", version: "v1" }, async ({ input, step }) => {
+  step.log.info("report workflow started", {
     reportId: input.reportId,
     rows: input.rows,
   });
@@ -46,7 +48,8 @@ export const reportWorkflow: WorkflowImplementation<ReportInput, ReportResult> =
   step.log.info("report attributes recorded", {
     workload: "report",
   });
-  const checksum = await step.task.call(generateRows, input);
+  const checksum = await step.call(generateRows, input);
+
   return {
     reportId: input.reportId,
     checksum,

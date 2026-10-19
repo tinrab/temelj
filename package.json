@@ -7,26 +7,28 @@
     "clean": "turbo run clean --parallel",
     "dev": "turbo dev --continue",
     "dev:packages": "turbo dev --continue --filter './packages/*'",
-    "typecheck": "turbo run typecheck --parallel",
+    "typecheck": "turbo run typecheck",
     "format": "oxfmt",
     "format:check": "oxfmt --check",
     "lint": "oxlint --type-aware",
     "lint:fix": "oxlint --type-aware --fix-dangerously",
+    "jsr:check": "npx jsr publish --dry-run --allow-dirty --allow-slow-types",
     "test": "turbo run test",
     "docker:up": "docker compose -f ./infrastructure/docker-compose.yaml up -d --build",
     "docker:down": "docker compose -f ./infrastructure/docker-compose.yaml down"
   },
   "devDependencies": {
-    "@types/node": "26.1.1",
-    "oxfmt": "^0.63.0",
-    "oxlint": "^1.78.0",
-    "oxlint-tsgolint": "^7.0.2001",
+    "@oxlint/plugins": "1.88.0",
+    "@types/node": "26.6.5",
+    "oxfmt": "^0.73.0",
+    "oxlint": "1.88.0",
+    "oxlint-tsgolint": "^7.0.2004",
     "shx": "^0.4.0",
-    "tsx": "^4.23.12",
-    "turbo": "^2.10.9",
+    "tsx": "^4.23.15",
+    "turbo": "^2.11.8",
     "typescript": "^7.0.2",
-    "vite": "^8.2.1",
-    "vitest": "^4.1.10"
+    "vite": "^8.3.4",
+    "vitest": "^5.0.4"
   },
-  "packageManager": "pnpm@11.21.0"
+  "packageManager": "pnpm@12.11.2"
 }

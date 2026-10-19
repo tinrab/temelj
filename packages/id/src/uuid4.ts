@@ -40,6 +40,7 @@ export function isUuid4Valid(id: string): boolean {
  */
 export function getUuid4Bytes(id: string): Uint8Array {
   const uuid = id128.Uuid4.fromCanonicalTrusted(id);
+
   return uuid.bytes;
 }
 

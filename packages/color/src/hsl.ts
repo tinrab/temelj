@@ -97,10 +97,15 @@ export function hslToRgb(color: HslColor): Color {
     // Helper function to convert hue to RGB
     const hueToRgb = (p: number, q: number, t: number) => {
       if (t < 0) t += 1;
+
       if (t > 1) t -= 1;
+
       if (t < 1 / 6) return p + (q - p) * 6 * t;
+
       if (t < 1 / 2) return q;
+
       if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+
       return p;
     };
 
@@ -174,6 +179,7 @@ export function toHslString(color: HslColor): string {
   const h = color.hue % 360;
   const s = color.saturation < 0 ? 0 : color.saturation > 1 ? 1 : color.saturation;
   const l = color.lightness < 0 ? 0 : color.lightness > 1 ? 1 : color.lightness;
+
   return `hsl(${h}, ${s * 100}%, ${l * 100}%)`;
 }
 
@@ -185,6 +191,7 @@ export function toHslString(color: HslColor): string {
  */
 export function toHslaString(color: HslColor): string {
   const c = normalizeHsl(color);
+
   return `hsla(${c.hue}, ${c.saturation * 100}%, ${c.lightness * 100}%, ${c.alpha ?? 1})`;
 }
 
@@ -209,6 +216,7 @@ export function lerpHsl(a: HslColor, b: HslColor, t: number): HslColor {
   }
 
   let h = 0;
+
   if (d > 0.5) {
     ah = ah + 1;
     h = (ah + t * (bh - ah)) % 1;

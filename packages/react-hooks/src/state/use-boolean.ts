@@ -21,8 +21,9 @@ export function useBoolean(initialValue = false): [boolean, BooleanControls] {
   const [value, setValue] = React.useState(initialValue);
   const setTrue = React.useCallback(() => setValue(true), []);
   const setFalse = React.useCallback(() => setValue(false), []);
+
   const toggle = React.useCallback((next?: boolean) => {
-    setValue((current) => (typeof next === "boolean" ? next : !current));
+    setValue((current) => next ?? !current);
   }, []);
 
   return [value, { setTrue, setFalse, toggle, set: setValue }];

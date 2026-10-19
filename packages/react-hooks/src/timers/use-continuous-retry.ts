@@ -28,13 +28,17 @@ export function useContinuousRetry(
     const id = setInterval(async () => {
       if (options.maxRetries !== undefined && attempts >= options.maxRetries) {
         clearInterval(id);
+
         return;
       }
+
       attempts++;
+
       if (await callbackRef.current()) {
         if (!cancelled) {
           setResolved(true);
         }
+
         clearInterval(id);
       }
     }, interval);

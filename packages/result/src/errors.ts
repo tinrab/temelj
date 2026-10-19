@@ -8,7 +8,10 @@ export class ResultUnwrapError extends Error {
     }
   }
 
-  static expectedErr(this: void, value: unknown): never {
-    throw new ResultUnwrapError(`Result is Ok: ${String(value)}`, ResultUnwrapError.expectedErr);
+  static expectedErr(this: void): never {
+    throw new ResultUnwrapError(
+      "Expected an error result, received an Ok result",
+      ResultUnwrapError.expectedErr,
+    );
   }
 }

@@ -78,11 +78,13 @@ describe("tryParseEnv", () => {
 
     const error = unwrapErr(result);
     expect(error).toBeInstanceOf(EnvValidationError);
-    expect((error as EnvValidationError).issues.map((issue) => issue.variable)).toEqual([
-      "PORT",
-      "NODE_ENV",
-    ]);
-    expect((error as EnvValidationError).issues[0].path).toEqual(["PORT"]);
+
+    if (!(error instanceof EnvValidationError)) {
+      throw error;
+    }
+
+    expect(error.issues.map((issue) => issue.variable)).toEqual(["PORT", "NODE_ENV"]);
+    expect(error.issues[0].path).toEqual(["PORT"]);
   });
 
   test("returns configuration errors for async schemas in sync parsing", () => {

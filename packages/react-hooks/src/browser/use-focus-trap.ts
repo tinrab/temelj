@@ -21,7 +21,9 @@ export function useFocusTrap<T extends HTMLElement>(enabled = true): React.RefOb
     if (!enabled || !isBrowser) {
       return undefined;
     }
+
     const container = ref.current;
+
     if (!container) {
       return undefined;
     }
@@ -30,17 +32,21 @@ export function useFocusTrap<T extends HTMLElement>(enabled = true): React.RefOb
       if (event.key !== "Tab") {
         return;
       }
+
       const focusable = Array.from(
         container.querySelectorAll<HTMLElement>(focusableSelector),
       ).filter((element) => element.offsetParent !== null || element === document.activeElement);
+
       if (focusable.length === 0) {
         event.preventDefault();
         container.focus();
+
         return;
       }
 
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
+
       if (event.shiftKey && document.activeElement === first) {
         event.preventDefault();
         last.focus();
@@ -51,6 +57,7 @@ export function useFocusTrap<T extends HTMLElement>(enabled = true): React.RefOb
     };
 
     container.addEventListener("keydown", handleKeyDown);
+
     return () => container.removeEventListener("keydown", handleKeyDown);
   });
 

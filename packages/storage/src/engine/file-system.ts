@@ -1,4 +1,5 @@
 import { decodeBase64UrlString, encodeBase64UrlString } from "@temelj/string";
+import { isNumber, isObject } from "@temelj/value";
 import { mkdir, readdir, readFile, rm, unlink, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
@@ -47,6 +48,7 @@ interface FileSystemRecordMetadata {
 }
 
 const DEFAULT_VALUE_EXTENSION = ".bin";
+
 const DEFAULT_METADATA_EXTENSION = ".meta.json";
 
 /**
@@ -76,12 +78,15 @@ export class FileSystemStorageEngine implements StorageEngine<Uint8Array> {
 
   async getMany(keys: readonly string[]): Promise<ReadonlyMap<string, Uint8Array>> {
     const values = new Map<string, Uint8Array>();
+
     for (const key of keys) {
       const value = await this.get(key);
+
       if (value !== undefined) {
         values.set(key, value);
       }
     }
+
     return values;
   }
 
@@ -99,18 +104,22 @@ export class FileSystemStorageEngine implements StorageEngine<Uint8Array> {
     options?: StorageEngineSetOptions,
   ): Promise<boolean> {
     const storageKey = this.#prefixKey(key);
+
     return await this.#withKeyLock(storageKey, async () => {
       const current = await this.#readRecord(storageKey);
+
       if (!bytesEqual(current, expected)) {
         return false;
       }
 
       if (value === undefined) {
         await this.#removeRecord(storageKey);
+
         return true;
       }
 
       await this.#writeRecord(storageKey, value, resolveExpiresAt(options));
+
       return true;
     });
   }
@@ -124,11 +133,13 @@ export class FileSystemStorageEngine implements StorageEngine<Uint8Array> {
       value: item.value,
       options: item.options,
     }));
+
     return await this.#withKeyLocks(
       storageItems.map((item) => item.key),
       async () => {
         for (const item of storageItems) {
           const current = await this.#readRecord(item.key);
+
           if (!bytesEqual(current, item.expected)) {
             return false;
           }
@@ -139,8 +150,10 @@ export class FileSystemStorageEngine implements StorageEngine<Uint8Array> {
             await this.#removeRecord(item.key);
             continue;
           }
+
           await this.#writeRecord(item.key, item.value, resolveExpiresAt(item.options));
         }
+
         return true;
       },
     );
@@ -154,20 +167,24 @@ export class FileSystemStorageEngine implements StorageEngine<Uint8Array> {
 
   async delete(key: string): Promise<boolean> {
     const storageKey = this.#prefixKey(key);
+
     return await this.#withKeyLock(storageKey, async () => {
       const exists = (await this.#readRecord(storageKey)) !== undefined;
       await this.#removeRecord(storageKey);
+
       return exists;
     });
   }
 
   async deleteMany(keys: readonly string[]): Promise<number> {
     let deleted = 0;
+
     for (const key of keys) {
       if (await this.delete(key)) {
         deleted++;
       }
     }
+
     return deleted;
   }
 
@@ -177,17 +194,20 @@ export class FileSystemStorageEngine implements StorageEngine<Uint8Array> {
 
   async keys(options?: StorageEngineKeyOptions): Promise<readonly string[]> {
     const result: string[] = [];
+
     for (const key of await this.#matchingKeys(options)) {
       if ((await this.#readRecord(key)) !== undefined) {
         result.push(this.#unprefixKey(key));
       }
     }
+
     return result;
   }
 
   async clear(options?: StorageEngineKeyOptions): Promise<void> {
     if (options?.prefix === undefined && this.#prefix.length === 0) {
       await rm(this.#directory, { force: true, recursive: true });
+
       return;
     }
 
@@ -214,10 +234,26 @@ export class FileSystemStorageEngine implements StorageEngine<Uint8Array> {
 
   async #readMetadata(key: string): Promise<FileSystemRecordMetadata> {
     const metadata = await readOptionalFile(this.#metadataPath(key));
+
     if (metadata === undefined) {
       return {};
     }
-    return JSON.parse(new TextDecoder().decode(metadata)) as FileSystemRecordMetadata;
+
+    const parsed: unknown = JSON.parse(new TextDecoder().decode(metadata));
+
+    if (!isObject(parsed)) {
+      throw new TypeError("Invalid storage metadata");
+    }
+
+    if (!("expiresAt" in parsed) || parsed.expiresAt === undefined) {
+      return {};
+    }
+
+    if (!isNumber(parsed.expiresAt) || !Number.isFinite(parsed.expiresAt)) {
+      throw new TypeError("Invalid storage expiration");
+    }
+
+    return { expiresAt: parsed.expiresAt };
   }
 
   async #removeRecord(key: string): Promise<void> {
@@ -227,35 +263,44 @@ export class FileSystemStorageEngine implements StorageEngine<Uint8Array> {
   async #writeRecord(key: string, value: Uint8Array, expiresAt: number | undefined): Promise<void> {
     if (expiresAt !== undefined && expiresAt <= Date.now()) {
       await this.#removeRecord(key);
+
       return;
     }
 
     await mkdir(this.#directory, { recursive: true });
     await writeFile(this.#valuePath(key), value);
+
     if (expiresAt === undefined) {
       await removeFile(this.#metadataPath(key));
+
       return;
     }
+
     await writeFile(this.#metadataPath(key), JSON.stringify({ expiresAt }));
   }
 
   async #withKeyLock<T>(key: string, callback: () => Promise<T>): Promise<T> {
     const previous = this.#locks.get(key) ?? Promise.resolve();
     let release!: () => void;
+
     const current = new Promise<void>((resolveLock) => {
       release = resolveLock;
     });
+
     const next = previous.then(
       () => current,
       () => current,
     );
+
     this.#locks.set(key, next);
 
     await previous;
+
     try {
       return await callback();
     } finally {
       release();
+
       if (this.#locks.get(key) === next) {
         this.#locks.delete(key);
       }
@@ -264,40 +309,51 @@ export class FileSystemStorageEngine implements StorageEngine<Uint8Array> {
 
   async #withKeyLocks<T>(keys: readonly string[], callback: () => Promise<T>): Promise<T> {
     const [key, ...rest] = [...new Set(keys)].sort();
+
     if (key === undefined) {
       return await callback();
     }
+
     return await this.#withKeyLock(key, async () => await this.#withKeyLocks(rest, callback));
   }
 
   async #isExpired(key: string): Promise<boolean> {
     const metadata = await this.#readMetadata(key);
+
     return metadata.expiresAt !== undefined && metadata.expiresAt <= Date.now();
   }
 
   async #readRecord(key: string): Promise<Uint8Array | undefined> {
     if (await this.#isExpired(key)) {
       await this.#removeRecord(key);
+
       return undefined;
     }
 
     const value = await readOptionalFile(this.#valuePath(key));
+
     if (value === undefined) {
       await removeFile(this.#metadataPath(key));
+
       return undefined;
     }
+
     return value;
   }
 
   async #allKeys(): Promise<readonly string[]> {
     const entries = await readDirectory(this.#directory);
-    return entries
-      .filter((entry) => entry.endsWith(this.#valueExtension))
-      .map((entry) => decodeBase64UrlString(entry.slice(0, -this.#valueExtension.length)));
+
+    return entries.flatMap((entry) =>
+      entry.endsWith(this.#valueExtension)
+        ? [decodeBase64UrlString(entry.slice(0, -this.#valueExtension.length))]
+        : [],
+    );
   }
 
   async #matchingKeys(options: StorageEngineKeyOptions | undefined): Promise<readonly string[]> {
     const matchPrefix = this.#prefixKey(options?.prefix ?? "");
+
     return (await this.#allKeys()).filter((key) => key.startsWith(matchPrefix));
   }
 }
@@ -309,6 +365,7 @@ async function readOptionalFile(path: string): Promise<Uint8Array | undefined> {
     if (isNotFoundError(error)) {
       return undefined;
     }
+
     throw error;
   }
 }
@@ -320,6 +377,7 @@ async function readDirectory(path: string): Promise<readonly string[]> {
     if (isNotFoundError(error)) {
       return [];
     }
+
     throw error;
   }
 }
@@ -334,14 +392,8 @@ async function removeFile(path: string): Promise<void> {
   }
 }
 
-function isNotFoundError(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    ((error as { readonly code?: unknown }).code === "ENOENT" ||
-      (error as { readonly code?: unknown }).code === "EISDIR")
-  );
+function isNotFoundError(cause: unknown): boolean {
+  return isObject(cause) && "code" in cause && (cause.code === "ENOENT" || cause.code === "EISDIR");
 }
 
 /**

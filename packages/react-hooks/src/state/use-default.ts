@@ -8,5 +8,6 @@ export function useDefault<T>(
   defaultValue: T,
 ): [T, React.Dispatch<React.SetStateAction<T | null | undefined>>] {
   const [state, setState] = React.useState<T | null | undefined>(initialValue);
+
   return [state == null ? defaultValue : state, setState];
 }

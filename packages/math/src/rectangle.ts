@@ -5,15 +5,7 @@ export interface Rectangle {
   size: Vector2;
 }
 
-export const rectangle: {
-  of(position: Vector2, size: Vector2): Rectangle;
-  ofBounds(x: number, y: number, width: number, height: number): Rectangle;
-  fromDOM(rect: DOMRect): Rectangle;
-  expand(a: Rectangle, b: Rectangle): Rectangle;
-  center(r: Rectangle): Vector2;
-  overlaps(a: Rectangle, b: Rectangle): boolean;
-  displayString(r: Rectangle): string;
-} = {
+export const rectangle = {
   of(position: Vector2, size: Vector2): Rectangle {
     return { position, size };
   },
@@ -34,6 +26,7 @@ export const rectangle: {
     const minY = Math.min(a.position.y, b.position.y);
     const maxX = Math.max(a.position.x + a.size.x, b.position.x + b.size.x);
     const maxY = Math.max(a.position.y + a.size.y, b.position.y + b.size.y);
+
     return {
       position: { x: minX, y: minY },
       size: { x: maxX - minX, y: maxY - minY },

@@ -5,12 +5,42 @@ import type { JsonStorageValue, StorageCodec, StorageEngine, StoredValue } from 
 import { CloudflareKvStorageEngine } from "../engine/cloudflare/kv.ts";
 import { IndexedDbStorageEngine } from "../engine/indexed-db.ts";
 import { InMemoryStorageEngine } from "../engine/memory.ts";
+import { PostgresStorageEngine } from "../engine/postgres.ts";
 import { RedisStorageEngine } from "../engine/redis.ts";
 import { createStorage } from "../storage.ts";
 import { createIdentityStorageCodec } from "./identity.ts";
 import { createJsonStorageCodec } from "./json.ts";
+import { createPrimitivizedJsonStorageCodec } from "./primitivized-json.ts";
+import { createSuperJsonStorageCodec } from "./super-json.ts";
 
 describe("typed persisted values", () => {
+  test("the default format is always string and byte formats require an option", () => {
+    expectTypeOf(createJsonStorageCodec()).toMatchTypeOf<StorageCodec<JsonStorageValue, string>>();
+
+    for (const codec of [
+      createJsonStorageCodec(),
+      createPrimitivizedJsonStorageCodec(),
+      createSuperJsonStorageCodec(),
+    ]) {
+      expect(codec.encode("value")).toBeTypeOf("string");
+    }
+
+    for (const codec of [
+      createJsonStorageCodec({ format: "bytes" }),
+      createPrimitivizedJsonStorageCodec({ format: "bytes" }),
+      createSuperJsonStorageCodec({ format: "bytes" }),
+    ]) {
+      expect(codec.encode("value")).toBeInstanceOf(Uint8Array);
+      expect(codec.decode(codec.encode("value"))).toBe("value");
+    }
+
+    // @ts-expect-error Selecting bytes requires the corresponding runtime format option.
+    createJsonStorageCodec<"bytes">();
+    // @ts-expect-error Selecting bytes requires the corresponding runtime format option.
+    createPrimitivizedJsonStorageCodec<"bytes">();
+    // @ts-expect-error Selecting bytes requires the corresponding runtime format option.
+    createSuperJsonStorageCodec<JsonStorageValue, "bytes">();
+  });
   test("JSON supports string and byte formats", () => {
     const stringCodec = createJsonStorageCodec({ format: "string" });
     const bytesCodec = createJsonStorageCodec({ format: "bytes" });
@@ -44,6 +74,12 @@ describe("typed persisted values", () => {
   });
 
   test("matching engine and codec representations are inferred", () => {
+    expectTypeOf<PostgresStorageEngine<"bytes">>().toMatchTypeOf<StorageEngine<Uint8Array>>();
+    expectTypeOf<PostgresStorageEngine<"number">>().toMatchTypeOf<StorageEngine<number>>();
+    // @ts-expect-error SQL engines require an explicit persisted format.
+    new PostgresStorageEngine({});
+    // @ts-expect-error Redis formats must also be selected at runtime.
+    new RedisStorageEngine<"string">({});
     expectTypeOf(
       createStorage({
         codec: createIdentityStorageCodec<number>(),

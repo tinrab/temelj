@@ -1,56 +1,44 @@
-import type { WorkflowClientWorkerOptions } from "../types/client.ts";
+import type { WorkflowEngine } from "../engine/create.ts";
+import type { ClientWorkerOptions } from "../types/client.ts";
 import type { RegistryLike } from "../types/definition.ts";
-import type { WorkflowWorkerEngine } from "../types/engine.ts";
-import type { WorkflowMissingImplementationRetryConfig } from "../types/retry.ts";
+import type { MissingImplementationRetryConfig } from "../types/retry.ts";
 import type { CreateWorkflowWorkerOptions } from "../types/worker.ts";
 
-interface WorkflowWorkerFacetOptions {
+interface WorkerFacetOptions {
   readonly workerId?: string;
   readonly leaseDuration?: Temporal.Duration;
   readonly heartbeatInterval?: Temporal.Duration;
   readonly stopDrainTimeout?: Temporal.Duration;
-  readonly missingImplementationRetry?: WorkflowMissingImplementationRetryConfig;
+  readonly missingImplementationRetry?: MissingImplementationRetryConfig;
 }
 
 export function workerOptionsFromClientOptions(
-  engine: WorkflowWorkerEngine,
+  engine: WorkflowEngine,
   registry: RegistryLike,
   now: () => Temporal.Instant,
-  options: WorkflowClientWorkerOptions | undefined,
+  options: ClientWorkerOptions | undefined,
 ): CreateWorkflowWorkerOptions {
   return {
     engine,
     registry,
     now,
-    ...(options?.workerId === undefined ? {} : { workerId: options.workerId }),
-    ...(options?.leaseDuration === undefined ? {} : { leaseDuration: options.leaseDuration }),
-    ...(options?.pollInterval === undefined ? {} : { pollInterval: options.pollInterval }),
-    ...(options?.heartbeatInterval === undefined
-      ? {}
-      : { heartbeatInterval: options.heartbeatInterval }),
-    ...(options?.stopDrainTimeout === undefined
-      ? {}
-      : { stopDrainTimeout: options.stopDrainTimeout }),
-    ...(options?.missingImplementationRetry === undefined
-      ? {}
-      : { missingImplementationRetry: options.missingImplementationRetry }),
+    workerId: options?.workerId,
+    leaseDuration: options?.leaseDuration,
+    pollInterval: options?.pollInterval,
+    heartbeatInterval: options?.heartbeatInterval,
+    stopDrainTimeout: options?.stopDrainTimeout,
+    missingImplementationRetry: options?.missingImplementationRetry,
   };
 }
 
 export function workerOptionsFromWakeOptions(
-  options: WorkflowWorkerFacetOptions | undefined,
-): WorkflowClientWorkerOptions {
+  options: WorkerFacetOptions | undefined,
+): ClientWorkerOptions {
   return {
-    ...(options?.workerId === undefined ? {} : { workerId: options.workerId }),
-    ...(options?.leaseDuration === undefined ? {} : { leaseDuration: options.leaseDuration }),
-    ...(options?.heartbeatInterval === undefined
-      ? {}
-      : { heartbeatInterval: options.heartbeatInterval }),
-    ...(options?.stopDrainTimeout === undefined
-      ? {}
-      : { stopDrainTimeout: options.stopDrainTimeout }),
-    ...(options?.missingImplementationRetry === undefined
-      ? {}
-      : { missingImplementationRetry: options.missingImplementationRetry }),
+    workerId: options?.workerId,
+    leaseDuration: options?.leaseDuration,
+    heartbeatInterval: options?.heartbeatInterval,
+    stopDrainTimeout: options?.stopDrainTimeout,
+    missingImplementationRetry: options?.missingImplementationRetry,
   };
 }

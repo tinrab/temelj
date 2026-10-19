@@ -1,46 +1,49 @@
+import type { TemplateDelegate, HelperOptions } from "handlebars";
+
 import type { Registry } from "./registry";
 
 export function registerSwitchHelpers(registry: Registry): void {
-  const hbs: Registry & {
-    switchStack?: {
-      switchMatch: boolean;
-      switchValue: unknown;
-    }[];
-  } = registry;
-  hbs.switchStack = [];
+  const switchStack: { switchMatch: boolean; switchValue: unknown }[] = [];
+  registry.registerHelper(
+    "switch",
+    function (this: Parameters<TemplateDelegate>[0], value, options: HelperOptions): string {
+      switchStack.push({
+        switchMatch: false,
+        switchValue: value,
+      });
 
-  hbs.switchStack = [];
-  hbs.registerHelper("switch", function (value, options): unknown {
-    if (hbs.switchStack === undefined) {
-      return;
-    }
-    hbs.switchStack.push({
-      switchMatch: false,
-      switchValue: value,
-    });
-    // @ts-expect-error handlebars missing types
-    const rendered = options.fn(this);
-    hbs.switchStack.pop();
-    return rendered;
-  });
-  hbs.registerHelper("case", function (...args): unknown {
+      try {
+        return options.fn(this);
+      } finally {
+        switchStack.pop();
+      }
+    },
+  );
+  registry.registerHelper("case", function (this: Parameters<TemplateDelegate>[0], ...args):
+    | string
+    | undefined {
     const options = args.pop();
     const caseValues = args;
-    const stack = hbs.switchStack?.at(-1);
+    const stack = switchStack?.at(-1);
+
     if (stack !== undefined) {
       if (stack.switchMatch || !caseValues.includes(stack.switchValue)) {
         return "";
       }
+
       stack.switchMatch = true;
-      // @ts-expect-error handlebars missing types
+
       return options.fn(this);
     }
   });
-  hbs.registerHelper("default", function (options): unknown {
-    const stack = hbs.switchStack?.at(-1);
-    if (!stack?.switchMatch) {
-      // @ts-expect-error handlebars missing types
-      return options.fn(this);
-    }
-  });
+  registry.registerHelper(
+    "default",
+    function (this: Parameters<TemplateDelegate>[0], options: HelperOptions): string | undefined {
+      const stack = switchStack?.at(-1);
+
+      if (!stack?.switchMatch) {
+        return options.fn(this);
+      }
+    },
+  );
 }

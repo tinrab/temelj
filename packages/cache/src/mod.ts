@@ -1,9 +1,17 @@
 export * from "./async-lru.ts";
+
 export * from "./entry-count.ts";
+
 export * from "./fifo.ts";
+
 export * from "./lfu.ts";
+
 export * from "./lru.ts";
+
 export * from "./mru.ts";
+
 export * from "./rr.ts";
+
 export * from "./slru.ts";
+
 export * from "./types.ts";

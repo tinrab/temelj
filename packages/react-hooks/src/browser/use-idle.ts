@@ -12,14 +12,17 @@ export function useIdle(ms = 60_000): boolean {
     if (!isBrowser) {
       return undefined;
     }
+
     let timeoutId: ReturnType<typeof setTimeout>;
     let last = 0;
 
     const reset = () => {
       const now = Date.now();
+
       if (now - last < 500) {
         return;
       }
+
       last = now;
       setIdle(false);
       clearTimeout(timeoutId);
@@ -30,6 +33,7 @@ export function useIdle(ms = 60_000): boolean {
     const events = ["mousemove", "mousedown", "resize", "keydown", "touchstart", "wheel"];
     events.forEach((event) => window.addEventListener(event, reset, { passive: true }));
     document.addEventListener("visibilitychange", reset);
+
     return () => {
       events.forEach((event) => window.removeEventListener(event, reset));
       document.removeEventListener("visibilitychange", reset);

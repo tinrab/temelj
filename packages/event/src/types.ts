@@ -1,6 +1,7 @@
 import type { Result } from "@temelj/result";
 
 export type EventMap = object;
+
 export type EventKey<Events extends EventMap> = Extract<keyof Events, string>;
 
 export type EventNamespace<Key extends string> = Key extends `${infer Namespace}:${infer Rest}`
@@ -46,12 +47,20 @@ export interface EmitReport<Event extends string = string> {
   readonly handlers: number;
 }
 
-export interface HandlerFailure<E = unknown, Event extends string = string> {
+interface HandlerFailureContext<Event extends string> {
   readonly event: Event;
   readonly pattern: string;
-  readonly error: E;
   readonly index: number;
 }
+
+export type HandlerFailure<
+  E = unknown,
+  Event extends string = string,
+> = HandlerFailureContext<Event> &
+  (
+    | { readonly kind: "returned"; readonly error: E }
+    | { readonly kind: "thrown"; readonly cause: unknown }
+  );
 
 export interface PubSub<Events extends EventMap, E = unknown> {
   on<Pattern extends EventPattern<Events>>(

@@ -32,10 +32,16 @@ jobs:
       - name: Build packages
         run: pnpm run build
 
+      - name: Check types
+        run: pnpm run typecheck
+
       - name: Run lint
         run: |
           pnpm run format:check
           pnpm run lint
+
+      - name: Check JSR packages
+        run: pnpm run jsr:check
 
       - name: Run tests
         run: pnpm run test

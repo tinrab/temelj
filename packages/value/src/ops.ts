@@ -15,30 +15,41 @@ export function primitivize(value: unknown): PrimitiveValue {
   if (value instanceof Map) {
     // Assumes all keys are strings.
     const entries: Record<string, PrimitiveValue> = {};
+
     for (const [k, v] of value.entries()) {
       entries[String(k)] = primitivize(v);
     }
+
     return entries;
   }
+
   if (value instanceof Set) {
     const items: PrimitiveValue[] = [];
+
     for (const v of value) {
       items.push(primitivize(v));
     }
+
     return items;
   }
+
   if (Array.isArray(value)) {
     return value.map((x) => primitivize(x));
   }
+
   if (value?.constructor === Object) {
     const newObj: Record<string, PrimitiveValue> = {};
+
     for (const [k, v] of Object.entries(value)) {
       newObj[k] = primitivize(v);
     }
+
     return newObj;
   }
+
   if (!isPrimitiveValue(value)) {
-    ValueConversionError.notPrimitive(value);
+    ValueConversionError.notPrimitive(Object.prototype.toString.call(value));
   }
+
   return value;
 }

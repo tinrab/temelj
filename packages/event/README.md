@@ -59,6 +59,11 @@ bus.emit("user:login", { userId: "user_1" });
 bus.emit("user:logout");
 ```
 
+`emit` continues dispatching after a handler fails and returns all failures.
+A failure with `kind: "returned"` contains the handler's typed `error`.
+A failure with `kind: "thrown"` contains an unknown `cause`, since JavaScript
+can throw values outside the declared handler error type.
+
 ## About
 
 This package is part of [Temelj](https://github.com/tinrab/temelj) - a core library for TypeScript.

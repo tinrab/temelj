@@ -32,10 +32,13 @@ export function useIntervalWhen(callback: () => void, options: IntervalWhenOptio
   React.useEffect(() => {
     if (!when) {
       clear();
+
       return undefined;
     }
+
     if (startImmediately) callbackRef.current();
     intervalRef.current = setInterval(() => callbackRef.current(), ms);
+
     return clear;
   }, [callbackRef, clear, ms, startImmediately, when]);
 

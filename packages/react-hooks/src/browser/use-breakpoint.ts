@@ -1,27 +1,27 @@
 import { useMediaQueries } from "./use-media-queries.ts";
 
-/**
- * Returns the active breakpoint name for a min-width breakpoint map.
- */
-export function useBreakpoint<const T extends Record<string, number>>(
-  breakpoints: T,
-): keyof T | null {
-  const queries = {} as { [K in keyof T]: string };
-  for (const key of Object.keys(breakpoints) as Array<keyof T>) {
-    queries[key] = `(min-width: ${breakpoints[key]}px)`;
-  }
+/** Named minimum viewport widths in pixels. */
+export type Breakpoints<K extends string> = Readonly<Record<K, number>>;
+
+/** Returns the active name from an own enumerable min-width breakpoint map. */
+export function useBreakpoint<K extends string>(breakpoints: Breakpoints<K>): K | null {
+  const entries = Object.entries<number>(breakpoints);
+
+  const queries = Object.fromEntries(
+    entries.map(([key, width]) => [key, `(min-width: ${width}px)`]),
+  );
 
   const matches = useMediaQueries(queries);
-  let active: keyof T | null = null;
+  let active: string | null = null;
   let activeValue = Number.NEGATIVE_INFINITY;
 
-  for (const key of Object.keys(breakpoints) as Array<keyof T>) {
-    const value = breakpoints[key];
-    if (matches[key] && value > activeValue) {
+  for (const [key, width] of entries) {
+    if (matches[key] && width > activeValue) {
       active = key;
-      activeValue = value;
+      activeValue = width;
     }
   }
 
-  return active;
+  // SAFETY: A selected name comes directly from the supplied breakpoint keys; no match remains null.
+  return active as K | null;
 }

@@ -19,6 +19,7 @@ export function useTimeout(callback: () => void, ms: number | null): () => void 
   React.useEffect(() => {
     if (ms === null) return undefined;
     timerRef.current = setTimeout(() => callbackRef.current(), ms);
+
     return clear;
   }, [callbackRef, clear, ms]);
 

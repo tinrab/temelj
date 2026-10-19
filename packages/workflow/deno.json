@@ -1,22 +1,17 @@
 {
   "name": "@temelj/workflow",
-  "version": "0.0.0-alpha.2",
+  "version": "0.0.0-alpha.4",
   "exports": {
     ".": "./src/mod.ts",
-    "./engine": "./src/engine/mod.ts",
+    "./compiled": "./src/compiled.ts",
     "./esbuild": "./src/esbuild.ts",
-    "./events": "./src/events/mod.ts",
-    "./inspection": "./src/inspection/mod.ts",
-    "./otel": "./src/otel.ts",
-    "./registry": "./src/registry.ts",
+    "./otel": "./src/otel/mod.ts",
     "./rolldown": "./src/rolldown.ts",
     "./rollup": "./src/rollup.ts",
     "./rspack": "./src/rspack.ts",
     "./store": "./src/store/mod.ts",
-    "./telemetry": "./src/telemetry.ts",
     "./vite": "./src/vite.ts",
     "./webpack": "./src/webpack.ts",
-    "./worker": "./src/worker.ts",
     "./cloudflare": "./src/cloudflare/mod.ts"
   },
   "license": "MIT",
@@ -26,11 +21,16 @@
     "@temelj/event": "jsr:@temelj/event@^0.1.0",
     "@temelj/log": "jsr:@temelj/log@^0.1.0",
     "@temelj/storage": "jsr:@temelj/storage@^0.4.0",
-    "@temelj/value": "jsr:@temelj/value@^0.14.0",
-    "@temelj/string": "jsr:@temelj/string@^0.14.0"
+    "@temelj/value": "jsr:@temelj/value@^0.15.0",
+    "@temelj/string": "jsr:@temelj/string@^0.14.0",
+    "@opentelemetry/api": "npm:@opentelemetry/api@^1.9.1",
+    "oxc-parser": "npm:oxc-parser@0.154.0",
+    "temporal-polyfill": "npm:temporal-polyfill@^1.0.6",
+    "unplugin": "npm:unplugin@^3.4.0",
+    "@cloudflare/workers-types": "npm:@cloudflare/workers-types@5.20261014.1"
   },
   "publish": {
     "include": ["src/**/*.ts", "README.md"],
-    "exclude": ["src/**/*.test.ts"]
+    "exclude": ["src/**/*.test.ts", "src/testing/**"]
   }
 }

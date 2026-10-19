@@ -1,9 +1,8 @@
 {
   "name": "@temelj/string",
-  "version": "0.14.0",
+  "version": "0.15.0",
   "exports": "./src/mod.ts",
   "license": "MIT",
-  "nodeModulesDir": "auto",
   "publish": {
     "include": ["src/**/*.ts", "README.md"],
     "exclude": ["src/**/*.test.ts"]

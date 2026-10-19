@@ -14,3 +14,11 @@ test("Handlebars object helpers", () => {
     y: 8,
   });
 });
+
+test("objectPick preserves an own __proto__ property", () => {
+  const registry = new Registry();
+  registry.registerHelpers({ ...getObjectHelpers(), ...getValueHelpers() });
+  const source = { ["__proto__"]: { marker: "kept" }, omitted: true };
+  const rendered = registry.render('{{{json (objectPick source "__proto__")}}}', { source });
+  expect(JSON.parse(rendered)).toEqual({ ["__proto__"]: { marker: "kept" } });
+});

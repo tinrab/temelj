@@ -110,12 +110,14 @@ Available codecs are:
 - `createIdentityStorageCodec` for numbers, exact raw types, or mixed `StoredValue`.
 
 The JSON, primitivized JSON, and SuperJSON codecs accept `format: "string" | "bytes"` and default to strings.
-The format literal determines the codec's persisted type.
+The format literal determines the codec's persisted type. Omit the options argument for strings, or provide an explicit `format` option. A type argument alone cannot select bytes.
+
+Redis and Cloudflare KV engines require `format: "string" | "bytes"`. The SQL engines require `format: "string" | "number" | "bytes"` and check that persisted values match it when reading. Their generic argument is the format literal, such as `PostgresStorageEngine<"bytes">`.
 
 ```ts
 const textTable = createStorage({
   codec: createJsonStorageCodec({ format: "string" }),
-  engine: new LibSqlStorageEngine<string>({ client }),
+  engine: new LibSqlStorageEngine({ format: "string", client }),
 });
 
 const binaryFiles = createStorage({
@@ -250,6 +252,7 @@ import { RedisStorageEngine } from "@temelj/storage/redis";
 
 const storage = createStorage({
   engine: new RedisStorageEngine({
+    format: "bytes",
     url: process.env.REDIS_URL,
     prefix: "app",
     scanCount: 100,
@@ -280,6 +283,7 @@ export default {
   ): Promise<Response> {
     const storage = createStorage({
       engine: new CloudflareKvStorageEngine({
+        format: "bytes",
         binding: env.STORAGE,
         prefix: "app",
       }),
@@ -299,6 +303,7 @@ import { CloudflareKvStorageEngine } from "@temelj/storage/cloudflare";
 
 const storage = createStorage({
   engine: new CloudflareKvStorageEngine({
+    format: "bytes",
     accountId: process.env.CLOUDFLARE_ACCOUNT_ID,
     apiToken: process.env.CLOUDFLARE_API_TOKEN,
     namespaceId: process.env.CLOUDFLARE_KV_NAMESPACE_ID,
@@ -320,6 +325,7 @@ export default {
   ): Promise<Response> {
     const storage = createStorage({
       engine: new CloudflareD1StorageEngine({
+        format: "string",
         binding: env.DATABASE,
         prefix: "app",
       }),
@@ -337,6 +343,7 @@ import { CloudflareD1StorageEngine } from "@temelj/storage/cloudflare";
 
 const storage = createStorage({
   engine: new CloudflareD1StorageEngine({
+    format: "string",
     accountId: process.env.CLOUDFLARE_ACCOUNT_ID,
     apiToken: process.env.CLOUDFLARE_API_TOKEN,
     databaseId: process.env.CLOUDFLARE_D1_DATABASE_ID,
@@ -389,10 +396,7 @@ import { createStorage } from "@temelj/storage";
 import { LibSqlStorageEngine } from "@temelj/storage/libsql";
 
 const storage = createStorage({
-  engine: new LibSqlStorageEngine({
-    path: "storage.db",
-    prefix: "app",
-  }),
+  engine: new LibSqlStorageEngine({ format: "string", path: "storage.db", prefix: "app" }),
 });
 
 await storage.set("users:1", { name: "Verso" });
@@ -409,6 +413,7 @@ import { PostgresStorageEngine } from "@temelj/storage/postgres";
 
 const storage = createStorage({
   engine: new PostgresStorageEngine({
+    format: "string",
     url: process.env.DATABASE_URL,
     prefix: "app",
   }),
@@ -428,6 +433,7 @@ import { MySqlStorageEngine } from "@temelj/storage/mysql";
 
 const storage = createStorage({
   engine: new MySqlStorageEngine({
+    format: "string",
     url: process.env.DATABASE_URL,
     prefix: "app",
   }),

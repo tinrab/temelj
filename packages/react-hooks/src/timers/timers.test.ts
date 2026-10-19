@@ -44,6 +44,7 @@ describe("timer hooks", () => {
   it("useIntervalWhen respects condition and immediate start", () => {
     vi.useFakeTimers();
     const callback = vi.fn();
+
     const { rerender } = renderHook(
       ({ when }) => useIntervalWhen(callback, { ms: 10, when, startImmediately: true }),
       { initialProps: { when: false } },
@@ -88,9 +89,11 @@ describe("timer hooks", () => {
 
   it("useDebounce and useThrottle delay value updates", () => {
     vi.useFakeTimers();
+
     const debounced = renderHook(({ value }) => useDebounce(value, 10), {
       initialProps: { value: "a" },
     });
+
     debounced.rerender({ value: "b" });
     expect(debounced.result.current).toBe("a");
     act(() => {
@@ -101,6 +104,7 @@ describe("timer hooks", () => {
     const throttled = renderHook(({ value }) => useThrottle(value, 10), {
       initialProps: { value: "a" },
     });
+
     throttled.rerender({ value: "b" });
     expect(throttled.result.current).toBe("a");
     act(() => {
@@ -126,9 +130,11 @@ describe("timer hooks", () => {
   it("useContinuousRetry resolves once the callback returns true", async () => {
     vi.useFakeTimers();
     let attempts = 0;
+
     const { result } = renderHook(() =>
       useContinuousRetry(() => {
         attempts++;
+
         return attempts === 2;
       }, 10),
     );
@@ -160,6 +166,7 @@ describe("timer hooks", () => {
     vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
       const id = ++nextId;
       callbacks.set(id, callback);
+
       return id;
     });
     vi.stubGlobal("cancelAnimationFrame", (id: number) => {

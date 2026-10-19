@@ -12,6 +12,42 @@ test("deepEquals() works", () => {
 
 describe("deepEquals() instances", () => {
   test.each([
+    [
+      Temporal.PlainDate.from("2025-01-01"),
+      Temporal.PlainDate.from("2025-01-01"),
+      Temporal.PlainDate.from("2025-01-02"),
+    ],
+    [
+      Temporal.PlainDateTime.from("2025-01-01T12:00"),
+      Temporal.PlainDateTime.from("2025-01-01T12:00"),
+      Temporal.PlainDateTime.from("2025-01-01T13:00"),
+    ],
+    [
+      Temporal.PlainTime.from("12:00"),
+      Temporal.PlainTime.from("12:00"),
+      Temporal.PlainTime.from("13:00"),
+    ],
+    [
+      Temporal.PlainYearMonth.from("2025-01"),
+      Temporal.PlainYearMonth.from("2025-01"),
+      Temporal.PlainYearMonth.from("2025-02"),
+    ],
+    [
+      Temporal.PlainMonthDay.from("01-01"),
+      Temporal.PlainMonthDay.from("01-01"),
+      Temporal.PlainMonthDay.from("01-02"),
+    ],
+    [
+      Temporal.ZonedDateTime.from("2025-01-01T12:00[UTC]"),
+      Temporal.ZonedDateTime.from("2025-01-01T12:00[UTC]"),
+      Temporal.ZonedDateTime.from("2025-01-01T13:00[UTC]"),
+    ],
+  ])("compares calendar values by value", (left, equal, different) => {
+    expect(deepEquals(left, equal)).toBe(true);
+    expect(deepEquals(left, different)).toBe(false);
+  });
+
+  test.each([
     ["undefined", undefined, undefined, true],
     ["null", null, null, true],
     ["boolean", true, true, true],
@@ -79,12 +115,18 @@ describe("deepEquals() instances", () => {
     ],
     [
       "null prototype record",
-      Object.assign(Object.create(null) as Record<string, unknown>, {
-        duration: Temporal.Duration.from({ seconds: 1 }),
-      }),
-      Object.assign(Object.create(null) as Record<string, unknown>, {
-        duration: Temporal.Duration.from({ seconds: 1 }),
-      }),
+      Object.setPrototypeOf(
+        {
+          duration: Temporal.Duration.from({ seconds: 1 }),
+        },
+        null,
+      ),
+      Object.setPrototypeOf(
+        {
+          duration: Temporal.Duration.from({ seconds: 1 }),
+        },
+        null,
+      ),
       true,
     ],
     [

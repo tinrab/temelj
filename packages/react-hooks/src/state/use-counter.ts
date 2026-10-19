@@ -39,14 +39,17 @@ export function useCounter(
   const [count, setCount] = React.useState(boundedStart);
 
   const set = React.useCallback((value: number) => setCount(clamp(value, min, max)), [min, max]);
+
   const increment = React.useCallback(
     () => setCount((value) => clamp(value + step, min, max)),
     [step, min, max],
   );
+
   const decrement = React.useCallback(
     () => setCount((value) => clamp(value - step, min, max)),
     [step, min, max],
   );
+
   const reset = React.useCallback(() => setCount(boundedStart), [boundedStart]);
 
   return [count, { increment, decrement, set, reset }];

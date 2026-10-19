@@ -1,5 +1,6 @@
 import { expect, test } from "vitest";
 
+import { attempt } from "./attempt";
 import { defer } from "./defer";
 import { delay } from "./delay";
 import { AbortError, TimeoutError } from "./errors";
@@ -33,8 +34,12 @@ test("timeout rejects with TimeoutError if slow", async () => {
   await expect(timeout(new Promise(() => {}), 50)).rejects.toBeInstanceOf(TimeoutError);
 });
 
-test("timeout accepts a factory function", async () => {
-  const result = await timeout(() => Promise.resolve("ok"), 1000);
+test("timeout accepts a promise created from a factory", async () => {
+  const result = await timeout(
+    Promise.try(() => "ok"),
+    1000,
+  );
+
   expect(result).toBe("ok");
 });
 
@@ -42,14 +47,17 @@ test("timeout returns fallback on timeout", async () => {
   const result = await timeout(new Promise(() => {}), 50, {
     fallback: "default",
   });
+
   expect(result).toBe("default");
 });
 
 test("timeout rejects on abort", async () => {
   const controller = new AbortController();
+
   const p = timeout(new Promise(() => {}), 5000, {
     signal: controller.signal,
   });
+
   controller.abort();
   await expect(p).rejects.toBeInstanceOf(AbortError);
 });
@@ -64,4 +72,9 @@ test("defer rejects", async () => {
   const d = defer<number>();
   d.reject(new Error("fail"));
   await expect(d.promise).rejects.toThrow("fail");
+});
+
+test("attempt forwards its required argument tuple", async () => {
+  await expect(attempt((left: number, right: number) => left + right, [2, 3])).resolves.toBe(5);
+  await expect(attempt(() => 42, [])).resolves.toBe(42);
 });

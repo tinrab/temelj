@@ -5,8 +5,10 @@ import * as React from "react";
  */
 export function useToggle(initialValue = false): [boolean, (value?: boolean) => void] {
   const [on, setOn] = React.useState(Boolean(initialValue));
+
   const toggle = React.useCallback((value?: boolean) => {
-    setOn((current) => (typeof value === "boolean" ? value : !current));
+    setOn((current) => value ?? !current);
   }, []);
+
   return [on, toggle];
 }

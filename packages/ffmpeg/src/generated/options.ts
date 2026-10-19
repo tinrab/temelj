@@ -2,10 +2,15 @@
 // scraper run: 2026-05-30T17:50:52.551Z
 
 export type Duration = string | number;
+
 export type SerializedOptionScalar = string | number | boolean;
+
 export type SerializedOptionValue = SerializedOptionScalar | readonly SerializedOptionScalar[];
+
 export type RawOptionBag = Partial<Record<`-${string}`, SerializedOptionValue>>;
+
 export type StreamType = "v" | "V" | "a" | "s" | "d" | "t";
+
 export type StreamSpecifier =
   | StreamType
   | `${number}`
@@ -17,12 +22,17 @@ export type StreamSpecifier =
   | `m:${string}:${string}`
   | `disp:${string}`
   | "u";
+
 export type StreamOptionBag<T> = Partial<Record<StreamSpecifier, T>>;
+
 export type MetadataSpecifier = "g" | `s:${StreamSpecifier}` | `c:${number}` | `p:${number}`;
+
 export type MetadataOptionBag<T> = Partial<Record<MetadataSpecifier, T>>;
 
 export type Bitrate = `${number}k` | `${number}M` | `${number}G`;
+
 export type FrameSize = `${number}x${number}`;
+
 export type Timestamp =
   | number
   | `${number}`
@@ -34,6 +44,7 @@ export type Timestamp =
   | `${number}:${number}`
   | `${number}:${number}:${number}`
   | `${number}:${number}:${number}.${number}`;
+
 export type FrameRate =
   | number
   | `${number}`
@@ -46,9 +57,11 @@ export type FrameRate =
   | "spal"
   | "film"
   | "ntsc-film";
+
 export type Timecode =
   | `${number}:${number}:${number}:${number}`
   | `${number}:${number}:${number};${number}`;
+
 export type LogLevel =
   | "quiet"
   | "panic"
@@ -59,7 +72,9 @@ export type LogLevel =
   | "verbose"
   | "debug"
   | "trace";
+
 export type Vsync = "passthrough" | "cfr" | "vfr" | "drop" | "auto" | number;
+
 export type Target =
   | "vcd"
   | "svcd"
@@ -72,7 +87,9 @@ export type Target =
   | "ntsc-vcd"
   | "ntsc-svcd"
   | "ntsc-dvd";
+
 export type AspectRatio = `${number}:${number}` | `${number}/${number}` | number;
+
 export type Preset =
   | "ultrafast"
   | "superfast"
@@ -84,6 +101,7 @@ export type Preset =
   | "slower"
   | "veryslow"
   | "placebo";
+
 export type PixelFormat =
   | "yuv420p"
   | "yuvj420p"
@@ -97,6 +115,7 @@ export type PixelFormat =
   | "bgra"
   | "gray"
   | (string & Record<never, never>);
+
 export type SampleFormat =
   | "u8"
   | "s16"
@@ -111,6 +130,7 @@ export type SampleFormat =
   | "fltp"
   | "dblp"
   | (string & Record<never, never>);
+
 export type ChannelLayout =
   | "mono"
   | "stereo"
@@ -136,6 +156,7 @@ export type ChannelLayout =
   | "octagonal"
   | "hexagonal"
   | (string & Record<never, never>);
+
 export type MovFlag =
   | "cmaf"
   | "dash"
@@ -161,6 +182,7 @@ export type MovFlag =
   | "write_gama"
   | "hybrid_fragmented"
   | (string & Record<never, never>);
+
 export type Strict =
   | "very"
   | "strict"
@@ -168,12 +190,14 @@ export type Strict =
   | "unofficial"
   | "experimental"
   | (string & Record<never, never>);
+
 export type AvoidNegativeTs =
   | "make_non_negative"
   | "make_zero"
   | "auto"
   | "disabled"
   | (string & Record<never, never>);
+
 export type ErrDetect =
   | "crccheck"
   | "bitstream"
@@ -184,6 +208,7 @@ export type ErrDetect =
   | "compliant"
   | "aggressive"
   | (string & Record<never, never>);
+
 export type FFlags =
   | "discardcorrupt"
   | "fastseek"
@@ -195,11 +220,13 @@ export type FFlags =
   | "noparse"
   | "sortdts"
   | (string & Record<never, never>);
+
 export type DefaultMode =
   | "infer"
   | "infer_no_subs"
   | "passthrough"
   | (string & Record<never, never>);
+
 export type SwsFlag =
   | "fast_bilinear"
   | "bilinear"

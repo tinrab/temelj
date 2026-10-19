@@ -12,6 +12,7 @@ import {
   type EnvIssue,
   type EnvSchema,
   type EnvSource,
+  type EnvValue,
   type InferEnv,
   type ParseEnvOptions,
 } from "./types";
@@ -40,14 +41,14 @@ export function tryParseEnv<TSchema extends EnvSchema>(
   schema: TSchema,
   options: ParseEnvOptions = {},
 ): Result<InferEnv<TSchema>, EnvError> {
-  return parseEnvWithMode(schema, options, false) as Result<InferEnv<TSchema>, EnvError>;
+  return parseEnvWithMode(schema, options, false);
 }
 
 export async function tryParseEnvAsync<TSchema extends EnvSchema>(
   schema: TSchema,
   options: ParseEnvOptions = {},
 ): Promise<Result<InferEnv<TSchema>, EnvError>> {
-  return parseEnvWithMode(schema, options, true) as Promise<Result<InferEnv<TSchema>, EnvError>>;
+  return parseEnvWithMode(schema, options, true);
 }
 
 export function createEnv<
@@ -104,10 +105,11 @@ export function tryCreateEnv<
   CreateEnvOutput<TServer, TClient, TShared> | CreateClientEnvOutput<TClient, TShared>,
   EnvError
 > {
-  const server = (options.server ?? {}) as EnvSchema;
-  const client = (options.client ?? {}) as EnvSchema;
-  const shared = (options.shared ?? {}) as EnvSchema;
+  const server = options.server ?? {};
+  const client = options.client ?? {};
+  const shared = options.shared ?? {};
   const configError = validateEnvConfig(server, client, options.clientPrefix);
+
   if (configError) {
     return err(configError);
   }
@@ -115,6 +117,7 @@ export function tryCreateEnv<
   const isServer = options.isServer ?? isServerRuntime();
   const schema = isServer ? { ...server, ...client, ...shared } : { ...client, ...shared };
 
+  // SAFETY: the merged schema validates the selected client/shared or server/client/shared keys.
   return tryParseEnv(schema, options) as Result<
     CreateEnvOutput<TServer, TClient, TShared> | CreateClientEnvOutput<TClient, TShared>,
     EnvError
@@ -177,10 +180,11 @@ export async function tryCreateEnvAsync<
     EnvError
   >
 > {
-  const server = (options.server ?? {}) as EnvSchema;
-  const client = (options.client ?? {}) as EnvSchema;
-  const shared = (options.shared ?? {}) as EnvSchema;
+  const server = options.server ?? {};
+  const client = options.client ?? {};
+  const shared = options.shared ?? {};
   const configError = validateEnvConfig(server, client, options.clientPrefix);
+
   if (configError) {
     return err(configError);
   }
@@ -188,6 +192,7 @@ export async function tryCreateEnvAsync<
   const isServer = options.isServer ?? isServerRuntime();
   const schema = isServer ? { ...server, ...client, ...shared } : { ...client, ...shared };
 
+  // SAFETY: the merged schema validates the selected client/shared or server/client/shared keys.
   return tryParseEnvAsync(schema, options) as Promise<
     Result<
       CreateEnvOutput<TServer, TClient, TShared> | CreateClientEnvOutput<TClient, TShared>,
@@ -212,26 +217,34 @@ function parseEnvWithMode<TSchema extends EnvSchema>(
   asyncMode: boolean,
 ): Result<InferEnv<TSchema>, EnvError> | Promise<Result<InferEnv<TSchema>, EnvError>> {
   const envResult = resolveEnv(options.env);
+
   if (envResult.kind === "error") {
     return err(envResult.error);
   }
 
   const input = normalizeEnv(envResult.value, Object.keys(schema), options);
+
   if (asyncMode) {
     return parseSchemaAsync(schema, input);
   }
+
   return parseSchemaSync(schema, input);
 }
+
+type EnvAccumulator<TSchema extends EnvSchema> = {
+  -readonly [Key in keyof TSchema]?: InferEnv<TSchema>[Key];
+};
 
 function parseSchemaSync<TSchema extends EnvSchema>(
   schema: TSchema,
   input: EnvSource,
 ): Result<InferEnv<TSchema>, EnvError> {
-  const value: Record<string, unknown> = {};
+  const value: EnvAccumulator<TSchema> = {};
   const issues: EnvIssue[] = [];
 
   for (const key of Object.keys(schema)) {
     const result = schema[key]["~standard"].validate(input[key]);
+
     if (result instanceof Promise) {
       return err(
         EnvConfigurationError.create(
@@ -239,9 +252,11 @@ function parseSchemaSync<TSchema extends EnvSchema>(
         ),
       );
     }
+
     collectResult(key, result, value, issues);
   }
 
+  // SAFETY: without issues, every schema key was assigned its validated output by collectResult.
   return issues.length > 0
     ? err(EnvValidationError.create(issues))
     : ok(value as InferEnv<TSchema>);
@@ -251,7 +266,7 @@ async function parseSchemaAsync<TSchema extends EnvSchema>(
   schema: TSchema,
   input: EnvSource,
 ): Promise<Result<InferEnv<TSchema>, EnvError>> {
-  const value: Record<string, unknown> = {};
+  const value: EnvAccumulator<TSchema> = {};
   const issues: EnvIssue[] = [];
 
   await Promise.all(
@@ -261,22 +276,26 @@ async function parseSchemaAsync<TSchema extends EnvSchema>(
     }),
   );
 
+  // SAFETY: all key validations have completed and every successful output was assigned.
   return issues.length > 0
     ? err(EnvValidationError.create(issues))
     : ok(value as InferEnv<TSchema>);
 }
 
-function collectResult(
-  key: string,
+function collectResult<TSchema extends EnvSchema>(
+  key: keyof TSchema & string,
   result: StandardSchemaV1.Result<unknown>,
-  value: Record<string, unknown>,
+  value: EnvAccumulator<TSchema>,
   issues: EnvIssue[],
 ) {
   if (result.issues) {
     issues.push(...result.issues.map((issue) => toEnvIssue(key, issue)));
+
     return;
   }
-  value[key] = result.value;
+
+  // SAFETY: callers pass the successful result of schema[key]'s Standard Schema validator.
+  value[key] = result.value as InferEnv<TSchema>[typeof key];
 }
 
 function toEnvIssue(key: string, issue: StandardSchemaV1.Issue): EnvIssue {
@@ -293,7 +312,7 @@ export function normalizeEnv(
   options: ParseEnvOptions = {},
 ): EnvSource {
   const normalizeOptions = { ...DEFAULT_NORMALIZE_OPTIONS, ...options };
-  const result: Record<string, unknown> = {};
+  const result: EnvSource = {};
 
   for (const key of keys) {
     const rawValue = env[key];
@@ -304,28 +323,33 @@ export function normalizeEnv(
 }
 
 function normalizeEnvValue(
-  value: unknown,
+  value: EnvValue,
   options: Required<
     Pick<ParseEnvOptions, "trimWhitespace" | "coerceBooleans" | "emptyStringAsUndefined">
   >,
-): unknown {
-  if (typeof value !== "string") {
+): EnvValue {
+  if (value === undefined || value === true || value === false) {
     return value;
   }
 
   const normalized = options.trimWhitespace ? value.trim() : value;
+
   if (options.emptyStringAsUndefined && normalized === "") {
     return undefined;
   }
+
   if (options.coerceBooleans) {
     const lower = normalized.toLowerCase();
+
     if (lower === "true") {
       return true;
     }
+
     if (lower === "false") {
       return false;
     }
   }
+
   return normalized;
 }
 
@@ -369,6 +393,7 @@ function resolveEnv(env: EnvSource | undefined): Result<EnvSource, EnvConfigurat
   }
 
   const importMetaEnv = getImportMetaEnv();
+
   if (!isServerRuntime() && importMetaEnv) {
     return ok(importMetaEnv);
   }
@@ -389,6 +414,7 @@ function resolveEnv(env: EnvSource | undefined): Result<EnvSource, EnvConfigurat
 }
 
 function getImportMetaEnv(): EnvSource | undefined {
+  // SAFETY: Vite supplies string environment values and boolean built-ins; other runtimes omit env.
   return (import.meta as ImportMeta & { readonly env?: EnvSource }).env;
 }
 

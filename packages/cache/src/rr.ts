@@ -11,6 +11,7 @@ export class RandomReplacementCache<K, V> extends EntryCountCache<K, V> {
   constructor(options: RandomReplacementCacheOptions<K, V> = {}) {
     super(options);
     this.random = options.random ?? Math.random;
+
     for (const [key, value] of options.entries ?? []) {
       this.set(key, value);
     }
@@ -19,6 +20,7 @@ export class RandomReplacementCache<K, V> extends EntryCountCache<K, V> {
   set(key: K, value: V): boolean {
     const existing = this.records.get(key);
     const updated = existing !== undefined;
+
     if (existing === undefined && this.entryCount >= this.maxEntriesValue) {
       this.evictOne();
     }
@@ -31,17 +33,21 @@ export class RandomReplacementCache<K, V> extends EntryCountCache<K, V> {
     }
 
     this.emitSet({ key, value, source: "cache", size: 1, updated });
+
     return true;
   }
 
   get(key: K): V | undefined {
     const record = this.records.get(key);
+
     if (record === undefined) {
       this.emitMiss(key);
+
       return undefined;
     }
 
     this.emitHit(key, record.value);
+
     return record.value;
   }
 
@@ -55,6 +61,7 @@ export class RandomReplacementCache<K, V> extends EntryCountCache<K, V> {
 
   delete(key: K): boolean {
     const record = this.records.get(key);
+
     if (record === undefined) {
       return false;
     }
@@ -62,6 +69,7 @@ export class RandomReplacementCache<K, V> extends EntryCountCache<K, V> {
     this.records.delete(key);
     this.entryCount--;
     this.emitDelete(this.createEviction(key, record.value, "delete"));
+
     return true;
   }
 
@@ -69,11 +77,14 @@ export class RandomReplacementCache<K, V> extends EntryCountCache<K, V> {
     const entries = [...this.records].map(([key, record]) =>
       this.createEviction(key, record.value, "clear"),
     );
+
     this.records.clear();
     this.entryCount = 0;
+
     for (const eviction of entries) {
       this.onEvict?.(eviction);
     }
+
     if (entries.length > 0) {
       this.emitClear({ source: "cache", entries });
     }
@@ -104,6 +115,7 @@ export class RandomReplacementCache<K, V> extends EntryCountCache<K, V> {
   private evictOne(): void {
     const index = Math.floor(this.random() * this.entryCount);
     const key = [...this.records.keys()][Math.min(index, this.entryCount - 1)];
+
     if (key === undefined) {
       return;
     }

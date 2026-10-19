@@ -50,6 +50,7 @@ test("Handlebars value isEmpty helper", () => {
       .handle((params) => {
         const _name: string = params[0].name;
         const _isShort: boolean = params[1] ?? false;
+
         return "";
       }),
   );
@@ -117,6 +118,7 @@ test("Handlebars value jsValue helper", () => {
     ],
     [Symbol("mapkey"), "mapvalue"],
   ]);
+
   expect(r.render("{{jsValue val}}", { val: myMap })).toBe(
     `new Map([["key1", "value1"], [2, true], [{"a": 1}, 3n], [Symbol("mapkey"), "mapvalue"]])`,
   );
@@ -143,6 +145,7 @@ test("Handlebars value jsValue helper", () => {
     arr: [new Map([[1, new Set([2, "s"])]])],
     obj: { date: new Date(0), rgx: /test/ },
   };
+
   const expectedNested = `{"arr": [new Map([[1, new Set([2, "s"])]])], "obj": {"date": new Date("1970-01-01T00:00:00.000Z"), "rgx": /test/}}`;
   expect(r.render("{{jsValue val}}", { val: nested })).toBe(expectedNested);
 
@@ -155,10 +158,11 @@ test("Handlebars value jsValue helper", () => {
       this.x = x;
       this.y = y;
     }
-    toJSON(): unknown {
+    toJSON() {
       return { xVal: this.x, yVal: this.y, type: "MyClassInstance" };
     }
   }
+
   const myInstance = new MyClass(10, "hello");
   expect(r.render("{{jsValue val}}", { val: myInstance })).toBe(
     `{"xVal": 10, "yVal": "hello", "type": "MyClassInstance"}`,
@@ -166,18 +170,20 @@ test("Handlebars value jsValue helper", () => {
 
   // Object that stringifies to a primitive via toJSON
   class StringifiesToPrimitive {
-    toJSON(): unknown {
+    toJSON() {
       return "primitive_value";
     }
   }
+
   expect(r.render("{{jsValue val}}", { val: new StringifiesToPrimitive() })).toBe(
     `"primitive_value"`,
   );
 
   class StringifiesToNumber {
-    toJSON(): unknown {
+    toJSON() {
       return 12345;
     }
   }
+
   expect(r.render("{{jsValue val}}", { val: new StringifiesToNumber() })).toBe(`12345`);
 });

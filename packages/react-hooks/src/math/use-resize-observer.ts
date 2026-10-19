@@ -29,13 +29,16 @@ export function useResizeObserver<T extends Element>(
       if (!node || !isBrowser || typeof ResizeObserver === "undefined") {
         return;
       }
+
       const observer = new ResizeObserver(([nextEntry]) => {
         if (!nextEntry) {
           return;
         }
+
         setEntry(nextEntry);
         onResize?.(nextEntry);
       });
+
       observer.observe(node, observerOptions);
       observerRef.current = observer;
     },

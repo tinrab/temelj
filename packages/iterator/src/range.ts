@@ -1,3 +1,5 @@
+import { isNumber } from "@temelj/value";
+
 import { IteratorOptionsError } from "./errors";
 
 /**
@@ -36,11 +38,13 @@ export class NumericRangeError extends Error implements NumericRangeErrorOptions
     context?: Function,
   ) {
     let message: string | undefined;
+
     if (options.invalidInteger !== undefined) {
       message = `Invalid integer '${options.invalidInteger}'`;
     } else if (options.invalidRange !== undefined) {
       message = `Invalid range '${options.invalidRange}'`;
     }
+
     super(message ?? "Invalid numeric range", errorOptions);
     Object.assign(this, options);
 
@@ -83,12 +87,16 @@ export function parseNumericRange(s: string): NumericRange {
     .map((s) => s.trim())
     .filter((s) => s.length > 0)) {
     const match = /^(-?\d+)\.\.(=?)(-?\d+)$/.exec(part);
+
     if (match) {
       const from = Number.parseInt(match[1], 10);
+
       if (!Number.isInteger(from)) {
         NumericRangeError.invalidRange(part);
       }
+
       const to = Number.parseInt(match[3], 10);
+
       if (!Number.isInteger(to)) {
         NumericRangeError.invalidRange(part);
       }
@@ -105,9 +113,11 @@ export function parseNumericRange(s: string): NumericRange {
     }
 
     const value = Number.parseInt(part, 10);
+
     if (!Number.isInteger(value) || value.toString() !== part) {
       NumericRangeError.invalidInteger(part);
     }
+
     range.push(value);
   }
 
@@ -123,12 +133,14 @@ export function parseNumericRange(s: string): NumericRange {
 export function numericRangeToString(range: NumericRange): string {
   return range
     .map((part) => {
-      if (typeof part === "number") {
+      if (isNumber(part)) {
         return part.toString();
       }
+
       const { from, to } = part;
       const inclusive = from < to ? to : to;
       const exclusive = from < to ? to + 1 : to - 1;
+
       return `${from}..${
         (from < to && to === inclusive) || (from > to && to === exclusive) ? "=" : ""
       }${to}`;
@@ -145,16 +157,19 @@ export function numericRangeToString(range: NumericRange): string {
 export function isNumericRangeIncreasing(range: NumericRange): boolean {
   for (const [i, part] of range.entries()) {
     if (i === 0) {
-      if (typeof part !== "number") {
+      if (!isNumber(part)) {
         if (part.from >= part.to) {
           return false;
         }
       }
+
       continue;
     }
+
     const prev = range[i - 1];
-    if (typeof part === "number") {
-      if (typeof prev === "number") {
+
+    if (isNumber(part)) {
+      if (isNumber(prev)) {
         if (part <= prev) {
           return false;
         }
@@ -167,7 +182,8 @@ export function isNumericRangeIncreasing(range: NumericRange): boolean {
       if (part.from >= part.to) {
         return false;
       }
-      if (typeof prev === "number") {
+
+      if (isNumber(prev)) {
         if (part.from <= prev) {
           return false;
         }
@@ -178,6 +194,7 @@ export function isNumericRangeIncreasing(range: NumericRange): boolean {
       }
     }
   }
+
   return true;
 }
 
@@ -190,16 +207,19 @@ export function isNumericRangeIncreasing(range: NumericRange): boolean {
 export function isNumericRangeDecreasing(range: NumericRange): boolean {
   for (const [i, part] of range.entries()) {
     if (i === 0) {
-      if (typeof part !== "number") {
+      if (!isNumber(part)) {
         if (part.from <= part.to) {
           return false;
         }
       }
+
       continue;
     }
+
     const prev = range[i - 1];
-    if (typeof part === "number") {
-      if (typeof prev === "number") {
+
+    if (isNumber(part)) {
+      if (isNumber(prev)) {
         if (part >= prev) {
           return false;
         }
@@ -212,7 +232,8 @@ export function isNumericRangeDecreasing(range: NumericRange): boolean {
       if (part.from <= part.to) {
         return false;
       }
-      if (typeof prev === "number") {
+
+      if (isNumber(prev)) {
         if (part.from >= prev) {
           return false;
         }
@@ -223,6 +244,7 @@ export function isNumericRangeDecreasing(range: NumericRange): boolean {
       }
     }
   }
+
   return true;
 }
 
@@ -234,8 +256,9 @@ export function isNumericRangeDecreasing(range: NumericRange): boolean {
  */
 export function flattenNumericRange(range: NumericRange): number[] {
   const values: number[] = [];
+
   for (const part of range) {
-    if (typeof part === "number") {
+    if (isNumber(part)) {
       values.push(part);
     } else if (part.from <= part.to) {
       for (let i = part.from; i <= part.to; i++) {
@@ -247,6 +270,7 @@ export function flattenNumericRange(range: NumericRange): number[] {
       }
     }
   }
+
   return values;
 }
 
@@ -258,14 +282,17 @@ export function flattenNumericRange(range: NumericRange): number[] {
  */
 export function reverseNumericRange(range: NumericRange): NumericRange {
   const reversed: NumericRange = [];
+
   for (let i = range.length - 1; i >= 0; i--) {
     const part = range[i];
-    if (typeof part === "number") {
+
+    if (isNumber(part)) {
       reversed.push(part);
     } else {
       reversed.push({ from: part.to, to: part.from });
     }
   }
+
   return reversed;
 }
 
@@ -278,7 +305,7 @@ export function reverseNumericRange(range: NumericRange): NumericRange {
  */
 export function numericRangeContains(range: NumericRange, value: number): boolean {
   for (const part of range) {
-    if (typeof part === "number") {
+    if (isNumber(part)) {
       if (part === value) {
         return true;
       }
@@ -292,6 +319,7 @@ export function numericRangeContains(range: NumericRange, value: number): boolea
       }
     }
   }
+
   return false;
 }
 
@@ -319,13 +347,14 @@ export class NumericRangeIterator implements Iterator<number, number> {
     let value: number;
     const part = this.range[this.partIndex];
 
-    if (typeof part === "number") {
+    if (isNumber(part)) {
       value = part;
       this.partIndex++;
       this.rangeIndex = 0;
     } else if (part.from <= part.to) {
       value = part.from + this.rangeIndex;
       this.rangeIndex++;
+
       if (value >= part.to) {
         this.partIndex++;
         this.rangeIndex = 0;
@@ -333,6 +362,7 @@ export class NumericRangeIterator implements Iterator<number, number> {
     } else {
       value = part.from - this.rangeIndex;
       this.rangeIndex++;
+
       if (value <= part.to) {
         this.partIndex++;
         this.rangeIndex = 0;

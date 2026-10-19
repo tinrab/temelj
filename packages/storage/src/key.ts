@@ -31,6 +31,7 @@ export function resolveTtl(
     if (!Number.isFinite(options.ttl) || options.ttl < 0) {
       throw StorageKeyError.invalidTtl();
     }
+
     return options.ttl;
   }
 
@@ -39,10 +40,12 @@ export function resolveTtl(
   }
 
   const expiresAt = options.expiresAt.getTime();
+
   if (!Number.isFinite(expiresAt)) {
     throw StorageKeyError.invalidExpiresAt();
   }
 
   const ttl = expiresAt - Date.now();
+
   return Math.max(0, ttl);
 }

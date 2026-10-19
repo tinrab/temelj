@@ -3,6 +3,7 @@ import type { Result } from "@temelj/result";
 import { fromPromise } from "@temelj/result";
 import * as React from "react";
 
+import { mapThrownError } from "../internal/error.ts";
 import { useLatest } from "../internal/mod.ts";
 
 /**
@@ -15,11 +16,11 @@ export type AsyncTaskStatus = "idle" | "running" | "success" | "error" | "aborte
  */
 export interface UseAsyncTaskOptions<T, E> {
   /** Maps unknown thrown values to the task error type. */
-  mapError?: (error: unknown) => E;
+  mapError?: (cause: unknown) => E;
   /** Called after a successful task run. */
   onSuccess?: (value: T) => void;
   /** Called after an error result. */
-  onError?: (error: E) => void;
+  onError?: (error: E | Error) => void;
   /** Called after the task is aborted. */
   onAbort?: () => void;
 }
@@ -45,7 +46,7 @@ export interface UseAsyncTaskReturn<T, E, Args extends unknown[]> {
   /** Starts the task and aborts any previous run. */
   start: (...args: Args) => Promise<Result<T, E>>;
   /** Aborts the current task. */
-  cancel: (reason?: unknown) => void;
+  cancel: (reason?: Error | string) => void;
   /** Aborts the current task and resets state to idle. */
   reset: () => void;
 }
@@ -53,17 +54,18 @@ export interface UseAsyncTaskReturn<T, E, Args extends unknown[]> {
 /**
  * Runs cancellable async work and exposes task-oriented status and timing metadata.
  */
-export function useAsyncTask<T, E = unknown, Args extends unknown[] = []>(
+export function useAsyncTask<T, E = never, Args extends unknown[] = []>(
   task: (signal: AbortSignal, ...args: Args) => Promise<T>,
   options: UseAsyncTaskOptions<T, E> = {},
-): UseAsyncTaskReturn<T, E, Args> {
+): UseAsyncTaskReturn<T, E | Error, Args> {
   const taskRef = useLatest(task);
   const optionsRef = useLatest(options);
   const mountedRef = React.useRef(true);
   const runIdRef = React.useRef(0);
   const controllerRef = React.useRef<AbortController | null>(null);
+
   const [state, setState] = React.useState<
-    Omit<UseAsyncTaskReturn<T, E, Args>, "start" | "cancel" | "reset">
+    Omit<UseAsyncTaskReturn<T, E | Error, Args>, "start" | "cancel" | "reset">
   >({
     status: "idle",
     result: null,
@@ -76,13 +78,14 @@ export function useAsyncTask<T, E = unknown, Args extends unknown[] = []>(
 
   React.useEffect(() => {
     mountedRef.current = true;
+
     return () => {
       mountedRef.current = false;
       controllerRef.current?.abort();
     };
   }, []);
 
-  const cancel = React.useCallback((reason?: unknown) => {
+  const cancel = React.useCallback((reason?: Error | string) => {
     controllerRef.current?.abort(reason);
   }, []);
 
@@ -102,7 +105,7 @@ export function useAsyncTask<T, E = unknown, Args extends unknown[] = []>(
   }, []);
 
   const start = React.useCallback(
-    async (...args: Args): Promise<Result<T, E>> => {
+    async (...args: Args): Promise<Result<T, E | Error>> => {
       const runId = ++runIdRef.current;
       controllerRef.current?.abort();
       const controller = new AbortController();
@@ -120,9 +123,9 @@ export function useAsyncTask<T, E = unknown, Args extends unknown[] = []>(
 
       const result = await fromPromise(
         () => taskRef.current(controller.signal, ...args),
-        (error) =>
-          optionsRef.current.mapError ? optionsRef.current.mapError(error) : (error as E),
+        (cause) => mapThrownError(cause, optionsRef.current.mapError),
       );
+
       const finishedAt = Date.now();
 
       if (mountedRef.current && runId === runIdRef.current) {

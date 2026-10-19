@@ -47,26 +47,38 @@ export interface UndoRedoState<T> {
 function reducer<T>(state: UndoRedoStack<T>, action: UndoRedoAction<T>): UndoRedoStack<T> {
   if (action.type === "undo") {
     if (state.past.length === 0) return state;
+
     return {
       past: state.past.slice(0, -1),
+      // SAFETY: The empty-stack check above proves this array index contains a T, including undefined when T permits it.
       present: state.past[state.past.length - 1] as T,
       future: [state.present, ...state.future],
     };
   }
+
   if (action.type === "redo") {
     if (state.future.length === 0) return state;
+
     return {
       past: [...state.past, state.present],
+      // SAFETY: The empty-stack check above proves the first element exists and retains its original T.
       present: state.future[0] as T,
       future: state.future.slice(1),
     };
   }
+
   if (action.type === "set") {
     if (Object.is(state.present, action.value)) return state;
     const past = [...state.past, state.present];
-    const boundedPast = action.maxHistory === undefined ? past : past.slice(-action.maxHistory);
+
+    const boundedPast =
+      action.maxHistory === undefined
+        ? past
+        : past.slice(Math.max(0, past.length - action.maxHistory));
+
     return { past: boundedPast, present: action.value, future: [] };
   }
+
   return { past: [], present: action.value, future: [] };
 }
 
@@ -74,10 +86,18 @@ function reducer<T>(state: UndoRedoStack<T>, action: UndoRedoAction<T>): UndoRed
  * Manages undo and redo state with optional history length limiting.
  */
 export function useUndoRedo<T>(initialValue: T, options: UndoRedoOptions = {}): UndoRedoState<T> {
-  const initialRef = React.useRef(initialValue);
+  if (
+    options.maxHistory !== undefined &&
+    (!Number.isInteger(options.maxHistory) || options.maxHistory < 0)
+  ) {
+    throw new RangeError("maxHistory must be a nonnegative integer");
+  }
+
+  const [initial] = React.useState(() => initialValue);
+
   const [state, dispatch] = React.useReducer(reducer<T>, {
     past: [],
-    present: initialRef.current,
+    present: initial,
     future: [],
   });
 
@@ -85,9 +105,10 @@ export function useUndoRedo<T>(initialValue: T, options: UndoRedoOptions = {}): 
     (value: T) => dispatch({ type: "set", value, maxHistory: options.maxHistory }),
     [options.maxHistory],
   );
+
   const undo = React.useCallback(() => dispatch({ type: "undo" }), []);
   const redo = React.useCallback(() => dispatch({ type: "redo" }), []);
-  const clear = React.useCallback(() => dispatch({ type: "clear", value: initialRef.current }), []);
+  const clear = React.useCallback(() => dispatch({ type: "clear", value: initial }), [initial]);
 
   return {
     value: state.present,

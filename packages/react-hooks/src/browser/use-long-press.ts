@@ -47,6 +47,7 @@ export function useLongPress(
   const start = React.useCallback(
     (event: ReactTypes.MouseEvent | ReactTypes.TouchEvent) => {
       if (pressedRef.current) return;
+
       if (timerRef.current !== undefined) clearTimeout(timerRef.current);
 
       onStart?.(event);
@@ -66,6 +67,7 @@ export function useLongPress(
       else if (pressedRef.current) onCancel?.(event);
       activeRef.current = false;
       pressedRef.current = false;
+
       if (timerRef.current !== undefined) {
         clearTimeout(timerRef.current);
         timerRef.current = undefined;

@@ -14,6 +14,7 @@ describe("Cloudflare R2 engine", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
     const binding = createMockCloudflareR2Binding();
+
     const storage = createStorage({
       codec: createSuperJsonStorageCodec({ format: "bytes" }),
       engine: new CloudflareR2StorageEngine({
@@ -40,6 +41,7 @@ describe("Cloudflare R2 engine", () => {
 
   test("resolves a named R2 binding", async () => {
     const binding = createMockCloudflareR2Binding();
+
     const storage = createStorage({
       codec: createSuperJsonStorageCodec({ format: "bytes" }),
       engine: new CloudflareR2StorageEngine({
@@ -54,6 +56,7 @@ describe("Cloudflare R2 engine", () => {
 
   test("uses the Cloudflare R2 HTTP API", async () => {
     const { client, deleteObject, get, list, objects, upload } = createMockCloudflareR2Client();
+
     const storage = createStorage({
       codec: createSuperJsonStorageCodec({ format: "bytes" }),
       engine: new CloudflareR2StorageEngine({
@@ -100,6 +103,7 @@ describe("Cloudflare R2 engine", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
     const { client, objects } = createMockCloudflareR2Client();
+
     const storage = createStorage({
       codec: createBytesStorageCodec(),
       engine: new CloudflareR2StorageEngine({
@@ -108,6 +112,7 @@ describe("Cloudflare R2 engine", () => {
         client,
       }),
     });
+
     const bytes = new Uint8Array([0, 255, 128, 1]);
 
     await storage.set("binary", bytes, { ttl: 1000 });

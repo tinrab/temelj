@@ -4,6 +4,7 @@ import { WorkflowEntrypoint } from "cloudflare:workers";
 import { NonRetryableError } from "cloudflare:workflows";
 
 import type { RegistryLike } from "../types/definition.ts";
+import type { RunCloudflareWorkflowOptions } from "./execution.ts";
 import type { CloudflareWorkflowEvent, CloudflareWorkflowStep } from "./types.ts";
 
 import { runCloudflareWorkflow } from "./execution.ts";
@@ -19,15 +20,13 @@ export function createCloudflareWorkflowEntrypoint<TEnv = unknown>(
 ): typeof WorkflowEntrypoint<TEnv, unknown> {
   return class TemeljCloudflareWorkflowEntrypoint extends WorkflowEntrypoint<TEnv, unknown> {
     async run(event: CloudflareWorkflowEvent, step: CloudflareWorkflowStep): Promise<string> {
-      return await runCloudflareWorkflow(
-        {
-          registry: options.registry,
-          ...(options.logger === undefined ? {} : { logger: options.logger }),
-          nonRetryableError: NonRetryableError,
-        },
-        event,
-        step,
-      );
+      const runOptions: RunCloudflareWorkflowOptions = {
+        registry: options.registry,
+        logger: options.logger,
+        nonRetryableError: NonRetryableError,
+      };
+
+      return await runCloudflareWorkflow(runOptions, event, step);
     }
   };
 }

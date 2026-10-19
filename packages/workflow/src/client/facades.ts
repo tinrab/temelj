@@ -1,30 +1,25 @@
+import { isFunction } from "@temelj/value";
+
+import type { WorkflowEngine } from "../engine/create.ts";
 import type {
-  WorkflowClientAdminApi,
-  WorkflowClientHooksApi,
-  WorkflowClientLocksApi,
-  WorkflowClientMessagesApi,
-  WorkflowClientRunsApi,
-  WorkflowClientSchedulesApi,
-  WorkflowClientStreamsApi,
-  WorkflowClientWorkersApi,
+  ClientAdminApi,
+  ClientHooksApi,
+  ClientLocksApi,
+  ClientMessagesApi,
+  ClientRunsApi,
+  ClientSchedulesApi,
+  ClientStreamsApi,
+  ClientWorkersApi,
   WorkflowRunHandle,
+  CompiledWorkflowFunction,
 } from "../types/client.ts";
-import type { RegistryLike, WorkflowStartTarget } from "../types/definition.ts";
 import type {
-  WorkflowCleanupAdmin,
-  WorkflowHookManager,
-  LockManager,
-  WorkflowMessageSender,
-  WorkflowRunHandleReader,
-  WorkflowRunMaintenance,
-  WorkflowRunReader,
-  WorkflowRunRerunner,
-  WorkflowScheduler,
-  WorkflowStarter,
-  WorkflowStepAttemptReader,
-  WorkflowStreamReader,
-  WorkflowWorkerEngine,
-} from "../types/engine.ts";
+  WorkflowDefinition,
+  WorkflowImplementation,
+  RegistryLike,
+  StartTarget,
+} from "../types/definition.ts";
+import type { RunId } from "../types/ids.ts";
 import type {
   BroadcastMessageChannelOptions,
   BroadcastMessageInput,
@@ -34,259 +29,302 @@ import type {
   SendMessageInput,
 } from "../types/message.ts";
 import type {
-  WorkflowBatchStartItem,
-  WorkflowRunArguments,
+  BatchStartItem,
+  RunArguments,
   ScheduleNextOptions,
-  WorkflowStartOptions,
+  StartOptions,
 } from "../types/run-options.ts";
-import type { RunId } from "../types/run.ts";
 
-import { createWorkflowRunHandle } from "../client/run-handle.ts";
+import { createRunHandle } from "../client/run-handle.ts";
 import {
   workerOptionsFromClientOptions,
   workerOptionsFromWakeOptions,
 } from "../client/worker-options.ts";
-import { defineWorkflowFromName, defineWorkflowFromTarget } from "../definition.ts";
-import { resolveScheduleNextOptions } from "../engine/start-api.ts";
-import { WorkflowCapabilityError } from "../errors/capability.ts";
-import { resolveBroadcastMessageInput, resolveSendMessageInput } from "../message-options.ts";
-import { resolvePositiveSafeIntegerOption } from "../utility.ts";
-import { WorkflowWorker } from "../worker.ts";
+import { getCompiledDefinition } from "../compiled-function.ts";
+import { defineFromTarget } from "../definition.ts";
+import { disposeHook, getHookByToken, resumeHook } from "../engine/hooks.ts";
+import {
+  countRunStepAttempts,
+  getRunStepAttemptSummary,
+  getRunTimeline,
+  getWorkflowRecoverySummary,
+  pageRunStepAttempts,
+} from "../engine/inspection.ts";
+import { releaseStaleLock } from "../engine/lock.ts";
+import { broadcastMessageInput, sendMessageInput } from "../engine/message.ts";
+import {
+  applyRetentionPolicy,
+  cancelWorkflowRun,
+  cleanupRuns,
+  markWorkflowRunPermanentlyFailed,
+  releaseStaleWorkflowRunLease,
+  rescheduleWorkflowRun,
+  retryFailedWorkflowRun,
+  setRunAttributes,
+  updateWorkflowRunMetadata,
+} from "../engine/run-service.ts";
+import { updateScheduleStatus, upsertSchedule } from "../engine/schedule.ts";
+import { resolveScheduleNextOptions } from "../engine/start.ts";
+import {
+  followStream,
+  getStreamInfo,
+  readStream,
+  waitForStream,
+  waitForStreamChunk,
+  waitForStreamTerminal,
+} from "../engine/stream-reader.ts";
+import { WorkflowDefinitionError } from "../errors/mod.ts";
+import { resolvePositiveSafeIntegerOption } from "../values.ts";
+import { WorkflowWorker } from "../worker/worker.ts";
 
-type WorkflowRunHandleEngine = WorkflowRunMaintenance &
-  WorkflowRunHandleReader &
-  WorkflowStreamReader;
-type WorkflowClientRunsEngine = WorkflowStarter &
-  WorkflowRunReader &
-  WorkflowRunHandleEngine &
-  WorkflowStepAttemptReader;
-type WorkflowClientAdminEngine = WorkflowCleanupAdmin &
-  WorkflowRunRerunner &
-  WorkflowRunHandleEngine;
-type WorkflowClientSchedulesEngine = WorkflowRunHandleEngine & WorkflowScheduler;
-type WorkflowWorkerEngineAccessor = () => WorkflowWorkerEngine | undefined;
-type WorkflowRegistryAccessor = () => RegistryLike;
-type WorkflowClockAccessor = () => Temporal.Instant;
+type ClockAccessor = () => Temporal.Instant;
 
-function requireWorkflowWorkerEngine(
-  engine: WorkflowWorkerEngine | undefined,
-): WorkflowWorkerEngine {
-  if (engine === undefined) {
-    WorkflowCapabilityError.unsupported("workflow worker engine");
+export function createClientRunsApi(
+  engine: WorkflowEngine,
+  now: ClockAccessor,
+  registry: RegistryLike,
+): ClientRunsApi {
+  const register = <TInput, TOutput, TRawInput>(
+    implementation: WorkflowImplementation<TInput, TOutput, TRawInput>,
+  ): void => {
+    if (registry.get(implementation.definition) === undefined) {
+      registry.register(implementation);
+    }
+  };
+
+  async function start<TInput, TOutput, TRawInput = TInput>(
+    workflow: WorkflowDefinition<TInput, TOutput, TRawInput>,
+    ...args: RunArguments<TRawInput, StartOptions>
+  ): Promise<WorkflowRunHandle<TOutput>>;
+  async function start<TInput, TOutput, TRawInput = TInput>(
+    workflow: WorkflowImplementation<TInput, TOutput, TRawInput>,
+    ...args: RunArguments<TRawInput, StartOptions>
+  ): Promise<WorkflowRunHandle<TOutput>>;
+  async function start<TArgs extends readonly unknown[], TOutput>(
+    workflow: CompiledWorkflowFunction<TArgs, TOutput>,
+    ...args: TArgs
+  ): Promise<WorkflowRunHandle<Awaited<TOutput>>>;
+  async function start(
+    workflow: StartTarget | Function,
+    ...args: unknown[]
+  ): Promise<WorkflowRunHandle<unknown>> {
+    if (isFunction(workflow)) {
+      const implementation = getCompiledDefinition(workflow);
+
+      if (implementation === undefined) {
+        WorkflowDefinitionError.compiledMetadataMissing();
+      }
+
+      register(implementation);
+      const handle = await engine.startWorkflow(implementation.definition, args);
+
+      return createRunHandle(engine, handle, now);
+    }
+
+    if (workflow.kind === "implementation") {
+      register(workflow);
+    }
+
+    // SAFETY: Both non-function overloads take the input, then optional start options.
+    const [input, options] = args as [unknown, StartOptions?];
+    const handle = await engine.startWorkflow(defineFromTarget(workflow), input, options);
+
+    return createRunHandle(engine, handle, now);
   }
-  return engine;
-}
 
-export function createWorkflowClientRunsApi(
-  getEngine: () => WorkflowClientRunsEngine,
-  now: WorkflowClockAccessor,
-): WorkflowClientRunsApi {
   return {
-    async start<TInput, TOutput, TRawInput = TInput>(
-      workflow: WorkflowStartTarget<TInput, TOutput, TRawInput>,
-      ...runArgs: WorkflowRunArguments<TRawInput, WorkflowStartOptions>
-    ) {
-      const [input, runOptions] = runArgs as [TRawInput, WorkflowStartOptions | undefined];
-      const definition = defineWorkflowFromTarget(workflow);
-      const handle = await getEngine().startWorkflow(definition, input, runOptions);
-      return createWorkflowRunHandle<TOutput>(getEngine(), definition, handle.runId, now);
-    },
+    start,
+    getHandle: async (runId) => createRunHandle(engine, await engine.getRunRef(runId), now),
     async startBatch<TInput, TOutput, TRawInput = TInput>(
-      workflow: WorkflowStartTarget<TInput, TOutput, TRawInput>,
-      items: readonly WorkflowBatchStartItem<TRawInput>[],
+      workflow: StartTarget<TInput, TOutput, TRawInput>,
+      items: readonly BatchStartItem<TRawInput>[],
     ) {
-      const definition = defineWorkflowFromTarget(workflow);
-      const handles = await getEngine().startWorkflows(definition, items);
-      return handles.map((handle: { readonly runId: RunId }) =>
-        createWorkflowRunHandle<TOutput>(getEngine(), definition, handle.runId, now),
-      );
+      const definition = defineFromTarget(workflow);
+      const handles = await engine.startWorkflows(definition, items);
+
+      return handles.map((handle) => createRunHandle(engine, handle, now));
     },
-    get: async (runId: RunId) => await getEngine().getRun(runId),
-    events: async (runId: RunId) => await getEngine().getEvents(runId),
-    eventsPage: async (runId, options) => await getEngine().listEventsPage(runId, options),
-    list: async (options) => await getEngine().listRuns(options),
-    page: async (options) => await getEngine().listRunsPage(options),
-    count: async (options) => await getEngine().countRuns(options),
-    summary: async (options) => await getEngine().getRunSummary(options),
-    recovery: async (options) => await getEngine().getRecoverySummary(options),
-    timeline: async (runId) => await getEngine().getTimeline(runId),
-    listStepAttempts: async (runId, options) => await getEngine().listStepAttempts(runId, options),
-    listStepAttemptsPage: async (runId, options) =>
-      await getEngine().listStepAttemptsPage(runId, options),
-    countStepAttempts: async (runId, options) =>
-      await getEngine().countStepAttempts(runId, options),
-    stepAttemptSummary: async (runId, options) =>
-      await getEngine().getStepAttemptSummary(runId, options),
+    get: (runId: RunId) => engine.store.getRun(runId),
+    events: (runId: RunId) => engine.store.getEvents(runId),
+    list: (options) => engine.store.listRunsPage(options),
+    count: (options) => engine.store.countRuns(options),
+    summary: (options) => engine.getRunSummary(options),
+    recoverySummary: (options) =>
+      getWorkflowRecoverySummary({
+        store: engine.store,
+        now: engine.context.now(),
+        filters: options,
+      }),
+    timeline: (runId) => getRunTimeline(engine.context, runId),
+    listStepAttempts: (runId, options) => pageRunStepAttempts(engine.context, runId, options),
+    countStepAttempts: (runId, options) => countRunStepAttempts(engine.context, runId, options),
+    stepAttemptSummary: (runId, options) =>
+      getRunStepAttemptSummary(engine.context, runId, options),
   };
 }
 
-export function createWorkflowClientAdminApi(
-  getEngine: () => WorkflowClientAdminEngine,
-  now: WorkflowClockAccessor,
-): WorkflowClientAdminApi {
+export function createClientAdminApi(engine: WorkflowEngine, now: ClockAccessor): ClientAdminApi {
   return {
-    cleanup: async (options) => await getEngine().cleanupRuns(options),
-    cleanupMarkers: async () => await getEngine().listCleanupMarkers(),
-    applyRetentionPolicy: async (options) => await getEngine().applyRetentionPolicy(options),
+    cleanup: (options) => cleanupRuns(engine.context, options),
+    cleanupMarkers: () => engine.store.listCleanupMarkers(),
+    applyRetentionPolicy: (options) => applyRetentionPolicy(engine.context, options),
     rerun: async (runId, options): Promise<WorkflowRunHandle<unknown>> => {
-      const handle = await getEngine().rerunWorkflow(runId, options);
-      return createWorkflowRunHandle(
-        getEngine(),
-        defineWorkflowFromName(handle.workflowName, handle.workflowVersion),
-        handle.runId,
-        now,
-      );
+      const handle = await engine.rerunWorkflow(runId, options);
+
+      return createRunHandle(engine, handle, now);
     },
-    reschedule: async (runId, options) => await getEngine().rescheduleRun(runId, options),
-    releaseStaleLease: async (runId, options) =>
-      await getEngine().releaseStaleRunLease(runId, options),
-    retryFailed: async (runId, options) => await getEngine().retryFailedRun(runId, options),
-    markPermanentlyFailed: async (runId, options) =>
-      await getEngine().markRunPermanentlyFailed(runId, options),
-    updateMetadata: async (runId, metadata) => await getEngine().updateRunMetadata(runId, metadata),
-    setAttributes: async (runId, attributes) =>
-      await getEngine().setRunAttributes(runId, attributes),
-    cancel: async (runId) => await getEngine().cancelRun(runId),
+    reschedule: (runId, options) =>
+      rescheduleWorkflowRun(engine.context, engine.lifecycle, runId, options),
+    releaseStaleLease: (runId, options) =>
+      releaseStaleWorkflowRunLease(engine.context, engine.lifecycle, runId, options),
+    retryFailed: (runId, options) =>
+      retryFailedWorkflowRun(engine.context, engine.lifecycle, runId, options),
+    markPermanentlyFailed: (runId, options) =>
+      markWorkflowRunPermanentlyFailed(engine.context, engine.lifecycle, runId, options),
+    setMetadata: (runId, metadata) =>
+      updateWorkflowRunMetadata(engine.context, engine.lifecycle, runId, metadata),
+    setAttributes: (runId, attributes) => setRunAttributes(engine.context, runId, attributes),
+    cancel: (runId) => cancelWorkflowRun(engine.context, engine.lifecycle, runId),
   };
 }
 
-export function createWorkflowClientSchedulesApi(
-  getEngine: () => WorkflowClientSchedulesEngine,
-  now: WorkflowClockAccessor,
-): WorkflowClientSchedulesApi {
+export function createClientSchedulesApi(
+  engine: WorkflowEngine,
+  now: ClockAccessor,
+): ClientSchedulesApi {
   return {
     async next<TInput, TOutput, TRawInput = TInput>(
-      workflow: WorkflowStartTarget<TInput, TOutput, TRawInput>,
+      workflow: StartTarget<TInput, TOutput, TRawInput>,
       input: TRawInput,
       scheduleOptions: ScheduleNextOptions,
     ) {
-      const definition = defineWorkflowFromTarget(workflow);
+      const definition = defineFromTarget(workflow);
       const options = resolveScheduleNextOptions(scheduleOptions, now);
-      const handle = await getEngine().scheduleNextWorkflow(definition, input, options.schedule);
-      return createWorkflowRunHandle<TOutput>(getEngine(), definition, handle.runId, now);
+      const handle = await engine.scheduleNextWorkflow(definition, input, options.schedule);
+
+      return createRunHandle(engine, handle, now);
     },
-    create: async (workflow, options) => await getEngine().createSchedule(workflow, options),
-    upsert: async (workflow, options) => await getEngine().upsertSchedule(workflow, options),
-    get: async (scheduleId) => await getEngine().getSchedule(scheduleId),
-    list: async (options) => await getEngine().listSchedules(options),
-    page: async (options) => await getEngine().listSchedulesPage(options),
-    pause: async (scheduleId) => await getEngine().pauseSchedule(scheduleId),
-    resume: async (scheduleId) => await getEngine().resumeSchedule(scheduleId),
-    archive: async (scheduleId) => await getEngine().archiveSchedule(scheduleId),
-    delete: async (scheduleId) => await getEngine().deleteSchedule(scheduleId),
-    tick: async (options) => await getEngine().tickSchedules(options),
+    create: (workflow, options) => engine.createSchedule(workflow, options),
+    upsert: (workflow, options) =>
+      upsertSchedule(
+        engine.store,
+        defineFromTarget(workflow),
+        options,
+        engine.context.now(),
+        engine.context.limits,
+      ),
+    get: (scheduleId) => engine.store.getSchedule(scheduleId),
+    list: (options) => engine.store.listSchedulesPage(options),
+    pause: (scheduleId) =>
+      updateScheduleStatus(engine.store, scheduleId, "paused", engine.context.now()),
+    resume: (scheduleId) =>
+      updateScheduleStatus(engine.store, scheduleId, "active", engine.context.now()),
+    archive: (scheduleId) =>
+      updateScheduleStatus(engine.store, scheduleId, "archived", engine.context.now()),
+    delete: (scheduleId) =>
+      updateScheduleStatus(engine.store, scheduleId, "deleted", engine.context.now()),
+    tick: (options) => engine.tickSchedules(options),
   };
 }
 
-export function createWorkflowClientLocksApi(getEngine: () => LockManager): WorkflowClientLocksApi {
+export function createClientLocksApi(engine: WorkflowEngine): ClientLocksApi {
   return {
-    acquire: async (key, options) => await getEngine().acquireLock(key, options),
-    get: async (key) => await getEngine().getLock(key),
-    list: async () => await getEngine().listLocks(),
-    release: async (key, options) => await getEngine().releaseLock(key, options),
-    releaseStale: async (key, options) => await getEngine().releaseStaleLock(key, options),
+    acquire: (key, options) => engine.acquireLock(key, options),
+    get: (key) => engine.store.getLock(key),
+    list: () => engine.store.listLocks(),
+    release: (key, options) => engine.releaseLock(key, options),
+    releaseStale: (key, options) =>
+      releaseStaleLock(engine.store, key, options?.now ?? engine.context.now()),
   };
 }
 
-export function createWorkflowClientHooksApi(
-  getEngine: () => WorkflowHookManager,
-): WorkflowClientHooksApi {
+export function createClientHooksApi(engine: WorkflowEngine): ClientHooksApi {
   return {
-    resume: async (token, options) => await getEngine().resumeHook(token, options),
-    resumeWebhook: async (token, options) => await getEngine().resumeWebhook(token, options),
-    dispose: async (token) => await getEngine().disposeHook(token),
-    disposeWebhook: async (token) => await getEngine().disposeWebhook(token),
-    getByToken: async (token) => await getEngine().getHookByToken(token),
+    resume: (token, options) => resumeHook(token, options, engine.context),
+    dispose: (token) => disposeHook(token, engine.context),
+    getByToken: (token) => getHookByToken(token, engine.store, engine.context.now()),
   };
 }
 
-export function createWorkflowClientStreamsApi(
-  getEngine: () => WorkflowStreamReader,
-): WorkflowClientStreamsApi {
+export function createClientStreamsApi(engine: WorkflowEngine): ClientStreamsApi {
   return {
-    getInfo: async (runId, streamIdOrName) =>
-      await getEngine().getStreamInfo(runId, streamIdOrName),
+    getInfo: (runId, streamIdOrName) => getStreamInfo(engine.context, runId, streamIdOrName),
     follow: (runId, streamIdOrName, options) =>
-      getEngine().followStream(runId, streamIdOrName, options),
-    wait: async (runId, streamIdOrName, options) =>
-      await getEngine().waitForStream(runId, streamIdOrName, options),
-    waitForChunk: async (runId, streamIdOrName, afterIndex, options) =>
-      await getEngine().waitForStreamChunk(runId, streamIdOrName, afterIndex, options),
-    waitForTerminal: async (runId, streamIdOrName, options) =>
-      await getEngine().waitForStreamTerminal(runId, streamIdOrName, options),
-    read: async (runId, streamIdOrName, options) =>
-      await getEngine().readStream(runId, streamIdOrName, options),
-    readPage: async (runId, streamIdOrName, options) =>
-      await getEngine().readStreamPage(runId, streamIdOrName, options),
+      followStream(engine.context, runId, streamIdOrName, options),
+    wait: (runId, streamIdOrName, options) =>
+      waitForStream(engine.context, runId, streamIdOrName, options),
+    waitForChunk: (runId, streamIdOrName, afterIndex, options) =>
+      waitForStreamChunk(engine.context, runId, streamIdOrName, afterIndex, options),
+    waitForTerminal: (runId, streamIdOrName, options) =>
+      waitForStreamTerminal(engine.context, runId, streamIdOrName, options),
+    read: (runId, streamIdOrName, options) =>
+      readStream(engine.context, runId, streamIdOrName, options),
   };
 }
 
-export function createWorkflowClientMessagesApi(
-  getEngine: () => WorkflowMessageSender,
-): WorkflowClientMessagesApi {
+export function createClientMessagesApi(engine: WorkflowEngine): ClientMessagesApi {
   return {
-    async send<TPayload, TKey = void>(
+    async send<TPayload, TRawPayload = TPayload>(
       runId: RunId,
-      messageInput: SendMessageInput | MessageChannel<TPayload, TKey>,
-      channelOptions?: SendMessageChannelOptions<TPayload, TKey>,
+      messageInput: SendMessageInput | MessageChannel<TPayload, TRawPayload>,
+      channelOptions?: SendMessageChannelOptions<TRawPayload>,
     ) {
-      const options = await resolveSendMessageInput(messageInput, channelOptions);
-      await getEngine().sendMessage(runId, options);
+      await sendMessageInput(engine.context, runId, messageInput, channelOptions);
     },
-    async broadcast<TPayload, TKey = void>(
-      messageInput: BroadcastMessageInput | MessageChannel<TPayload, TKey>,
-      channelOptions?: BroadcastMessageChannelOptions<TPayload, TKey>,
+    async broadcast<TPayload, TRawPayload = TPayload>(
+      messageInput: BroadcastMessageInput | MessageChannel<TPayload, TRawPayload>,
+      channelOptions?: BroadcastMessageChannelOptions<TRawPayload>,
     ): Promise<BroadcastMessageResult> {
-      const options = await resolveBroadcastMessageInput(messageInput, channelOptions);
-      return getEngine().broadcastMessage(options);
+      return await broadcastMessageInput(engine.context, messageInput, channelOptions);
     },
   };
 }
 
-export function createWorkflowClientWorkersApi(
-  getEngine: WorkflowWorkerEngineAccessor,
-  getRegistry: WorkflowRegistryAccessor,
-  now: WorkflowClockAccessor,
-): WorkflowClientWorkersApi {
+export function createClientWorkersApi(
+  engine: WorkflowEngine,
+  registry: RegistryLike,
+  now: ClockAccessor,
+): ClientWorkersApi {
   return {
     create: (options) => {
-      const engine = requireWorkflowWorkerEngine(getEngine());
-      return new WorkflowWorker(
-        workerOptionsFromClientOptions(engine, getRegistry(), now, options),
-      );
+      return new WorkflowWorker(workerOptionsFromClientOptions(engine, registry, now, options));
     },
     processRun: async (runId, options) => {
-      const engine = requireWorkflowWorkerEngine(getEngine());
       const worker = new WorkflowWorker(
         workerOptionsFromClientOptions(
           engine,
-          getRegistry(),
+          registry,
           now,
           workerOptionsFromWakeOptions(options),
         ),
       );
+
       await worker.processRun(runId);
     },
     wakeDueRuns: async (options) => {
-      const engine = requireWorkflowWorkerEngine(getEngine());
       const worker = new WorkflowWorker(
         workerOptionsFromClientOptions(
           engine,
-          getRegistry(),
+          registry,
           now,
           workerOptionsFromWakeOptions(options),
         ),
       );
+
       const filters = options === undefined ? {} : options;
+
       const maxRuns =
         resolvePositiveSafeIntegerOption(options?.maxRuns, "Workflow worker maxRuns") ?? 1;
+
       let processedRuns = 0;
 
       while (options?.signal?.aborted !== true && processedRuns < maxRuns) {
         const result = await worker.processNextRun(filters);
+
         if (result === undefined) {
           break;
         }
+
         processedRuns++;
       }
 

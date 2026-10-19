@@ -1,5 +1,15 @@
-export * from "./heading-id/plugin";
-export * from "./katex/plugin";
-export * from "./remove-imports-exports";
-export * from "./syntax-highlight/plugin";
-export * from "./tree-processor/plugin";
+export * from "../plugin.ts";
+
+export * from "./code-block-metadata.ts";
+
+export * from "./heading-id.ts";
+
+export * from "./lower-heading.ts";
+
+export * from "./math-render.ts";
+
+export * from "./remove-esm.ts";
+
+export * from "./shiki.ts";
+
+export * from "./syntax-highlight.ts";

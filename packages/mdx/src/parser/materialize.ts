@@ -1,0 +1,1154 @@
+import type { Diagnostic } from "../diagnostics.ts";
+import type {
+  DirectiveAttribute,
+  DirectiveLabelNode,
+  ListItemNode,
+  DocumentNode,
+  FlowContent,
+  JsxTextElementNode,
+  PhrasingContent,
+} from "../model.ts";
+import type { SourceRange } from "../ranges.ts";
+import type { SourceText } from "../source-text.ts";
+import type { SourceFile, SourceSpan } from "../source.ts";
+import type { ResolvedSyntaxOptions } from "../syntax-options.ts";
+import type {
+  BlockSyntax,
+  DirectiveAttributeSyntax,
+  ListItemSyntax,
+  ListSyntax,
+  JsxSyntax,
+} from "./block-syntax.ts";
+import type { ResolvedParserLimits } from "./config.ts";
+import type { DefinitionLookup, InlineSyntax } from "./inline-syntax.ts";
+import type {
+  CachedListPrefix,
+  CachedMaterialization,
+  MaterializeCache,
+} from "./materialize-cache.ts";
+
+import { createDiagnostic, DiagnosticBag } from "../diagnostics.ts";
+import { decodeFrontmatter } from "../frontmatter.ts";
+import { normalizeIdentifier } from "../identifier.ts";
+import { nodeText } from "../model.ts";
+import { sourceText } from "../source.ts";
+import { parseFlowRange } from "./block-parser.ts";
+import { InlineInput } from "./inline-input.ts";
+import { parseInline } from "./inline-parser.ts";
+import { isFlowJsxChildren, jsxParts, type JsxParts } from "./materialize-jsx.ts";
+
+export interface MaterializedBlock {
+  readonly references: readonly string[];
+  readonly nodeCount: number;
+  readonly node: FlowContent;
+}
+
+export interface MaterializeOptions {
+  /** Definitions already known to a stream, including definitions in other blocks. */
+  readonly definitionLookup?: DefinitionLookup;
+  /**
+   * Keeps references whose definitions are missing, for a stream where the
+   * definitions may still arrive. Otherwise they become authored text.
+   */
+  readonly keepReferences?: boolean;
+  /** Open embedded syntax at the end of the source is inert instead of invalid. */
+  readonly allowIncomplete?: boolean;
+  readonly cache?: MaterializeCache;
+  /**
+   * The range of a stream's open leaf. A stream renders that leaf itself, so it
+   * materializes as an empty placeholder with the same kind and origin.
+   */
+  readonly open?: SourceRange;
+}
+
+export type StrictMaterializeResult =
+  | Readonly<{
+      kind: "ok";
+      document: DocumentNode;
+      blocks: readonly MaterializedBlock[];
+      diagnostics: readonly Diagnostic[];
+    }>
+  | Readonly<{ kind: "invalid"; diagnostics: readonly [Diagnostic, ...Diagnostic[]] }>
+  | Readonly<{
+      kind: "limitExceeded";
+      limit: "maximumNestingDepth" | "maximumNodes";
+      diagnostics: readonly [Diagnostic, ...Diagnostic[]];
+    }>;
+
+interface PreparedFlowJsx {
+  readonly parts: JsxParts;
+  readonly children: readonly BlockSyntax[] | undefined;
+}
+
+interface MaterializeContext {
+  readonly definitionLookup: DefinitionLookup;
+  references: Set<string>;
+  readonly definitions: ReadonlySet<string>;
+  readonly diagnostics: DiagnosticBag;
+  readonly file: SourceFile;
+  readonly footnotes: ReadonlySet<string>;
+  readonly limits: ResolvedParserLimits;
+  readonly syntax: ResolvedSyntaxOptions;
+  readonly allowIncomplete: boolean;
+  readonly keepReferences: boolean;
+  readonly cache: MaterializeCache | undefined;
+  readonly open: SourceRange | undefined;
+  readonly flowJsx: Map<JsxSyntax, PreparedFlowJsx>;
+  grammarSource: SourceText | undefined;
+  maximumDepth: number;
+  /** Leniency at the end of the source makes the result depend on later input. */
+  usedEndOfInput: boolean;
+  depth: number;
+  nodes: number;
+  authoredInvalid: boolean;
+  limit: "maximumNestingDepth" | "maximumNodes" | undefined;
+}
+
+export function materializeDocument(
+  file: SourceFile,
+  blocks: readonly BlockSyntax[],
+  syntax: ResolvedSyntaxOptions,
+  limits: ResolvedParserLimits,
+  options: MaterializeOptions = {},
+): StrictMaterializeResult {
+  const indexes: DependencyIndexes = { definitions: new Set(), footnotes: new Set() };
+  const context = createContext(file, syntax, limits, options, indexes);
+
+  // Index flow JSX before references are materialized; its parsed children are reused below.
+  if (!context.keepReferences) {
+    collectIndexes(blocks, context, indexes);
+  }
+
+  const children: FlowContent[] = [];
+  const materializedBlocks: MaterializedBlock[] = [];
+
+  for (const block of blocks) {
+    if (context.limit !== undefined) {
+      break;
+    }
+
+    const before = context.nodes;
+    context.references = new Set();
+    const child = materializeBlock(block, context);
+
+    if (child !== undefined) {
+      children.push(child);
+      materializedBlocks.push(
+        Object.freeze({
+          node: child,
+          nodeCount: context.nodes - before,
+          references: [...context.references],
+        }),
+      );
+    }
+  }
+
+  if (context.limit !== undefined) {
+    const diagnostic = limitDiagnostic(file, context.limit);
+    const diagnostics: readonly [Diagnostic] = Object.freeze([diagnostic]);
+
+    return Object.freeze({
+      kind: "limitExceeded",
+      limit: context.limit,
+      diagnostics,
+    });
+  }
+
+  const diagnostics = context.diagnostics.snapshot();
+
+  if (
+    context.authoredInvalid ||
+    diagnostics.some((diagnostic) => diagnostic.severity === "error")
+  ) {
+    const errors = diagnostics.filter((diagnostic) => diagnostic.severity === "error");
+
+    if (errors.length === 0) {
+      throw new Error("Invalid MDX draft did not produce an error diagnostic");
+    }
+
+    const [first, ...rest] = errors;
+
+    if (first === undefined) {
+      throw new Error("Invalid MDX diagnostic collection changed unexpectedly");
+    }
+
+    const invalidDiagnostics: readonly [Diagnostic, ...Diagnostic[]] = Object.freeze([
+      first,
+      ...rest,
+    ]);
+
+    return Object.freeze({
+      kind: "invalid",
+      diagnostics: invalidDiagnostics,
+    });
+  }
+
+  const document = counted<DocumentNode>(context, {
+    kind: "document",
+    children,
+    origin: range(0, file.length),
+  });
+
+  if (document === undefined || context.limit !== undefined) {
+    const diagnostic = limitDiagnostic(file, "maximumNodes");
+    const diagnostics: readonly [Diagnostic] = Object.freeze([diagnostic]);
+
+    return Object.freeze({
+      kind: "limitExceeded",
+      limit: "maximumNodes",
+      diagnostics,
+    });
+  }
+
+  return Object.freeze({
+    kind: "ok",
+    document,
+    blocks: Object.freeze(materializedBlocks),
+    diagnostics,
+  });
+}
+
+export interface MaterializedPhrasing {
+  readonly nodes: readonly PhrasingContent[];
+  readonly nodeCount: number;
+}
+
+/** Materialized phrasing by inline syntax identity, valid while references are kept. */
+export type PhrasingCache = WeakMap<InlineSyntax, MaterializedPhrasing>;
+
+/**
+ * Materializes parsed inline syntax that a stream renders outside a block,
+ * keeping references.
+ */
+export function materializePhrasing(
+  file: SourceFile,
+  nodes: readonly InlineSyntax[],
+  syntax: ResolvedSyntaxOptions,
+  limits: ResolvedParserLimits,
+): MaterializedPhrasing {
+  const context = createContext(file, syntax, limits, {
+    keepReferences: true,
+    allowIncomplete: true,
+  });
+
+  const children: PhrasingContent[] = [];
+
+  for (const node of nodes) {
+    const child = materializeInlineNode(node, context);
+
+    if (child !== undefined) {
+      children.push(child);
+    }
+  }
+
+  return { nodes: children, nodeCount: context.nodes };
+}
+
+/** Independent inline groups share one context while retaining their own node budgets. */
+export function materializePhrasingGroups(
+  file: SourceFile,
+  nodes: readonly InlineSyntax[],
+  syntax: ResolvedSyntaxOptions,
+  limits: ResolvedParserLimits,
+  cache: PhrasingCache,
+): readonly MaterializedPhrasing[] {
+  const context = createContext(file, syntax, limits, {
+    keepReferences: true,
+    allowIncomplete: true,
+  });
+
+  return nodes.map((node) => {
+    const hit = cache.get(node);
+
+    if (hit !== undefined) {
+      return hit;
+    }
+
+    context.nodes = 0;
+    context.limit = undefined;
+    context.usedEndOfInput = false;
+
+    const child = materializeInlineNode(node, context);
+
+    const materialized = {
+      nodes: child === undefined ? [] : [child],
+      nodeCount: context.nodes,
+    };
+
+    if (context.limit === undefined && !context.usedEndOfInput) {
+      cache.set(node, materialized);
+    }
+
+    return materialized;
+  });
+}
+
+/** Only whitespace and at most one line ending follow `offset`. */
+function reachesEndOfInput(file: SourceFile, offset: number): boolean {
+  return /^[ \t]*(?:\r\n?|\n)?[ \t]*$/u.test(file.slice({ start: offset, end: file.length }));
+}
+
+const emptyIndexes: DependencyIndexes = { definitions: new Set(), footnotes: new Set() };
+
+function createContext(
+  file: SourceFile,
+  syntax: ResolvedSyntaxOptions,
+  limits: ResolvedParserLimits,
+  options: MaterializeOptions,
+  indexes: DependencyIndexes = emptyIndexes,
+): MaterializeContext {
+  return {
+    definitions: indexes.definitions,
+    definitionLookup: options.definitionLookup ?? indexes.definitions,
+    references: new Set(),
+    diagnostics: new DiagnosticBag(),
+    file,
+    footnotes: indexes.footnotes,
+    limits,
+    syntax,
+    // Resolution depends on the definitions, so only reference-keeping output is cached.
+    cache: options.keepReferences === true ? options.cache : undefined,
+    flowJsx: new Map(),
+    grammarSource: undefined,
+    maximumDepth: 0,
+    usedEndOfInput: false,
+    allowIncomplete: options.allowIncomplete ?? false,
+    keepReferences: options.keepReferences ?? false,
+    open: options.open,
+    depth: 0,
+    nodes: 0,
+    authoredInvalid: false,
+    limit: undefined,
+  };
+}
+
+function materializeBlock(
+  block: BlockSyntax,
+  context: MaterializeContext,
+): FlowContent | undefined {
+  return cached(context.cache?.blocks, block, context, () =>
+    materializeBlockContent(block, context),
+  );
+}
+
+/**
+ * Replays a cached subtree, or materializes and caches it. Subtrees with
+ * diagnostics or input-dependent leniency are never cached.
+ */
+function cached<TKey extends BlockSyntax | ListItemSyntax, TNode>(
+  cache: WeakMap<TKey, CachedMaterialization<TNode>> | undefined,
+  key: TKey,
+  context: MaterializeContext,
+  materialize: () => TNode | undefined,
+): TNode | undefined {
+  if (cache === undefined) {
+    return materialize();
+  }
+
+  const hit = cache.get(key);
+
+  if (
+    hit !== undefined &&
+    context.depth + hit.depth <= context.limits.maximumNestingDepth &&
+    context.nodes + hit.nodeCount <= context.limits.maximumNodes
+  ) {
+    for (const identifier of hit.references) {
+      context.references.add(identifier);
+    }
+
+    context.nodes += hit.nodeCount;
+    context.maximumDepth = Math.max(context.maximumDepth, context.depth + hit.depth);
+
+    return hit.node;
+  }
+
+  const references = context.references;
+  context.references = new Set();
+  const nodes = context.nodes;
+  const diagnostics = context.diagnostics.size;
+  const outerDepth = context.maximumDepth;
+  const outerEndOfInput = context.usedEndOfInput;
+  context.maximumDepth = context.depth;
+  context.usedEndOfInput = false;
+  const node = materialize();
+
+  if (
+    node !== undefined &&
+    context.diagnostics.size === diagnostics &&
+    !context.authoredInvalid &&
+    context.limit === undefined &&
+    !context.usedEndOfInput
+  ) {
+    cache.set(key, {
+      node,
+      nodeCount: context.nodes - nodes,
+      depth: context.maximumDepth - context.depth,
+      references: [...context.references],
+    });
+  }
+
+  for (const identifier of context.references) {
+    references.add(identifier);
+  }
+
+  context.references = references;
+  context.maximumDepth = Math.max(outerDepth, context.maximumDepth);
+  context.usedEndOfInput ||= outerEndOfInput;
+
+  return node;
+}
+
+function materializeBlockContent(
+  block: BlockSyntax,
+  context: MaterializeContext,
+): FlowContent | undefined {
+  if (!enter(context)) {
+    return;
+  }
+
+  try {
+    const origin = range(block.range.start, block.range.end);
+
+    if (isOpenLeaf(block, context)) {
+      context.usedEndOfInput = true;
+
+      return counted(context, openLeafPlaceholder(block, origin));
+    }
+
+    switch (block.kind) {
+      case "paragraph":
+        return counted(context, {
+          kind: "paragraph",
+          children: materializeInline(block.input, context),
+          origin,
+        });
+      case "heading":
+        return counted(context, {
+          kind: "heading",
+          depth: block.depth,
+          children: materializeInline(block.input, context),
+          origin,
+        });
+      case "code":
+        return counted(context, {
+          kind: "codeBlock",
+          value: trimFinalLineEnding(inlineInputText(context.file, block.value)),
+          language: sliceOptional(context.file, block.language),
+          meta: sliceOptional(context.file, block.meta),
+          origin,
+        });
+      case "thematicBreak":
+        return counted(context, { kind: "thematicBreak", origin });
+      case "blockQuote":
+        return counted(context, {
+          kind: "blockquote",
+          children: materializeBlocks(block.children, context),
+          origin,
+        });
+      case "list":
+        return counted(context, {
+          kind: "list",
+          ordered: block.ordered,
+          spread: block.spread,
+          start: block.start ?? 1,
+          children: materializeListItems(block, context),
+          origin,
+        });
+      case "definition":
+        return counted(context, {
+          kind: "definition",
+          identifier: normalizeIdentifier(block.identifier),
+          url: context.file.semanticSlice(block.destination),
+          title: semanticSliceOptional(context.file, block.title),
+          origin,
+        });
+      case "footnoteDefinition":
+        return counted(context, {
+          kind: "footnoteDefinition",
+          identifier: normalizeIdentifier(block.identifier),
+          label: block.identifier,
+          children: materializeBlocks(block.children, context),
+          origin,
+        });
+      case "rawHtml":
+        return counted(context, {
+          kind: "rawHtmlBlock",
+          value: context.file.semanticSlice(block.range),
+          origin,
+        });
+      case "frontmatter": {
+        const rawValue = trimFinalLineEnding(context.file.slice(block.value));
+        const valueOrigin = range(block.value.start, block.value.start + rawValue.length);
+
+        const data = decodeFrontmatter({
+          diagnostics: context.diagnostics,
+          format: block.format,
+          source: rawValue,
+          span: span(context.file, valueOrigin.start, valueOrigin.end),
+        });
+
+        return counted(context, {
+          kind: "frontmatter",
+          format: block.format,
+          value: rawValue.replace(/\r\n?|\n/gu, "\n"),
+          data,
+          valueOrigin,
+          origin,
+        });
+      }
+
+      case "directive":
+        return counted(context, {
+          kind: "containerDirective",
+          name: block.name,
+          attributes: materializeDirectiveAttributes(block.attributes),
+          label: materializeDirectiveLabel(block.label, context),
+          children: materializeBlocks(block.children, context),
+          origin,
+        });
+      case "leafDirective":
+        return counted(context, {
+          kind: "leafDirective",
+          name: block.name,
+          attributes: materializeDirectiveAttributes(block.attributes),
+          label: materializeDirectiveLabel(block.label, context),
+          origin,
+        });
+      case "math": {
+        const value = trimFinalLineEnding(inlineInputText(context.file, block.value));
+
+        return counted(
+          context,
+          block.format === "tex"
+            ? { kind: "displayMath", value, format: "tex", origin }
+            : {
+                kind: "displayMath",
+                value,
+                format: "dollar",
+                meta: sliceOptional(context.file, block.meta),
+                origin,
+              },
+        );
+      }
+
+      case "table":
+        return counted(context, {
+          kind: "table",
+          alignments: block.alignments,
+          children: block.rows.map((row) => ({
+            kind: "tableRow",
+            children: row.cells.map((cell) => {
+              const cellRange = inlineSegmentsRange(cell, row.range);
+
+              return {
+                kind: "tableCell",
+                children: materializeInline(cell, context),
+                origin: range(cellRange.start, cellRange.end),
+              };
+            }),
+            origin: range(row.range.start, row.range.end),
+          })),
+          origin,
+        });
+      case "expression": {
+        const authored = context.file.slice(block.range);
+
+        return counted(context, {
+          kind: "blockExpression",
+          code: authored.slice(authored.indexOf("{") + 1, authored.lastIndexOf("}")),
+          origin,
+        });
+      }
+
+      case "esm":
+        return counted(context, {
+          kind: "esm",
+          code: trimFinalLineEnding(context.file.slice(block.range)),
+          origin,
+        });
+      case "jsx":
+        return counted(context, materializeFlowJsx(block, context));
+      case "invalidMdx":
+        if (
+          context.allowIncomplete &&
+          block.state === "incomplete" &&
+          reachesEndOfInput(context.file, block.range.end)
+        ) {
+          context.usedEndOfInput = true;
+
+          return counted(context, {
+            kind: "rawHtmlBlock",
+            value: context.file.slice(block.range),
+            origin,
+          });
+        }
+
+        context.authoredInvalid = true;
+        context.diagnostics.add({
+          code: `mdx.${block.syntax}.invalid`,
+          message: `Invalid or unfinished MDX ${block.syntax}`,
+          severity: "error",
+          span: span(context.file, origin.start, origin.end),
+        });
+
+        return;
+    }
+  } finally {
+    context.depth--;
+  }
+}
+
+function isOpenLeaf(block: BlockSyntax, context: MaterializeContext): boolean {
+  return (
+    context.open !== undefined &&
+    block.range.start === context.open.start &&
+    block.range.end === context.open.end &&
+    (block.kind === "paragraph" ||
+      block.kind === "code" ||
+      block.kind === "math" ||
+      block.kind === "invalidMdx")
+  );
+}
+
+function openLeafPlaceholder(block: BlockSyntax, origin: SourceRange): FlowContent {
+  switch (block.kind) {
+    case "paragraph":
+      return { kind: "paragraph", children: [], origin };
+    case "code":
+      return { kind: "codeBlock", value: "", origin };
+    case "math":
+      return { kind: "displayMath", value: "", format: "dollar", origin };
+    default:
+      return { kind: "rawHtmlBlock", value: "", origin };
+  }
+}
+
+/**
+ * Materializes list items. A growing list reuses its unchanged leading items
+ * as one prefix, so an append materializes only the items after it. The list
+ * that contains a stream's open leaf is rebuilt on every append and never
+ * cached, so its children array is extended in place instead of copied.
+ */
+function materializeListItems(list: ListSyntax, context: MaterializeContext): ListItemNode[] {
+  const items = list.items;
+  const closing = list.closing ?? [];
+  const count = items.length + closing.length;
+  const itemAt = (index: number): ListItemSyntax => items[index] ?? closing[index - items.length];
+  const open = context.open !== undefined && containsRange(list.range, context.open);
+  const cache = context.cache;
+  const prefix = cache === undefined ? undefined : listPrefix(count, itemAt, cache.lists);
+
+  const reused =
+    prefix !== undefined &&
+    context.depth + prefix.depth <= context.limits.maximumNestingDepth &&
+    context.nodes + prefix.nodeCount <= context.limits.maximumNodes
+      ? prefix
+      : undefined;
+
+  let children: ListItemNode[] = [];
+
+  if (reused !== undefined && reused.live && open) {
+    children = reused.nodes;
+    children.length = reused.length;
+  } else if (reused !== undefined) {
+    children = reused.nodes.slice(0, reused.length);
+  }
+
+  let nodeCount = reused?.nodeCount ?? 0;
+  let depth = reused?.depth ?? 0;
+  let cacheable = true;
+  const references = new Set(reused?.references);
+
+  if (reused !== undefined) {
+    for (const identifier of reused.references) {
+      context.references.add(identifier);
+    }
+
+    context.nodes += reused.nodeCount;
+    context.maximumDepth = Math.max(context.maximumDepth, context.depth + reused.depth);
+  }
+
+  for (let index = (reused?.index ?? -1) + 1; index < count; index++) {
+    const item = itemAt(index);
+
+    const node = cached(cache?.items, item, context, (): ListItemNode => ({
+      kind: "listItem",
+      checked: item.checked,
+      spread: item.spread,
+      children: materializeBlocks(item.children, context),
+      origin: range(item.range.start, item.range.end),
+    }));
+
+    if (node !== undefined) {
+      children.push(node);
+    }
+
+    // Items with diagnostics or end-of-input leniency are not cached, so prefixes stop there.
+    const entry = cache?.items.get(item);
+    cacheable &&= entry?.node === node;
+
+    for (const identifier of entry?.references ?? []) {
+      references.add(identifier);
+    }
+
+    nodeCount += entry?.nodeCount ?? 0;
+    depth = Math.max(depth, entry?.depth ?? 0);
+
+    // A prefix is the first \`length\` nodes of \`children\`, which only ever grows past them.
+    if (cacheable && index >= count - prefixWindow) {
+      cache?.lists.set(item, {
+        index,
+        nodes: children,
+        length: children.length,
+        live: open,
+        references: [...references],
+        nodeCount,
+        depth,
+      });
+    }
+  }
+
+  return children;
+}
+
+/**
+ * How far back a list prefix can end. The parser closes an item only when the
+ * next line completes, so the last two items are rebuilt by each tail draft.
+ */
+const prefixWindow = 8;
+
+/** The cached prefix ending closest to the end of the list. Closing items can still change. */
+function listPrefix(
+  count: number,
+  itemAt: (index: number) => ListItemSyntax,
+  lists: MaterializeCache["lists"],
+): CachedListPrefix | undefined {
+  for (let index = count - 1; index >= Math.max(0, count - prefixWindow); index--) {
+    const prefix = lists.get(itemAt(index));
+
+    if (prefix?.index === index) {
+      return prefix;
+    }
+  }
+
+  return undefined;
+}
+
+function containsRange(outer: SourceRange, inner: SourceRange): boolean {
+  return outer.start <= inner.start && inner.end <= outer.end;
+}
+
+function materializeBlocks(
+  blocks: readonly BlockSyntax[],
+  context: MaterializeContext,
+): FlowContent[] {
+  const children: FlowContent[] = [];
+
+  for (const block of blocks) {
+    const child = materializeBlock(block, context);
+
+    if (child !== undefined) {
+      children.push(child);
+    }
+  }
+
+  return children;
+}
+
+function materializeInline(
+  segments: Parameters<typeof inlineInputText>[1],
+  context: MaterializeContext,
+): PhrasingContent[] {
+  const result = parseInline(
+    new InlineInput(context.file, segments),
+    context.syntax,
+    context.definitionLookup,
+  );
+
+  for (const identifier of result.references) {
+    context.references.add(identifier);
+  }
+
+  for (const invalid of result.invalid) {
+    // Streaming input can still close a construct that reaches the end of the source.
+    if (
+      context.allowIncomplete &&
+      invalid.open &&
+      reachesEndOfInput(context.file, invalid.range.end)
+    ) {
+      context.usedEndOfInput = true;
+      continue;
+    }
+
+    context.authoredInvalid = true;
+    context.diagnostics.add({
+      code: `mdx.${invalid.syntax}.invalid`,
+      message: `Invalid or unfinished MDX ${invalid.syntax}`,
+      severity: "error",
+      span: span(context.file, invalid.range.start, invalid.range.end),
+    });
+  }
+
+  return materializeInlineNodes(result.nodes, context);
+}
+
+function materializeInlineNodes(
+  nodes: readonly InlineSyntax[],
+  context: MaterializeContext,
+): PhrasingContent[] {
+  const children: PhrasingContent[] = [];
+
+  for (const node of nodes) {
+    const child = materializeInlineNode(node, context);
+
+    if (child !== undefined) {
+      children.push(child);
+    }
+  }
+
+  return children;
+}
+
+function materializeInlineNode(
+  node: InlineSyntax,
+  context: MaterializeContext,
+): PhrasingContent | undefined {
+  const origin = range(node.range.start, node.range.end);
+
+  switch (node.kind) {
+    case "text":
+      return counted(context, { kind: "text", value: node.value, origin });
+    case "emphasis":
+    case "strong":
+    case "delete":
+      return counted(context, {
+        kind: node.kind,
+        children: materializeInlineNodes(node.children, context),
+        origin,
+      });
+    case "code":
+      return counted(context, { kind: "inlineCode", value: node.value, origin });
+    case "hardBreak":
+      return counted(context, { kind: "hardBreak", origin });
+    case "link":
+      return counted(context, {
+        kind: "link",
+        url: node.destination,
+        title: node.title,
+        children: materializeInlineNodes(node.children, context),
+        origin,
+      });
+    case "image":
+      return counted(context, {
+        kind: "image",
+        url: node.destination,
+        alt: node.alt,
+        title: node.title,
+        origin,
+      });
+    case "reference": {
+      const children = materializeInlineNodes(node.children, context);
+
+      if (!context.keepReferences && !context.definitions.has(node.identifier)) {
+        return counted(context, {
+          kind: "text",
+          value: context.file.slice(node.range),
+          origin,
+        });
+      }
+
+      const identifier = normalizeIdentifier(node.identifier);
+
+      return counted(
+        context,
+        node.image
+          ? {
+              kind: "imageReference",
+              identifier,
+              alt: children.map(nodeText).join(""),
+              referenceKind: node.referenceKind,
+              origin,
+            }
+          : {
+              kind: "linkReference",
+              identifier,
+              referenceKind: node.referenceKind,
+              children,
+              origin,
+            },
+      );
+    }
+
+    case "rawHtml":
+      return counted(context, { kind: "rawHtmlInline", value: node.value, origin });
+    case "expression":
+      return counted(context, { kind: "inlineExpression", code: node.value, origin });
+    case "jsx":
+      return counted(context, materializeTextJsx(node.value, origin, context));
+    case "math":
+      return counted(context, {
+        kind: "inlineMath",
+        value: node.value,
+        format: node.format,
+        origin,
+      });
+    case "footnoteReference":
+      return context.keepReferences || context.footnotes.has(node.identifier)
+        ? counted(context, {
+            kind: "footnoteReference",
+            identifier: normalizeIdentifier(node.identifier),
+            label: node.identifier,
+            origin,
+          })
+        : counted(context, { kind: "text", value: context.file.slice(node.range), origin });
+    case "directive":
+      return counted(context, {
+        kind: "textDirective",
+        name: node.name,
+        attributes: materializeDirectiveAttributes(node.attributes),
+        label: { kind: "directiveLabel", children: [], origin },
+        origin,
+      });
+  }
+}
+
+function materializeDirectiveLabel(
+  label: ConstructorParameters<typeof InlineInput>[1] | undefined,
+  context: MaterializeContext,
+): DirectiveLabelNode | undefined {
+  if (label === undefined) {
+    return;
+  }
+
+  const labelRange = inlineSegmentsRange(label, { start: 0, end: 0 });
+
+  return {
+    kind: "directiveLabel",
+    children: materializeInline(label, context),
+    origin: range(labelRange.start, labelRange.end),
+  };
+}
+
+function materializeDirectiveAttributes(
+  attributes: readonly DirectiveAttributeSyntax[],
+): DirectiveAttribute[] {
+  return attributes.map((attribute) => ({ name: attribute.name, value: attribute.value }));
+}
+
+/**
+ * Children on following lines are Markdown flow content. Like MDX, children on
+ * the same line are phrasing: the element is text JSX in a paragraph, which
+ * lowering does not wrap in `p`.
+ */
+function materializeFlowJsx(block: JsxSyntax, context: MaterializeContext): FlowContent {
+  const prepared = prepareFlowJsx(block, context);
+  const { parts, children } = prepared;
+  const origin = range(block.range.start, block.range.end);
+
+  if (
+    parts.children !== undefined &&
+    parts.children.start !== parts.children.end &&
+    children === undefined
+  ) {
+    return {
+      kind: "paragraph",
+      children: [materializeTextJsx(context.file.slice(block.range), origin, context, parts)],
+      origin,
+    };
+  }
+
+  return {
+    kind: "jsxFlowElement",
+    name: parts.name,
+    attributes: parts.attributes,
+    children: children === undefined ? [] : materializeBlocks(children, context),
+    origin,
+  };
+}
+
+function prepareFlowJsx(block: JsxSyntax, context: MaterializeContext): PreparedFlowJsx {
+  const cached = context.flowJsx.get(block);
+
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  const parts = jsxParts(context.file.slice(block.range), block.range.start);
+  const childRange = parts.children;
+
+  const children =
+    childRange === undefined ||
+    childRange.start === childRange.end ||
+    !isFlowJsxChildren(context.file, childRange)
+      ? undefined
+      : parseFlowRange(grammarSource(context), childRange, context.syntax);
+
+  const prepared = { parts, children };
+  context.flowJsx.set(block, prepared);
+
+  return prepared;
+}
+
+function grammarSource(context: MaterializeContext): SourceText {
+  context.grammarSource ??= sourceText(context.file).grammar();
+
+  return context.grammarSource;
+}
+
+function materializeTextJsx(
+  authored: string,
+  jsxOrigin: SourceRange,
+  context: MaterializeContext,
+  parsed = jsxParts(authored, jsxOrigin.start),
+): JsxTextElementNode {
+  return {
+    kind: "jsxTextElement",
+    name: parsed.name,
+    attributes: parsed.attributes,
+    children:
+      parsed.children === undefined
+        ? []
+        : materializeInline([{ kind: "source", range: parsed.children }], context),
+    origin: jsxOrigin,
+  };
+}
+
+interface DependencyIndexes {
+  readonly definitions: Set<string>;
+  readonly footnotes: Set<string>;
+}
+
+function collectIndexes(
+  blocks: readonly BlockSyntax[],
+  context: MaterializeContext,
+  indexes: DependencyIndexes,
+): void {
+  const { definitions, footnotes } = indexes;
+  let nodes = 1;
+
+  const visit = (block: BlockSyntax, depth: number): void => {
+    if (context.limit !== undefined) {
+      return;
+    }
+
+    if (depth > context.limits.maximumNestingDepth) {
+      context.limit = "maximumNestingDepth";
+
+      return;
+    }
+
+    nodes++;
+
+    if (nodes > context.limits.maximumNodes) {
+      context.limit = "maximumNodes";
+
+      return;
+    }
+
+    if (block.kind === "definition") {
+      definitions.add(normalizeIdentifier(block.identifier));
+    } else if (block.kind === "footnoteDefinition") {
+      footnotes.add(normalizeIdentifier(block.identifier));
+    }
+
+    if (
+      block.kind === "blockQuote" ||
+      block.kind === "footnoteDefinition" ||
+      block.kind === "directive"
+    ) {
+      block.children.forEach((child) => visit(child, depth + 1));
+    } else if (block.kind === "list") {
+      for (const item of [...block.items, ...(block.closing ?? [])]) {
+        item.children.forEach((child) => visit(child, depth + 1));
+      }
+    } else if (block.kind === "jsx") {
+      prepareFlowJsx(block, context).children?.forEach((child) => visit(child, depth + 1));
+    }
+  };
+
+  blocks.forEach((block) => visit(block, 1));
+}
+
+function inlineInputText(
+  file: SourceFile,
+  segments: ConstructorParameters<typeof InlineInput>[1],
+): string {
+  return new InlineInput(file, segments).toString();
+}
+
+function inlineSegmentsRange(
+  segments: ConstructorParameters<typeof InlineInput>[1],
+  fallback: SourceRange,
+): SourceRange {
+  const first = segments.find((segment) => segment.kind === "source");
+  const last = segments.findLast((segment) => segment.kind === "source");
+
+  return first?.kind === "source" && last?.kind === "source"
+    ? { start: first.range.start, end: last.range.end }
+    : fallback;
+}
+
+function sliceOptional(file: SourceFile, range: SourceRange | undefined): string | undefined {
+  return range === undefined ? undefined : file.slice(range);
+}
+
+function semanticSliceOptional(
+  file: SourceFile,
+  range: SourceRange | undefined,
+): string | undefined {
+  return range === undefined ? undefined : file.semanticSlice(range);
+}
+
+function trimFinalLineEnding(value: string): string {
+  return value.endsWith("\r\n")
+    ? value.slice(0, -2)
+    : value.endsWith("\n") || value.endsWith("\r")
+      ? value.slice(0, -1)
+      : value;
+}
+
+function span(file: SourceFile, start: number, end: number): SourceSpan {
+  return { file, start, end };
+}
+
+function range(start: number, end: number): SourceRange {
+  return { start, end };
+}
+
+function enter(context: MaterializeContext): boolean {
+  context.depth++;
+  context.maximumDepth = Math.max(context.maximumDepth, context.depth);
+
+  if (context.depth > context.limits.maximumNestingDepth) {
+    context.limit = "maximumNestingDepth";
+    context.depth--;
+
+    return false;
+  }
+
+  return true;
+}
+
+function counted<T>(context: MaterializeContext, node: T): T | undefined {
+  context.nodes++;
+
+  if (context.nodes > context.limits.maximumNodes) {
+    context.limit = "maximumNodes";
+
+    return;
+  }
+
+  return node;
+}
+
+function limitDiagnostic(
+  file: SourceFile,
+  limit: "maximumNestingDepth" | "maximumNodes",
+): Diagnostic {
+  return createDiagnostic({
+    code: `mdx.limit.${limit}`,
+    message: `Parser limit ${limit} exceeded`,
+    severity: "error",
+    span: span(file, 0, file.length),
+  });
+}

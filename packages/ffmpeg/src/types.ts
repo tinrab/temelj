@@ -42,6 +42,7 @@ export type {
   MetadataSpecifier,
   MetadataOptionBag,
 } from "./generated/options.ts";
+
 export type { OneOrMany, UnsafeValue } from "./structured.ts";
 
 type StructuredOutputMetadataOptions = Omit<
@@ -53,12 +54,17 @@ type StructuredOutputMetadataOptions = Omit<
 };
 
 export type InputOptions = GeneratedInputOptions;
+
 export type GlobalOptions = Omit<GeneratedGlobalOptions, "filterComplex"> & {
   filterComplex?: string | FilterGraph;
 };
+
 export type InputStreamOptions = GeneratedInputStreamOptions;
+
 export type OutputStreamOptions = GeneratedOutputStreamOptions;
+
 export type OutputMetadataOptions = StructuredOutputMetadataOptions;
+
 export type OutputOptions = Omit<
   GeneratedOutputOptions,
   | "metadata"

@@ -32,15 +32,18 @@ export function useMouse<T extends Element>(): [MousePosition, React.RefObject<T
     elementPositionX: 0,
     elementPositionY: 0,
   });
+
   const ref = React.useRef<T | null>(null);
 
   useIsoLayoutEffect(() => {
     if (!isBrowser) {
       return undefined;
     }
+
     const handleMouseMove = (event: MouseEvent) => {
       const next: Partial<MousePosition> = { x: event.pageX, y: event.pageY };
       const node = ref.current;
+
       if (node) {
         const bounds = node.getBoundingClientRect();
         const elementPositionX = bounds.left + window.scrollX;
@@ -50,9 +53,12 @@ export function useMouse<T extends Element>(): [MousePosition, React.RefObject<T
         next.elementPositionX = elementPositionX;
         next.elementPositionY = elementPositionY;
       }
+
       setState((current) => ({ ...current, ...next }));
     };
+
     document.addEventListener("mousemove", handleMouseMove);
+
     return () => document.removeEventListener("mousemove", handleMouseMove);
   }, []);
 

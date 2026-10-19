@@ -3,13 +3,15 @@ import type { StandardOptions } from "./types";
 import { delay } from "./delay";
 import { AbortError } from "./errors";
 
-interface RetryOptions extends StandardOptions {
+export interface RetryOptions extends StandardOptions {
   /** Maximum number of attempts. Default: 3. */
   times?: number;
-  /** Delay between retries in ms, or a function computing the delay from the attempt number. */
-  delay?: number | ((attempt: number) => number);
+  /** Fixed delay between retries in milliseconds. */
+  delay?: number;
+  /** Computes the delay from the attempt number, overriding the fixed delay. */
+  backoff?: (attempt: number) => number;
   /** Predicate to decide whether to retry on a given error. */
-  shouldRetry?: (error: unknown) => boolean;
+  shouldRetry?: (cause: unknown) => boolean;
 }
 
 /**
@@ -26,7 +28,6 @@ export async function retry<T>(
 ): Promise<T> {
   const signal = options?.signal;
   const times = options?.times ?? 3;
-  const delayOption = options?.delay;
   const shouldRetry = options?.shouldRetry;
 
   let lastError: unknown;
@@ -46,7 +47,7 @@ export async function retry<T>(
       }
 
       if (attempt < times - 1) {
-        const ms = typeof delayOption === "function" ? delayOption(attempt) : (delayOption ?? 0);
+        const ms = options?.backoff?.(attempt) ?? options?.delay ?? 0;
 
         if (ms > 0) {
           await delay(ms, { signal });

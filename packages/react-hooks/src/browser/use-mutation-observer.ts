@@ -29,10 +29,12 @@ export function useMutationObserver<T extends Node>(
       if (!node || !isBrowser || typeof MutationObserver === "undefined") {
         return;
       }
+
       const observer = new MutationObserver((nextRecords, currentObserver) => {
         setRecords(nextRecords);
         onMutate?.(nextRecords, currentObserver);
       });
+
       observer.observe(node, observerOptions);
       observerRef.current = observer;
     },

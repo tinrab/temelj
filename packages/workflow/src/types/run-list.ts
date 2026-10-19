@@ -1,15 +1,14 @@
 import type { PageOptions } from "./pagination.ts";
 import type {
   WorkflowAttributeValue,
-  WorkflowRunRetryReason,
-  WorkflowRunStatus,
-  WorkflowRunTransitionReason,
+  RunRetryReason,
+  RunStatus,
+  RunTransitionReason,
 } from "./run.ts";
-import type { WorkflowListStepAttemptsOptions } from "./step-attempts.ts";
+import type { ListStepAttemptsOptions } from "./step-attempts.ts";
 
-/** Filters for listing stored workflow runs. */
-export interface WorkflowListRunsOptions {
-  readonly status?: WorkflowRunStatus | readonly WorkflowRunStatus[];
+export interface ListRunsOptions {
+  readonly status?: RunStatus | readonly RunStatus[];
   readonly workflowName?: string;
   readonly workflowVersion?: string;
   readonly idempotencyKey?: string;
@@ -18,9 +17,7 @@ export interface WorkflowListRunsOptions {
   readonly parentStepId?: string;
   readonly parentStepName?: string;
   readonly parentStepAttempt?: number;
-  readonly lastTransitionReason?:
-    | WorkflowRunTransitionReason
-    | readonly WorkflowRunTransitionReason[];
+  readonly lastTransitionReason?: RunTransitionReason | readonly RunTransitionReason[];
   readonly createdAtFrom?: Temporal.Instant;
   readonly createdAtTo?: Temporal.Instant;
   readonly updatedAtFrom?: Temporal.Instant;
@@ -33,7 +30,7 @@ export interface WorkflowListRunsOptions {
   readonly availableAtTo?: Temporal.Instant;
   readonly leaseExpiresAtFrom?: Temporal.Instant;
   readonly leaseExpiresAtTo?: Temporal.Instant;
-  readonly retryReason?: WorkflowRunRetryReason | readonly WorkflowRunRetryReason[];
+  readonly retryReason?: RunRetryReason | readonly RunRetryReason[];
   readonly retryAtFrom?: Temporal.Instant;
   readonly retryAtTo?: Temporal.Instant;
   readonly cleanupFinishedAtBefore?: Temporal.Instant;
@@ -44,7 +41,7 @@ export interface WorkflowListRunsOptions {
 }
 
 /** Paginated filters for listing stored workflow runs. */
-export type WorkflowListRunsPageOptions = WorkflowListRunsOptions & PageOptions;
+export type ListRunsPageOptions = ListRunsOptions & PageOptions;
 
 /** Paginated filters for listing materialized step attempts. */
-export type WorkflowListStepAttemptsPageOptions = WorkflowListStepAttemptsOptions & PageOptions;
+export type ListStepAttemptsPageOptions = ListStepAttemptsOptions & PageOptions;
