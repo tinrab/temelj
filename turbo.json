@@ -7,6 +7,11 @@
       "dependsOn": ["^build"],
       "outputs": ["dist/**"]
     },
+    "nextjs#build": {
+      "inputs": ["$TURBO_DEFAULT$", ".env*"],
+      "dependsOn": ["^build"],
+      "outputs": [".next/**", "!.next/cache/**"]
+    },
     "test": {
       "outputs": ["coverage/**"],
       "dependsOn": ["^build"],

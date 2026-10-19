@@ -6,7 +6,7 @@ export default defineConfig({
   unbundle: true,
   deps: {
     skipNodeModulesBundle: true,
+    neverBundle: [/^cloudflare:/],
   },
-  external: [/^cloudflare:/],
   sourcemap: false,
 });
