@@ -1,917 +1,539 @@
-import type { StandardSchemaV1 } from "@standard-schema/spec";
-import type { Pluggable, PluggableList, Plugin } from "unified";
+import type { Schema, SchemaIssue, SchemaOutput } from "@temelj/standard-schema";
 
-import { compile as compileMdxJs, type CompileOptions as MdxJsCompileOptions } from "@mdx-js/mdx";
-import { validateStandardSchema } from "@temelj/standard-schema";
-import remarkFrontmatterPlugin from "remark-frontmatter";
-import remarkGfmPlugin from "remark-gfm";
-import { VFile } from "vfile";
-import { matter } from "vfile-matter";
+import { isObject, isBoolean, isNumber, isBigInt, isString } from "@temelj/value";
 
-import type { HastNode } from "./types.ts";
+import type { HtmlRenderOptions } from "./html-lower.ts";
+import type { HtmlRootNode } from "./html.ts";
+import type { DocumentNode, FrontmatterObject } from "./model.ts";
+import type { ParseResult } from "./parser.ts";
+import type { SourceRange } from "./ranges.ts";
+import type { SourceFile } from "./source.ts";
 
-export { remarkFrontmatterPlugin, remarkGfmPlugin };
+import { analyzeDocument, type CompileAnalysis } from "./compile-analysis.ts";
+import { contentUsesAwait, emitContent } from "./compile-emit.ts";
+import { createDiagnostic } from "./diagnostics.ts";
+import {
+  CompileError,
+  ConfigurationError,
+  FrontmatterError,
+  LimitError,
+  MdxError,
+} from "./errors.ts";
+import { lowerHtml } from "./html-lower.ts";
+import { javascriptPropertyName } from "./javascript-ast.ts";
+import { parseJavaScriptProgram } from "./javascript.ts";
+import { documentFrontmatter } from "./model.ts";
+import { CodeWriter, type SourceMap } from "./source-map.ts";
+
+const DEFAULT_MAXIMUM_GENERATED_CODE_BYTES = 10 * 1024 * 1024;
+
+const DEFAULT_MAXIMUM_SOURCE_MAP_BYTES = 5 * 1024 * 1024;
+
+/** Compiled content renders the same elements as `lowerHtml` with these options. */
+export interface CompileOptions extends HtmlRenderOptions {
+  /** Emit `jsxDEV` calls with authored source locations. */
+  readonly development?: boolean;
+  /** Package providing `jsx-runtime`. */
+  readonly jsxImportSource?: string;
+  /** Maximum UTF-8 size of generated JavaScript. */
+  readonly maximumGeneratedCodeBytes?: number;
+  /** Maximum UTF-8 size of the serialized source map. */
+  readonly maximumSourceMapBytes?: number;
+  /** Optional generated filename written into the source map. */
+  readonly outputName?: string;
+  /** Optional package providing a `useMDXComponents` export. */
+  readonly providerImportSource?: string;
+  /** Original MDX filename written into the source map. */
+  readonly sourceName?: string;
+  /** JavaScript shape emitted by the compiler. */
+  readonly outputFormat?: CompileOutputFormat;
+}
+
+export type CompileOutputFormat = "functionBody" | "program";
 
 /**
- * Represents the source content for an MDX document.
+ * The components compiled content reads from `props.components`: element
+ * overrides by tag name, authored JSX components by name, and three reserved
+ * entries whose names cannot collide with either.
  */
-export type MdxSource = string | Uint8Array;
-
-/**
- * Options for compiling an MDX document.
- */
-export interface MdxCompileOptions {
-  frontmatterOnly?: boolean | undefined;
-  mdxOptions?: MdxJsCompileOptions;
+export interface CompiledComponents<TComponent = unknown> {
+  readonly [name: string]: TComponent | undefined;
+  /** Receives `code`, `language`, `meta`, `node`, and `status`. Defaults to `<pre><code>`. */
+  readonly codeBlock?: TComponent;
+  /** Receives `source`, `style`, and `meta`. Defaults to a readable code fallback. */
+  readonly mathFormula?: TComponent;
+  /** Wraps the whole document and receives its props plus `children`. */
+  readonly wrapper?: TComponent;
 }
 
-export interface MdxMessagePoint {
-  line?: number | undefined;
-  column?: number | undefined;
-  offset?: number | undefined;
+export type MdxTransportValue =
+  | null
+  | boolean
+  | number
+  | bigint
+  | string
+  | readonly MdxTransportValue[]
+  | Readonly<{ [key: string]: MdxTransportValue }>;
+
+interface CompileArtifactBase {
+  readonly code: string;
+  readonly frontmatter: MdxTransportValue;
+  readonly map: SourceMap;
 }
 
-export interface MdxMessagePlace {
-  start?: MdxMessagePoint | undefined;
-  end?: MdxMessagePoint | undefined;
+export interface ProgramCompileArtifact extends CompileArtifactBase {
+  readonly format: "program";
 }
 
-export interface MdxMessage {
-  message: string;
-  reason: string;
-  source?: string | undefined;
-  ruleId?: string | undefined;
-  fatal?: boolean | undefined;
-  line?: number | undefined;
-  column?: number | undefined;
-  place?: MdxMessagePlace | undefined;
-  sourceLine?: string | undefined;
-  snippet?: string | undefined;
-  sourcePointer?: string | undefined;
-  hint?: string | undefined;
-  cause?: {
-    name?: string | undefined;
-    message: string;
-  };
+export interface FunctionBodyCompileArtifact extends CompileArtifactBase {
+  readonly format: "functionBody";
+  readonly imports: readonly string[];
 }
 
-type VFileLikeMessage = VFile["messages"][number];
+export type CompileArtifact = ProgramCompileArtifact | FunctionBodyCompileArtifact;
 
-interface MdxDiagnosticSourceContext {
-  originalSourceText: string;
-  lineOffset: number;
+export interface CompileSchemaOptions<TSchema extends Schema> extends CompileOptions {
+  /** Standard Schema validation for decoded frontmatter. */
+  readonly frontmatterSchema: TSchema;
 }
 
-/**
- * The result of compiling an MDX document.
- * Compiled content is optional, because sometimes we only need the frontmatter.
- */
-export interface MdxArtifact<TFrontmatter = Record<string, unknown>> {
-  compiled?: string | undefined;
-  frontmatter: TFrontmatter;
-  messages: MdxMessage[];
+export interface CompileResult<
+  TFrontmatter = FrontmatterObject,
+  TFormat extends CompileOutputFormat = CompileOutputFormat,
+> extends ParseResult {
+  readonly artifact: Extract<CompileArtifact, { readonly format: TFormat }>;
+  readonly frontmatter: TFrontmatter;
 }
 
-export class MdxCompileError extends Error {
-  public readonly reason: string;
-  public readonly source?: string | undefined;
-  public readonly ruleId?: string | undefined;
-  public readonly line?: number | undefined;
-  public readonly column?: number | undefined;
-  public readonly place?: MdxMessagePlace | undefined;
-  public readonly sourceLine?: string | undefined;
-  public readonly snippet?: string | undefined;
-  public readonly sourcePointer?: string | undefined;
-  public readonly hint?: string | undefined;
-  public readonly diagnostics: MdxMessage[];
-
-  public constructor(
-    reason: string,
-    options: {
-      source?: string | undefined;
-      ruleId?: string | undefined;
-      line?: number | undefined;
-      column?: number | undefined;
-      place?: MdxMessagePlace | undefined;
-      sourceLine?: string | undefined;
-      snippet?: string | undefined;
-      sourcePointer?: string | undefined;
-      hint?: string | undefined;
-      causeMessage?: string | undefined;
-      diagnostics?: MdxMessage[] | undefined;
-      cause?: unknown;
-    } = {},
-    context?: (...arguments_: never[]) => unknown,
-  ) {
-    super(
-      formatDiagnosticMessage(reason, {
-        source: options.source,
-        ruleId: options.ruleId,
-        line: options.line,
-        column: options.column,
-        sourceLine: options.sourceLine,
-        snippet: options.snippet,
-        sourcePointer: options.sourcePointer,
-        hint: options.hint,
-        causeMessage: options.causeMessage,
-      }),
-      options.cause === undefined ? undefined : { cause: options.cause },
-    );
-
-    this.name = "MdxCompileError";
-    this.reason = reason;
-    this.source = options.source;
-    this.ruleId = options.ruleId;
-    this.line = options.line;
-    this.column = options.column;
-    this.place = options.place;
-    this.sourceLine = options.sourceLine;
-    this.snippet = options.snippet;
-    this.sourcePointer = options.sourcePointer;
-    this.hint = options.hint;
-    this.diagnostics = options.diagnostics ?? [];
-
-    if (Error.captureStackTrace !== undefined) {
-      Error.captureStackTrace(this, context ?? this.constructor);
+/** Emits JavaScript for a strict document. Throws for configuration errors and compiler limits. */
+function emitArtifact(
+  document: DocumentNode,
+  options: Readonly<CompileOptions & { readonly source: SourceFile }>,
+  frontmatter: MdxTransportValue,
+): CompileArtifact {
+  try {
+    if (
+      options.maximumGeneratedCodeBytes !== undefined &&
+      (!Number.isSafeInteger(options.maximumGeneratedCodeBytes) ||
+        options.maximumGeneratedCodeBytes < 0)
+    ) {
+      throw ConfigurationError.invalidCompilerLimit(
+        "maximumGeneratedCodeBytes",
+        options.maximumGeneratedCodeBytes,
+      );
     }
-  }
 
-  static create(
-    this: void,
-    reason: string,
-    options: ConstructorParameters<typeof MdxCompileError>[1] = {},
-  ): MdxCompileError {
-    return new MdxCompileError(reason, options, MdxCompileError.create);
-  }
-}
-
-/**
- * A reusable compiler for compiling MDX.
- */
-export class MdxCompiler {
-  private readonly mdxOptions: MdxJsCompileOptions;
-  private readonly remarkPlugins: PluggableList;
-  private readonly rehypePlugins: PluggableList;
-
-  public constructor(mdxOptions: MdxJsCompileOptions = {}) {
-    this.mdxOptions = mdxOptions;
-    this.remarkPlugins = [remarkFrontmatterPlugin, remarkGfmPlugin];
-    this.rehypePlugins = [];
-  }
-
-  public withRemarkPlugin<TOptions>(
-    plugin: Plugin<[TOptions?], HastNode, HastNode>,
-    options?: TOptions,
-  ): MdxCompiler {
-    if (options === undefined) {
-      this.remarkPlugins.push(plugin as Pluggable);
-    } else {
-      this.remarkPlugins.push([plugin, options] as Pluggable);
+    if (
+      options.maximumSourceMapBytes !== undefined &&
+      (!Number.isSafeInteger(options.maximumSourceMapBytes) || options.maximumSourceMapBytes < 0)
+    ) {
+      throw ConfigurationError.invalidCompilerLimit(
+        "maximumSourceMapBytes",
+        options.maximumSourceMapBytes,
+      );
     }
-    return this;
-  }
 
-  public withRehypePlugin<TOptions>(
-    plugin: Plugin<[TOptions?], HastNode, HastNode>,
-    options?: TOptions,
-  ): MdxCompiler {
-    if (options === undefined) {
-      this.rehypePlugins.push(plugin as Pluggable);
-    } else {
-      this.rehypePlugins.push([plugin, options] as Pluggable);
+    const content = lowerHtml(document, options);
+    const analysis = analyzeDocument(document, content, options);
+    const usesAwait = contentUsesAwait(content);
+
+    const format = options.outputFormat ?? "functionBody";
+    const writer = new CodeWriter(options.source);
+    emitModulePreamble(writer, analysis, options, format);
+    emitContentFunction(writer, content, analysis, options, usesAwait);
+    emitPublicComponent(writer, analysis, options, usesAwait, format);
+
+    if (analysis.scope.missingReferences.size > 0) {
+      emitMissingReferenceHelper(writer, analysis);
     }
-    return this;
-  }
 
-  public async compile(
-    source: MdxSource,
-    options?: MdxCompileOptions,
-  ): Promise<MdxArtifact<Record<string, unknown>>>;
-  public async compile<TFrontmatterSchema extends StandardSchemaV1>(
-    source: MdxSource,
-    options: MdxCompileOptions | undefined,
-    frontmatterSchema: TFrontmatterSchema,
-  ): Promise<MdxArtifact<StandardSchemaV1.InferOutput<TFrontmatterSchema>>>;
-  public async compile<TFrontmatterSchema extends StandardSchemaV1>(
-    source: MdxSource,
-    { frontmatterOnly = false, mdxOptions }: MdxCompileOptions = {},
-    frontmatterSchema?: TFrontmatterSchema,
-  ): Promise<
-    MdxArtifact<
-      TFrontmatterSchema extends StandardSchemaV1
-        ? StandardSchemaV1.InferOutput<TFrontmatterSchema>
-        : Record<string, unknown>
-    >
-  > {
-    const sourceText = toSourceText(source);
-    const vfile = new VFile({
-      value: source,
-      // Needed so vfile doesn't need to access fs.
-      cwd: "/",
-      path: "/source.mdx",
-    });
-    matter(vfile, { strip: true });
-    const compileSourceText = toSourceText(vfile.value as MdxSource);
-    const sourceContext = createDiagnosticSourceContext(sourceText, compileSourceText);
+    if (format === "functionBody") {
+      writer.write(
+        `return {${[...analysis.esm.exports, `default: ${analysis.scope.names.get("Content")}`].join(", ")}};\n}\n`,
+      );
+    }
 
-    const remarkPlugins = [
-      ...this.remarkPlugins,
-      ...(this.mdxOptions?.remarkPlugins ?? []),
-      ...(mdxOptions?.remarkPlugins ?? []),
-    ];
-    const rehypePlugins = [
-      ...this.rehypePlugins,
-      ...(this.mdxOptions?.rehypePlugins ?? []),
-      ...(mdxOptions?.rehypePlugins ?? []),
-    ];
+    const code = writer.toString();
+    enforceGeneratedCodeLimit(options.source, code, options.maximumGeneratedCodeBytes);
 
-    let compiled: string | undefined;
-    if (!frontmatterOnly) {
-      try {
-        const compiledFile = await compileMdxJs(vfile, {
-          outputFormat: "function-body",
-          ...this.mdxOptions,
-          ...mdxOptions,
-          remarkPlugins,
-          rehypePlugins,
+    try {
+      // The output is valid by construction; parsing it once guards that invariant.
+      parseJavaScriptProgram(
+        format === "program" ? code : `async function __evaluateMdx(){\n${code}\n}`,
+      );
+    } catch (cause) {
+      throw CompileError.generatedProgramInvalid(cause);
+    }
+
+    const map = writer.sourceMap(analysis.scope.sourceName, options.outputName);
+    enforceSourceMapLimit(options.source, map, options.maximumSourceMapBytes);
+
+    return format === "program"
+      ? Object.freeze({ format, code, map, frontmatter })
+      : Object.freeze({
+          format,
+          code,
+          map,
+          imports: Object.freeze(
+            options.providerImportSource === undefined ||
+              analysis.esm.imports.includes(options.providerImportSource)
+              ? [...analysis.esm.imports]
+              : [...analysis.esm.imports, options.providerImportSource],
+          ),
+          frontmatter,
         });
-        compiled = compiledFile.value.toString();
-      } catch (error) {
-        throw toMdxCompileError(error, sourceContext, vfile.messages);
-      }
+  } catch (cause) {
+    if (cause instanceof MdxError) {
+      throw cause;
     }
 
-    const frontmatter =
-      frontmatterSchema === undefined
-        ? (vfile.data.matter ?? {})
-        : await validateStandardSchema(
-            frontmatterSchema,
-            vfile.data.matter ?? {},
-            "Frontmatter validation failed",
-          );
-
-    return {
-      compiled,
-      frontmatter: frontmatter as TFrontmatterSchema extends StandardSchemaV1
-        ? StandardSchemaV1.InferOutput<TFrontmatterSchema>
-        : Record<string, unknown>,
-      messages: normalizeMessages(vfile.messages, sourceContext),
-    };
+    throw CompileError.generationFailed(cause);
   }
 }
 
-function toMdxCompileError(
-  error: unknown,
-  sourceContext: MdxDiagnosticSourceContext,
-  diagnostics: readonly VFileLikeMessage[],
-): MdxCompileError {
-  const details = getDiagnosticDetails(sourceContext, getErrorPlace(error), error);
-  const cause = getErrorCause(error);
+/**
+ * Validates frontmatter and compiles a parsed or transformed document without executing it.
+ * @throws {FrontmatterError} Invalid schema output or unsupported transport data.
+ * @throws {LimitError} Generated code or its source map exceeds a configured limit.
+ * @throws {CompileError} JavaScript generation fails.
+ * @throws {ConfigurationError} Invalid compiler options.
+ */
+export function compile<
+  TSchema extends Schema,
+  TFormat extends CompileOutputFormat = "functionBody",
+>(
+  input: ParseResult,
+  options: Readonly<CompileSchemaOptions<TSchema> & { readonly outputFormat?: TFormat }>,
+): Promise<CompileResult<SchemaOutput<TSchema>, TFormat>>;
+export function compile<TFormat extends CompileOutputFormat = "functionBody">(
+  input: ParseResult,
+  options?: Readonly<CompileOptions & { readonly outputFormat?: TFormat }>,
+): Promise<CompileResult<FrontmatterObject, TFormat>>;
+export async function compile(
+  input: ParseResult,
+  options: Readonly<CompileOptions & { readonly frontmatterSchema?: Schema }> = {},
+): Promise<CompileResult<unknown>> {
+  const frontmatterNode = documentFrontmatter(input.document);
+  let frontmatter: unknown = frontmatterNode?.data ?? Object.freeze({});
 
-  return MdxCompileError.create(getErrorReason(error), {
-    source: getErrorField(error, "source"),
-    ruleId: getErrorField(error, "ruleId"),
-    line: details.line,
-    column: details.column,
-    place: details.place,
-    sourceLine: details.sourceLine,
-    snippet: details.snippet,
-    sourcePointer: details.sourcePointer,
-    hint: details.hint,
-    causeMessage: cause?.message,
-    diagnostics: normalizeMessages(diagnostics, sourceContext),
-    cause: error,
+  if (options.frontmatterSchema !== undefined) {
+    const validated = await options.frontmatterSchema["~standard"].validate(frontmatter);
+
+    if (validated.issues !== undefined) {
+      const diagnostics = validated.issues.map((issue) =>
+        createDiagnostic({
+          severity: "error",
+          code: "mdx.frontmatter.schema",
+          message: formatSchemaIssue(issue),
+          span: fileSpan(input.file, frontmatterNode?.origin),
+        }),
+      );
+
+      throw FrontmatterError.schemaValidationFailed(input.file, diagnostics, validated.issues);
+    }
+
+    frontmatter = validated.value;
+  }
+
+  const transported = copyTransportValue(frontmatter, "frontmatter", {
+    file: input.file,
+    origin: frontmatterNode?.origin,
+    ancestors: new WeakSet(),
+  });
+
+  const artifact = emitArtifact(input.document, { ...options, source: input.file }, transported);
+
+  return Object.freeze({
+    file: input.file,
+    document: input.document,
+    diagnostics: input.diagnostics,
+    artifact,
+    frontmatter,
   });
 }
 
-function normalizeMessages(
-  messages: readonly VFileLikeMessage[],
-  sourceContext: MdxDiagnosticSourceContext,
-): MdxMessage[] {
-  return messages.map((message) => {
-    const details = getDiagnosticDetails(sourceContext, toMessagePlace(message), message);
-    const reason = getErrorReason(message);
-    const source = getErrorField(message, "source");
-    const ruleId = getErrorField(message, "ruleId");
-    const cause = getErrorCause(message);
+function formatSchemaIssue(issue: SchemaIssue): string {
+  const path = issue.path?.map((part) => String(isObject(part) ? part.key : part)).join(".");
 
-    return {
-      message: formatDiagnosticMessage(reason, {
-        source,
-        ruleId,
-        line: details.line,
-        column: details.column,
-        sourceLine: details.sourceLine,
-        snippet: details.snippet,
-        sourcePointer: details.sourcePointer,
-        hint: details.hint,
-        causeMessage: cause?.message,
-      }),
-      reason,
-      source,
-      ruleId,
-      fatal: typeof message.fatal === "boolean" ? message.fatal : undefined,
-      line: details.line,
-      column: details.column,
-      place: details.place,
-      sourceLine: details.sourceLine,
-      snippet: details.snippet,
-      sourcePointer: details.sourcePointer,
-      hint: details.hint,
-      cause,
-    };
+  return path === undefined || path.length === 0 ? issue.message : `${path}: ${issue.message}`;
+}
+
+interface FrontmatterTransportContext {
+  readonly file: SourceFile;
+  readonly origin: SourceRange | undefined;
+  readonly ancestors: WeakSet<object>;
+}
+
+function copyTransportValue(
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Recursively validates external schema output against the MDX transport contract.
+  value: unknown,
+  path: string,
+  context: FrontmatterTransportContext,
+): MdxTransportValue {
+  const { ancestors } = context;
+
+  if (value === null || isBoolean(value) || isNumber(value) || isBigInt(value) || isString(value)) {
+    return value;
+  }
+
+  if (!isObject(value)) {
+    throw FrontmatterError.nonTransportableValue(
+      context.file,
+      context.origin,
+      `${path} contains unsupported ${Object.prototype.toString.call(value)}`,
+    );
+  }
+
+  if (ancestors.has(value)) {
+    throw FrontmatterError.nonTransportableValue(
+      context.file,
+      context.origin,
+      `${path} contains a cycle`,
+    );
+  }
+
+  ancestors.add(value);
+
+  if (Array.isArray(value)) {
+    const output: MdxTransportValue[] = [];
+
+    for (let index = 0; index < value.length; index++) {
+      const item = copyTransportValue(value[index], `${path}[${index}]`, context);
+
+      output.push(item);
+    }
+
+    ancestors.delete(value);
+
+    return Object.freeze(output);
+  }
+
+  const prototype: unknown = Object.getPrototypeOf(value);
+
+  if (prototype !== Object.prototype && prototype !== null) {
+    throw FrontmatterError.nonTransportableValue(
+      context.file,
+      context.origin,
+      `${path} contains a non-plain object`,
+    );
+  }
+
+  if (Object.getOwnPropertySymbols(value).length > 0) {
+    throw FrontmatterError.nonTransportableValue(
+      context.file,
+      context.origin,
+      `${path} contains a symbol property`,
+    );
+  }
+
+  const output: Record<string, MdxTransportValue> = {};
+
+  for (const [key, descriptor] of Object.entries(Object.getOwnPropertyDescriptors(value))) {
+    if (!descriptor.enumerable) {
+      continue;
+    }
+
+    if (!("value" in descriptor)) {
+      throw FrontmatterError.nonTransportableValue(
+        context.file,
+        context.origin,
+        `${path}.${key} is an accessor property`,
+      );
+    }
+
+    const item = copyTransportValue(descriptor.value, `${path}.${key}`, context);
+
+    Object.defineProperty(output, key, {
+      enumerable: true,
+      value: item,
+    });
+  }
+
+  ancestors.delete(value);
+
+  return Object.freeze(output);
+}
+
+function fileSpan(
+  file: SourceFile,
+  range: SourceRange | undefined,
+): Readonly<{ file: SourceFile; start: number; end: number }> | undefined {
+  return range === undefined ? undefined : { file, start: range.start, end: range.end };
+}
+
+/**
+ * Authored ESM, the JSX runtime, and the optional provider. A function body
+ * receives the runtime as `__mdxRuntime` and resolves imports through
+ * `__resolveMdxImport` instead of importing.
+ */
+function emitModulePreamble(
+  writer: CodeWriter,
+  analysis: CompileAnalysis,
+  options: Readonly<CompileOptions>,
+  format: CompileOutputFormat,
+): void {
+  const names = analysis.scope.names;
+
+  const runtime = analysis.scope.development
+    ? `{Fragment: ${names.get("_Fragment")}, jsxDEV: ${names.get("_jsxDEV")}}`
+    : `{Fragment: ${names.get("_Fragment")}, jsx: ${names.get("_jsx")}, jsxs: ${names.get("_jsxs")}}`;
+
+  const importSource = `${options.jsxImportSource ?? "react"}/${
+    analysis.scope.development ? "jsx-dev-runtime" : "jsx-runtime"
+  }`;
+
+  writer.write(
+    format === "program"
+      ? `import ${runtime.replaceAll(": ", " as ")} from ${JSON.stringify(importSource)};\n`
+      : `const ${runtime} = __mdxRuntime;\n`,
+  );
+
+  if (format === "functionBody") {
+    if (analysis.esm.imports.length > 0 || options.providerImportSource !== undefined) {
+      writer.write(`const ${names.get("_resolveMdxImport")} = __resolveMdxImport;\n`);
+    }
+
+    // Authored lexical bindings may use the evaluator's parameter names.
+    writer.write("{\n");
+  }
+
+  for (const entry of analysis.esm.blocks) {
+    writer.write(`${entry.code.trimEnd()}\n`, entry.origin);
+  }
+
+  if (options.providerImportSource !== undefined) {
+    writer.write(
+      format === "program"
+        ? `import {useMDXComponents as ${names.get("_provideComponents")}} from ${JSON.stringify(options.providerImportSource)};\n`
+        : `const {useMDXComponents: ${names.get("_provideComponents")}} = await ${names.get("_resolveMdxImport")}(${JSON.stringify(options.providerImportSource)});\n`,
+    );
+  }
+}
+
+function emitContentFunction(
+  writer: CodeWriter,
+  content: HtmlRootNode,
+  analysis: CompileAnalysis,
+  options: Readonly<CompileOptions>,
+  usesAwait: boolean,
+): void {
+  const names = analysis.scope.names;
+  const props = analysis.propsName;
+  const componentsName = names.get("_components");
+  writer.write(`${usesAwait ? "async " : ""}function ${names.get("_createContent")}(${props}) {\n`);
+  writer.write(`  const ${componentsName} = {`);
+  const tags = [...analysis.intrinsicTags].sort();
+  tags.forEach((tag, index) => {
+    if (index > 0) {
+      writer.write(", ");
+    }
+
+    writer.write(`${javascriptPropertyName(tag)}:${JSON.stringify(tag)}`);
   });
-}
 
-function formatDiagnosticMessage(
-  reason: string,
-  options: {
-    source?: string | undefined;
-    ruleId?: string | undefined;
-    line?: number | undefined;
-    column?: number | undefined;
-    sourceLine?: string | undefined;
-    snippet?: string | undefined;
-    sourcePointer?: string | undefined;
-    hint?: string | undefined;
-    causeMessage?: string | undefined;
-  },
-): string {
-  const origin =
-    options.source === undefined
-      ? undefined
-      : options.ruleId === undefined
-        ? options.source
-        : `${options.source}:${options.ruleId}`;
-  const location =
-    options.line === undefined
-      ? undefined
-      : options.column === undefined
-        ? `at ${options.line}`
-        : `at ${options.line}:${options.column}`;
-
-  const lines = [[reason, origin, location].filter(Boolean).join(" ")];
-
-  if (options.snippet !== undefined) {
-    lines.push(`Source: ${options.snippet}`);
-  }
-  if (options.sourceLine !== undefined && options.sourceLine !== options.snippet) {
-    lines.push(`Line: ${options.sourceLine}`);
-    if (options.sourcePointer !== undefined) {
-      lines.push(`      ${options.sourcePointer}`);
-    }
-  }
-  if (
-    options.causeMessage !== undefined &&
-    options.causeMessage !== "" &&
-    options.causeMessage !== reason
-  ) {
-    lines.push(`Cause: ${options.causeMessage}`);
-  }
-  if (options.hint !== undefined) {
-    lines.push(`Hint: ${options.hint}`);
+  if (options.providerImportSource !== undefined) {
+    writer.write(`${tags.length === 0 ? "" : ", "}...${names.get("_provideComponents")}()`);
   }
 
-  return lines.join("\n");
-}
-
-function getDiagnosticDetails(
-  sourceContext: MdxDiagnosticSourceContext,
-  place: MdxMessagePlace | undefined,
-  error: unknown,
-): {
-  line?: number | undefined;
-  column?: number | undefined;
-  place?: MdxMessagePlace | undefined;
-  sourceLine?: string | undefined;
-  snippet?: string | undefined;
-  sourcePointer?: string | undefined;
-  hint?: string | undefined;
-} {
-  const compileLine = place?.start?.line ?? getErrorNumberField(error, "line");
-  let line = compileLine === undefined ? undefined : compileLine + sourceContext.lineOffset;
-  let column = place?.start?.column ?? getErrorNumberField(error, "column");
-  let normalizedPlace = mapPlaceToOriginalSource(
-    place === undefined && compileLine === undefined && column === undefined
-      ? undefined
-      : {
-          start: {
-            line: compileLine,
-            column,
-            offset: place?.start?.offset,
-          },
-          end:
-            place?.end === undefined
-              ? undefined
-              : {
-                  line: place.end.line,
-                  column: place.end.column,
-                  offset: place.end.offset,
-                },
-        },
-    sourceContext.lineOffset,
+  writer.write(
+    `${tags.length === 0 && options.providerImportSource === undefined ? "" : ", "}...${props}.components};\n`,
   );
-  let sourceLine = getSourceLine(sourceContext.originalSourceText, line);
-  let snippet = getSourceSnippet(sourceContext.originalSourceText, normalizedPlace);
-  let sourcePointer = getSourcePointer(column);
-  let hint: string | undefined;
 
-  const refinedExpressionContext = getMdxExpressionContext(sourceContext.originalSourceText, {
-    line,
-    column,
-    sourceLine,
-    snippet,
-    error,
-  });
+  const components = [...analysis.scope.referencedComponents].sort();
 
-  if (refinedExpressionContext !== undefined) {
-    line = refinedExpressionContext.line;
-    column = refinedExpressionContext.column;
-    sourceLine = refinedExpressionContext.sourceLine;
-    snippet = refinedExpressionContext.snippet;
-    sourcePointer = refinedExpressionContext.sourcePointer;
-    hint = refinedExpressionContext.hint;
-    normalizedPlace = {
-      start: {
-        line,
-        column,
-        offset: undefined,
-      },
-      end: undefined,
-    };
+  for (const component of components) {
+    writer.write(`  const ${component} = ${componentsName}[${JSON.stringify(component)}];\n`);
   }
 
-  return {
-    line,
-    column,
-    place: normalizedPlace,
-    sourceLine,
-    snippet,
-    sourcePointer,
-    hint,
-  };
+  for (const [reference, component] of analysis.scope.missingReferences) {
+    writer.write(
+      `  if (!${reference}) ${names.get("_missingReference")}(${JSON.stringify(reference)}, ${component});\n`,
+    );
+  }
+
+  writer.write("  return ");
+  emitContent(writer, content, analysis);
+  writer.write(";\n}\n");
 }
 
-function getMdxExpressionContext(
-  sourceText: string,
-  options: {
-    line?: number | undefined;
-    column?: number | undefined;
-    sourceLine?: string | undefined;
-    snippet?: string | undefined;
-    error: unknown;
-  },
-):
-  | {
-      line: number;
-      column: number;
-      sourceLine: string;
-      snippet: string;
-      sourcePointer: string;
-      hint?: string | undefined;
+function emitPublicComponent(
+  writer: CodeWriter,
+  analysis: CompileAnalysis,
+  options: Readonly<CompileOptions>,
+  usesAwait: boolean,
+  format: CompileOutputFormat,
+): void {
+  const names = analysis.scope.names;
+  const props = analysis.propsName;
+  const layout = names.get("Layout");
+  writer.write(
+    `${format === "program" ? "export default " : ""}${usesAwait ? "async " : ""}function ${names.get("Content")}(${props} = {}) {\n`,
+  );
+  const content = `${usesAwait ? "await " : ""}${names.get("_createContent")}(${props})`;
+
+  if (analysis.esm.hasLayout) {
+    writer.write(
+      `  return ${runtimeCall(analysis, layout, `{...${props}, children: ${content}}`)};\n`,
+    );
+  } else {
+    writer.write(`  const {wrapper: ${layout}} = {`);
+
+    if (options.providerImportSource !== undefined) {
+      writer.write(`...${names.get("_provideComponents")}(), `);
     }
-  | undefined {
-  if (!shouldRefineMdxExpressionContext(options)) {
-    return undefined;
+
+    writer.write(`...${props}.components};\n`);
+    writer.write(
+      `  return ${layout} ? ${runtimeCall(analysis, layout, `{...${props}, children: ${content}}`)} : ${content};\n`,
+    );
   }
 
-  const candidate = findSuspiciousBraceExpression(sourceText, options.line, options.column);
-  if (candidate === undefined) {
-    return undefined;
-  }
-
-  return {
-    line: candidate.line,
-    column: candidate.column,
-    sourceLine: candidate.sourceLine,
-    snippet: candidate.snippet,
-    sourcePointer: getSourcePointer(candidate.column) ?? "^",
-    hint:
-      getErrorCause(options.error)?.message === "Unexpected content after expression"
-        ? "MDX treats `{...}` as JavaScript. If you meant literal braces in text, escape them or wrap the text in code."
-        : undefined,
-  };
+  writer.write("}\n");
 }
 
-function shouldRefineMdxExpressionContext(options: {
-  sourceLine?: string | undefined;
-  snippet?: string | undefined;
-  error: unknown;
-}): boolean {
-  const trimmedSourceLine = options.sourceLine?.trim();
-
-  return (
-    isMdxExpressionError(options.error) &&
-    getErrorCause(options.error)?.message === "Unexpected content after expression" &&
-    (options.sourceLine === undefined ||
-      options.sourceLine.trim() === "" ||
-      options.snippet === undefined) &&
-    !(trimmedSourceLine?.startsWith("{") && trimmedSourceLine.endsWith("}"))
+function emitMissingReferenceHelper(writer: CodeWriter, analysis: CompileAnalysis): void {
+  const names = analysis.scope.names;
+  writer.write(
+    `class ${names.get("ReferenceError")} extends Error {\n` +
+      "  constructor(id, component) {\n" +
+      '    super(`Expected ${component ? "component" : "object"} ${id} to be defined: you likely forgot to import, pass, or provide it.`);\n' +
+      '    this.name = "ReferenceError";\n' +
+      "  }\n" +
+      "}\n" +
+      `function ${names.get("_missingReference")}(id, component) {\n` +
+      `  throw new ${names.get("ReferenceError")}(id, component);\n` +
+      "}\n",
   );
 }
 
-function getSourceLine(sourceText: string, line: number | undefined): string | undefined {
-  if (line === undefined || line < 1) {
-    return undefined;
+function enforceGeneratedCodeLimit(
+  file: SourceFile,
+  code: string,
+  configuredMaximum: number | undefined,
+): void {
+  const maximum = configuredMaximum ?? DEFAULT_MAXIMUM_GENERATED_CODE_BYTES;
+  const actual = new TextEncoder().encode(code).byteLength;
+
+  if (actual > maximum) {
+    throw LimitError.exceeded(file, "maximumGeneratedCodeBytes", maximum, undefined, actual);
   }
-  return sourceText.split(/\r?\n/u)[line - 1];
 }
 
-function getSourceSnippet(
-  sourceText: string,
-  place: MdxMessagePlace | undefined,
-): string | undefined {
-  if (place?.start?.offset !== undefined && place.end?.offset !== undefined) {
-    return sourceText.slice(place.start.offset, place.end.offset) || undefined;
+function enforceSourceMapLimit(
+  file: SourceFile,
+  map: SourceMap,
+  configuredMaximum: number | undefined,
+): void {
+  const maximum = configuredMaximum ?? DEFAULT_MAXIMUM_SOURCE_MAP_BYTES;
+  const actual = new TextEncoder().encode(JSON.stringify(map)).byteLength;
+
+  if (actual > maximum) {
+    throw LimitError.exceeded(file, "maximumSourceMapBytes", maximum, undefined, actual);
   }
-
-  if (place?.start?.line === undefined || place.start.column === undefined) {
-    return undefined;
-  }
-
-  if (place.end === undefined) {
-    const lines = sourceText.split(/\r?\n/u);
-    const line = lines[place.start.line - 1];
-    if (line === undefined) {
-      return undefined;
-    }
-
-    const character = line.at(place.start.column - 1);
-    return character === undefined || character.trim() === "" ? undefined : character;
-  }
-
-  const lines = sourceText.split(/\r?\n/u);
-  const startLineIndex = place.start.line - 1;
-  const endLineIndex = (place.end?.line ?? place.start.line) - 1;
-
-  if (startLineIndex < 0 || startLineIndex >= lines.length) {
-    return undefined;
-  }
-
-  const selectedLines = lines.slice(startLineIndex, endLineIndex + 1);
-  if (selectedLines.length === 0) {
-    return undefined;
-  }
-
-  selectedLines[0] = selectedLines[0].slice(place.start.column - 1);
-
-  const endColumn = place.end?.column;
-  if (endColumn !== undefined) {
-    const lastIndex = selectedLines.length - 1;
-    selectedLines[lastIndex] = selectedLines[lastIndex].slice(0, endColumn - 1);
-  }
-
-  return selectedLines.join("\n") || undefined;
 }
 
-function getSourcePointer(column: number | undefined): string | undefined {
-  if (column === undefined || column < 1) {
-    return undefined;
-  }
-
-  return `${" ".repeat(column - 1)}^`;
-}
-
-function mapPlaceToOriginalSource(
-  place: MdxMessagePlace | undefined,
-  lineOffset: number,
-): MdxMessagePlace | undefined {
-  if (place === undefined) {
-    return undefined;
-  }
-
-  return {
-    start: mapPointToOriginalSource(place.start, lineOffset),
-    end: mapPointToOriginalSource(place.end, lineOffset),
-  };
-}
-
-function mapPointToOriginalSource(
-  point: MdxMessagePoint | undefined,
-  lineOffset: number,
-): MdxMessagePoint | undefined {
-  if (point === undefined) {
-    return undefined;
-  }
-
-  return {
-    line: point.line === undefined ? undefined : point.line + lineOffset,
-    column: point.column,
-    offset: lineOffset === 0 ? point.offset : undefined,
-  };
-}
-
-function findSuspiciousBraceExpression(
-  sourceText: string,
-  line: number | undefined,
-  column: number | undefined,
-):
-  | {
-      line: number;
-      column: number;
-      sourceLine: string;
-      snippet: string;
-    }
-  | undefined {
-  const lines = sourceText.split(/\r?\n/u);
-  const searchLines = getNearbyLineNumbers(line, lines.length, 2);
-  let bestMatch:
-    | {
-        line: number;
-        column: number;
-        sourceLine: string;
-        snippet: string;
-        score: number;
-      }
-    | undefined;
-
-  for (const lineNumber of searchLines) {
-    const sourceLine = lines[lineNumber - 1];
-    if (sourceLine === undefined || sourceLine.trim() === "") {
-      continue;
-    }
-
-    const expression = findLineBraceExpression(sourceLine, lineNumber, column);
-    if (expression === undefined) {
-      continue;
-    }
-
-    const lineDistance = line === undefined ? 0 : Math.abs(lineNumber - line);
-    const score = lineDistance * 10 + expression.distance;
-
-    if (bestMatch === undefined || score < bestMatch.score) {
-      bestMatch = {
-        ...expression,
-        score,
-      };
-    }
-  }
-
-  return bestMatch;
-}
-
-function getNearbyLineNumbers(
-  line: number | undefined,
-  totalLines: number,
-  radius: number,
-): number[] {
-  if (line === undefined) {
-    return Array.from({ length: totalLines }, (_, index) => index + 1);
-  }
-
-  const lineNumbers: number[] = [];
-  for (let distance = 0; distance <= radius; distance++) {
-    const before = line - distance;
-    if (before >= 1) {
-      lineNumbers.push(before);
-    }
-
-    if (distance === 0) {
-      continue;
-    }
-
-    const after = line + distance;
-    if (after <= totalLines) {
-      lineNumbers.push(after);
-    }
-  }
-
-  return lineNumbers;
-}
-
-function findLineBraceExpression(
-  sourceLine: string,
-  line: number,
-  column: number | undefined,
-):
-  | {
-      line: number;
-      column: number;
-      sourceLine: string;
-      snippet: string;
-      distance: number;
-    }
-  | undefined {
-  let bestMatch:
-    | {
-        line: number;
-        column: number;
-        sourceLine: string;
-        snippet: string;
-        distance: number;
-      }
-    | undefined;
-
-  for (const match of sourceLine.matchAll(/\{[^{}\n]+\}/gu)) {
-    const braceStart = match.index;
-    if (braceStart === undefined) {
-      continue;
-    }
-
-    const expanded = expandBraceExpression(sourceLine, braceStart);
-    if (expanded === undefined) {
-      continue;
-    }
-
-    const distance = column === undefined ? 0 : Math.abs(braceStart + 1 - column);
-    if (bestMatch === undefined || distance < bestMatch.distance) {
-      bestMatch = {
-        line,
-        column: braceStart + 1,
-        sourceLine,
-        snippet: expanded,
-        distance,
-      };
-    }
-  }
-
-  return bestMatch;
-}
-
-function expandBraceExpression(sourceLine: string, braceStart: number): string | undefined {
-  const braceEnd = sourceLine.indexOf("}", braceStart);
-  if (braceEnd === -1) {
-    return undefined;
-  }
-
-  let start = braceStart;
-  while (start > 0 && /[A-Za-z0-9_]/u.test(sourceLine[start - 1])) {
-    start--;
-  }
-
-  let end = braceEnd + 1;
-  while (end < sourceLine.length) {
-    while (end < sourceLine.length && /[A-Za-z0-9_]/u.test(sourceLine[end])) {
-      end++;
-    }
-
-    if (sourceLine[end] !== "{") {
-      break;
-    }
-
-    const chainedEnd = sourceLine.indexOf("}", end);
-    if (chainedEnd === -1) {
-      break;
-    }
-    end = chainedEnd + 1;
-  }
-
-  return sourceLine.slice(start, end) || undefined;
-}
-
-function isMdxExpressionError(error: unknown): boolean {
-  return (
-    getErrorField(error, "source") === "micromark-extension-mdx-expression" &&
-    getErrorField(error, "ruleId") === "acorn"
-  );
-}
-
-function createDiagnosticSourceContext(
-  originalSourceText: string,
-  compileSourceText: string,
-): MdxDiagnosticSourceContext {
-  return {
-    originalSourceText,
-    lineOffset: getSourceLineOffset(originalSourceText, compileSourceText),
-  };
-}
-
-function getSourceLineOffset(originalSourceText: string, compileSourceText: string): number {
-  const originalLines = originalSourceText.split(/\r?\n/u);
-  const compileLines = compileSourceText.split(/\r?\n/u);
-  const maxOffset = originalLines.length - compileLines.length;
-
-  for (let offset = 0; offset <= maxOffset; offset++) {
-    let isMatch = true;
-    for (let index = 0; index < compileLines.length; index++) {
-      if (originalLines[offset + index] !== compileLines[index]) {
-        isMatch = false;
-        break;
-      }
-    }
-
-    if (isMatch) {
-      return offset;
-    }
-  }
-
-  return maxOffset > 0 ? maxOffset : 0;
-}
-
-function getErrorPlace(error: unknown): MdxMessagePlace | undefined {
-  if (typeof error !== "object" || error === null) {
-    return undefined;
-  }
-
-  const candidate = error as {
-    place?: unknown;
-    position?: unknown;
-  };
-
-  return toPlace(candidate.place) ?? toPlace(candidate.position);
-}
-
-function toMessagePlace(message: VFileLikeMessage): MdxMessagePlace | undefined {
-  return toPlace(message.place);
-}
-
-function toPlace(value: unknown): MdxMessagePlace | undefined {
-  if (typeof value !== "object" || value === null) {
-    return undefined;
-  }
-
-  const candidate = value as {
-    start?: unknown;
-    end?: unknown;
-    line?: unknown;
-    column?: unknown;
-    offset?: unknown;
-  };
-
-  if (candidate.start !== undefined || candidate.end !== undefined) {
-    return {
-      start: toPoint(candidate.start),
-      end: toPoint(candidate.end),
-    };
-  }
-
-  const point = toPoint(candidate);
-  return point === undefined ? undefined : { start: point };
-}
-
-function toPoint(value: unknown): MdxMessagePoint | undefined {
-  if (typeof value !== "object" || value === null) {
-    return undefined;
-  }
-
-  const candidate = value as {
-    line?: unknown;
-    column?: unknown;
-    offset?: unknown;
-  };
-  const line = typeof candidate.line === "number" ? candidate.line : undefined;
-  const column = typeof candidate.column === "number" ? candidate.column : undefined;
-  const offset = typeof candidate.offset === "number" ? candidate.offset : undefined;
-
-  if (line === undefined && column === undefined && offset === undefined) {
-    return undefined;
-  }
-
-  return { line, column, offset };
-}
-
-function getErrorReason(error: unknown): string {
-  if (error instanceof Error && error.message !== "") {
-    return error.message;
-  }
-
-  const reason = getErrorField(error, "reason");
-  if (reason !== undefined && reason !== "") {
-    return reason;
-  }
-
-  return String(error);
-}
-
-function getErrorCause(error: unknown): { name?: string | undefined; message: string } | undefined {
-  if (typeof error !== "object" || error === null || !("cause" in error)) {
-    return undefined;
-  }
-
-  const cause = (error as { cause?: unknown }).cause;
-  if (cause instanceof Error) {
-    return {
-      name: cause.name,
-      message: cause.message,
-    };
-  }
-  if (typeof cause === "string" && cause !== "") {
-    return {
-      message: cause,
-    };
-  }
-
-  return undefined;
-}
-
-function getErrorField(error: unknown, field: "source" | "ruleId" | "reason"): string | undefined {
-  if (typeof error !== "object" || error === null || !(field in error)) {
-    return undefined;
-  }
-
-  const value = (error as Record<string, unknown>)[field];
-  return typeof value === "string" && value !== "" ? value : undefined;
-}
-
-function getErrorNumberField(error: unknown, field: "line" | "column"): number | undefined {
-  if (typeof error !== "object" || error === null || !(field in error)) {
-    return undefined;
-  }
-
-  const value = (error as Record<string, unknown>)[field];
-  return typeof value === "number" ? value : undefined;
-}
-
-function toSourceText(source: MdxSource): string {
-  return typeof source === "string" ? source : new TextDecoder().decode(source);
+function runtimeCall(analysis: CompileAnalysis, tag: string, properties: string): string {
+  return analysis.scope.development
+    ? `${analysis.scope.names.get("_jsxDEV")}(${tag}, ${properties}, undefined, false, undefined, undefined)`
+    : `${analysis.scope.names.get("_jsx")}(${tag}, ${properties})`;
 }

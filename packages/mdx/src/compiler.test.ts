@@ -1,229 +1,267 @@
-import { StandardSchemaValidationError } from "@temelj/standard-schema";
-import remarkMath from "remark-math";
-import { expect, test } from "vitest";
-import * as z from "zod";
+import type { Schema } from "@temelj/standard-schema";
 
-import type { HastElement } from "./types";
+import { isObject, isString } from "@temelj/value";
+import { expect, expectTypeOf, test } from "vitest";
 
-import { MdxCompileError, MdxCompiler } from "./compiler";
-import { headingIdPlugin } from "./plugins/heading-id/plugin";
-import { katexPlugin } from "./plugins/katex/plugin";
-import { syntaxHighlightPlugin } from "./plugins/syntax-highlight/plugin";
-import { treeProcessorPlugin } from "./plugins/tree-processor/plugin";
+import {
+  compile,
+  FrontmatterError,
+  formatHtml,
+  lowerHtml,
+  parse,
+  Processor,
+  type CompileResult,
+  type HtmlRenderOptions,
+  type ParseOptions,
+} from "./mod.ts";
 
-const frontmatterSchema = z.object({
-  title: z.string(),
-  x: z.number().optional(),
-  b: z.boolean().optional().default(true),
+test("compiled math accepts a semantic renderer and keeps readable fallbacks", async () => {
+  const outcome = await compile(
+    parse("$x$\n\n$$ equation\ny\n$$\n", { syntax: { math: "dollar" } }),
+    { outputFormat: "program" },
+  );
+
+  const code = outcome.artifact.code;
+  expect(code).toContain("_components.mathFormula ?");
+  expect(code).toContain('source:"x", style:"inline"');
+  expect(code).toContain('source:"y", style:"display", meta:"equation"');
+  expect(code).toContain("language-math math-inline");
+  expect(code).toContain("language-math math-display");
+  expect(code).toContain('"data-math-meta":"equation"');
 });
 
-async function getCompileError(compiler: MdxCompiler, source: string): Promise<MdxCompileError> {
-  try {
-    await compiler.compile(source);
-  } catch (error) {
-    if (error instanceof MdxCompileError) {
-      return error;
-    }
+test("compile emits a transportable function body from source", async () => {
+  const outcome = await compile(await new Processor().transform("# Hello {name}\n"), {
+    outputFormat: "functionBody",
+  });
 
-    throw error;
+  const compiled = outcome;
+
+  expect(compiled.artifact.format).toBe("functionBody");
+  expect(structuredClone(compiled.artifact)).toEqual(compiled.artifact);
+  expect(compiled.artifact.code).not.toMatch(/^\s*(?:export|import)\s/mu);
+});
+
+test("compile returns typed validated frontmatter", async () => {
+  const schema: Schema<unknown, { readonly title: string }> = {
+    "~standard": {
+      version: 1,
+      vendor: "test",
+      validate(value) {
+        if (isObject(value) && "title" in value && isString(value.title)) {
+          return { value: { title: value.title } };
+        }
+
+        return { issues: [{ message: "Expected title" }] };
+      },
+    },
+  };
+
+  const processor = new Processor({ syntax: { frontmatter: "yaml" } });
+
+  const outcome = await compile(await processor.transform("---\ntitle: Hello\n---\n\n# Page\n"), {
+    frontmatterSchema: schema,
+  });
+
+  expectTypeOf(outcome).toEqualTypeOf<CompileResult<{ readonly title: string }, "functionBody">>();
+  const compiled = outcome;
+  expect(compiled.frontmatter).toEqual({ title: "Hello" });
+  expect(compiled.artifact.frontmatter).toEqual({ title: "Hello" });
+});
+
+test("compile rejects non-transportable validated frontmatter", async () => {
+  const schema: Schema<unknown, Date> = {
+    "~standard": {
+      version: 1,
+      vendor: "test",
+      validate() {
+        return { value: new Date("2026-08-28T00:00:00.000Z") };
+      },
+    },
+  };
+
+  const processor = new Processor({ syntax: { frontmatter: "yaml" } });
+
+  await expect(
+    compile(processor.transformSync("---\ntitle: Hello\n---\n"), { frontmatterSchema: schema }),
+  ).rejects.toThrow(FrontmatterError);
+});
+
+const parityFixtures: ReadonlyArray<readonly [string, string, ParseOptions]> = [
+  ["tight and loose lists", "- one\n- two\n\n1. a\n\n2. b\n", {}],
+  ["task lists", "- [x] done\n- [ ] todo\n", {}],
+  [
+    "inline markup",
+    'Some **strong _nested_** `code` ~~gone~~ and [a link](https://x.test "t").\n',
+    {},
+  ],
+  ["references", "[ref][r] ![img][i]\n\n[r]: https://r.test\n[i]: https://i.test/x.png\n", {}],
+  ["unsafe urls", "[bad](javascript:alert(1)) ![bad](data:text/html,x)\n", {}],
+  ["footnotes", "One[^a] two[^b] again[^a].\n\n[^a]: First.\n[^b]: Second.\n", {}],
+  ["tables", "| a | b |\n| :- | -: |\n| 1 | 2 |\n", {}],
+  ["code and breaks", "```ts\nconst a = 1;\n```\n\nline\\\nbreak\n\n---\n\n> quote\n", {}],
+  ["directives", ":::note[Label]{#id .x}\nBody\n:::\n", { syntax: { directives: true } }],
+  ["math", "$a$\n\n$$\nb\n$$\n", { syntax: { math: "dollar" } }],
+];
+
+test.each(parityFixtures)(
+  "compiled %s render the same HTML as lowering",
+  async (_, source, options) => {
+    const parsed = parse(source, options);
+    const html: HtmlRenderOptions = { clobberPrefix: "doc-", footnoteLabel: "Notes" };
+    const expected = formatHtml(lowerHtml(parsed.document, { ...html, source: parsed.file }));
+    const compiled = await compile(parsed, html);
+
+    expect(normalizeWhitespace(await renderCompiled(compiled.artifact.code))).toBe(
+      normalizeWhitespace(expected),
+    );
+  },
+);
+
+test("compiled and lowered output share the URL policy", async () => {
+  const parsed = parse("[docs](/docs) ![logo](/logo.png)\n");
+
+  const html: HtmlRenderOptions = {
+    urlTransform: (url, kind, sanitized) =>
+      kind === "link" ? `https://site.test${url}` : sanitized,
+  };
+
+  const compiled = await compile(parsed, html);
+  const rendered = await renderCompiled(compiled.artifact.code);
+
+  expect(rendered).toContain('href="https://site.test/docs"');
+  expect(rendered).toContain('src="/logo.png"');
+  expect(formatHtml(lowerHtml(parsed.document, html))).toContain('href="https://site.test/docs"');
+});
+
+test("a paragraph of only JSX and expressions renders without a p", async () => {
+  const parsed = parse("<A /> {1}\n\n<B>text</B>\n");
+  const html = formatHtml(lowerHtml(parsed.document, { source: parsed.file }));
+
+  expect(html).not.toContain("<p>");
+});
+
+test("function bodies resolve imports and return authored exports", async () => {
+  const source =
+    'import {value} from "values"\nexport * from "more"\nexport {wrap as default, extra as renamed} from "layout"\nexport const local = value + 1\n\n# Title\n';
+
+  const outcome = await compile(parse(source), {
+    outputFormat: "functionBody",
+    providerImportSource: "provider",
+  });
+
+  const compiled = outcome;
+
+  if (compiled.artifact.format !== "functionBody") {
+    throw new Error("Expected a function body");
   }
 
-  throw new Error("Expected compiler.compile() to throw");
+  expect(compiled.artifact.imports).toEqual(["values", "more", "layout", "provider"]);
+
+  const wrap = ({ children }: RenderedProps): RenderedValue => children;
+
+  const modules = new Map<string, TestModule>([
+    ["values", { value: 41 }],
+    ["more", { default: "ignored", star: "spread" }],
+    ["layout", { wrap, extra: "extra" }],
+    ["provider", { useMDXComponents: () => ({}) }],
+  ]);
+
+  const element = (type: string | symbol, props: RenderedProps): RenderedElement =>
+    new RenderedElement(type, props);
+
+  const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor;
+  const run = new AsyncFunction("__mdxRuntime", "__resolveMdxImport", compiled.artifact.code);
+
+  const module = await run(
+    { Fragment: Symbol("Fragment"), jsx: element, jsxs: element },
+    async (specifier: string) => modules.get(specifier),
+  );
+
+  expect(module).toMatchObject({ local: 42, renamed: "extra", star: "spread" });
+  // The re-exported default export is the layout around the content.
+  expect(module.default({})).toMatchObject({ type: wrap, props: { children: { type: "h1" } } });
+});
+
+/** Evaluates a compiled function body with a string-rendering JSX runtime. */
+async function renderCompiled(code: string): Promise<string> {
+  const fragment = Symbol("Fragment");
+
+  const element = (type: string | symbol, props: RenderedProps): RenderedElement =>
+    new RenderedElement(type, props);
+
+  const runtime = { Fragment: fragment, jsx: element, jsxs: element };
+  const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor;
+  const run = new AsyncFunction("__mdxRuntime", "__resolveMdxImport", "frontmatter", code);
+  const module = await run(runtime, () => {}, {});
+
+  return renderString(module.default({}), fragment);
 }
 
-test("mdx - compile", async () => {
-  let headingCount = 0;
-  const compiler = new MdxCompiler()
-    .withRehypePlugin(headingIdPlugin, {
-      prefix: "h-",
-    })
-    .withRehypePlugin(treeProcessorPlugin, {
-      process: (element: HastElement) => {
-        if (element.tagName.startsWith("h")) {
-          headingCount++;
-        }
-      },
-    })
-    .withRehypePlugin(syntaxHighlightPlugin, {
-      includeDataAttributes: ["language", "source-code", "line-count"],
-      highlight: {
-        transformer: { classActiveLine: "hl" },
-      },
-      lineNumbers: {},
-    });
+type RenderedValue =
+  | string
+  | number
+  | boolean
+  | null
+  | undefined
+  | RenderedElement
+  | readonly RenderedValue[];
 
-  const artifact = await compiler.compile(
-    `
----
-title: Test
-x: 42
----
+type RenderedProps = Readonly<Record<string, RenderedValue>>;
 
-# Hello
-## Title 2
-## Duplicate
-## Duplicate
+type TestModule = Readonly<
+  Record<string, number | string | ((props: RenderedProps) => RenderedValue | object)>
+>;
 
-\`\`\`ts {"highlight":"2", "showLineNumbers":true}
-type Mdx = never; // [!code highlight]
-const x1 = 1;
-\`\`\`
-    `.trim(),
-    {},
-    frontmatterSchema,
-  );
+class RenderedElement {
+  public readonly type: string | symbol;
+  public readonly props: RenderedProps;
 
-  expect(headingCount).toStrictEqual(4);
-  expect(artifact.frontmatter.title).toStrictEqual("Test");
-  expect(artifact.frontmatter.x).toStrictEqual(42);
-  expect(artifact.frontmatter.b).toStrictEqual(true);
+  public constructor(type: string | symbol, props: RenderedProps) {
+    this.type = type;
+    this.props = props;
+  }
+}
 
-  await expect(() => compiler.compile("", {}, frontmatterSchema)).rejects.toThrow(
-    StandardSchemaValidationError,
-  );
-
-  const value = artifact.compiled;
-  expect(typeof value === "string").toStrictEqual(true);
-  expect(value?.includes('"Hello"')).toStrictEqual(true);
-  expect(value?.includes('"h-title-2"')).toStrictEqual(true);
-
-  expect(value?.includes('"data-language": "ts"')).toStrictEqual(true);
-  expect(value?.includes('"data-line-count": "2"')).toStrictEqual(true);
-  expect(value?.includes('"data-source-code": "')).toStrictEqual(true);
-
-  expect(value?.includes('"data-line": "1"') && value?.includes('"data-line": "2"')).toStrictEqual(
-    true,
-  );
-  expect(value?.includes('className: "line hl line-number"')).toStrictEqual(true);
-});
-
-test("mdx - parse frontmatter", async () => {
-  async function compile<TFrontmatterSchema extends z.ZodSchema>(
-    frontmatter: Record<string, unknown>,
-    schema: TFrontmatterSchema,
-  ): Promise<z.output<TFrontmatterSchema>> {
-    const compiler = new MdxCompiler();
-
-    const artifact = await compiler.compile(
-      `
----
-${JSON.stringify(frontmatter)}
----
-    `.trim(),
-      {},
-      schema,
-    );
-    return artifact.frontmatter as z.output<TFrontmatterSchema>;
+function renderString(value: RenderedValue, fragment: symbol): string {
+  if (value === null || value === undefined || value === false || value === true) {
+    return "";
   }
 
-  const fm1 = await compile(
-    { x: 42 },
-    z.object({
-      x: z.number(),
-    }),
-  );
-  const _fm1type: { x: number } = fm1;
-  expect(fm1).toStrictEqual({ x: 42 });
+  if (Array.isArray(value)) {
+    return value.map((item) => renderString(item, fragment)).join("");
+  }
 
-  const fm2 = await compile(
-    { s: "abc" },
-    z.object({
-      s: z.string(),
-    }),
-  );
-  const _fm2type: { s: string } = fm2;
-  expect(fm2).toStrictEqual({ s: "abc" });
-});
+  if (!(value instanceof RenderedElement)) {
+    return String(value).replaceAll("&", "&amp;").replaceAll("<", "&lt;");
+  }
 
-test("mdx - malformed latex is reported as diagnostic", async () => {
-  const compiler = new MdxCompiler().withRemarkPlugin(remarkMath).withRehypePlugin(katexPlugin, {
-    inlineMathStyle: "display",
+  const children = renderString(value.props.children, fragment);
+
+  if (value.type === fragment) {
+    return children;
+  }
+
+  const tagName = String(value.type);
+
+  const attributes = Object.entries(value.props).flatMap(([name, item]) => {
+    if (name === "children" || item === false || item === undefined) {
+      return [];
+    }
+
+    const attribute = name === "className" ? "class" : name;
+
+    return item === true
+      ? [attribute]
+      : [`${attribute}="${String(item).replaceAll("&", "&amp;").replaceAll('"', "&#x22;")}"`];
   });
 
-  const source = ["Hello, World!", "This is $2$nd line, the one with faulty: $\\f$$42$ GB"].join(
-    "\n",
-  );
+  const opening = `<${tagName}${attributes.length === 0 ? "" : ` ${attributes.join(" ")}`}>`;
+  const isVoid = ["br", "hr", "img", "input"].includes(tagName);
 
-  const artifact = await compiler.compile(source);
+  return isVoid ? opening : `${opening}${children}</${tagName}>`;
+}
 
-  expect(typeof artifact.compiled).toStrictEqual("string");
-  expect(artifact.messages).toHaveLength(1);
-  expect(artifact.messages[0]).toMatchObject({
-    source: "rehype-katex",
-    reason: "Could not render math with KaTeX",
-    line: 2,
-    sourceLine: "This is $2$nd line, the one with faulty: $\\f$$42$ GB",
-    snippet: "$\\f$$42$",
-    cause: {
-      name: "ParseError",
-    },
-  });
-  expect(artifact.messages[0].message).toContain("Could not render math with KaTeX");
-  expect(artifact.messages[0].message).toContain("Source: $\\f$$42$");
-  expect(artifact.messages[0].message).not.toContain("\\displaystyle");
-});
-
-test("mdx - compile errors include source context", async () => {
-  const compiler = new MdxCompiler();
-  const source = ["# Hello", "export const answer = ;"].join("\n");
-
-  await expect(compiler.compile(source)).rejects.toThrow(MdxCompileError);
-  const mdxError = await getCompileError(compiler, source);
-  expect(mdxError.line).toStrictEqual(2);
-  expect(mdxError.sourceLine).toStrictEqual("export const answer = ;");
-  expect(mdxError.snippet).toStrictEqual(";");
-  expect(mdxError.message).toContain("at 2");
-  expect(mdxError.message).toContain("Source: ;");
-  expect(mdxError.message).toContain("Line: export const answer = ;");
-});
-
-test("mdx - compile errors use frontmatter-stripped source locations", async () => {
-  const compiler = new MdxCompiler();
-  const source = [
-    "---",
-    "title: Test",
-    "---",
-    "",
-    "# Hello",
-    "",
-    "The W{weight bits}A{activation bits} format uses ternary weights.",
-  ].join("\n");
-
-  await expect(compiler.compile(source)).rejects.toThrow(MdxCompileError);
-  const mdxError = await getCompileError(compiler, source);
-  expect(mdxError.line).toStrictEqual(7);
-  expect(mdxError.column).toStrictEqual(6);
-  expect(mdxError.source).toStrictEqual("micromark-extension-mdx-expression");
-  expect(mdxError.ruleId).toStrictEqual("acorn");
-  expect(mdxError.sourceLine).toStrictEqual(
-    "The W{weight bits}A{activation bits} format uses ternary weights.",
-  );
-  expect(mdxError.snippet).toStrictEqual("W{weight bits}A{activation bits}");
-  expect(mdxError.sourcePointer).toStrictEqual("     ^");
-  expect(mdxError.message).toContain("at 7:6");
-  expect(mdxError.message).toContain("Source: W{weight bits}A{activation bits}");
-  expect(mdxError.message).toContain(
-    "Line: The W{weight bits}A{activation bits} format uses ternary weights.",
-  );
-  expect(mdxError.message).toContain("     ^");
-  expect(mdxError.message).toContain("Cause: Unexpected content after expression");
-  expect(mdxError.hint).toContain("MDX treats `{...}` as JavaScript");
-});
-
-test("mdx - compile errors keep actual JS expression locations", async () => {
-  const compiler = new MdxCompiler();
-  const source = ["# Hello", "Value is {foo bar} baz"].join("\n");
-
-  await expect(compiler.compile(source)).rejects.toThrow(MdxCompileError);
-  const mdxError = await getCompileError(compiler, source);
-  expect(mdxError.line).toStrictEqual(2);
-  expect(mdxError.column).toStrictEqual(10);
-  expect(mdxError.sourceLine).toStrictEqual("Value is {foo bar} baz");
-  expect(mdxError.snippet).toStrictEqual("{foo bar}");
-  expect(mdxError.sourcePointer).toStrictEqual("         ^");
-  expect(mdxError.hint).toContain("MDX treats `{...}` as JavaScript");
-  expect(mdxError.message).toContain("at 2:10");
-  expect(mdxError.message).toContain("Source: {foo bar}");
-  expect(mdxError.message).toContain("Cause: Unexpected content after expression");
-  expect(mdxError.message).toContain("Hint: MDX treats `{...}` as JavaScript.");
-});
+function normalizeWhitespace(html: string): string {
+  return html.replace(/>\s+</gu, "><").trim();
+}

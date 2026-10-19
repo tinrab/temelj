@@ -1,7 +1,13 @@
 {
   "name": "@temelj/mdx",
-  "version": "0.14.0",
-  "description": "MDX processing utilities.",
+  "version": "0.15.0",
+  "description": "MDX parsing, formatting, compilation, safe rendering, and streaming.",
+  "keywords": [
+    "markdown",
+    "mdx",
+    "rendering",
+    "streaming"
+  ],
   "license": "MIT",
   "repository": {
     "url": "https://github.com/tinrab/temelj"
@@ -10,53 +16,72 @@
     "dist"
   ],
   "type": "module",
+  "sideEffects": false,
   "main": "./dist/mod.mjs",
   "types": "./dist/mod.d.mts",
   "exports": {
     ".": {
       "types": "./dist/mod.d.mts",
       "import": "./dist/mod.mjs"
+    },
+    "./plugins": {
+      "types": "./dist/plugins/mod.d.mts",
+      "import": "./dist/plugins/mod.mjs"
+    },
+    "./unified": {
+      "types": "./dist/unified/mod.d.mts",
+      "import": "./dist/unified/mod.mjs"
     }
   },
   "scripts": {
     "build": "tsdown",
+    "script:generate-entities": "node --import tsx/esm ./scripts/generate-character-entities.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "clean": "shx rm -rf dist"
   },
   "dependencies": {
-    "@mdx-js/mdx": "^3.1.1",
-    "@shikijs/transformers": "^4.4.3",
-    "@standard-schema/spec": "^1.1.0",
-    "@temelj/iterator": "workspace:*",
     "@temelj/standard-schema": "workspace:*",
-    "@types/hast": "^3.0.5",
-    "github-slugger": "^2.0.0",
-    "hast": "^1.0.0",
-    "hast-util-from-html-isomorphic": "^2.0.0",
-    "hast-util-to-string": "^3.0.1",
-    "hast-util-to-text": "^4.0.2",
-    "katex": "^0.18.4",
-    "rehype-katex": "^7.0.1",
-    "remark-frontmatter": "^5.0.0",
-    "remark-gfm": "^4.0.1",
-    "remark-math": "^6.0.0",
-    "remark-parse": "^11.0.0",
-    "shiki": "^4.4.3",
-    "unified": "^11.0.5",
-    "unist-util-remove": "^4.0.0",
-    "unist-util-visit": "^5.1.0",
-    "unist-util-visit-parents": "^6.0.2",
-    "vfile": "^6.0.3",
-    "vfile-matter": "^5.0.1"
+    "@temelj/string": "workspace:*",
+    "@temelj/value": "workspace:*",
+    "acorn": "8.19.0",
+    "acorn-jsx": "5.3.2",
+    "smol-toml": "1.9.1",
+    "yaml": "2.9.1"
   },
   "devDependencies": {
-    "@types/mdast": "^4.0.4",
-    "@types/node": "26.1.1",
+    "@shikijs/rehype": "4.5.0",
+    "@types/node": "26.6.5",
+    "property-information": "7.2.0",
+    "rehype-slug": "6.0.0",
+    "remark-toc": "9.0.0",
+    "shiki": "4.5.0",
     "shx": "^0.4.0",
-    "tsdown": "^0.22.14",
+    "tsdown": "^0.23.1",
+    "tsx": "^4.23.15",
     "typescript": "^7.0.2",
-    "vitest": "^4.1.10",
-    "zod": "^4.4.3"
+    "unified": "11.0.5",
+    "vfile": "6.0.3",
+    "vitest": "^5.0.4"
+  },
+  "peerDependencies": {
+    "property-information": "7.2.0",
+    "shiki": "4.5.0",
+    "unified": "11.0.5",
+    "vfile": "6.0.3"
+  },
+  "peerDependenciesMeta": {
+    "property-information": {
+      "optional": true
+    },
+    "shiki": {
+      "optional": true
+    },
+    "unified": {
+      "optional": true
+    },
+    "vfile": {
+      "optional": true
+    }
   }
 }
