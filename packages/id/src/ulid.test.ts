@@ -1,5 +1,6 @@
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 
+import { IdFormatError, IdOptionsError } from "./errors";
 import {
   generateUlid,
   generateUlidList,
@@ -80,3 +81,62 @@ test("Ulid bytes", () => {
   expect(bytes.length).toStrictEqual(16);
   expect(makeUlidFromBytes(bytes)).toStrictEqual(id);
 });
+
+test("ULID decoding is case-insensitive and accepts Crockford aliases", () => {
+  expect(getUlidBytes("01bxz26w400000000000000000")).toEqual(
+    getUlidBytes("01BXZ26W400000000000000000"),
+  );
+  expect(getUlidBytes("0ILO0000000000000000000000")).toEqual(
+    getUlidBytes("01100000000000000000000000"),
+  );
+});
+
+test.each([
+  "",
+  "8ZZZZZZZZZZZZZZZZZZZZZZZZZ",
+  "01BXZ26W40000000000000000U",
+  "01BXZ26W40000000000000000-",
+])("rejects invalid ULID %s", (id) => {
+  expect(isUlidValid(id)).toBe(false);
+  expect(() => getUlidBytes(id)).toThrow(IdFormatError);
+});
+
+test("encodes the maximum ULID", () => {
+  expect(makeUlidFromBytes(new Uint8Array(16).fill(0xff))).toBe("7ZZZZZZZZZZZZZZZZZZZZZZZZZ");
+  expect(() => makeUlidFromBytes(new Uint8Array(15))).toThrow(IdFormatError);
+});
+
+test("generateUlidList() increments the random component within a millisecond", () => {
+  const time = new Date(42);
+  mockRandomBytes((bytes) => bytes.fill(0x00).fill(0xff, -1));
+
+  try {
+    expect(generateUlidList(3, { time })).toEqual([
+      "000000001A000000000000007Z",
+      "000000001A0000000000000080",
+      "000000001A0000000000000081",
+    ]);
+  } finally {
+    vi.restoreAllMocks();
+  }
+});
+
+test("generateUlidList() fails when the random component overflows", () => {
+  mockRandomBytes((bytes) => bytes.fill(0xff));
+
+  try {
+    expect(() => generateUlidList(2, { time: new Date(42) })).toThrow(IdOptionsError);
+  } finally {
+    vi.restoreAllMocks();
+  }
+});
+
+function mockRandomBytes(fill: (bytes: Uint8Array) => void): void {
+  vi.spyOn(crypto, "getRandomValues").mockImplementation((array) => {
+    if (array instanceof Uint8Array) {
+      fill(array);
+    }
+
+    return array;
+  });
+}

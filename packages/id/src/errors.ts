@@ -32,4 +32,37 @@ export class IdOptionsError extends Error {
       IdOptionsError.ulidListRandomBytesUnsupported,
     );
   }
+
+  static ulidRandomOverflow(this: void): never {
+    throw new IdOptionsError(
+      "ULID random component overflowed; too many ULIDs were generated in the same millisecond",
+      IdOptionsError.ulidRandomOverflow,
+    );
+  }
+}
+
+export class IdFormatError extends Error {
+  constructor(message: string, context?: Function) {
+    super(message);
+    this.name = "IdFormatError";
+
+    if (Error.captureStackTrace !== undefined) {
+      Error.captureStackTrace(this, context ?? this.constructor);
+    }
+  }
+
+  static invalidUlid(this: void): never {
+    throw new IdFormatError("Invalid ULID", IdFormatError.invalidUlid);
+  }
+
+  static invalidUuid4(this: void): never {
+    throw new IdFormatError("Invalid UUID v4", IdFormatError.invalidUuid4);
+  }
+
+  static invalidByteLength(this: void, length: number): never {
+    throw new IdFormatError(
+      `ID must be 16 bytes long; received ${length} bytes`,
+      IdFormatError.invalidByteLength,
+    );
+  }
 }
