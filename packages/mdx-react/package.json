@@ -14,7 +14,8 @@
     "url": "https://github.com/tinrab/temelj"
   },
   "files": [
-    "dist"
+    "dist",
+    "mdx.d.ts"
   ],
   "type": "module",
   "sideEffects": false,
@@ -28,6 +29,9 @@
     "./next": {
       "types": "./dist/next.d.mts",
       "import": "./dist/next.mjs"
+    },
+    "./mdx": {
+      "types": "./mdx.d.ts"
     }
   },
   "scripts": {

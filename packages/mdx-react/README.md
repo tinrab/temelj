@@ -284,7 +284,19 @@ You can define your own math renderer with `MathRenderPlugin` plugin.
 MDX files compile to React components at build time, so they work as pages and imports.
 Imports and expressions run as application code, so use them only with trusted content.
 
-Declare `.mdx` imports in a declaration file such as `mdx-env.d.ts`:
+Add MDX import types to `tsconfig.json`:
+
+```json
+{
+  "compilerOptions": {
+    "types": ["@temelj/mdx-react/mdx"]
+  }
+}
+```
+
+Listing `types` turns off automatic `@types/*` inclusion, so also list others you need, such as `node` or `vite/client`.
+
+Or declare them yourself in a file such as `mdx-env.d.ts`:
 
 ```ts
 declare module "*.mdx" {
@@ -294,6 +306,9 @@ declare module "*.mdx" {
   export default function MdxContent(props: CompiledContentRuntimeProps): ReactNode;
 }
 ```
+
+This also lets you type authored exports, such as `metadata`.
+Use one approach, since both declare the same default export.
 
 ### Next.js
 
