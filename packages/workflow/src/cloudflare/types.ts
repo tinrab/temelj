@@ -4,7 +4,7 @@ import type { CloudflareWorkersModule } from "@cloudflare/workers-types";
 export interface CloudflareWorkflowBinding {
   create(options?: CloudflareWorkflowInstanceCreateOptions): Promise<CloudflareWorkflowInstance>;
   createBatch(
-    items: readonly CloudflareWorkflowInstanceCreateOptions[],
+    items: CloudflareWorkflowInstanceCreateOptions[],
   ): Promise<readonly CloudflareWorkflowInstance[]>;
   get(id: string): Promise<CloudflareWorkflowInstance>;
 }
@@ -33,6 +33,7 @@ export interface CloudflareWorkflowInstanceStatus {
     | "complete"
     | "waiting"
     | "waitingForPause"
+    | "rollingBack"
     | "unknown";
   readonly error?: {
     readonly name: string;

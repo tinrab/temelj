@@ -10,6 +10,11 @@ import type {
 
 import { isLogLevelEnabled } from "./filter.ts";
 
+interface SinkWrites {
+  readonly pending: Set<Promise<void>>;
+  failure: { readonly cause: unknown } | undefined;
+}
+
 export function createLogger(options: CreateLoggerOptions): LoggerContract {
   return new Logger(
     options.sink,
@@ -17,12 +22,12 @@ export function createLogger(options: CreateLoggerOptions): LoggerContract {
     options.now ?? Temporal.Now.instant,
     options.attributes ?? {},
     options.sinkFailureMode ?? "ignore",
-    new Set(),
+    { pending: new Set(), failure: undefined },
   );
 }
 
 class Logger implements LoggerContract {
-  readonly #pending: Set<Promise<void>>;
+  readonly #writes: SinkWrites;
   readonly #sink: LogSink;
   readonly #level: LogLevel;
   readonly #now: () => Temporal.Instant;
@@ -35,14 +40,14 @@ class Logger implements LoggerContract {
     now: () => Temporal.Instant,
     attributes: LogAttributes,
     sinkFailureMode: LogSinkFailureMode,
-    pending: Set<Promise<void>>,
+    writes: SinkWrites,
   ) {
     this.#sink = sink;
     this.#level = level;
     this.#now = now;
     this.#attributes = attributes;
     this.#sinkFailureMode = sinkFailureMode;
-    this.#pending = pending;
+    this.#writes = writes;
   }
 
   log(level: LogLevel, message: string, attributes?: LogAttributes): void {
@@ -99,18 +104,44 @@ class Logger implements LoggerContract {
       this.#now,
       mergeAttributes(this.#attributes, attributes),
       this.#sinkFailureMode,
-      this.#pending,
+      this.#writes,
     );
   }
 
   async flush(): Promise<void> {
-    await Promise.all(this.#pending);
+    await Promise.all(this.#writes.pending);
+    const failure = this.#writes.failure;
+    this.#writes.failure = undefined;
+
+    if (failure !== undefined) {
+      throw failure.cause;
+    }
+
     await this.#sink.flush?.();
   }
 
   async close(): Promise<void> {
-    await this.flush();
-    await this.#sink.close?.();
+    let failure: { cause: unknown } | undefined;
+
+    try {
+      await this.flush();
+    } catch (cause) {
+      failure = { cause };
+    }
+
+    try {
+      await this.#sink.close?.();
+    } catch (cause) {
+      if (failure !== undefined) {
+        throw new AggregateError([failure.cause, cause], "Log sink flush and close failed");
+      }
+
+      throw cause;
+    }
+
+    if (failure !== undefined) {
+      throw failure.cause;
+    }
   }
 
   #write(record: LogRecord): void {
@@ -132,13 +163,13 @@ class Logger implements LoggerContract {
     tracked = write
       .catch((cause: unknown) => {
         if (this.#sinkFailureMode === "throw") {
-          throw cause;
+          this.#writes.failure ??= { cause };
         }
       })
       .finally(() => {
-        this.#pending.delete(tracked);
+        this.#writes.pending.delete(tracked);
       });
-    this.#pending.add(tracked);
+    this.#writes.pending.add(tracked);
   }
 }
 

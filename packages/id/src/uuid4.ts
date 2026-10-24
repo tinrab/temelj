@@ -25,11 +25,7 @@ export function generateUuid4(): string {
  * @returns `true` if the input is a valid UUID v4, `false` otherwise.
  */
 export function isUuid4Valid(id: string): boolean {
-  try {
-    return !!id128.Uuid4.fromCanonical(id);
-  } catch {
-    return false;
-  }
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id);
 }
 
 /**

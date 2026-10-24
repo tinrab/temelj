@@ -10,7 +10,7 @@ test("generateUuid4() works", () => {
 });
 
 test("isUuid4Valid() works", () => {
-  const id = "abcdef01-2345-6789-abcd-ef0123456789";
+  const id = "abcdef01-2345-4789-abcd-ef0123456789";
   expect(isUuid4Valid(id)).toStrictEqual(true);
 
   expect(isUuid4Valid("")).toStrictEqual(false);
@@ -18,8 +18,16 @@ test("isUuid4Valid() works", () => {
   expect(isUuid4Valid("12345678-1234-1234-1234-1234567890")).toStrictEqual(false);
 });
 
+test.each([
+  "abcdef01-2345-6789-abcd-ef0123456789",
+  "abcdef01-2345-4789-0bcd-ef0123456789",
+  "abcdef01-2345-4789-cbcd-ef0123456789",
+])("rejects a UUID without v4 version and variant bits: %s", (id) => {
+  expect(isUuid4Valid(id)).toBe(false);
+});
+
 test("Uuid4 bytes", () => {
-  const id = "abcdef01-2345-6789-abcd-ef0123456789";
+  const id = "abcdef01-2345-4789-abcd-ef0123456789";
   const bytes = getUuid4Bytes(id);
   expect(bytes.length).toStrictEqual(16);
   expect(makeUuid4FromBytes(bytes)).toStrictEqual(id);

@@ -12,6 +12,20 @@ export class IdOptionsError extends Error {
     throw new IdOptionsError("Invalid random bytes", IdOptionsError.invalidUlidRandomBytes);
   }
 
+  static invalidUlidTime(this: void): never {
+    throw new IdOptionsError(
+      "ULID time must be a non-negative 48-bit integer",
+      IdOptionsError.invalidUlidTime,
+    );
+  }
+
+  static invalidUlidCount(this: void): never {
+    throw new IdOptionsError(
+      "ULID count must be a non-negative safe integer",
+      IdOptionsError.invalidUlidCount,
+    );
+  }
+
   static ulidListRandomBytesUnsupported(this: void): never {
     throw new IdOptionsError(
       "Cannot generate multiple ULIDs with the same random bytes",

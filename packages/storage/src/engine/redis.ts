@@ -323,18 +323,21 @@ export class RedisStorageEngine<
     const ioredis = await import("ioredis");
 
     if (this.#options.cluster) {
-      this.#client = new ioredis.Cluster([...this.#options.cluster], this.#options.clusterOptions);
+      this.#client ??= new ioredis.Cluster(
+        [...this.#options.cluster],
+        this.#options.clusterOptions,
+      );
 
       return this.#client;
     }
 
     if (this.#options.url) {
-      this.#client = new ioredis.Redis(this.#options.url, this.#options);
+      this.#client ??= new ioredis.Redis(this.#options.url, this.#options);
 
       return this.#client;
     }
 
-    this.#client = new ioredis.Redis(this.#options);
+    this.#client ??= new ioredis.Redis(this.#options);
 
     return this.#client;
   }

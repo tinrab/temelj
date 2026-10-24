@@ -477,7 +477,7 @@ export class PostgresStorageEngine<
     if (this.#client === undefined) {
       const imported = await import("postgres");
       const createPostgres = imported.default;
-      this.#client =
+      this.#client ??=
         this.#options.url === undefined
           ? createPostgres(this.#options.connection)
           : createPostgres(this.#options.url, this.#options.connection);

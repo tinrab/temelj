@@ -22,7 +22,7 @@ const DEFAULT_STEP_RETRY = {
   backoffCoefficient: 2,
 } as const;
 
-const MAXIMUM_CLOUDFLARE_ATTEMPTS = 10_000;
+const MAXIMUM_CLOUDFLARE_ATTEMPTS = 10_001;
 
 const MAXIMUM_CLOUDFLARE_DELAY_MILLISECONDS = 365 * 24 * 60 * 60 * 1_000;
 
@@ -262,13 +262,18 @@ function cloudflareStepConfig(
     );
   }
 
-  return {
+  const result: CloudflareWorkflowStepConfig = {
     retries: {
-      limit: retry.maximumAttempts,
+      limit: retry.maximumAttempts - 1,
       delay: ({ ctx }) => retryDelay(initialDelay, retry, ctx.attempt, maximumDelay),
     },
-    timeout,
   };
+
+  if (timeout !== undefined) {
+    result.timeout = timeout;
+  }
+
+  return result;
 }
 
 function retryDelay(
@@ -277,6 +282,10 @@ function retryDelay(
   attempt: number,
   maximumDelay: number | undefined,
 ): number {
+  if (initialDelay === 0) {
+    return 0;
+  }
+
   const delay = initialDelay * retry.backoffCoefficient ** Math.max(0, attempt - 1);
 
   return Math.min(delay, maximumDelay ?? MAXIMUM_CLOUDFLARE_DELAY_MILLISECONDS);

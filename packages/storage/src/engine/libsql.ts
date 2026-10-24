@@ -131,7 +131,7 @@ export class LibSqlStorageEngine<
   async #getClient(): Promise<LibSqlEngineClient> {
     if (this.#client === undefined) {
       const { default: Database } = await import("libsql");
-      this.#client = new Database(
+      this.#client ??= new Database(
         this.#options.url ?? this.#options.path ?? ":memory:",
         this.#options.connection,
       );

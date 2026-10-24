@@ -24,6 +24,8 @@ export interface UlidOptions {
  * @returns The generated ULID string.
  */
 export function generateUlid(options: UlidOptions = {}): string {
+  assertUlidTime(options.time);
+
   if (options.random !== undefined) {
     if (options.random.length !== 10) {
       IdOptionsError.invalidUlidRandomBytes();
@@ -33,17 +35,14 @@ export function generateUlid(options: UlidOptions = {}): string {
     buffer.set(options.random, 6);
 
     const time = options.time === undefined ? Date.now() : options.time.getTime();
-    buffer.set(
-      [
-        (time >> 40) & 0xff,
-        (time >> 32) & 0xff,
-        (time >> 24) & 0xff,
-        (time >> 16) & 0xff,
-        (time >> 8) & 0xff,
-        time & 0xff,
-      ],
-      0,
-    );
+
+    if (!Number.isSafeInteger(time) || time < 0 || time >= 2 ** 48) {
+      IdOptionsError.invalidUlidTime();
+    }
+
+    const view = new DataView(buffer.buffer);
+    view.setUint16(0, Math.floor(time / 2 ** 32));
+    view.setUint32(2, time % 2 ** 32);
 
     return id128.Ulid.construct(buffer).toCanonical();
   }
@@ -68,6 +67,12 @@ export function generateUlid(options: UlidOptions = {}): string {
  * @returns The generated ULID strings.
  */
 export function generateUlidList(count: number, options: UlidOptions = {}): string[] {
+  assertUlidTime(options.time);
+
+  if (!Number.isSafeInteger(count) || count < 0) {
+    IdOptionsError.invalidUlidCount();
+  }
+
   if (options.random !== undefined) {
     IdOptionsError.ulidListRandomBytesUnsupported();
   }
@@ -79,6 +84,18 @@ export function generateUlidList(count: number, options: UlidOptions = {}): stri
   }
 
   return ids;
+}
+
+function assertUlidTime(time: Date | undefined): void {
+  if (time === undefined) {
+    return;
+  }
+
+  const milliseconds = time.getTime();
+
+  if (!Number.isSafeInteger(milliseconds) || milliseconds < 0 || milliseconds >= 2 ** 48) {
+    IdOptionsError.invalidUlidTime();
+  }
 }
 
 /**

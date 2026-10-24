@@ -373,7 +373,7 @@ export class CloudflareKvStorageEngine<
     }
 
     const { default: CloudflareClient } = await import("cloudflare");
-    this.#client = new CloudflareClient(cloudflareClientOptions(this.#options));
+    this.#client ??= new CloudflareClient(cloudflareClientOptions(this.#options));
 
     return this.#client;
   }
