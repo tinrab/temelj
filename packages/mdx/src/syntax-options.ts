@@ -6,12 +6,12 @@ export type MathFormat = "dollar" | "tex";
 
 export type MathMode = "auto" | MathFormat;
 
-export interface SyntaxOptions {
+export type SyntaxOptions = {
   readonly directives?: boolean;
   readonly frontmatter?: FrontmatterMode;
   readonly math?: MathMode;
   readonly strikethroughMarkerCount?: 1 | 2;
-}
+};
 
 export interface ResolvedSyntaxOptions {
   readonly directives: boolean;

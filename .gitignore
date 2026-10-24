@@ -1,6 +1,7 @@
 **/node_modules
 **/npm
 **/.turbo
+**/.tanstack
 **/.wrangler
 **/dist
 pnpm-lock.yaml

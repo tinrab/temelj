@@ -262,6 +262,34 @@ HTML lowering options also apply to compilation, while HTML plugins do not.
 
 Use [`compileTrustedMdx()`](../mdx-react/README.md#trusted-compilation) from @temelj/mdx-react in React when you intentionally want to evaluate trusted MDX.
 
+## Compile MDX imports
+
+The Vite plugin compiles imported `.mdx` files to components, without evaluating them.
+Add it before React's plugin:
+
+```ts
+import { mdx, MdxConfig } from "@temelj/mdx/vite";
+import react from "@vitejs/plugin-react";
+import { defineConfig } from "vite";
+
+export default defineConfig({
+  plugins: [
+    mdx({
+      config: new MdxConfig({
+        processor: { syntax: { frontmatter: "yaml" } },
+      }),
+    }),
+    react(),
+  ],
+});
+```
+
+`MdxConfig` accepts `processor`, `compiler`, and `frontmatterSchema` options.
+Document plugins run, while HTML plugins do not.
+
+`?raw` and `?url` imports are left to Vite.
+Other bundlers can use `mdxPlugin` from `@temelj/mdx/unplugin`, or the webpack loader in `@temelj/mdx/loader`.
+
 ## Stream a document
 
 ```ts
@@ -501,8 +529,11 @@ Pass `limits` to `parse()`, `Processor`, or `MdxStream`.
 
 ## Entry points
 
-| Import                | Contents                                                          |
-| --------------------- | ----------------------------------------------------------------- |
-| `@temelj/mdx`         | Parser, source files, trees, formatting, HTML, compiler, streams. |
-| `@temelj/mdx/plugins` | Plugin types, built-ins, code metadata, Shiki adapter.            |
-| `@temelj/mdx/unified` | Remark and rehype adapters.                                       |
+| Import                 | Contents                                                          |
+| ---------------------- | ----------------------------------------------------------------- |
+| `@temelj/mdx`          | Parser, source files, trees, formatting, HTML, compiler, streams. |
+| `@temelj/mdx/plugins`  | Plugin types, built-ins, code metadata, Shiki adapter.            |
+| `@temelj/mdx/unified`  | Remark and rehype adapters.                                       |
+| `@temelj/mdx/unplugin` | Bundler plugin for MDX imports.                                   |
+| `@temelj/mdx/vite`     | Vite plugin for MDX imports.                                      |
+| `@temelj/mdx/loader`   | Webpack and Turbopack loader.                                     |

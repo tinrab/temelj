@@ -22,6 +22,8 @@ export {
 } from "./diagnostics.ts";
 
 export {
+  BuildError,
+  type BuildIssue,
   CompileError,
   ConfigurationError,
   InputError,

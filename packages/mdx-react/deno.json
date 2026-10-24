@@ -1,15 +1,20 @@
 {
   "name": "@temelj/mdx-react",
   "version": "0.15.0",
-  "exports": "./src/mod.ts",
+  "exports": {
+    ".": "./src/mod.ts",
+    "./next": "./src/next.ts"
+  },
   "license": "MIT",
   "imports": {
     "@temelj/mdx": "jsr:@temelj/mdx@^0.16.0",
+    "@temelj/mdx/loader": "jsr:@temelj/mdx@^0.16.0/loader",
     "@temelj/mdx/plugins": "jsr:@temelj/mdx@^0.16.0/plugins",
-    "property-information": "npm:property-information@7.2.0",
-    "style-to-js": "npm:style-to-js@2.0.2",
+    "@temelj/standard-schema": "jsr:@temelj/standard-schema@^0.2.0",
     "@temelj/value": "jsr:@temelj/value@^0.15.0",
-    "@temelj/standard-schema": "jsr:@temelj/standard-schema@^0.1.0"
+    "next": "npm:next@^16.0.0",
+    "property-information": "npm:property-information@7.2.0",
+    "style-to-js": "npm:style-to-js@2.0.2"
   },
   "publish": {
     "include": ["src/**/*.ts", "src/**/*.tsx", "README.md"],

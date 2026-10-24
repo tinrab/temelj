@@ -31,6 +31,18 @@
     "./unified": {
       "types": "./dist/unified/mod.d.mts",
       "import": "./dist/unified/mod.mjs"
+    },
+    "./unplugin": {
+      "types": "./dist/unplugin.d.mts",
+      "import": "./dist/unplugin.mjs"
+    },
+    "./vite": {
+      "types": "./dist/vite.d.mts",
+      "import": "./dist/vite.mjs"
+    },
+    "./loader": {
+      "types": "./dist/loader.d.mts",
+      "import": "./dist/loader.mjs"
     }
   },
   "scripts": {
@@ -47,6 +59,7 @@
     "acorn": "8.19.0",
     "acorn-jsx": "5.3.2",
     "smol-toml": "1.9.1",
+    "unplugin": "^3.4.0",
     "yaml": "2.9.1"
   },
   "devDependencies": {
@@ -62,13 +75,15 @@
     "typescript": "^7.0.2",
     "unified": "11.0.5",
     "vfile": "6.0.3",
+    "vite": "^8.3.4",
     "vitest": "^5.0.4"
   },
   "peerDependencies": {
     "property-information": "7.2.0",
     "shiki": "4.5.0",
     "unified": "11.0.5",
-    "vfile": "6.0.3"
+    "vfile": "6.0.3",
+    "vite": "^8.0.0"
   },
   "peerDependenciesMeta": {
     "property-information": {
@@ -81,6 +96,9 @@
       "optional": true
     },
     "vfile": {
+      "optional": true
+    },
+    "vite": {
       "optional": true
     }
   }

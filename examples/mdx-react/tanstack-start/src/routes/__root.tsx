@@ -43,6 +43,9 @@ function RootDocument({ children }: { children: React.ReactNode }) {
           <header className="flex flex-wrap items-center gap-4 border-b pb-6">
             <h2 className="font-semibold">TanStack</h2>
             <div className="flex items-center gap-2">
+              <Link className="text-sm underline underline-offset-4" to="/about">
+                MDX page
+              </Link>
               <Link className="text-sm underline underline-offset-4" to="/">
                 Dynamic safe
               </Link>

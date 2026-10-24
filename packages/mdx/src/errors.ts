@@ -5,7 +5,7 @@ import type { ParserLimit } from "./parser/config.ts";
 import type { SourceRange } from "./ranges.ts";
 import type { SourceFile } from "./source.ts";
 
-import { createDiagnostic } from "./diagnostics.ts";
+import { createDiagnostic, formatDiagnostic } from "./diagnostics.ts";
 
 export abstract class MdxError extends Error {
   protected constructor(
@@ -564,6 +564,58 @@ export class FrontmatterError extends MdxError {
       [diagnostic],
       { kind: "transport", reason },
       FrontmatterError.nonTransportableValue,
+    );
+  }
+}
+
+export type BuildIssue = Readonly<{ kind: "compile" }> | Readonly<{ kind: "asyncDocument" }>;
+
+export class BuildError extends MdxError {
+  public readonly filename: string;
+  public readonly issue: BuildIssue;
+
+  private constructor(
+    message: string,
+    filename: string,
+    issue: BuildIssue,
+    options: ErrorOptions,
+    context: Function,
+  ) {
+    super("BuildError", message, options, context);
+    this.filename = filename;
+    this.issue = Object.freeze(issue);
+  }
+
+  public static compileFailed(this: void, filename: string, cause: MdxError): BuildError {
+    const diagnostics: readonly Diagnostic[] =
+      cause instanceof ParseError ||
+      cause instanceof TransformError ||
+      cause instanceof FrontmatterError ||
+      cause instanceof LimitError
+        ? cause.diagnostics
+        : [];
+
+    const lines =
+      diagnostics.length === 0
+        ? [cause.message]
+        : diagnostics.map((diagnostic) => formatDiagnostic(diagnostic));
+
+    return new BuildError(
+      lines.map((line) => `${filename}: ${line}`).join("\n"),
+      filename,
+      { kind: "compile" },
+      { cause },
+      BuildError.compileFailed,
+    );
+  }
+
+  public static asyncDocument(this: void, filename: string): BuildError {
+    return new BuildError(
+      `${filename}: async MDX documents are not supported here; move async work into a route loader`,
+      filename,
+      { kind: "asyncDocument" },
+      {},
+      BuildError.asyncDocument,
     );
   }
 }
