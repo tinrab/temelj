@@ -1,5 +1,5 @@
-import { context, trace, type Attributes, type AttributeValue } from "@opentelemetry/api";
-import { SeverityNumber, logs } from "@opentelemetry/api-logs";
+import { context, trace } from "@opentelemetry/api";
+import { SeverityNumber, logs, type AnyValue, type AnyValueMap } from "@opentelemetry/api-logs";
 import { isString, isNumber, isBoolean, type JsonValue } from "@temelj/value";
 
 import type { FormattedLogRecord, LogSink } from "./types.ts";
@@ -67,8 +67,8 @@ function severityNumber(level: LogLevel): SeverityNumber {
   }
 }
 
-function toOpenTelemetryAttributes(attributes: FormattedLogRecord): Attributes {
-  const result: Attributes = {};
+function toOpenTelemetryAttributes(attributes: FormattedLogRecord): AnyValueMap {
+  const result: AnyValueMap = {};
 
   for (const [key, value] of Object.entries(attributes)) {
     Object.defineProperty(result, key, {
@@ -82,7 +82,7 @@ function toOpenTelemetryAttributes(attributes: FormattedLogRecord): Attributes {
   return result;
 }
 
-function toOpenTelemetryAttributeValue(value: JsonValue): AttributeValue {
+function toOpenTelemetryAttributeValue(value: JsonValue): AnyValue {
   if (isString(value) || isNumber(value) || isBoolean(value)) return value;
 
   if (

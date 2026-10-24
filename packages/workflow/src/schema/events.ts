@@ -1,4 +1,6 @@
-import { ss } from "@temelj/standard-schema";
+import { ss, type Schema } from "@temelj/standard-schema";
+
+import type { EventRecord } from "../types/events.ts";
 
 import { attributeValueSchema } from "../attributes.ts";
 import {
@@ -256,7 +258,7 @@ const deterministicValueRecordedEventSchema = ss.object({
   value: persistedValueSchema,
 });
 
-export const eventRecordSchema = discriminated(
+export const eventRecordSchema: Schema<unknown, EventRecord> = discriminated(
   "kind",
   {
     workflow_started: startedEventSchema,
@@ -288,4 +290,4 @@ export const eventRecordSchema = discriminated(
   "Unsupported workflow event kind",
 );
 
-export const eventRecordListSchema = ss.array(eventRecordSchema);
+export const eventRecordListSchema: Schema<unknown, EventRecord[]> = ss.array(eventRecordSchema);

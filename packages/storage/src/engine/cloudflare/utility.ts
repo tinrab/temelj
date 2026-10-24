@@ -64,7 +64,7 @@ export function resolveCloudflareBinding<TBinding>(
 export function resolveCloudflareExpiresAt(
   options: StorageEngineSetOptions | undefined,
   defaultTtl: number | undefined,
-  now = Date.now(),
+  now: number = Date.now(),
 ): number | undefined {
   const ttl = options?.ttl ?? defaultTtl;
 

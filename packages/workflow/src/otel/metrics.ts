@@ -1,11 +1,36 @@
-import type { Meter } from "@opentelemetry/api";
+import type { Counter, Histogram, Meter } from "@opentelemetry/api";
 
 import { WORKFLOW_METRIC_NAMES } from "../telemetry.ts";
 
-export type Instruments = ReturnType<typeof createInstruments>;
+export interface Instruments {
+  readonly runTransitions: Counter;
+  readonly runDuration: Histogram;
+  readonly eventsAppended: Counter;
+  readonly stepAttempts: Counter;
+  readonly stepDuration: Histogram;
+  readonly messagesSent: Counter;
+  readonly messageWaitLatency: Histogram;
+  readonly hooksResumed: Counter;
+  readonly hookResumeLatency: Histogram;
+  readonly streamUpdates: Counter;
+  readonly cleanupDeletedRuns: Counter;
+  readonly workerClaims: Counter;
+  readonly workerClaimFailures: Counter;
+  readonly workerHeartbeatFailures: Counter;
+  readonly workerLeaseExtensions: Counter;
+  readonly workerLeaseReleases: Counter;
+  readonly pendingToClaimedLatency: Histogram;
+  readonly waitingToResumedLatency: Histogram;
+  readonly retryScheduled: Counter;
+  readonly retryExhausted: Counter;
+  readonly retryDelay: Histogram;
+  readonly scheduleDueToRunCreatedLatency: Histogram;
+  readonly storageOperationDuration: Histogram;
+  readonly storageOperationErrors: Counter;
+}
 
 /** The counters and histograms the OpenTelemetry adapter records. */
-export function createInstruments(meter: Meter) {
+export function createInstruments(meter: Meter): Instruments {
   return {
     runTransitions: meter.createCounter(WORKFLOW_METRIC_NAMES.runTransitions, {
       description: "Count of workflow run transitions.",

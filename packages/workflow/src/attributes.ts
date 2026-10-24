@@ -1,4 +1,4 @@
-import { ss, type SchemaOutput } from "@temelj/standard-schema";
+import { ss, type Schema, type SchemaOutput } from "@temelj/standard-schema";
 
 import type { EventRecord } from "./types/events.ts";
 import type { AttributePatch, WorkflowAttributeValue, RunAttributes } from "./types/run.ts";
@@ -96,13 +96,13 @@ const attributePrimitiveValueSchema = ss.union([
   ss.literal(null),
 ]);
 
-export const attributeValueSchema = ss.refine(
+export const attributeValueSchema: Schema<unknown, WorkflowAttributeValue> = ss.refine(
   attributePrimitiveValueSchema,
   (value) => encodedAttributeByteLength(value) <= WORKFLOW_ATTRIBUTE_MAX_VALUE_BYTES,
   `Workflow run attribute value must not exceed ${WORKFLOW_ATTRIBUTE_MAX_VALUE_BYTES} encoded bytes`,
 );
 
-export const runAttributesSchema = ss.refine(
+export const runAttributesSchema: Schema<unknown, RunAttributes> = ss.refine(
   keyedRecord(attributeKeySchema, attributeValueSchema),
   (attributes) => Object.keys(attributes).length <= WORKFLOW_ATTRIBUTE_MAX_COUNT,
   `Workflow run attributes must not include more than ${WORKFLOW_ATTRIBUTE_MAX_COUNT} keys`,

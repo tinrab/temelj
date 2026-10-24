@@ -1,5 +1,3 @@
-import { ss, type SchemaOutput } from "@temelj/standard-schema";
-
 import type { WorkflowClient } from "../types/client.ts";
 import type { TransformResult } from "../types/compiler.ts";
 import type { EventRecord } from "../types/events.ts";
@@ -8,18 +6,6 @@ import type { SendMessageOptions } from "../types/message.ts";
 import type { RunStatus } from "../types/run.ts";
 import type { Timeline } from "../types/timeline.ts";
 import type { WakeDueRunsOptions, WorkerRunResult } from "../types/worker.ts";
-
-import { nonBlankStringSchema } from "../schema/common.ts";
-
-const workflowDirectiveFixtureSchema = ss.object({
-  id: nonBlankStringSchema,
-  code: ss.string(),
-});
-
-const workflowDirectiveFixtureResultSchema = ss.object({
-  id: nonBlankStringSchema,
-  result: ss.optional(ss.unknown()),
-});
 
 export interface TestRunHandle {
   readonly runId: RunId;
@@ -72,13 +58,15 @@ export interface TestReplayOptions {
   readonly label?: string;
 }
 
-export type DirectiveFixture = Readonly<SchemaOutput<typeof workflowDirectiveFixtureSchema>>;
+export interface DirectiveFixture {
+  readonly id: string;
+  readonly code: string;
+}
 
-export type DirectiveFixtureResult = Readonly<
-  Omit<SchemaOutput<typeof workflowDirectiveFixtureResultSchema>, "result">
-> & {
+export interface DirectiveFixtureResult {
+  readonly id: string;
   readonly result?: TransformResult;
-};
+}
 
 export type WakeWorkflowRunOptions = Omit<
   WakeDueRunsOptions,

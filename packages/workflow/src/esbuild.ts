@@ -5,4 +5,4 @@ import { workflowPlugin } from "./compiler/plugin.ts";
 export { workflowPlugin, type PluginOptions } from "./compiler/plugin.ts";
 
 /** Creates the esbuild plugin that compiles workflow and step directives. */
-export const workflow = workflowPlugin.esbuild;
+export const workflow: typeof workflowPlugin.esbuild = workflowPlugin.esbuild;

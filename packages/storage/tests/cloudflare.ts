@@ -8,7 +8,7 @@ import type {
 
 import { isString, isFunction } from "@temelj/value";
 import Database from "libsql";
-import { vi } from "vitest";
+import { vi, type Mock } from "vitest";
 
 import type { CloudflareKvClient, CloudflareR2Client } from "../src/engine/cloudflare/client.ts";
 import type {
@@ -21,12 +21,75 @@ import type {
 import type { CloudflareKvBinding, CloudflareKvKey } from "../src/engine/cloudflare/kv.ts";
 import type { CloudflareR2Binding, CloudflareR2Object } from "../src/engine/cloudflare/r2.ts";
 
-export function createMockCloudflareKvBinding() {
+type MockKvPut = (
+  key: string,
+  value: string,
+  options?: { readonly expirationTtl?: number },
+) => Promise<void>;
+
+type MockKvBulkDelete = (
+  namespaceId: string,
+  params: { readonly account_id: string; readonly body: readonly string[] },
+) => Promise<NamespaceBulkDeleteResponse | null>;
+
+type MockKvBulkGet = (
+  namespaceId: string,
+  params: NamespaceBulkGetParams,
+) => Promise<NamespaceBulkGetResponse | null>;
+
+type MockKvBulkUpdate = (
+  namespaceId: string,
+  params: {
+    readonly account_id: string;
+    readonly body: readonly NamespaceBulkUpdateParams.Body[];
+  },
+) => Promise<NamespaceBulkUpdateResponse | null>;
+
+type MockKvDeleteValue = (
+  key: string,
+  params: { readonly account_id: string; readonly namespace_id: string },
+) => Promise<null>;
+
+type MockKvListKeys = (
+  namespaceId: string,
+  params: {
+    readonly account_id: string;
+    readonly prefix?: string;
+    readonly limit?: number;
+  },
+) => AsyncIterable<CloudflareKvKey>;
+
+type MockKvUpdate = (
+  key: string,
+  params: {
+    readonly account_id: string;
+    readonly namespace_id: string;
+    readonly value: Parameters<
+      CloudflareKvClient["kv"]["namespaces"]["values"]["update"]
+    >[1]["value"];
+    readonly expiration_ttl?: number;
+  },
+) => Promise<null>;
+
+interface MockCloudflareKvBinding {
+  readonly binding: CloudflareKvBinding;
+  readonly put: Mock<MockKvPut>;
+}
+
+interface MockCloudflareKvClient {
+  readonly client: CloudflareKvClient;
+  readonly bulkDelete: Mock<MockKvBulkDelete>;
+  readonly bulkGet: Mock<MockKvBulkGet>;
+  readonly bulkUpdate: Mock<MockKvBulkUpdate>;
+  readonly deleteValue: Mock<MockKvDeleteValue>;
+  readonly listKeys: Mock<MockKvListKeys>;
+  readonly update: Mock<MockKvUpdate>;
+}
+
+export function createMockCloudflareKvBinding(): MockCloudflareKvBinding {
   const items = new Map<string, string>();
 
-  const put = vi.fn<
-    (key: string, value: string, options?: { readonly expirationTtl?: number }) => Promise<void>
-  >(async (key, value) => {
+  const put = vi.fn<MockKvPut>(async (key, value) => {
     items.set(key, value);
   });
 
@@ -50,15 +113,10 @@ export function createMockCloudflareKvBinding() {
   };
 }
 
-export function createMockCloudflareKvClient() {
+export function createMockCloudflareKvClient(): MockCloudflareKvClient {
   const items = new Map<string, Uint8Array>();
 
-  const bulkDelete = vi.fn<
-    (
-      namespaceId: string,
-      params: { readonly account_id: string; readonly body: readonly string[] },
-    ) => Promise<NamespaceBulkDeleteResponse | null>
-  >(async (_namespaceId, params) => {
+  const bulkDelete = vi.fn<MockKvBulkDelete>(async (_namespaceId, params) => {
     for (const key of params.body) {
       items.delete(key);
     }
@@ -66,12 +124,7 @@ export function createMockCloudflareKvClient() {
     return { successful_key_count: params.body.length };
   });
 
-  const bulkGet = vi.fn<
-    (
-      namespaceId: string,
-      params: NamespaceBulkGetParams,
-    ) => Promise<NamespaceBulkGetResponse | null>
-  >(async (_namespaceId, params) => {
+  const bulkGet = vi.fn<MockKvBulkGet>(async (_namespaceId, params) => {
     const values: Record<string, string> = {};
 
     for (const key of params.keys) {
@@ -85,15 +138,7 @@ export function createMockCloudflareKvClient() {
     return { values };
   });
 
-  const bulkUpdate = vi.fn<
-    (
-      namespaceId: string,
-      params: {
-        readonly account_id: string;
-        readonly body: readonly NamespaceBulkUpdateParams.Body[];
-      },
-    ) => Promise<NamespaceBulkUpdateResponse | null>
-  >(async (_namespaceId, params) => {
+  const bulkUpdate = vi.fn<MockKvBulkUpdate>(async (_namespaceId, params) => {
     for (const item of params.body) {
       items.set(item.key, decodeMockBulkValue(item));
     }
@@ -101,27 +146,13 @@ export function createMockCloudflareKvClient() {
     return { successful_key_count: params.body.length };
   });
 
-  const deleteValue = vi.fn<
-    (
-      key: string,
-      params: { readonly account_id: string; readonly namespace_id: string },
-    ) => Promise<null>
-  >(async (key) => {
+  const deleteValue = vi.fn<MockKvDeleteValue>(async (key) => {
     items.delete(key);
 
     return null;
   });
 
-  const listKeys = vi.fn<
-    (
-      namespaceId: string,
-      params: {
-        readonly account_id: string;
-        readonly prefix?: string;
-        readonly limit?: number;
-      },
-    ) => AsyncIterable<CloudflareKvKey>
-  >((_namespaceId, params) =>
+  const listKeys = vi.fn<MockKvListKeys>((_namespaceId, params) =>
     asyncIterable(
       [...items.keys()].flatMap((name) =>
         params.prefix === undefined || name.startsWith(params.prefix) ? [{ name }] : [],
@@ -129,19 +160,7 @@ export function createMockCloudflareKvClient() {
     ),
   );
 
-  const update = vi.fn<
-    (
-      key: string,
-      params: {
-        readonly account_id: string;
-        readonly namespace_id: string;
-        readonly value: Parameters<
-          CloudflareKvClient["kv"]["namespaces"]["values"]["update"]
-        >[1]["value"];
-        readonly expiration_ttl?: number;
-      },
-    ) => Promise<null>
-  >(async (key, params) => {
+  const update = vi.fn<MockKvUpdate>(async (key, params) => {
     if (!(params.value instanceof Blob)) {
       throw new TypeError("Expected uploaded file");
     }

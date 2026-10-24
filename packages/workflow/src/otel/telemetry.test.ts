@@ -1,6 +1,5 @@
 import type {
   Attributes,
-  AttributeValue,
   Context,
   ContextManager,
   TextMapGetter,
@@ -278,9 +277,7 @@ function allMetricAttributes(metricsData: readonly MetricData[]): readonly Attri
   return metricsData.flatMap((metric) => metric.dataPoints.map((point) => point.attributes));
 }
 
-function exceptionMessages(
-  span: ReadableSpan | undefined,
-): readonly (AttributeValue | undefined)[] {
+function exceptionMessages(span: ReadableSpan | undefined): readonly unknown[] {
   return (
     span?.events
       .filter((event) => event.name === "exception")

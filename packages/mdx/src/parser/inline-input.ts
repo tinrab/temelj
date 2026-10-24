@@ -77,7 +77,7 @@ export class InlineInput {
     return this.#text.length;
   }
 
-  public sourceRange(start = 0, end = this.length): SourceRange {
+  public sourceRange(start: number = 0, end: number = this.length): SourceRange {
     if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 0 || end < start) {
       throw new RangeError(`Invalid inline range ${start}..${end}`);
     }

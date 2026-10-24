@@ -5,4 +5,4 @@ import { workflowPlugin } from "./compiler/plugin.ts";
 export { workflowPlugin, type PluginOptions } from "./compiler/plugin.ts";
 
 /** Creates the Rolldown plugin that compiles workflow and step directives. */
-export const workflow = workflowPlugin.rolldown;
+export const workflow: typeof workflowPlugin.rolldown = workflowPlugin.rolldown;

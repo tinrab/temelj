@@ -10,40 +10,45 @@ import {
 } from "@temelj/standard-schema";
 import { isObject, isPlainObject, isString } from "@temelj/value";
 
+import type { TelemetryContext } from "../types/telemetry.ts";
+
 import { durationTotal } from "../temporal.ts";
 
-export const temporalInstantSchema = ss.instanceOf(Temporal.Instant, "Expected a Temporal.Instant");
+export const temporalInstantSchema: Schema<unknown, Temporal.Instant> = ss.instanceOf(
+  Temporal.Instant,
+  "Expected a Temporal.Instant",
+);
 
-export const temporalDurationSchema = ss.instanceOf(
+export const temporalDurationSchema: Schema<unknown, Temporal.Duration> = ss.instanceOf(
   Temporal.Duration,
   "Expected a Temporal.Duration",
 );
 
-export const temporalNonNegativeDurationSchema = ss.refine(
+export const temporalNonNegativeDurationSchema: Schema<unknown, Temporal.Duration> = ss.refine(
   temporalDurationSchema,
   (value) => durationTotal(value) >= 0,
   "Expected a non-negative duration",
 );
 
-export const nonBlankStringSchema = ss.refine(
+export const nonBlankStringSchema: Schema<unknown, string> = ss.refine(
   ss.string(),
   (value) => value.trim().length > 0,
   "Expected a non-blank string",
 );
 
-export const nonBlankStringListSchema = ss.array(nonBlankStringSchema);
+export const nonBlankStringListSchema: Schema<unknown, string[]> = ss.array(nonBlankStringSchema);
 
-export const positiveSafeIntegerSchema = ss.positiveSafeInteger();
+export const positiveSafeIntegerSchema: Schema<unknown, number> = ss.positiveSafeInteger();
 
-export const nonNegativeSafeIntegerSchema = ss.nonNegativeSafeInteger();
+export const nonNegativeSafeIntegerSchema: Schema<unknown, number> = ss.nonNegativeSafeInteger();
 
-export const idSchema = ss.refine(
+export const idSchema: Schema<unknown, string> = ss.refine(
   ss.string("Expected an ID"),
   (value) => value.trim().length > 0,
   "Expected an ID",
 );
 
-export const telemetryContextSchema = ss.object({
+export const telemetryContextSchema: Schema<unknown, TelemetryContext> = ss.object({
   traceparent: ss.optional(nonBlankStringSchema),
   tracestate: ss.optional(nonBlankStringSchema),
 });

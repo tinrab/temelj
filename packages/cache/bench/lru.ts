@@ -11,6 +11,19 @@ export interface BenchSizes {
   readonly overfill: number;
 }
 
+type BenchScenario = () => Promise<void>;
+
+type BenchScenarioName =
+  | "set"
+  | "get-hit"
+  | "get-miss"
+  | "update"
+  | "mixed"
+  | "eviction"
+  | "zigzag"
+  | "delete"
+  | "has";
+
 const BASELINE_NAME = "@temelj/cache (LruCache)";
 
 function getMeanThroughput(task: Task): number | undefined {
@@ -106,7 +119,7 @@ function prepareKeys(size: number): string[] {
   return keys;
 }
 
-function runSet(capacity: number, sample: number) {
+function runSet(capacity: number, sample: number): BenchScenario {
   const keys = prepareKeys(sample);
 
   return async (): Promise<void> => {
@@ -147,7 +160,7 @@ function runSet(capacity: number, sample: number) {
   };
 }
 
-function runGetHit(capacity: number, sample: number) {
+function runGetHit(capacity: number, sample: number): BenchScenario {
   const keys = prepareKeys(sample);
 
   return async (): Promise<void> => {
@@ -192,7 +205,7 @@ function runGetHit(capacity: number, sample: number) {
   };
 }
 
-function runGetMiss(capacity: number, sample: number) {
+function runGetMiss(capacity: number, sample: number): BenchScenario {
   const keys = prepareKeys(sample);
 
   return async (): Promise<void> => {
@@ -230,7 +243,7 @@ function runGetMiss(capacity: number, sample: number) {
   };
 }
 
-function runUpdate(capacity: number, sample: number) {
+function runUpdate(capacity: number, sample: number): BenchScenario {
   const keys = prepareKeys(sample);
 
   return async (): Promise<void> => {
@@ -275,7 +288,7 @@ function runUpdate(capacity: number, sample: number) {
   };
 }
 
-function runMixed(capacity: number, sample: number) {
+function runMixed(capacity: number, sample: number): BenchScenario {
   const keys = prepareKeys(sample);
 
   return async (): Promise<void> => {
@@ -336,7 +349,7 @@ function runMixed(capacity: number, sample: number) {
   };
 }
 
-function runEviction(capacity: number, overfill: number) {
+function runEviction(capacity: number, overfill: number): BenchScenario {
   return async (): Promise<void> => {
     const bench = new Bench({ time: 200 });
 
@@ -375,7 +388,7 @@ function runEviction(capacity: number, overfill: number) {
   };
 }
 
-function runZigzag(capacity: number, sample: number) {
+function runZigzag(capacity: number, sample: number): BenchScenario {
   const keys = prepareKeys(sample);
 
   return async (): Promise<void> => {
@@ -424,7 +437,7 @@ function runZigzag(capacity: number, sample: number) {
   };
 }
 
-function runDelete(capacity: number, sample: number) {
+function runDelete(capacity: number, sample: number): BenchScenario {
   const keys = prepareKeys(sample);
 
   return async (): Promise<void> => {
@@ -469,7 +482,7 @@ function runDelete(capacity: number, sample: number) {
   };
 }
 
-function runHas(capacity: number, sample: number) {
+function runHas(capacity: number, sample: number): BenchScenario {
   const keys = prepareKeys(sample);
 
   return async (): Promise<void> => {
@@ -514,7 +527,7 @@ function runHas(capacity: number, sample: number) {
   };
 }
 
-export function createBenchSuite(sizes: BenchSizes) {
+export function createBenchSuite(sizes: BenchSizes): Record<BenchScenarioName, BenchScenario> {
   return {
     set: runSet(sizes.capacity, sizes.sample),
     "get-hit": runGetHit(sizes.capacity, sizes.sample),

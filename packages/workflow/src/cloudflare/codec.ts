@@ -1,6 +1,6 @@
 import type { StorageValue } from "@temelj/storage";
 
-import { ss, type SchemaOutput } from "@temelj/standard-schema";
+import { ss, type Schema } from "@temelj/standard-schema";
 import { createSuperJsonStorageCodec } from "@temelj/storage";
 
 import type { WorkflowDefinition } from "../types/definition.ts";
@@ -16,16 +16,22 @@ const cloudflareCodec = createSuperJsonStorageCodec<StorageValue | undefined, "s
 
 const nonEmptyStringSchema = ss.nonEmptyString();
 
-const cloudflareEnvelopeSchema = ss.object({
+/** Serialized payload dispatched through the generic Cloudflare entrypoint. */
+export interface CloudflareEnvelope {
+  readonly kind: "temelj-workflow";
+  readonly version: 1;
+  readonly workflowName: string;
+  readonly workflowVersion?: string;
+  readonly input: string;
+}
+
+const cloudflareEnvelopeSchema: Schema<unknown, CloudflareEnvelope> = ss.object({
   kind: ss.literal("temelj-workflow"),
   version: ss.literal(1),
   workflowName: nonEmptyStringSchema,
   workflowVersion: ss.optional(nonEmptyStringSchema),
   input: ss.string(),
 });
-
-/** Serialized payload dispatched through the generic Cloudflare entrypoint. */
-export type CloudflareEnvelope = SchemaOutput<typeof cloudflareEnvelopeSchema>;
 
 // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Caller-defined workflow values are validated before crossing the Cloudflare transport boundary.
 export function encodeCloudflareValue(value: unknown): string {
@@ -55,16 +61,22 @@ export function parseCloudflareEnvelope(value: unknown): CloudflareEnvelope {
   return parsed.value;
 }
 
-const cloudflareResultEnvelopeSchema = ss.object({
+/** Serialized result coupled to the workflow contract that produced it. */
+export interface CloudflareResultEnvelope {
+  readonly kind: "temelj-workflow-result";
+  readonly version: 1;
+  readonly workflowName: string;
+  readonly workflowVersion?: string;
+  readonly output: string;
+}
+
+const cloudflareResultEnvelopeSchema: Schema<unknown, CloudflareResultEnvelope> = ss.object({
   kind: ss.literal("temelj-workflow-result"),
   version: ss.literal(1),
   workflowName: nonEmptyStringSchema,
   workflowVersion: ss.optional(nonEmptyStringSchema),
   output: ss.string(),
 });
-
-/** Serialized result coupled to the workflow contract that produced it. */
-export type CloudflareResultEnvelope = SchemaOutput<typeof cloudflareResultEnvelopeSchema>;
 
 /** Validates the provider result and its workflow identity before decoding the output. */
 export function decodeCloudflareResult(

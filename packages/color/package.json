@@ -31,8 +31,8 @@
     "@types/node": "26.6.5",
     "esbuild-plugin-file-path-extensions": "^2.1.4",
     "shx": "^0.4.0",
-    "tsdown": "^0.23.1",
+    "tsdown": "^0.23.2",
     "typescript": "^7.0.2",
-    "vitest": "^5.0.4"
+    "vitest": "^5.0.5"
   }
 }

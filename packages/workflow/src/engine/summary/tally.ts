@@ -16,22 +16,22 @@ import { isScheduledRunStatus } from "../../run-status.ts";
 import { earliestOptionalTimestamp, latestOptionalTimestamp } from "../../temporal.ts";
 import { greatestOptionalNumber } from "../../values.ts";
 
-export const RUN_STATUSES = [
+export const RUN_STATUSES: readonly RunStatus[] = [
   "pending",
   "running",
   "waiting",
   "completed",
   "failed",
   "canceled",
-] as const satisfies readonly RunStatus[];
+];
 
-export const TERMINAL_RUN_STATUSES = [
+export const TERMINAL_RUN_STATUSES: readonly TerminalRunStatus[] = [
   "completed",
   "failed",
   "canceled",
-] as const satisfies readonly TerminalRunStatus[];
+];
 
-export const RUN_TRANSITION_REASONS = [
+export const RUN_TRANSITION_REASONS: readonly RunTransitionReason[] = [
   "created",
   "claimed",
   "reclaimed",
@@ -47,7 +47,7 @@ export const RUN_TRANSITION_REASONS = [
   "failed",
   "deadline",
   "canceled",
-] as const satisfies readonly RunTransitionReason[];
+];
 
 const RUN_RETRY_REASONS = [
   "workflow",
@@ -181,11 +181,11 @@ export class FailureTally {
 
 /** Waits of one kind across runs: who waits, since when, and which wait ends first. */
 export class WaitTally<TNext extends object> {
-  total = 0;
+  total: number = 0;
   oldestStartedAt: Temporal.Instant | undefined;
-  readonly next = new Earliest<TNext>();
-  readonly stepIds = new Set<string>();
-  readonly attemptKeys = new Set<string>();
+  readonly next: Earliest<TNext> = new Earliest<TNext>();
+  readonly stepIds: Set<string> = new Set<string>();
+  readonly attemptKeys: Set<string> = new Set<string>();
 
   add(
     stepId: string,

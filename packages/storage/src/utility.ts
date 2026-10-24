@@ -27,7 +27,7 @@ export function storedValuesEqual(
 
 export function resolveExpiresAt(
   options: StorageEngineSetOptions | undefined,
-  now = Date.now(),
+  now: number = Date.now(),
 ): number | undefined {
   return options?.ttl === undefined ? undefined : now + options.ttl;
 }

@@ -4,9 +4,9 @@ import type { StepApi, StepDefinition } from "./types/step.ts";
 
 import { WorkflowDefinitionError } from "./errors/mod.ts";
 
-export const COMPILED_WORKFLOW = Symbol("temelj.workflow.definition");
+export const COMPILED_WORKFLOW: unique symbol = Symbol("temelj.workflow.definition");
 
-export const COMPILED_STEP = Symbol("temelj.workflow.step");
+export const COMPILED_STEP: unique symbol = Symbol("temelj.workflow.step");
 
 type AnyCompiledImplementation = WorkflowImplementation<
   readonly unknown[],

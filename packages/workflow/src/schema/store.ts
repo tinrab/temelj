@@ -1,4 +1,10 @@
-import { ss } from "@temelj/standard-schema";
+import { ss, type Schema } from "@temelj/standard-schema";
+
+import type { CleanupMarkerRecord, CleanupMode } from "../types/cleanup.ts";
+import type { LockRecord } from "../types/lock.ts";
+import type { ScheduleRecord } from "../types/schedule.ts";
+import type { StepAttemptRecord, StepAttemptStatus } from "../types/step-attempts.ts";
+import type { CleanupIndexKey, MessageIdempotencyIndex } from "../types/store.ts";
 
 import {
   nonBlankStringSchema,
@@ -16,7 +22,7 @@ import {
   terminalRunStatusSchema,
 } from "./run.ts";
 
-export const lockRecordSchema = ss.object({
+export const lockRecordSchema: Schema<unknown, LockRecord> = ss.object({
   key: nonBlankStringSchema,
   namespace: nonBlankStringSchema,
   holderId: nonBlankStringSchema,
@@ -28,9 +34,9 @@ export const lockRecordSchema = ss.object({
   releasedAt: ss.optional(temporalInstantSchema),
 });
 
-export const cleanupModeSchema = ss.literal("best_effort");
+export const cleanupModeSchema: Schema<unknown, CleanupMode> = ss.literal("best_effort");
 
-export const cleanupMarkerRecordSchema = ss.object({
+export const cleanupMarkerRecordSchema: Schema<unknown, CleanupMarkerRecord> = ss.object({
   mode: cleanupModeSchema,
   runId: idSchema,
   workflowName: nonBlankStringSchema,
@@ -63,7 +69,7 @@ const schedulePositiveDurationSchema = ss.refine(
   "Expected a positive duration",
 );
 
-export const scheduleRecordSchema = ss.object({
+export const scheduleRecordSchema: Schema<unknown, ScheduleRecord> = ss.object({
   id: scheduleIdSchema,
   namespace: nonBlankStringSchema,
   workflowName: nonBlankStringSchema,
@@ -86,9 +92,14 @@ export const scheduleRecordSchema = ss.object({
   tickCount: ss.union([positiveSafeIntegerSchema, ss.literal(0)]),
 });
 
-export const stepAttemptStatusSchema = ss.picklist(["running", "completed", "failed", "abandoned"]);
+export const stepAttemptStatusSchema: Schema<unknown, StepAttemptStatus> = ss.picklist([
+  "running",
+  "completed",
+  "failed",
+  "abandoned",
+]);
 
-export const stepAttemptRecordSchema = ss.object({
+export const stepAttemptRecordSchema: Schema<unknown, StepAttemptRecord> = ss.object({
   runId: idSchema,
   stepId: idSchema,
   stepName: nonBlankStringSchema,
@@ -115,7 +126,7 @@ export const stepAttemptRecordSchema = ss.object({
   finishedAt: ss.optional(temporalInstantSchema),
 });
 
-export const cleanupIndexKeySchema = ss.object({
+export const cleanupIndexKeySchema: Schema<unknown, CleanupIndexKey> = ss.object({
   key: nonBlankStringSchema,
   value: ss.refine(
     persistedValueSchema,
@@ -126,7 +137,7 @@ export const cleanupIndexKeySchema = ss.object({
   ),
 });
 
-export const messageIdempotencyIndexSchema = ss.object({
+export const messageIdempotencyIndexSchema: Schema<unknown, MessageIdempotencyIndex> = ss.object({
   runId: idSchema,
   messageId: idSchema,
   timestamp: temporalInstantSchema,
