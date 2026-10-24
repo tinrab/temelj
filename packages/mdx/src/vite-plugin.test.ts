@@ -4,7 +4,7 @@ import path from "node:path";
 import { build, createServer } from "vite";
 import { expect, it } from "vitest";
 
-import { mdx } from "./vite.ts";
+import { mdx } from "./vite-plugin.ts";
 
 it("builds relative MDX imports through Vite and leaves raw imports intact", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "temelj-mdx-vite-"));

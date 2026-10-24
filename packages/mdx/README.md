@@ -264,11 +264,11 @@ Use [`compileTrustedMdx()`](../mdx-react/README.md#trusted-compilation) from @te
 
 ## Compile MDX imports
 
-The Vite plugin compiles imported `.mdx` files to components, without evaluating them.
-Add it before React's plugin:
+The bundler plugin compiles imported `.mdx` files to components, without evaluating them.
+With Vite, add it before React's plugin:
 
 ```ts
-import { mdx, MdxConfig } from "@temelj/mdx/vite";
+import { mdx, MdxConfig } from "@temelj/mdx/vite-plugin";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
@@ -288,7 +288,8 @@ export default defineConfig({
 Document plugins run, while HTML plugins do not.
 
 `?raw` and `?url` imports are left to Vite.
-Other bundlers can use `mdxPlugin` from `@temelj/mdx/unplugin`, or the webpack loader in `@temelj/mdx/loader`.
+Other bundlers import the same `mdx` plugin from their own entry: `rollup-plugin`, `rolldown-plugin`, `webpack-plugin`, `rspack-plugin`, `rsbuild-plugin`, `esbuild-plugin`, `farm-plugin`, or `bun-plugin`.
+For example, `import { mdx } from "@temelj/mdx/webpack-plugin"`.
 
 ## Stream a document
 
@@ -534,6 +535,6 @@ Pass `limits` to `parse()`, `Processor`, or `MdxStream`.
 | `@temelj/mdx`          | Parser, source files, trees, formatting, HTML, compiler, streams. |
 | `@temelj/mdx/plugins`  | Plugin types, built-ins, code metadata, Shiki adapter.            |
 | `@temelj/mdx/unified`  | Remark and rehype adapters.                                       |
-| `@temelj/mdx/unplugin` | Bundler plugin for MDX imports.                                   |
-| `@temelj/mdx/vite`     | Vite plugin for MDX imports.                                      |
+| `@temelj/mdx/unplugin` | The unplugin instance behind the bundler plugins.                 |
+| `@temelj/mdx/*-plugin` | Bundler plugins for MDX imports, such as `vite-plugin`.           |
 | `@temelj/mdx/loader`   | Webpack and Turbopack loader.                                     |

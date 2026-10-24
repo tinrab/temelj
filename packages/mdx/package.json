@@ -36,9 +36,41 @@
       "types": "./dist/unplugin.d.mts",
       "import": "./dist/unplugin.mjs"
     },
-    "./vite": {
-      "types": "./dist/vite.d.mts",
-      "import": "./dist/vite.mjs"
+    "./vite-plugin": {
+      "types": "./dist/vite-plugin.d.mts",
+      "import": "./dist/vite-plugin.mjs"
+    },
+    "./rollup-plugin": {
+      "types": "./dist/rollup-plugin.d.mts",
+      "import": "./dist/rollup-plugin.mjs"
+    },
+    "./rolldown-plugin": {
+      "types": "./dist/rolldown-plugin.d.mts",
+      "import": "./dist/rolldown-plugin.mjs"
+    },
+    "./webpack-plugin": {
+      "types": "./dist/webpack-plugin.d.mts",
+      "import": "./dist/webpack-plugin.mjs"
+    },
+    "./rspack-plugin": {
+      "types": "./dist/rspack-plugin.d.mts",
+      "import": "./dist/rspack-plugin.mjs"
+    },
+    "./rsbuild-plugin": {
+      "types": "./dist/rsbuild-plugin.d.mts",
+      "import": "./dist/rsbuild-plugin.mjs"
+    },
+    "./esbuild-plugin": {
+      "types": "./dist/esbuild-plugin.d.mts",
+      "import": "./dist/esbuild-plugin.mjs"
+    },
+    "./farm-plugin": {
+      "types": "./dist/farm-plugin.d.mts",
+      "import": "./dist/farm-plugin.mjs"
+    },
+    "./bun-plugin": {
+      "types": "./dist/bun-plugin.d.mts",
+      "import": "./dist/bun-plugin.mjs"
     },
     "./loader": {
       "types": "./dist/loader.d.mts",
@@ -65,6 +97,7 @@
   "devDependencies": {
     "@shikijs/rehype": "4.5.0",
     "@types/node": "26.6.5",
+    "esbuild": "0.28.2",
     "property-information": "7.2.0",
     "rehype-slug": "6.0.0",
     "remark-toc": "9.0.0",

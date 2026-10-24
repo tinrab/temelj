@@ -1,7 +1,7 @@
 import tailwindcss from "@tailwindcss/vite";
 import { devtools } from "@tanstack/devtools-vite";
 import { tanstackStart } from "@tanstack/react-start/plugin/vite";
-import { mdx } from "@temelj/mdx/vite";
+import { mdx } from "@temelj/mdx/vite-plugin";
 import viteReact from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 

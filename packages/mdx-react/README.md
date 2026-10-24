@@ -334,7 +334,7 @@ Add the [MDX Vite plugin](../mdx/README.md#compile-mdx-imports) before Start's p
 
 ```ts
 import { tanstackStart } from "@tanstack/react-start/plugin/vite";
-import { mdx } from "@temelj/mdx/vite";
+import { mdx } from "@temelj/mdx/vite-plugin";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
