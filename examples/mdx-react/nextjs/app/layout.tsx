@@ -36,6 +36,9 @@ export default function RootLayout({
           <header className="flex flex-wrap items-center gap-4 border-b pb-6">
             <h2 className="font-semibold">Next.js</h2>
             <nav aria-label="Examples" className="flex items-center gap-2">
+              <Link className="text-sm underline underline-offset-4" href="/about">
+                MDX page
+              </Link>
               <Link className="text-sm underline underline-offset-4" href="/">
                 Dynamic safe
               </Link>

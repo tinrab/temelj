@@ -279,6 +279,97 @@ export const registry = defineMdxRegistry({ math: KaTeXMath });
 Without a math renderer, formulas keep a readable code fallback.
 You can define your own math renderer with `MathRenderPlugin` plugin.
 
+## MDX files as pages
+
+MDX files compile to React components at build time, so they work as pages and imports.
+Imports and expressions run as application code, so use them only with trusted content.
+
+Add MDX import types to `tsconfig.json`:
+
+```json
+{
+  "compilerOptions": {
+    "types": ["@temelj/mdx-react/mdx"]
+  }
+}
+```
+
+Listing `types` turns off automatic `@types/*` inclusion, so also list others you need, such as `node` or `vite/client`.
+
+Or declare them yourself in a file such as `mdx-env.d.ts`:
+
+```ts
+declare module "*.mdx" {
+  import type { CompiledContentRuntimeProps } from "@temelj/mdx-react";
+  import type { ReactNode } from "react";
+
+  export default function MdxContent(props: CompiledContentRuntimeProps): ReactNode;
+}
+```
+
+This also lets you type authored exports, such as `metadata`.
+Use one approach, since both declare the same default export.
+
+### Next.js
+
+Wrap the config in `next.config.mjs`:
+
+```js
+import { withMdx } from "@temelj/mdx-react/next";
+
+export default withMdx({
+  components: "./mdx-components.tsx", // Exports useMDXComponents().
+  syntax: { frontmatter: "yaml" },
+})({});
+```
+
+Both options are optional.
+The config must be an ESM file, since the packages are ESM-only.
+
+Turbopack passes loader options as JSON, so document plugins and frontmatter schemas aren't supported here.
+
+Then write pages as MDX, such as `app/about/page.mdx`:
+
+```mdx
+import { Counter } from "../../components/counter";
+
+export const metadata = { title: "About" };
+
+# About
+
+<Counter />
+```
+
+Pages render as Server Components, and can be async.
+Import client components from TSX files marked `"use client"`.
+
+### TanStack Start
+
+Add the [MDX Vite plugin](../mdx/README.md#compile-mdx-imports) before Start's plugin:
+
+```ts
+import { tanstackStart } from "@tanstack/react-start/plugin/vite";
+import { mdx } from "@temelj/mdx/vite-plugin";
+import react from "@vitejs/plugin-react";
+import { defineConfig } from "vite";
+
+export default defineConfig({
+  plugins: [mdx({ synchronous: true }), tanstackStart(), react()],
+});
+```
+
+`synchronous` rejects async documents, which can't render on the client.
+
+Then render MDX from a route:
+
+```tsx
+import { createFileRoute } from "@tanstack/react-router";
+
+import Content from "../content/about.mdx";
+
+export const Route = createFileRoute("/about")({ component: Content });
+```
+
 ## Trusted compilation
 
 This path executes JavaScript from the MDX source.

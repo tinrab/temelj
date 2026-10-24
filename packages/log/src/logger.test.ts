@@ -17,7 +17,7 @@ import {
   InMemorySpanExporter,
   SimpleSpanProcessor,
 } from "@opentelemetry/sdk-trace-base";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 
 import type { LogAttributes, LogRecord, LogSink } from "./types.ts";
 
@@ -245,6 +245,90 @@ describe("logger", () => {
 
     expect(() => loose.info("ok")).not.toThrow();
     expect(() => strict.info("boom")).toThrow("sink failed");
+  });
+
+  test("retains asynchronous strict sink failures until flush and shares them with parents", async () => {
+    const failure = new Error("Asynchronous sink failure");
+
+    const logger = createLogger({
+      sink: {
+        write: async () => {
+          throw failure;
+        },
+      },
+      sinkFailureMode: "throw",
+    });
+
+    logger.child({ operation: "child" }).info("message");
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    await expect(logger.flush()).rejects.toBe(failure);
+    await expect(logger.flush()).resolves.toBeUndefined();
+  });
+
+  test("close releases the sink even when flushing fails", async () => {
+    const failure = new Error("Flush failed");
+    const close = vi.fn<() => void>();
+
+    const logger = createLogger({
+      sink: {
+        write: () => undefined,
+        flush: () => {
+          throw failure;
+        },
+        close,
+      },
+    });
+
+    await expect(logger.close()).rejects.toBe(failure);
+    expect(close).toHaveBeenCalledOnce();
+  });
+
+  test("preserves both failures when flushing and closing reject", async () => {
+    const flushFailure = new Error("Flush failed");
+    const closeFailure = new Error("Close failed");
+
+    const logger = createLogger({
+      sink: {
+        write: () => undefined,
+        flush: () => {
+          throw flushFailure;
+        },
+        close: () => {
+          throw closeFailure;
+        },
+      },
+    });
+
+    await expect(logger.close()).rejects.toMatchObject({ errors: [flushFailure, closeFailure] });
+  });
+
+  test("multiplexing observes asynchronous writes even when another sink throws synchronously", async () => {
+    const asynchronous = new Error("Async sink failed");
+    const synchronous = new Error("Sync sink failed");
+    const records: LogRecord[] = [];
+
+    const logger = createLogger({
+      sink: createMultiplexSink([
+        {
+          write: async () => {
+            throw asynchronous;
+          },
+        },
+        {
+          write: () => {
+            throw synchronous;
+          },
+        },
+        createMemorySink(records),
+      ]),
+      sinkFailureMode: "throw",
+    });
+
+    expect(() => logger.info("message")).not.toThrow();
+    await expect(logger.flush()).rejects.toMatchObject({
+      errors: expect.arrayContaining([asynchronous, synchronous]),
+    });
+    expect(records).toHaveLength(1);
   });
 
   test("multiplexes sinks and supports level-filter sink", () => {

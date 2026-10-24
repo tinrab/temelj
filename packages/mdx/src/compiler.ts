@@ -77,6 +77,8 @@ export type MdxTransportValue =
 
 interface CompileArtifactBase {
   readonly code: string;
+  /** Whether the default export is an async function component. */
+  readonly async: boolean;
   readonly frontmatter: MdxTransportValue;
   readonly map: SourceMap;
 }
@@ -169,10 +171,11 @@ function emitArtifact(
     enforceSourceMapLimit(options.source, map, options.maximumSourceMapBytes);
 
     return format === "program"
-      ? Object.freeze({ format, code, map, frontmatter })
+      ? Object.freeze({ format, code, async: usesAwait, map, frontmatter })
       : Object.freeze({
           format,
           code,
+          async: usesAwait,
           map,
           imports: Object.freeze(
             options.providerImportSource === undefined ||

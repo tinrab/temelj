@@ -1,6 +1,6 @@
 {
   "name": "@tinrab/temelj",
-  "version": "0.20.0",
+  "version": "0.21.0",
   "exports": {
     "./async": "./src/async/mod.ts",
     "./color": "./src/color/mod.ts",
@@ -22,7 +22,7 @@
     "@temelj/event": "jsr:@temelj/event@^0.1.0",
     "@temelj/env": "jsr:@temelj/env@^0.2.0",
     "@temelj/handlebars": "jsr:@temelj/handlebars@^0.13.0",
-    "@temelj/id": "jsr:@temelj/id@^0.13.0",
+    "@temelj/id": "jsr:@temelj/id@^0.14.0",
     "@temelj/iterator": "jsr:@temelj/iterator@^0.13.0",
     "@temelj/math": "jsr:@temelj/math@^0.13.0",
     "@temelj/request": "jsr:@temelj/request@^0.13.0",

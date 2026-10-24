@@ -1,3 +1,5 @@
+import type { Workflow as NativeCloudflareWorkflow } from "@cloudflare/workers-types";
+
 import { ss } from "@temelj/standard-schema";
 import { isFunction } from "@temelj/value";
 import { describe, expect, expectTypeOf, test } from "vitest";
@@ -27,6 +29,146 @@ import { createCloudflareWorkflowRuntime } from "./runtime.ts";
 import { createCloudflareStepApi } from "./step.ts";
 
 describe("Cloudflare Workflow adapter", () => {
+  test("recovers an idempotent start whose creation acknowledgement was lost", async () => {
+    let executions = 0;
+
+    const workflow = implementWorkflow<undefined, number>(
+      { name: "lost-start-receipt" },
+      () => ++executions,
+    );
+
+    const registry = new Registry([workflow]);
+    const binding = new TestCloudflareBinding(registry);
+
+    const runtime = createCloudflareWorkflowRuntime({
+      registry,
+      binding: {
+        create: (options) => binding.create(options),
+        createBatch: async (options) => {
+          await binding.createBatch(options);
+          throw new Error("Creation acknowledgement lost");
+        },
+        get: (id) => binding.get(id),
+      },
+    });
+
+    const handle = await runtime.runs.start(workflow, undefined, { idempotencyKey: "purchase-1" });
+    await expect(handle.result()).resolves.toBe(1);
+    expect(binding.createCount).toBe(1);
+  });
+
+  test("preserves a rejected creation error when idempotent recovery finds no instance", async () => {
+    const workflow = implementWorkflow<undefined, void>(
+      { name: "rejected-start" },
+      () => undefined,
+    );
+
+    const failure = new Error("Creation rejected");
+
+    const runtime = createCloudflareWorkflowRuntime({
+      registry: new Registry([workflow]),
+      binding: {
+        create: async () => {
+          throw failure;
+        },
+        createBatch: async () => {
+          throw failure;
+        },
+        get: async () => {
+          throw new Error("Instance does not exist");
+        },
+      },
+    });
+
+    await expect(
+      runtime.runs.start(workflow, undefined, { idempotencyKey: "rejected-1" }),
+    ).rejects.toBe(failure);
+  });
+
+  test("accepts a native Workflow binding without an application adapter", () => {
+    expectTypeOf<NativeCloudflareWorkflow>().toExtend<CloudflareWorkflowBinding>();
+  });
+
+  test.each([1, 3, 10])(
+    "runs at most %i attempts including the initial call",
+    async (maximumAttempts) => {
+      const durableStep = new TestCloudflareStep();
+      const step = createCloudflareStepApi({ step: durableStep });
+      let attempts = 0;
+
+      await expect(
+        step.run({ name: "failing-task", retry: { maximumAttempts } }, () => {
+          attempts++;
+          throw new Error("Task failed");
+        }),
+      ).rejects.toThrow("Task failed");
+      expect(attempts).toBe(maximumAttempts);
+    },
+  );
+
+  test("omits an unspecified timeout instead of overriding the native default", async () => {
+    const durableStep = new TestCloudflareStep();
+    const step = createCloudflareStepApi({ step: durableStep });
+    await expect(step.run({ name: "default-timeout" }, () => "done")).resolves.toBe("done");
+    expect(durableStep.configurations[0]).not.toHaveProperty("timeout");
+  });
+
+  test("represents the native maximum retry budget and keeps zero delay finite", async () => {
+    const durableStep = new TestCloudflareStep();
+    const step = createCloudflareStepApi({ step: durableStep });
+    await step.run(
+      { name: "maximum-retries", retry: { maximumAttempts: 10_001 } },
+      () => undefined,
+    );
+    expect(durableStep.configurations[0]?.retries?.limit).toBe(10_000);
+    const delay = durableStep.configurations[0]?.retries?.delay;
+
+    if (!isFunction(delay)) {
+      throw new Error("Expected a dynamic retry delay");
+    }
+
+    expect(
+      await delay({ ctx: testStepContext("maximum-retries", 10_000), error: new Error("retry") }),
+    ).toBe(0);
+    await expect(
+      step.run({ name: "excess-retries", retry: { maximumAttempts: 10_002 } }, () => undefined),
+    ).rejects.toThrow("at most 10001 attempts");
+  });
+
+  test("keeps rollback in progress nonterminal until the instance terminates", async () => {
+    const workflow = implementWorkflow<undefined, void>(
+      { name: "rollback-status" },
+      () => undefined,
+    );
+
+    let state: CloudflareWorkflowInstanceStatus = { status: "rollingBack" };
+
+    const instance = {
+      id: "rollback-1",
+      status: async () => state,
+      terminate: async () => undefined,
+      sendEvent: async () => undefined,
+    };
+
+    const runtime = createCloudflareWorkflowRuntime({
+      registry: new Registry([workflow]),
+      binding: {
+        create: async () => instance,
+        createBatch: async () => [instance],
+        get: async () => instance,
+      },
+    });
+
+    const handle = await runtime.runs.get(workflow, "rollback-1");
+    await expect(handle.status()).resolves.toBe("running");
+    await expect(handle.getRun()).resolves.toMatchObject({
+      status: "running",
+      finishedAt: undefined,
+    });
+    state = { status: "terminated" };
+    await expect(handle.status()).resolves.toBe("canceled");
+  });
+
   test("requires registered targets and dispatches their exact version", async () => {
     const unversioned = implementWorkflow<undefined, string>(
       { name: "exact-version" },
@@ -190,7 +332,7 @@ describe("Cloudflare Workflow adapter", () => {
     expect(binding.step.sleeps).toHaveLength(1);
     expect(binding.step.sleeps[0]?.duration).toBe(1_000);
     expect(binding.step.sleeps[0]?.name).toMatch(/^pause-[a-z0-9]+$/);
-    expect(binding.step.configurations[1]?.retries?.limit).toBe(3);
+    expect(binding.step.configurations[1]?.retries?.limit).toBe(2);
     const delay = binding.step.configurations[1]?.retries?.delay;
 
     if (!isFunction(delay)) {
@@ -256,7 +398,7 @@ describe("Cloudflare Workflow adapter", () => {
 
     const handle = await runtime.runs.start(workflow, undefined, { id: "limits-1" });
     await expect(handle.result()).rejects.toThrow(
-      "Cloudflare Workflow steps support at most 10000 attempts",
+      "Cloudflare Workflow steps support at most 10001 attempts",
     );
   });
 
@@ -456,8 +598,17 @@ class TestCloudflareStep implements CloudflareWorkflowStep {
     callback: (context: CloudflareWorkflowStepContext) => T | Promise<T>,
   ): Promise<T> {
     this.configurations.push(config);
+    const count = this.#nextCount(name);
 
-    return await callback(testStepContext(name, 1, this.#nextCount(name), config));
+    for (let attempt = 1; ; attempt++) {
+      try {
+        return await callback(testStepContext(name, attempt, count, config));
+      } catch (error) {
+        if (attempt > (config.retries?.limit ?? 5)) {
+          throw error;
+        }
+      }
+    }
   }
 
   async sleep(name: string, duration: number): Promise<void> {

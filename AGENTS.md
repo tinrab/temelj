@@ -73,7 +73,7 @@ packages/<name>/
 
 Package conventions:
 
-- `src/mod.ts` is the public barrel and should use `export *` for public modules.
+- `src/mod.ts` is the public barrel and should list public re-exports explicitly.
 - Tests stay next to the source they cover.
 - `dist/` is build output and must not be edited by hand.
 - Package `tsconfig.json` extends `../../scripts/tsconfig.json`.
@@ -108,14 +108,14 @@ compatibility when publishing new versions.
 
 ## TypeScript Style
 
-Follow [CODE_STYLE.md](./CODE_STYLE.md) for all TypeScript edits. The most
-important constraints are:
+Follow [TYPESCRIPT_STYLE_GUIDE.md](./TYPESCRIPT_STYLE_GUIDE.md) for all TypeScript
+edits. The most important constraints are:
 
 - Use modern erasable TypeScript. Do not use legacy enums, runtime namespaces,
   parameter properties, or other syntax that conflicts with
   `erasableSyntaxOnly`.
-- Prefer named exports. Package source should not introduce default exports;
-  config files may use default exports where the tool expects them.
+- Prefer named exports. Default exports are allowed where a tool, framework, or
+  external format requires them, as documented in the style guide.
 - Keep public APIs explicit: exported functions, methods, classes, interfaces,
   and type aliases should be intentionally named and typed.
 - Use `unknown` instead of `any`. Any unsafe cast or `@ts-expect-error` needs a

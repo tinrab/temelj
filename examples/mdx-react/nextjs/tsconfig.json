@@ -1,5 +1,6 @@
 {
   "compilerOptions": {
+    "types": ["node", "@temelj/mdx-react/mdx"],
     "target": "ES2017",
     "lib": ["dom", "dom.iterable", "dom.asynciterable", "esnext"],
     "allowJs": true,
@@ -25,7 +26,7 @@
   },
   "include": [
     "next-env.d.ts",
-    "next.config.ts",
+    "next.config.mjs",
     "**/*.ts",
     "**/*.tsx",
     "**/*.mts",

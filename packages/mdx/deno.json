@@ -1,14 +1,25 @@
 {
   "name": "@temelj/mdx",
-  "version": "0.16.0",
+  "version": "0.17.0",
   "exports": {
     ".": "./src/mod.ts",
     "./plugins": "./src/plugins/mod.ts",
-    "./unified": "./src/unified/mod.ts"
+    "./unified": "./src/unified/mod.ts",
+    "./unplugin": "./src/unplugin.ts",
+    "./vite-plugin": "./src/vite-plugin.ts",
+    "./rollup-plugin": "./src/rollup-plugin.ts",
+    "./rolldown-plugin": "./src/rolldown-plugin.ts",
+    "./webpack-plugin": "./src/webpack-plugin.ts",
+    "./rspack-plugin": "./src/rspack-plugin.ts",
+    "./rsbuild-plugin": "./src/rsbuild-plugin.ts",
+    "./esbuild-plugin": "./src/esbuild-plugin.ts",
+    "./farm-plugin": "./src/farm-plugin.ts",
+    "./bun-plugin": "./src/bun-plugin.ts",
+    "./loader": "./src/loader.ts"
   },
   "license": "MIT",
   "imports": {
-    "@temelj/standard-schema": "jsr:@temelj/standard-schema@^0.1.0",
+    "@temelj/standard-schema": "jsr:@temelj/standard-schema@^0.2.0",
     "@temelj/string": "jsr:@temelj/string@^0.15.0",
     "@temelj/value": "jsr:@temelj/value@^0.15.0",
     "acorn": "npm:acorn@8.19.0",
@@ -17,6 +28,7 @@
     "shiki/types": "npm:shiki@4.5.0/types",
     "smol-toml": "npm:smol-toml@1.9.1",
     "unified": "npm:unified@11.0.5",
+    "unplugin": "npm:unplugin@^3.4.0",
     "vfile": "npm:vfile@6.0.3",
     "yaml": "npm:yaml@2.9.1"
   },

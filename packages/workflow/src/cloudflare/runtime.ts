@@ -235,8 +235,16 @@ class CloudflareRuntimeImpl implements CloudflareWorkflowRuntime {
         throw new TypeError("Cloudflare idempotent workflow start requires a resolved instance id");
       }
 
-      const instances = await this.#binding.createBatch([{ id, params: envelope }]);
-      instance = instances[0] ?? (await this.#binding.get(id));
+      try {
+        const instances = await this.#binding.createBatch([{ id, params: envelope }]);
+        instance = instances[0] ?? (await this.#binding.get(id));
+      } catch (cause) {
+        try {
+          instance = await this.#binding.get(id);
+        } catch {
+          throw cause;
+        }
+      }
     }
 
     return this.#handle(implementation.definition, instance, createdAt);
@@ -405,6 +413,7 @@ function cloudflareRunStatus(status: CloudflareWorkflowInstanceStatus["status"])
     case "queued":
       return "pending";
     case "running":
+    case "rollingBack":
       return "running";
     case "waiting":
     case "paused":

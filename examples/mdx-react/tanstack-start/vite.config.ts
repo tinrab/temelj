@@ -1,6 +1,7 @@
 import tailwindcss from "@tailwindcss/vite";
 import { devtools } from "@tanstack/devtools-vite";
 import { tanstackStart } from "@tanstack/react-start/plugin/vite";
+import { mdx } from "@temelj/mdx/vite-plugin";
 import viteReact from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
@@ -22,7 +23,7 @@ const config = defineConfig({
       },
     },
   },
-  plugins: [devtools(), tailwindcss(), tanstackStart(), viteReact()],
+  plugins: [devtools(), tailwindcss(), mdx({ synchronous: true }), tanstackStart(), viteReact()],
 });
 
 export default config;

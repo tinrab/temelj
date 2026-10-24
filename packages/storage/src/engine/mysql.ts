@@ -482,12 +482,10 @@ export class MySqlStorageEngine<
     if (this.#client === undefined) {
       const mysql = await import("mysql2/promise");
 
-      const createdClient =
+      this.#client ??=
         this.#options.url === undefined
           ? mysql.createPool(this.#options.connection ?? {})
           : mysql.createPool(this.#options.url);
-
-      this.#client = createdClient;
     }
 
     return this.#client;

@@ -1,6 +1,6 @@
 {
   "name": "@temelj/mdx",
-  "version": "0.16.0",
+  "version": "0.17.0",
   "description": "MDX parsing, formatting, compilation, safe rendering, and streaming.",
   "keywords": [
     "markdown",
@@ -31,6 +31,50 @@
     "./unified": {
       "types": "./dist/unified/mod.d.mts",
       "import": "./dist/unified/mod.mjs"
+    },
+    "./unplugin": {
+      "types": "./dist/unplugin.d.mts",
+      "import": "./dist/unplugin.mjs"
+    },
+    "./vite-plugin": {
+      "types": "./dist/vite-plugin.d.mts",
+      "import": "./dist/vite-plugin.mjs"
+    },
+    "./rollup-plugin": {
+      "types": "./dist/rollup-plugin.d.mts",
+      "import": "./dist/rollup-plugin.mjs"
+    },
+    "./rolldown-plugin": {
+      "types": "./dist/rolldown-plugin.d.mts",
+      "import": "./dist/rolldown-plugin.mjs"
+    },
+    "./webpack-plugin": {
+      "types": "./dist/webpack-plugin.d.mts",
+      "import": "./dist/webpack-plugin.mjs"
+    },
+    "./rspack-plugin": {
+      "types": "./dist/rspack-plugin.d.mts",
+      "import": "./dist/rspack-plugin.mjs"
+    },
+    "./rsbuild-plugin": {
+      "types": "./dist/rsbuild-plugin.d.mts",
+      "import": "./dist/rsbuild-plugin.mjs"
+    },
+    "./esbuild-plugin": {
+      "types": "./dist/esbuild-plugin.d.mts",
+      "import": "./dist/esbuild-plugin.mjs"
+    },
+    "./farm-plugin": {
+      "types": "./dist/farm-plugin.d.mts",
+      "import": "./dist/farm-plugin.mjs"
+    },
+    "./bun-plugin": {
+      "types": "./dist/bun-plugin.d.mts",
+      "import": "./dist/bun-plugin.mjs"
+    },
+    "./loader": {
+      "types": "./dist/loader.d.mts",
+      "import": "./dist/loader.mjs"
     }
   },
   "scripts": {
@@ -47,11 +91,13 @@
     "acorn": "8.19.0",
     "acorn-jsx": "5.3.2",
     "smol-toml": "1.9.1",
+    "unplugin": "^3.4.0",
     "yaml": "2.9.1"
   },
   "devDependencies": {
     "@shikijs/rehype": "4.5.0",
     "@types/node": "26.6.5",
+    "esbuild": "0.28.2",
     "property-information": "7.2.0",
     "rehype-slug": "6.0.0",
     "remark-toc": "9.0.0",
@@ -62,13 +108,15 @@
     "typescript": "^7.0.2",
     "unified": "11.0.5",
     "vfile": "6.0.3",
+    "vite": "^8.3.4",
     "vitest": "^5.0.4"
   },
   "peerDependencies": {
     "property-information": "7.2.0",
     "shiki": "4.5.0",
     "unified": "11.0.5",
-    "vfile": "6.0.3"
+    "vfile": "6.0.3",
+    "vite": "^8.0.0"
   },
   "peerDependenciesMeta": {
     "property-information": {
@@ -81,6 +129,9 @@
       "optional": true
     },
     "vfile": {
+      "optional": true
+    },
+    "vite": {
       "optional": true
     }
   }

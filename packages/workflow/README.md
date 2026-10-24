@@ -399,7 +399,6 @@ Configure the Worker binding and entrypoint as shown in the [Cloudflare example]
 Both hosts implement `WorkflowRuntime`, so code using `runs.start()` and run handles can work with either.
 The Cloudflare runtime also has `runs.get(workflow, runId)` and `messages.send()`.
 Cloudflare manages worker execution.
-Schedules, locks, streams, and run-history inspection belong to the local client.
 
 > Note, some features from @temelj/workflow that Cloudflare doesn't support might throw an error.
 
