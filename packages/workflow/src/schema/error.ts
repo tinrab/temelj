@@ -1,13 +1,14 @@
 import { ss, type Schema } from "@temelj/standard-schema";
 import { isPlainObject } from "@temelj/value";
 
+import type { ErrorDetails, WorkflowErrorRecord } from "../types/error.ts";
 import type { RunStatus, TerminalRunStatus } from "../types/run.ts";
 
 import { WorkflowErrorCode } from "../errors/codes.ts";
 import { nonBlankStringSchema } from "./common.ts";
 
 // SAFETY: WorkflowErrorCode is a non-empty table of codes.
-export const errorCodeSchema = ss.picklist(
+export const errorCodeSchema: Schema<unknown, WorkflowErrorCode> = ss.picklist(
   Object.values(WorkflowErrorCode) as [WorkflowErrorCode, ...WorkflowErrorCode[]],
 );
 
@@ -23,7 +24,7 @@ const errorDetailSchema = ss.union([
   ss.literal(undefined),
 ]);
 
-export const errorDetailsSchema = ss.refine(
+export const errorDetailsSchema: Schema<unknown, ErrorDetails> = ss.refine(
   ss.pipe(
     ss.schema((value) =>
       isPlainObject(value) ? ss.success(value) : ss.failure("Expected an object"),
@@ -34,7 +35,7 @@ export const errorDetailsSchema = ss.refine(
   "Expected non-blank detail keys",
 );
 
-export const errorRecordSchema = ss.object({
+export const errorRecordSchema: Schema<unknown, WorkflowErrorRecord> = ss.object({
   code: ss.optional(errorCodeSchema),
   name: nonBlankStringSchema,
   message: nonBlankStringSchema,
@@ -42,7 +43,8 @@ export const errorRecordSchema = ss.object({
   details: ss.optional(errorDetailsSchema),
 });
 
-export const optionalErrorStringSchema = ss.optional(nonBlankStringSchema);
+export const optionalErrorStringSchema: Schema<unknown, string | undefined> =
+  ss.optional(nonBlankStringSchema);
 
 export const errorRunStatusSchema: Schema<unknown, RunStatus> = ss.picklist(
   runStatuses,

@@ -8,6 +8,6 @@ export const MOBILE_BREAKPOINT = 768;
 /**
  * Reports whether the viewport is below the mobile breakpoint using useMediaQuery.
  */
-export function useIsMobile(breakpoint = MOBILE_BREAKPOINT): boolean {
+export function useIsMobile(breakpoint: number = MOBILE_BREAKPOINT): boolean {
   return useMediaQuery(`(max-width: ${breakpoint - 1}px)`);
 }

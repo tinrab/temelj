@@ -144,7 +144,7 @@ async function fail(
   };
 }
 
-export const DEFAULT_RETRY_INTERVAL = Temporal.Duration.from({
+export const DEFAULT_RETRY_INTERVAL: Temporal.Duration = Temporal.Duration.from({
   seconds: 30,
 });
 

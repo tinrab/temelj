@@ -80,7 +80,7 @@ export class UnifiedBoundaryError extends Error {
 
 export class UnifiedTreeBridge {
   private readonly file: SourceFile;
-  public readonly visiting = new WeakSet<object>();
+  public readonly visiting: WeakSet<object> = new WeakSet<object>();
   /** Semantic HTML nodes sent to rehype. HAST data refers to them by index. */
   readonly #owned: HtmlNode[] = [];
 

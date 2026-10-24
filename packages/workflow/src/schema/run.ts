@@ -1,4 +1,7 @@
-import { ss } from "@temelj/standard-schema";
+import { ss, type Schema } from "@temelj/standard-schema";
+
+import type { MaterializedStepType, RunRecord, TerminalRunStatus } from "../types/run.ts";
+import type { ChildWorkflowCancellationPolicy } from "../types/step.ts";
 
 import { runAttributesSchema as workflowRunAttributesSchema } from "../attributes.ts";
 import {
@@ -21,7 +24,11 @@ const runStatusSchema = ss.picklist([
   "canceled",
 ]);
 
-export const terminalRunStatusSchema = ss.picklist(["completed", "failed", "canceled"]);
+export const terminalRunStatusSchema: Schema<unknown, TerminalRunStatus> = ss.picklist([
+  "completed",
+  "failed",
+  "canceled",
+]);
 
 const runRetryReasonSchema = ss.picklist(["workflow", "step", "missing_implementation"]);
 
@@ -43,7 +50,7 @@ const runTransitionReasonSchema = ss.picklist([
   "canceled",
 ]);
 
-export const materializedStepTypeSchema = ss.picklist([
+export const materializedStepTypeSchema: Schema<unknown, MaterializedStepType> = ss.picklist([
   "run",
   "sleep",
   "workflow",
@@ -53,7 +60,7 @@ export const materializedStepTypeSchema = ss.picklist([
   "deterministic",
 ]);
 
-export const runRecordSchema = ss.object({
+export const runRecordSchema: Schema<unknown, RunRecord> = ss.object({
   id: idSchema,
   namespace: nonBlankStringSchema,
   workflowName: nonBlankStringSchema,
@@ -89,4 +96,7 @@ export const runRecordSchema = ss.object({
   finishedAt: ss.optional(temporalInstantSchema),
 });
 
-export const childWorkflowCancellationPolicySchema = ss.picklist(["cascade", "detach"]);
+export const childWorkflowCancellationPolicySchema: Schema<
+  unknown,
+  ChildWorkflowCancellationPolicy
+> = ss.picklist(["cascade", "detach"]);

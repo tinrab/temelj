@@ -9,7 +9,7 @@ interface TimerDelay {
   readonly clampedDelay: number;
 }
 
-export const MAX_TIMER_DELAY = 2 ** 31 - 1;
+export const MAX_TIMER_DELAY: number = 2 ** 31 - 1;
 
 export type TimeoutHandle = ReturnType<typeof setTimeout>;
 

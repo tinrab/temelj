@@ -3,12 +3,14 @@ import * as React from "react";
 /**
  * True when both window and document are available.
  */
-export const isBrowser = typeof window !== "undefined" && typeof document !== "undefined";
+export const isBrowser: boolean = typeof window !== "undefined" && typeof document !== "undefined";
 
 /**
  * React layout effect in the browser and regular effect during server rendering.
  */
-export const useIsoLayoutEffect = isBrowser ? React.useLayoutEffect : React.useEffect;
+export const useIsoLayoutEffect: typeof React.useLayoutEffect = isBrowser
+  ? React.useLayoutEffect
+  : React.useEffect;
 
 /**
  * Stores the latest value in a stable ref.
@@ -25,7 +27,7 @@ export function useLatest<T>(value: T): React.RefObject<T> {
 /**
  * Dispatches a storage event for same-document storage subscribers.
  */
-export function dispatchStorageEvent(key: string, newValue: string | null) {
+export function dispatchStorageEvent(key: string, newValue: string | null): void {
   if (!isBrowser) {
     return;
   }

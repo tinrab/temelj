@@ -15,6 +15,7 @@
     "forceConsistentCasingInFileNames": true,
     "inlineSources": false,
     "isolatedModules": true,
+    "isolatedDeclarations": true,
     "moduleDetection": "force",
     "resolvePackageJsonImports": true,
     "resolveJsonModule": true,

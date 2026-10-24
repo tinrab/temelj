@@ -103,13 +103,13 @@
     "remark-toc": "9.0.0",
     "shiki": "4.5.0",
     "shx": "^0.4.0",
-    "tsdown": "^0.23.1",
+    "tsdown": "^0.23.2",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
     "unified": "11.0.5",
     "vfile": "6.0.3",
-    "vite": "^8.3.4",
-    "vitest": "^5.0.4"
+    "vite": "^8.3.5",
+    "vitest": "^5.0.5"
   },
   "peerDependencies": {
     "property-information": "7.2.0",

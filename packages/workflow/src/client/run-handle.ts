@@ -8,9 +8,11 @@ import type {
   RunStreamsApi,
   WorkflowRunHandle as WorkflowRunHandleContract,
 } from "../types/client.ts";
+import type { EventRecord } from "../types/events.ts";
 import type { RunId } from "../types/ids.ts";
 import type { ResultOptions } from "../types/result.ts";
-import type { AttributePatch } from "../types/run.ts";
+import type { AttributePatch, RunRecord, RunStatus } from "../types/run.ts";
+import type { Timeline } from "../types/timeline.ts";
 
 import { getRunTimeline } from "../engine/inspection.ts";
 import {
@@ -81,7 +83,7 @@ export class WorkflowRunHandle<TOutput> implements WorkflowRunHandleContract<TOu
     }
   }
 
-  async getRun() {
+  async getRun(): Promise<RunRecord> {
     const run = await this.#engine.store.getRun(this.runId);
 
     if (run === undefined) {
@@ -91,7 +93,7 @@ export class WorkflowRunHandle<TOutput> implements WorkflowRunHandleContract<TOu
     return run;
   }
 
-  async status() {
+  async status(): Promise<RunStatus> {
     const run = await this.#engine.store.getRun(this.runId);
 
     if (run === undefined) {
@@ -101,11 +103,11 @@ export class WorkflowRunHandle<TOutput> implements WorkflowRunHandleContract<TOu
     return run.status;
   }
 
-  async events() {
+  async events(): Promise<readonly EventRecord[]> {
     return await this.#engine.store.getEvents(this.runId);
   }
 
-  async timeline() {
+  async timeline(): Promise<Timeline> {
     return await getRunTimeline(this.#engine.context, this.runId);
   }
 
@@ -155,7 +157,7 @@ export class WorkflowRunHandle<TOutput> implements WorkflowRunHandleContract<TOu
     }
   }
 
-  async setMetadata(metadata: StorageValue) {
+  async setMetadata(metadata: StorageValue): Promise<RunRecord> {
     return await updateWorkflowRunMetadata(
       this.#engine.context,
       this.#engine.lifecycle,
@@ -164,11 +166,11 @@ export class WorkflowRunHandle<TOutput> implements WorkflowRunHandleContract<TOu
     );
   }
 
-  async setAttributes(attributes: AttributePatch) {
+  async setAttributes(attributes: AttributePatch): Promise<RunRecord> {
     return await setRunAttributes(this.#engine.context, this.runId, attributes);
   }
 
-  async cancel() {
+  async cancel(): Promise<RunRecord> {
     return await cancelWorkflowRun(this.#engine.context, this.#engine.lifecycle, this.runId);
   }
 }

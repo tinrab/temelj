@@ -1,5 +1,5 @@
 /* oxlint-disable vitest/require-mock-type-parameters */
-import { vi } from "vitest";
+import { vi, type Mock } from "vitest";
 
 class MockMediaChangeEvent extends Event implements MediaQueryListEvent {
   readonly matches: boolean;
@@ -51,9 +51,9 @@ export class MockResizeObserver implements ResizeObserver {
   constructor(callback: ResizeObserverCallback) {
     this.callback = callback;
   }
-  observe = vi.fn<(target: Element, options?: ResizeObserverOptions) => void>();
-  unobserve = vi.fn<(target: Element) => void>();
-  disconnect = vi.fn<() => void>();
+  observe: Mock<(target: Element, options?: ResizeObserverOptions) => void> = vi.fn();
+  unobserve: Mock<(target: Element) => void> = vi.fn();
+  disconnect: Mock<() => void> = vi.fn();
   emit(target: Element): ResizeObserverEntry {
     const contentRect = target.getBoundingClientRect();
     const size = [{ inlineSize: contentRect.width, blockSize: contentRect.height }];

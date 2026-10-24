@@ -3,7 +3,7 @@ import type { PluginContext as RollupPluginContext } from "rollup";
 
 import fs from "node:fs/promises";
 import path from "node:path";
-import { createUnplugin, type UnpluginFactory } from "unplugin";
+import { createUnplugin, type UnpluginFactory, type UnpluginInstance } from "unplugin";
 
 import type {
   TransformManifest,
@@ -92,9 +92,10 @@ const workflowUnpluginFactory: UnpluginFactory<PluginOptions | undefined> = (opt
 
 const JS_TS_EXTENSION_PATTERN = /\.[cm]?[jt]sx?$/;
 
-export const workflowPlugin = createUnplugin<PluginOptions | undefined, false>(
-  workflowUnpluginFactory,
-);
+export const workflowPlugin: UnpluginInstance<PluginOptions | undefined, false> = createUnplugin<
+  PluginOptions | undefined,
+  false
+>(workflowUnpluginFactory);
 
 /** Creates the Vite plugin that compiles workflow and step directives. */
 export const workflow: (options?: PluginOptions) => ReturnType<typeof workflowPlugin.vite> =
