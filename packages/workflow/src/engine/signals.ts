@@ -3,6 +3,10 @@ import type { StepIdentity } from "../types/run.ts";
 
 // Signals unwind a workflow body back to the engine. They are never reported to callers.
 
+export function isWorkflowControlFlowSignal(cause: unknown): boolean {
+  return cause instanceof Suspended || cause instanceof StaleExecutionError;
+}
+
 /** Stops execution until `availableAt`, such as for a sleep, a message wait, or a step retry. */
 export class Suspended extends Error {
   public readonly availableAt: Temporal.Instant;

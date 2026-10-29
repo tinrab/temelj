@@ -51,6 +51,7 @@ exports[`root entry point > exports the public runtime API only 1`] = `
   "getWorkflowFunctionDefinition",
   "getWorkflowStepFunctionDefinition",
   "implementWorkflow",
+  "isWorkflowControlFlowSignal",
   "matchesWorkflowError",
   "parseHookToken",
   "registerWorkflowFunctions",

@@ -219,6 +219,7 @@ export interface ClientAdminApi {
   setAttributes(runId: RunId, attributes: AttributePatch): Promise<RunRecord>;
   /** Cancels a workflow run if it has not already reached a terminal status. */
   cancel(runId: RunId): Promise<RunRecord>;
+  cancelIfCurrent(expected: RunRecord): Promise<RunRecord | undefined>;
 }
 
 export interface ClientSchedulesApi {

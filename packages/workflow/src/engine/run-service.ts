@@ -30,6 +30,7 @@ import { retentionCleanupOptions } from "./run-utils.ts";
 import { serializeError, toPersistedValue } from "./serialization.ts";
 import {
   cancelRunWithChildren,
+  cancelRunIfCurrentWithChildren,
   MAX_RUN_UPDATE_ATTEMPTS,
   transitionRunToManualRetry,
   releaseLocksForRun,
@@ -352,6 +353,17 @@ export async function cancelWorkflowRun(
   }
 
   return canceledRun;
+}
+
+export async function cancelWorkflowRunIfCurrent(
+  context: EngineContext,
+  lifecycle: RunLifecycleEmitter,
+  expected: RunRecord,
+): Promise<RunRecord | undefined> {
+  const canceled = await cancelRunIfCurrentWithChildren(context.store, expected, context.now());
+  if (canceled !== undefined && expected.status !== "canceled")
+    await lifecycle.emitLifecycleEvent(canceled, expected);
+  return canceled;
 }
 
 async function resolveVersion(

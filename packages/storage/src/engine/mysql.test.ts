@@ -121,14 +121,106 @@ describe("mysql engine", () => {
 
     expect(execute).toHaveBeenNthCalledWith(
       2,
-      expect.stringContaining("DELETE FROM `temelj_storage` WHERE `key` = ?"),
-      ["sessions:1"],
+      expect.stringContaining("WHERE `key` = ? AND `expires_at` IS NOT NULL AND `expires_at` <= ?"),
+      ["sessions:1", expect.any(Number)],
     );
     expect(execute).toHaveBeenNthCalledWith(
       3,
       expect.stringContaining("DELETE FROM `temelj_storage` WHERE `key` = ?"),
       ["sessions:2"],
     );
+  });
+
+  test("restarts the whole atomic claim after a confirmed deadlock", async () => {
+    const execute = vi
+      .fn<MySqlEngineConnection["execute"]>()
+      .mockRejectedValueOnce(Object.assign(new Error("deadlock"), { code: "ER_LOCK_DEADLOCK" }))
+      .mockResolvedValueOnce([{ affectedRows: 0 }, undefined])
+      .mockResolvedValueOnce([[], undefined])
+      .mockResolvedValueOnce([{ affectedRows: 1 }, undefined]);
+    const commit = vi.fn<NonNullable<MySqlEngineConnection["commit"]>>().mockResolvedValue();
+    const rollback = vi.fn<NonNullable<MySqlEngineConnection["rollback"]>>().mockResolvedValue();
+    const release = vi.fn<NonNullable<MySqlEngineConnection["release"]>>();
+    const beginTransaction = vi
+      .fn<NonNullable<MySqlEngineConnection["beginTransaction"]>>()
+      .mockResolvedValue();
+    const getConnection = vi
+      .fn<NonNullable<MySqlEngineClient["getConnection"]>>()
+      .mockResolvedValue({
+        beginTransaction,
+        execute,
+        commit,
+        rollback,
+        release,
+      });
+    const engine = new MySqlStorageEngine({ format: "string", client: { execute, getConnection } });
+    expect(
+      await engine.compareAndSetMany([{ key: "claim", expected: undefined, value: "owner" }]),
+    ).toBe(true);
+    expect(beginTransaction).toHaveBeenCalledTimes(2);
+    expect(rollback).toHaveBeenCalledOnce();
+    expect(commit).toHaveBeenCalledOnce();
+    expect(release).toHaveBeenCalledTimes(2);
+    expect(execute).toHaveBeenNthCalledWith(
+      2,
+      expect.stringContaining("DELETE FROM"),
+      expect.any(Array),
+    );
+  });
+
+  test.each(["ER_LOCK_DEADLOCK", "ECONNRESET"])("bounds transaction retry for %s", async (code) => {
+    const failure = Object.assign(new Error("driver failure"), { code });
+    const release = vi.fn<NonNullable<MySqlEngineConnection["release"]>>();
+    const rollback = vi.fn<NonNullable<MySqlEngineConnection["rollback"]>>().mockResolvedValue();
+    const beginTransaction = vi
+      .fn<NonNullable<MySqlEngineConnection["beginTransaction"]>>()
+      .mockResolvedValue();
+    const execute = vi.fn<MySqlEngineConnection["execute"]>().mockRejectedValue(failure);
+    const getConnection = vi
+      .fn<NonNullable<MySqlEngineClient["getConnection"]>>()
+      .mockResolvedValue({
+        beginTransaction,
+        execute,
+        rollback,
+        release,
+      });
+    const engine = new MySqlStorageEngine({ format: "string", client: { execute, getConnection } });
+    await expect(
+      engine.compareAndSetMany([{ key: "claim", expected: undefined, value: "owner" }]),
+    ).rejects.toBe(failure);
+    const attempts = code === "ER_LOCK_DEADLOCK" ? 5 : 1;
+    expect(getConnection).toHaveBeenCalledTimes(attempts);
+    expect(beginTransaction).toHaveBeenCalledTimes(attempts);
+    expect(rollback).toHaveBeenCalledTimes(attempts);
+    expect(release).toHaveBeenCalledTimes(attempts);
+  });
+
+  test("does not repeat a claim after an ambiguous commit acknowledgement", async () => {
+    const failure = Object.assign(new Error("connection lost during commit"), {
+      code: "ECONNRESET",
+    });
+    const execute = vi
+      .fn<MySqlEngineConnection["execute"]>()
+      .mockResolvedValueOnce([{ affectedRows: 0 }, undefined])
+      .mockResolvedValueOnce([[], undefined])
+      .mockResolvedValueOnce([{ affectedRows: 1 }, undefined]);
+    const commit = vi.fn<NonNullable<MySqlEngineConnection["commit"]>>().mockRejectedValue(failure);
+    const rollback = vi.fn<NonNullable<MySqlEngineConnection["rollback"]>>().mockResolvedValue();
+    const release = vi.fn<NonNullable<MySqlEngineConnection["release"]>>();
+    const beginTransaction = vi
+      .fn<NonNullable<MySqlEngineConnection["beginTransaction"]>>()
+      .mockResolvedValue();
+    const getConnection = vi
+      .fn<NonNullable<MySqlEngineClient["getConnection"]>>()
+      .mockResolvedValue({ beginTransaction, execute, commit, rollback, release });
+    const engine = new MySqlStorageEngine({ format: "string", client: { execute, getConnection } });
+    await expect(
+      engine.compareAndSetMany([{ key: "claim", expected: undefined, value: "owner" }]),
+    ).rejects.toBe(failure);
+    expect(commit).toHaveBeenCalledOnce();
+    expect(getConnection).toHaveBeenCalledOnce();
+    expect(execute).toHaveBeenCalledTimes(3);
+    expect(release).toHaveBeenCalledOnce();
   });
 
   test("releases transaction connection when transaction start fails", async () => {

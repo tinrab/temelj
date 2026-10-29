@@ -262,6 +262,11 @@ Message payloads are validated again on replay, preserving the input to schema t
 
 ## Errors
 
+Error wrappers around workflow bodies or commands must rethrow values recognized by `isWorkflowControlFlowSignal` unchanged.
+These signals suspend execution or stop a worker that lost its lease.
+Wrapping or serializing them turns engine control flow into a failure.
+The classifier uses engine identity, not an error name.
+
 A retryable failure schedules another attempt according to the step's retry policy.
 
 For example, retry a rate-limited HTTP request:

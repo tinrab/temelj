@@ -1,5 +1,7 @@
 import type { StorageValue } from "@temelj/storage";
 
+import { deepEquals } from "@temelj/value";
+
 import type { WorkflowDefinition } from "../types/definition.ts";
 import type { ExecutionLimits } from "../types/engine-options.ts";
 import type { WorkflowErrorRecord } from "../types/error.ts";
@@ -27,6 +29,7 @@ import {
 } from "../errors/run.ts";
 import { History } from "../history/replay.ts";
 import { CLEARED_LEASE, CLEARED_RETRY, UNFINISHED } from "../run-status.ts";
+import { requireStoreCapabilities } from "../store/capabilities.ts";
 import { getRequiredRun } from "../store/query.ts";
 import { isPositiveSafeInteger } from "../values.ts";
 import { enforceEventHistoryNextLimit } from "./retry.ts";
@@ -441,6 +444,27 @@ export async function cancelRunWithChildren(
   canceledAt: Temporal.Instant,
 ): Promise<RunRecord> {
   const run = await getRequiredRun(store, runId);
+  const canceled = await cancelRunSnapshotWithChildren(store, run, canceledAt);
+  return canceled ?? (await cancelRunWithChildren(store, runId, canceledAt));
+}
+
+export async function cancelRunIfCurrentWithChildren(
+  store: WorkflowStore,
+  expected: RunRecord,
+  canceledAt: Temporal.Instant,
+): Promise<RunRecord | undefined> {
+  requireStoreCapabilities(store, [["conditionalRunUpdates", "conditional cancellation"]]);
+  const current = await store.getRun(expected.id);
+  if (current === undefined || !deepEquals(current, expected)) return undefined;
+  return await cancelRunSnapshotWithChildren(store, current, canceledAt);
+}
+
+async function cancelRunSnapshotWithChildren(
+  store: WorkflowStore,
+  run: RunRecord,
+  canceledAt: Temporal.Instant,
+): Promise<RunRecord | undefined> {
+  const runId = run.id;
 
   if (run.status === "completed" || run.status === "failed") {
     WorkflowRunCancellationError.cannotCancel(runId, run.status);
@@ -457,17 +481,7 @@ export async function cancelRunWithChildren(
   );
 
   if (canceledRun === undefined) {
-    const latest = await getRequiredRun(store, runId);
-
-    if (latest.status === "completed" || latest.status === "failed") {
-      WorkflowRunCancellationError.cannotCancel(runId, latest.status);
-    }
-
-    if (latest.status === "canceled") {
-      return latest;
-    }
-
-    return await cancelRunWithChildren(store, runId, canceledAt);
+    return undefined;
   }
 
   await releaseLocksForRun(store, run.id, canceledAt);

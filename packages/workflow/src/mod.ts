@@ -1,6 +1,7 @@
 export * from "./client/mod.ts";
 
 export * from "./bundle.ts";
+export { isWorkflowControlFlowSignal } from "./engine/signals.ts";
 
 export { defineWorkflow, implementWorkflow, defineMessageChannel } from "./definition.ts";
 

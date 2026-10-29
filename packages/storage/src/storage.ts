@@ -55,7 +55,8 @@ export function createStorage<
   TValue = StorageItemValue<TItems>,
   TStoredValue extends StoredValue = string,
 >(options: CreateStorageOptions<TValue, TStoredValue> = {}): Storage<TItems, TValue, TStoredValue> {
-  const engine = options.engine ?? new InMemoryStorageEngine<TStoredValue>();
+  const engine: StorageEngine<TStoredValue> =
+    options.engine ?? new InMemoryStorageEngine<TStoredValue>();
 
   // SAFETY: The public overload requires a codec for non-string engines; the default codec writes strings.
   const codec = (options.codec ?? createSuperJsonStorageCodec<TValue>()) as StorageCodec<

@@ -46,7 +46,6 @@ export class InMemoryStorageEngine<
   TStoredValue extends StoredValue = StoredValue,
 > implements InMemoryEngine<TStoredValue> {
   readonly name = "in-memory";
-  readonly watch?: StorageEngine<TStoredValue>["watch"];
 
   readonly #records = new Map<string, InMemoryRecord<TStoredValue>>();
   readonly #timers = new Map<string, ReturnType<typeof setTimeout>>();

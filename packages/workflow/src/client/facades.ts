@@ -55,6 +55,7 @@ import { broadcastMessageInput, sendMessageInput } from "../engine/message.ts";
 import {
   applyRetentionPolicy,
   cancelWorkflowRun,
+  cancelWorkflowRunIfCurrent,
   cleanupRuns,
   markWorkflowRunPermanentlyFailed,
   releaseStaleWorkflowRunLease,
@@ -185,6 +186,8 @@ export function createClientAdminApi(engine: WorkflowEngine, now: ClockAccessor)
       updateWorkflowRunMetadata(engine.context, engine.lifecycle, runId, metadata),
     setAttributes: (runId, attributes) => setRunAttributes(engine.context, runId, attributes),
     cancel: (runId) => cancelWorkflowRun(engine.context, engine.lifecycle, runId),
+    cancelIfCurrent: (expected) =>
+      cancelWorkflowRunIfCurrent(engine.context, engine.lifecycle, expected),
   };
 }
 
