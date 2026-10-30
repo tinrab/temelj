@@ -9,6 +9,7 @@ import { expect, test } from "vitest";
 
 import { createSuperJsonStorageCodec } from "../codec/super-json.ts";
 import { createStorage } from "../storage.ts";
+import { StorageKeyError } from "../types.ts";
 import { S3StorageEngine } from "./s3.ts";
 
 const rustFsCredentials = {
@@ -163,3 +164,40 @@ async function emptyBucket(client: S3Client, bucket: string): Promise<void> {
     );
   } while (continuationToken !== undefined);
 }
+
+test("s3 engine rejects keys with dot path segments", async () => {
+  const sentKeys: unknown[] = [];
+  const client = new S3Client({ credentials: rustFsCredentials, region: "us-east-1" });
+
+  client.middlewareStack.add(
+    () => async (args) => {
+      sentKeys.push("Key" in args.input ? args.input.Key : undefined);
+
+      throw Object.assign(new Error("Not found"), { name: "NotFound" });
+    },
+    { step: "initialize" },
+  );
+
+  const storage = createStorage({
+    codec: createSuperJsonStorageCodec({ format: "bytes" }),
+    engine: new S3StorageEngine({
+      bucket: "app",
+      client,
+      prefix: "users/alice",
+      separator: "/",
+    }),
+  });
+
+  for (const key of ["..", "../bob/secret", "a/./b", "a/.."]) {
+    await expect(storage.get(key)).rejects.toThrow(StorageKeyError);
+    await expect(storage.set(key, "value")).rejects.toThrow(StorageKeyError);
+    await expect(storage.has(key)).rejects.toThrow(StorageKeyError);
+    await expect(storage.delete(key)).rejects.toThrow(StorageKeyError);
+  }
+
+  expect(sentKeys).toEqual([]);
+
+  expect(await storage.get("..secret")).toBeUndefined();
+  expect(await storage.get("a:..:b")).toBeUndefined();
+  expect(sentKeys).toEqual(["users/alice/..secret", "users/alice/a:..:b"]);
+});

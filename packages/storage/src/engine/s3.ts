@@ -12,6 +12,7 @@ import {
 import { isObject } from "@temelj/value";
 
 import {
+  StorageKeyError,
   type StorageEngine,
   type StorageEngineKeyOptions,
   type StorageEngineSetManyItem,
@@ -93,7 +94,7 @@ export class S3StorageEngine implements StorageEngine<Uint8Array> {
       const result = await this.#getClient().send(
         new GetObjectCommand({
           Bucket: this.#options.bucket,
-          Key: storageKey,
+          Key: objectKey(storageKey),
         }),
       );
 
@@ -140,7 +141,7 @@ export class S3StorageEngine implements StorageEngine<Uint8Array> {
       new PutObjectCommand({
         Body: value,
         Bucket: this.#options.bucket,
-        Key: storageKey,
+        Key: objectKey(storageKey),
         Metadata:
           expiresAt === undefined ? undefined : { [EXPIRES_AT_METADATA_KEY]: String(expiresAt) },
       }),
@@ -224,7 +225,7 @@ export class S3StorageEngine implements StorageEngine<Uint8Array> {
     await this.#getClient().send(
       new DeleteObjectCommand({
         Bucket: this.#options.bucket,
-        Key: storageKey,
+        Key: objectKey(storageKey),
       }),
     );
   }
@@ -234,7 +235,7 @@ export class S3StorageEngine implements StorageEngine<Uint8Array> {
       return await this.#getClient().send(
         new HeadObjectCommand({
           Bucket: this.#options.bucket,
-          Key: storageKey,
+          Key: objectKey(storageKey),
         }),
       );
     } catch (error) {
@@ -298,6 +299,11 @@ export class S3StorageEngine implements StorageEngine<Uint8Array> {
     const keys: string[] = [];
 
     for (const storageKey of await this.#listStorageKeys(keyOptions)) {
+      // Objects with dot segments can't be addressed without the request path being normalized.
+      if (hasDotSegments(storageKey)) {
+        continue;
+      }
+
       if (await this.#existingObject(storageKey)) {
         keys.push(storageKey);
       }
@@ -320,6 +326,22 @@ function isExpired(metadata: Record<string, string> | undefined): boolean {
   const expiresAt = metadata?.[EXPIRES_AT_METADATA_KEY];
 
   return expiresAt !== undefined && Number(expiresAt) <= Date.now();
+}
+
+/**
+ * Object keys are sent as URL paths, so `.` and `..` segments could be resolved by the URL parser,
+ * a proxy, or an S3-compatible server and address an object outside the prefix or bucket.
+ */
+function objectKey(storageKey: string): string {
+  if (hasDotSegments(storageKey)) {
+    StorageKeyError.dotSegments(storageKey);
+  }
+
+  return storageKey;
+}
+
+function hasDotSegments(storageKey: string): boolean {
+  return storageKey.split("/").some((segment) => segment === "." || segment === "..");
 }
 
 function isNotFoundError(cause: unknown): boolean {
