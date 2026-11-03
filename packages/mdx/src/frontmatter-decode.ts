@@ -115,7 +115,6 @@ function decodeToml(options: DecodeOptions): FrontmatterObject | undefined {
   return convertRoot(parsed, options);
 }
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- YAML/TOML root input is validated here.
 function convertRoot(value: unknown, options: DecodeOptions): FrontmatterObject | undefined {
   if (!isPlainObject(value)) {
     options.diagnostics.add({
@@ -132,7 +131,6 @@ function convertRoot(value: unknown, options: DecodeOptions): FrontmatterObject 
 }
 
 function convertValue(
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Recursively validates parser values before producing FrontmatterValue.
   value: unknown,
   options: DecodeOptions,
   path: string,
@@ -278,7 +276,6 @@ function propertyPath(path: string, key: string): string {
   return /^[A-Za-z_$][\w$]*$/u.test(key) ? `${path}.${key}` : `${path}[${JSON.stringify(key)}]`;
 }
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Describes a rejected value at the YAML/TOML validation boundary.
 function describeValue(value: unknown): string {
   if (value === undefined) {
     return "undefined";

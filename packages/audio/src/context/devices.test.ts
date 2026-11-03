@@ -221,7 +221,6 @@ describe("audio devices", () => {
         (inventory: Awaited<ReturnType<typeof getAudioDeviceInventory>>, event?: Event) => void
       >();
 
-    // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Mirrors the onError contract, which receives any thrown value.
     const onError = vi.fn<(error: unknown) => void>();
 
     const unsubscribe = onAudioDeviceInventoryChange(callback, { initial: true, onError });

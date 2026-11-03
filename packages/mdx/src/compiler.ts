@@ -249,7 +249,6 @@ interface FrontmatterTransportContext {
 }
 
 function copyTransportValue(
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Recursively validates external schema output against the MDX transport contract.
   value: unknown,
   path: string,
   context: FrontmatterTransportContext,

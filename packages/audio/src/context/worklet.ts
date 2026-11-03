@@ -128,7 +128,6 @@ export async function registerSingleIOWorklet(
 
 type PendingRequest<TResponse> = {
   readonly resolve: (message: TResponse) => void;
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Promise rejection reasons can be any value.
   readonly reject: (reason?: unknown) => void;
 };
 
@@ -207,7 +206,6 @@ export class WorkletMessenger<
         this.#pending.delete(message.id);
       };
 
-      // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Promise rejection reasons can be any value.
       const fail = (reason: unknown): void => {
         cleanup();
         reject(reason);

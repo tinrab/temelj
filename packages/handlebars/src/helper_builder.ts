@@ -172,7 +172,6 @@ function validateParams<TParams extends ParamSchemas>(
 
 function validateSchema<TSchema extends Schema>(
   schema: TSchema,
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Standard Schema validates the untrusted helper argument at this boundary.
   value: unknown,
   context: HelperContext,
   path: PropertyKey,

@@ -65,7 +65,6 @@ export class AudioRangeError extends RangeError {
     );
   }
 
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Formats the rejected value, whatever it is, into the error message.
   static invalidOption(this: void, name: string, value: unknown): never {
     throw new AudioRangeError(
       `${name} has an unsupported value: ${String(value)}`,
@@ -74,7 +73,6 @@ export class AudioRangeError extends RangeError {
     );
   }
 
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Formats the mismatched values, whatever they are, into the error message.
   static mismatch(this: void, name: string, expected: unknown, received: unknown): never {
     throw new AudioRangeError(
       `${name} mismatch: expected ${String(expected)}, received ${String(received)}`,

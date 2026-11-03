@@ -16,7 +16,6 @@ class MockMessagePort {
   started = false;
   closed = false;
 
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Mirrors MessagePort.postMessage, which accepts any structured-clone value.
   postMessage = vi.fn<(message: unknown, transfer?: Transferable[]) => void>(
     (message, transfer) => {
       this.messages.push({ message, transfer });
@@ -47,7 +46,6 @@ class MockMessagePort {
     },
   );
 
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Simulates arbitrary data arriving from an audio worklet processor.
   dispatch(data: unknown): void {
     const event = asNative<MessageEvent>({ data });
 

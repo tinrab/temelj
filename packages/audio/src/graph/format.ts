@@ -16,7 +16,6 @@ export function compareNodes(left: GraphNode, right: GraphNode): number {
   return left.id.localeCompare(right.id);
 }
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Serializes arbitrary blueprint options for display and diffing.
 export function stableStringify(value: unknown): string {
   if (!isObject(value)) {
     return JSON.stringify(value);

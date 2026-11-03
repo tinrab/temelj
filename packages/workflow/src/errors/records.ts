@@ -393,7 +393,6 @@ function workflowErrorRecordView(cause: unknown): ErrorRecordView | undefined {
  * Whether `cause` is a workflow error, or a record of one, with `code` and every given detail value.
  * Detail values left `undefined` match anything.
  */
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Callers pass caught values, which have no static type.
 export function matchesWorkflowError(
   cause: unknown,
   code: WorkflowErrorCode,
@@ -533,7 +532,6 @@ function parseDetail<T>(
   }
 }
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Error details may come from thrown values; this schema parser establishes the persisted detail contract.
 export function sanitizedErrorDetails(details: unknown): ErrorDetails | undefined {
   const parsed = ss.safeParseSync(errorDetailsSchema, details);
 

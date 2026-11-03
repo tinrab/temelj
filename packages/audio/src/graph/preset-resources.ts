@@ -158,7 +158,6 @@ export function collectGraphPresetResourceReferences(
  * Returns the reference for a runtime value that appears in `resources`.
  */
 export function findGraphPresetResourceReference(
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Looks up arbitrary runtime option values by identity.
   value: unknown,
   resources: GraphPresetResources,
 ): GraphPresetResourceReference | undefined {

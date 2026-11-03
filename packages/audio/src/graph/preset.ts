@@ -78,7 +78,6 @@ const graphPresetSchema: z.ZodType<GraphPreset> = z.strictObject({
  *
  * @throws {AudioGraphError} When `input` is not a valid preset; the Zod error is the cause.
  */
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Parses untrusted preset JSON at the I/O boundary.
 export function parseGraphPreset(input: unknown): GraphPreset {
   const result = graphPresetSchema.safeParse(input);
 
@@ -137,12 +136,10 @@ export type SerializeGraphPresetOptions = {
    * Encodes values the built-in rules cannot store. Without it, such a value makes
    * `serializeGraphPreset()` throw `AudioGraphError`.
    */
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Blueprint options can hold any runtime value; the hook encodes the ones JSON cannot.
   readonly encode?: (value: unknown, context: GraphPresetEncodeContext) => GraphPresetJson;
 };
 
 function encodeValue(
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Blueprint options can hold any runtime value; this encodes them to preset JSON.
   value: unknown,
   context: GraphPresetEncodeContext,
   options: SerializeGraphPresetOptions,

@@ -104,7 +104,6 @@ export function readProgramResult(result: ProgramResult): {
   return resolved;
 }
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Formats whatever a caught exception holds.
 export function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }

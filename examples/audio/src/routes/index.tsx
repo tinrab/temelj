@@ -551,7 +551,6 @@ function isInputKind(key: React.Key): key is InputKind {
   return key === "demo" || key === "microphone" || key === "file";
 }
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Formats whatever a caught exception holds.
 function describeProblem(error: unknown): Problem {
   const message = errorMessage(error);
 

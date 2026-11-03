@@ -41,7 +41,6 @@ export type AudioDeviceInventoryCallback = (
 
 export type AudioDeviceInventoryWatchOptions = AudioDeviceChangeSubscriptionOptions & {
   readonly initial?: boolean;
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Device enumeration can throw any value; it is reported as-is.
   readonly onError?: (error: unknown) => void;
 };
 

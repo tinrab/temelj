@@ -119,7 +119,6 @@ function prefixErrorCauseDetails(details: ErrorDetails): ErrorDetails {
 /** Validates workflow input and returns the value admitted to durable storage. */
 export async function parseInput(
   definition: WorkflowDefinition,
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Raw workflow input enters through the definition schema and persistence validator.
   input: unknown,
 ): Promise<StorageValue | undefined> {
   const schema = definition.config.schema;
@@ -133,7 +132,6 @@ export async function parseInput(
 }
 
 export function toPersistedValue(
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- This is the validation boundary for caller-defined workflow values before durable writes.
   value: unknown,
   path: string,
   limits?: ExecutionLimits,
@@ -152,7 +150,6 @@ export function toPersistedValue(
 }
 
 export function toOptionalPersistedValue(
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Optional caller values enter the same persistence validation boundary.
   value: unknown,
   path: string,
   limits?: ExecutionLimits,

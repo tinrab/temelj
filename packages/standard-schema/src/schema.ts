@@ -12,7 +12,6 @@ export type SchemaResult<TOutput> = StandardSchemaV1.Result<TOutput>;
 
 export type SchemaIssue = StandardSchemaV1.Issue;
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Standard Schema validators receive untrusted input before validating it.
 export type SchemaValidator<TOutput> = (value: unknown) => SchemaResult<TOutput>;
 
 export type SchemaFields = Record<string, Schema>;
@@ -106,7 +105,6 @@ export class StandardSchemaAsyncValidationError extends Error {
 
 export async function validateStandardSchema<TSchema extends Schema>(
   inputSchema: TSchema,
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Schema validation is the boundary that converts untrusted input to its declared output.
   value: unknown,
   message: string = "Schema validation failed",
 ): Promise<SchemaOutput<TSchema>> {
@@ -122,7 +120,6 @@ export async function validateStandardSchema<TSchema extends Schema>(
 
 export function validateStandardSchemaSync<TSchema extends Schema>(
   inputSchema: TSchema,
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Schema validation is the boundary that converts untrusted input to its declared output.
   value: unknown,
   message: string = "Schema validation failed",
 ): SchemaOutput<TSchema> {
@@ -579,7 +576,6 @@ export function partial<TFields extends SchemaFields>(
 
 function evaluate<TSchema extends Schema>(
   inputSchema: TSchema,
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- This helper invokes the schema validator on untrusted input.
   value: unknown,
 ): SchemaResult<SchemaOutput<TSchema>> {
   const result = inputSchema["~standard"].validate(value);

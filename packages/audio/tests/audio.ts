@@ -21,7 +21,6 @@ export function asNative<Native>(mock: object): Native {
 /**
  * Views a node or param created through a mock context as its test double.
  */
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Test-double cast helper; views natives created by mock contexts as their mocks.
 export function asMock<Mock>(native: unknown): Mock {
   // SAFETY: mock contexts only ever create test doubles.
   return native as Mock;
@@ -32,7 +31,6 @@ type MockAudioWorklet = { readonly addModule: Mock<(url: string) => Promise<void
 /**
  * Passes a deliberately invalid value where the API types forbid it, to test runtime validation.
  */
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Deliberately invalid input for runtime-validation tests.
 export function invalid<Expected>(value: unknown): Expected {
   // SAFETY: the code under test is expected to reject this value at runtime.
   return value as Expected;
@@ -523,7 +521,6 @@ export function createMockFacade(context: AudioContext, lookAhead = 0): OnlineAu
 /**
  * Replaces a global for the duration of a test. Returns a function that restores it.
  */
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Replaces a global with any test value.
 export function patchGlobal(key: string, value: unknown): () => void {
   const previous = Object.getOwnPropertyDescriptor(globalThis, key);
   Object.defineProperty(globalThis, key, { configurable: true, value, writable: true });
