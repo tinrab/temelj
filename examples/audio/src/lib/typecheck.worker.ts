@@ -1,6 +1,6 @@
 /// <reference lib="webworker" />
 
-import ts from "typescript";
+import ts from "typescript-js";
 
 import type { TypeCheckRequest, TypeCheckResponse, TypeDiagnostic } from "./typecheck";
 
@@ -8,11 +8,11 @@ import type { TypeCheckRequest, TypeCheckResponse, TypeDiagnostic } from "./type
 // typings of @temelj/audio and the one package its typings import.
 const LIB_FILES = import.meta.glob<string>(
   [
-    "/node_modules/typescript/lib/lib.es5.d.ts",
-    "/node_modules/typescript/lib/lib.es20{15,16,17,18,19,20,21,22}*.d.ts",
-    "!/node_modules/typescript/lib/lib.*.full.d.ts",
-    "/node_modules/typescript/lib/lib.decorators*.d.ts",
-    "/node_modules/typescript/lib/lib.dom*.d.ts",
+    "/node_modules/typescript-js/lib/lib.es5.d.ts",
+    "/node_modules/typescript-js/lib/lib.es20{15,16,17,18,19,20,21,22}*.d.ts",
+    "!/node_modules/typescript-js/lib/lib.*.full.d.ts",
+    "/node_modules/typescript-js/lib/lib.decorators*.d.ts",
+    "/node_modules/typescript-js/lib/lib.dom*.d.ts",
   ],
   { eager: true, import: "default", query: "?raw" },
 );
