@@ -361,8 +361,10 @@ export async function cancelWorkflowRunIfCurrent(
   expected: RunRecord,
 ): Promise<RunRecord | undefined> {
   const canceled = await cancelRunIfCurrentWithChildren(context.store, expected, context.now());
+
   if (canceled !== undefined && expected.status !== "canceled")
     await lifecycle.emitLifecycleEvent(canceled, expected);
+
   return canceled;
 }
 

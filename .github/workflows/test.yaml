@@ -45,3 +45,9 @@ jobs:
 
       - name: Run tests
         run: pnpm run test
+
+      - name: Install Chromium for browser tests
+        run: pnpm --filter @temelj/audio exec playwright install --with-deps chromium
+
+      - name: Run browser tests
+        run: pnpm --filter @temelj/audio run test:browser

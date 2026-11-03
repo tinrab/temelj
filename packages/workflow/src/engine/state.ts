@@ -445,6 +445,7 @@ export async function cancelRunWithChildren(
 ): Promise<RunRecord> {
   const run = await getRequiredRun(store, runId);
   const canceled = await cancelRunSnapshotWithChildren(store, run, canceledAt);
+
   return canceled ?? (await cancelRunWithChildren(store, runId, canceledAt));
 }
 
@@ -455,7 +456,9 @@ export async function cancelRunIfCurrentWithChildren(
 ): Promise<RunRecord | undefined> {
   requireStoreCapabilities(store, [["conditionalRunUpdates", "conditional cancellation"]]);
   const current = await store.getRun(expected.id);
+
   if (current === undefined || !deepEquals(current, expected)) return undefined;
+
   return await cancelRunSnapshotWithChildren(store, current, canceledAt);
 }
 

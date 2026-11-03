@@ -377,6 +377,7 @@ export class MySqlStorageEngine<
     };
 
     const mysqlClient = await this.#getClient();
+
     for (let attempt = 0; ; attempt++) {
       const transactionClient = await mysqlClient.getConnection?.();
       const activeClient = transactionClient ?? mysqlClient;

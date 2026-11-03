@@ -13,12 +13,14 @@ test(
   { timeout: 120000 },
   async () => {
     const directory = await mkdtemp(path.join(tmpdir(), "temelj-workflow-runtime-package-"));
+
     try {
       await execFile("pnpm", ["pack", "--pack-destination", directory], {
         cwd: path.resolve(import.meta.dirname, ".."),
         timeout: 30000,
       });
       const archive = (await readdir(directory)).find((name) => name.endsWith(".tgz"));
+
       if (archive === undefined) throw new Error("Missing packed workflow archive");
       await writeFile(
         path.join(directory, "package.json"),

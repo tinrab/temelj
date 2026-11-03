@@ -49,6 +49,11 @@ typed MDX and HTML nodes. Their output contracts remain checked. Workflow persis
 unknown-input exceptions and return validated domain values. These parser
 exceptions do not disable the runtime `typeof` rule.
 
+The user approved a `no-shape-in-symbol-names` exception for `@temelj/audio` on 2026-11-03.
+`WaveShaper` is the Web Audio API name (`WaveShaperNode`, `BaseAudioContext.createWaveShaper()`),
+so the files that use it carry a documented file-level `oxlint-disable` for that rule. The
+package's own identifiers do not use the term.
+
 There are no rule implementation changes. The nested
 [ESLint Stylistic provenance](./vendor/eslint-stylistic/UPSTREAM.md) and
 [license](./vendor/eslint-stylistic/LICENSE) are preserved verbatim. Test paths
