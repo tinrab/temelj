@@ -33,16 +33,11 @@ const cloudflareEnvelopeSchema: Schema<unknown, CloudflareEnvelope> = ss.object(
   input: ss.string(),
 });
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Caller-defined workflow values are validated before crossing the Cloudflare transport boundary.
 export function encodeCloudflareValue(value: unknown): string {
   return cloudflareCodec.encode(parse(ss.optional(persistedValueSchema), value));
 }
 
-export function decodeCloudflareValue(
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Provider output is untrusted until the encoded string and decoded workflow value both validate.
-  value: unknown,
-  label: string,
-): StorageValue | undefined {
+export function decodeCloudflareValue(value: unknown, label: string): StorageValue | undefined {
   const encoded = ss.safeParseSync(ss.string(), value);
 
   if (!encoded.success) throw new TypeError(`${label} must be an encoded string`);
@@ -50,7 +45,6 @@ export function decodeCloudflareValue(
   return parse(ss.optional(persistedValueSchema), cloudflareCodec.decode(encoded.value));
 }
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- The native Cloudflare event payload enters through this envelope schema parser.
 export function parseCloudflareEnvelope(value: unknown): CloudflareEnvelope {
   const parsed = ss.safeParseSync(cloudflareEnvelopeSchema, value);
 

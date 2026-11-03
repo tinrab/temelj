@@ -22,7 +22,6 @@ export const persistedValueSchema: Schema<unknown, StorageValue> = ss.schema((va
 
 /** Returns the first persistence validation issue for a workflow value, if one exists. */
 export function persistedValueIssue(
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Persistence validation inspects untrusted values before they enter workflow history.
   value: unknown,
   path: string,
   seen: WeakSet<object>,

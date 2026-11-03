@@ -1,0 +1,15 @@
+{
+  "name": "@temelj/audio",
+  "version": "0.1.0",
+  "exports": "./src/mod.ts",
+  "license": "MIT",
+  "imports": {
+    "@temelj/event": "jsr:@temelj/event@^0.1.0",
+    "@temelj/value": "jsr:@temelj/value@^0.15.0",
+    "zod": "npm:zod@^4.6.7"
+  },
+  "publish": {
+    "include": ["src/**/*.ts", "README.md"],
+    "exclude": ["src/**/*.test.ts"]
+  }
+}

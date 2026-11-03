@@ -1,17 +1,20 @@
 import { createStorage } from "@temelj/storage";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 
-import type { EventRecord } from "../types/events.ts";
+import type { EventRecord, StepStartedEvent } from "../types/events.ts";
 import type { RunId } from "../types/ids.ts";
 import type { RunRecord } from "../types/run.ts";
 import type { WorkflowStorage } from "../types/store.ts";
 
+import { createWorkflowClient } from "../client/create.ts";
+import { implementWorkflow } from "../definition.ts";
 import { makeEventsKey, makeRunKey, makeStepAttemptKey, stepAttemptKey } from "../store-keys.ts";
 import { fakeStorage } from "../testing/fake-storage.ts";
 import {
   eventHistoryStorageValue,
   readEventHistoryStorageValue,
 } from "../testing/storage-values.ts";
+import { createWorkflowStore } from "./create.ts";
 import {
   appendEventWithProjectionPipelineIfRunCurrent,
   appendEventWithProjections,
@@ -19,6 +22,176 @@ import {
 import { toStorageValue } from "./storage-value.ts";
 
 describe("workflow event append outcomes", () => {
+  test.each(
+    [
+      workflowStarted(),
+      { ...stepStarted(), timeoutAt: undefined },
+      {
+        kind: "step_failed",
+        timestamp: Temporal.Instant.from("2025-01-01T00:00:02Z"),
+        stepId: "step-1",
+        stepName: "load",
+        attempt: 1,
+        error: {
+          name: "Error",
+          message: "Step failed",
+          stack: undefined,
+          details: { reason: "unavailable", optional: undefined },
+        },
+      } satisfies EventRecord,
+    ].flatMap((event) =>
+      (
+        [
+          ["all", false],
+          ["all", true],
+          ["single-key", false],
+          ["none", false],
+        ] as const
+      ).map(([conditionalWrites, guarded]) => ({ event, conditionalWrites, guarded })),
+    ),
+  )(
+    "reconciles a committed $event.kind append with a lost acknowledgement ($conditionalWrites, guarded=$guarded)",
+    async ({ event, conditionalWrites, guarded }) => {
+      const storage = fakeStorage({ conditionalWrites });
+      const run = workflowRun({ status: "running" });
+      await storage.set(makeRunKey("test", run.id), toStorageValue(run));
+      const key = makeEventsKey("test", run.id);
+      const concurrent = messageSent();
+      const set = storage.set.bind(storage);
+      const failure = new Error("Committed append acknowledgement lost");
+      let lost = false;
+
+      async function lose() {
+        lost = true;
+        await set(key, toStorageValue([event, concurrent]));
+        throw failure;
+      }
+
+      if (conditionalWrites === "all") {
+        const compare = storage.compareAndSetMany.bind(storage);
+        vi.spyOn(storage, "compareAndSetMany").mockImplementation(async (items) => {
+          const committed = await compare(items);
+
+          if (committed && !lost && items.some((item) => item.key === key)) await lose();
+
+          return committed;
+        });
+      } else if (conditionalWrites === "single-key") {
+        const compare = storage.compareAndSet.bind(storage);
+        vi.spyOn(storage, "compareAndSet").mockImplementation(
+          async (target, expected, value, options) => {
+            const committed = await compare(target, expected, value, options);
+
+            if (committed && !lost && target === key) await lose();
+
+            return committed;
+          },
+        );
+      } else {
+        vi.spyOn(storage, "set").mockImplementation(async (target, value, options) => {
+          await set(target, value, options);
+
+          if (!lost && target === key) await lose();
+        });
+      }
+
+      const appended = guarded
+        ? await appendEventWithProjectionPipelineIfRunCurrent(storage, "test", run, event)
+        : await appendEventWithProjections(storage, "test", run.id, event);
+
+      expect(appended).toMatchObject(
+        guarded ? { outcome: { status: "appended" } } : { status: "appended" },
+      );
+      expect(lost).toBe(true);
+      expect(await readEventHistoryStorageValue(storage.get.bind(storage), key)).toEqual(
+        toStorageValue([event, concurrent]),
+      );
+    },
+  );
+
+  test("completes a workflow after losing a step-start append acknowledgement", async () => {
+    const storage = createStorage();
+    const client = createWorkflowClient({ store: createWorkflowStore({ storage }) });
+    const execute = vi.fn<() => string>(() => "done");
+
+    const workflow = implementWorkflow(
+      { name: "lost-step-acknowledgement", version: "v1" },
+      ({ step }) => step.run({ name: "load" }, execute),
+    );
+
+    const compare = storage.compareAndSetMany.bind(storage);
+    let lost = false;
+    vi.spyOn(storage, "compareAndSetMany").mockImplementation(async (items) => {
+      const committed = await compare(items);
+
+      if (committed && !lost) {
+        for (const item of items) {
+          const events = await readEventHistoryStorageValue(storage.get.bind(storage), item.key);
+
+          if (events.some((event) => event.kind === "step_started")) {
+            lost = true;
+            throw new Error("Committed step-start acknowledgement lost");
+          }
+        }
+      }
+
+      return committed;
+    });
+
+    try {
+      const handle = await client.runs.start(workflow, undefined);
+      await client.workers.processRun(handle.runId);
+      expect(lost).toBe(true);
+      expect((await client.runs.get(handle.runId))?.status).toBe("completed");
+      expect(await handle.result()).toBe("done");
+      expect(execute).toHaveBeenCalledOnce();
+    } finally {
+      await client.close();
+    }
+  });
+
+  test("preserves the write failure when readback cannot confirm the committed prefix", async () => {
+    const storage = createStorage();
+    const failure = new Error("Unconfirmed write");
+    vi.spyOn(storage, "compareAndSetMany").mockRejectedValue(failure);
+    await expect(
+      appendEventWithProjections(storage, "test", "run-1", workflowStarted()),
+    ).rejects.toBe(failure);
+  });
+
+  test("does not confirm a different recorded event after a write failure", async () => {
+    const storage = createStorage();
+    const event = workflowStarted();
+    const failure = new Error("Unconfirmed append");
+    const key = makeEventsKey("test", "run-1");
+    vi.spyOn(storage, "compareAndSetMany").mockImplementation(async () => {
+      await storage.set(
+        key,
+        toStorageValue([{ ...event, timestamp: event.timestamp.add({ milliseconds: 1 }) }]),
+      );
+      throw failure;
+    });
+    await expect(appendEventWithProjections(storage, "test", "run-1", event)).rejects.toBe(failure);
+  });
+
+  test("preserves the write failure if reconciliation readback also fails", async () => {
+    const storage = createStorage();
+    const read = storage.get.bind(storage);
+    const failure = new Error("Append failed");
+    let writeFailed = false;
+    vi.spyOn(storage, "compareAndSetMany").mockImplementation(async () => {
+      writeFailed = true;
+      throw failure;
+    });
+    vi.spyOn(storage, "get").mockImplementation(async (key) => {
+      if (writeFailed) throw new Error("Readback failed");
+
+      return await read(key);
+    });
+    await expect(
+      appendEventWithProjections(storage, "test", "run-1", workflowStarted()),
+    ).rejects.toBe(failure);
+  });
   test("returns duplicate without appending a duplicate message idempotency event", async () => {
     const storage = createStorage();
     const event = messageSent();
@@ -168,7 +341,7 @@ function workflowStarted(): EventRecord {
   };
 }
 
-function stepStarted(): EventRecord {
+function stepStarted(): StepStartedEvent {
   return {
     kind: "step_started",
     timestamp: Temporal.Instant.from("2025-01-01T00:00:01Z"),

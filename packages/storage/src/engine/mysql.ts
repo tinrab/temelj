@@ -131,7 +131,10 @@ export class MySqlStorageEngine<
     }
 
     if (isExpired(row.expires_at)) {
-      await this.#deleteRecord(mysqlClient, storageKey);
+      await mysqlClient.execute(
+        `DELETE FROM ${this.#tableName} WHERE \`key\` = ? AND \`expires_at\` IS NOT NULL AND \`expires_at\` <= ?`,
+        [storageKey, Date.now()],
+      );
 
       return undefined;
     }
@@ -374,35 +377,44 @@ export class MySqlStorageEngine<
     };
 
     const mysqlClient = await this.#getClient();
-    const transactionClient = await mysqlClient.getConnection?.();
-    const activeClient = transactionClient ?? mysqlClient;
-    let transactionStarted = false;
 
-    try {
-      await startTransaction(activeClient);
-      transactionStarted = true;
+    for (let attempt = 0; ; attempt++) {
+      const transactionClient = await mysqlClient.getConnection?.();
+      const activeClient = transactionClient ?? mysqlClient;
+      let transactionStarted = false;
 
-      const updated = await runTransaction(activeClient);
+      try {
+        await startTransaction(activeClient);
+        transactionStarted = true;
 
-      if (!updated) {
-        await rollbackTransaction(activeClient);
+        const updated = await runTransaction(activeClient);
+
+        if (!updated) {
+          await rollbackTransaction(activeClient);
+          transactionStarted = false;
+
+          return false;
+        }
+
+        await commitTransaction(activeClient);
         transactionStarted = false;
 
-        return false;
+        return true;
+      } catch (error) {
+        if (transactionStarted) {
+          await rollbackTransaction(activeClient);
+        }
+
+        if (
+          attempt >= 4 ||
+          !isObject(error) ||
+          !("code" in error) ||
+          error.code !== "ER_LOCK_DEADLOCK"
+        )
+          throw error;
+      } finally {
+        transactionClient?.release?.();
       }
-
-      await commitTransaction(activeClient);
-      transactionStarted = false;
-
-      return true;
-    } catch (error) {
-      if (transactionStarted) {
-        await rollbackTransaction(activeClient);
-      }
-
-      throw error;
-    } finally {
-      transactionClient?.release?.();
     }
   }
 

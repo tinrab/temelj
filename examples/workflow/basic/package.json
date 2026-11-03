@@ -9,26 +9,26 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@opentelemetry/api": "^1.9.1",
-    "@opentelemetry/api-logs": "^0.219.0",
-    "@opentelemetry/auto-instrumentations-node": "^0.77.0",
-    "@opentelemetry/exporter-logs-otlp-http": "^0.219.0",
-    "@opentelemetry/exporter-metrics-otlp-http": "^0.219.0",
-    "@opentelemetry/exporter-trace-otlp-http": "^0.219.0",
-    "@opentelemetry/resources": "^2.8.0",
-    "@opentelemetry/sdk-logs": "^0.219.0",
-    "@opentelemetry/sdk-metrics": "^2.8.0",
-    "@opentelemetry/sdk-node": "^0.219.0",
-    "@opentelemetry/sdk-trace-base": "^2.8.0",
-    "@opentelemetry/semantic-conventions": "^1.41.1",
+    "@opentelemetry/api": "^1.10.0",
+    "@opentelemetry/api-logs": "^0.223.0",
+    "@opentelemetry/auto-instrumentations-node": "^0.82.0",
+    "@opentelemetry/exporter-logs-otlp-http": "^0.300.0",
+    "@opentelemetry/exporter-metrics-otlp-http": "^0.300.0",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.300.0",
+    "@opentelemetry/resources": "^3.0.0",
+    "@opentelemetry/sdk-logs": "^3.0.0",
+    "@opentelemetry/sdk-metrics": "^3.0.0",
+    "@opentelemetry/sdk-node": "^0.300.0",
+    "@opentelemetry/sdk-trace-base": "^2.12.0",
+    "@opentelemetry/semantic-conventions": "^1.44.0",
     "@temelj/log": "workspace:*",
     "@temelj/workflow": "workspace:*"
   },
   "devDependencies": {
-    "@types/node": "25.9.2",
-    "rolldown": "^1.1.2",
-    "tsx": "^4.22.4",
-    "typescript": "^6.0.3"
+    "@types/node": "26.6.6",
+    "rolldown": "^1.2.16",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
   },
-  "packageManager": "pnpm@11.5.2"
+  "packageManager": "pnpm@12.16.1"
 }

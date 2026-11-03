@@ -155,7 +155,6 @@ export function codeLineSelected(selection: CodeLineSelection, line: number): bo
 }
 
 function parseLineNumbers(
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Validates a field from parsed code-block JSON before exposing typed metadata.
   value: unknown,
   issues: CodeBlockMetadataIssue[],
 ): CodeLineNumbers | undefined {
@@ -200,7 +199,6 @@ function parseLineNumbers(
 }
 
 function parseSelectionField(
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Validates a field from parsed code-block JSON before exposing typed metadata.
   value: unknown,
   field: "commandLines" | "highlightLines" | "lineNumbers",
   issues: CodeBlockMetadataIssue[],

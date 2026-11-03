@@ -110,6 +110,29 @@ export async function getWorkflowEvents(
 
 const MAX_APPEND_EVENT_ATTEMPTS = 16;
 
+async function confirmEventAppend(
+  storage: WorkflowStorage,
+  key: string,
+  expected: readonly EventRecord[],
+  write: () => Promise<boolean>,
+): Promise<boolean> {
+  try {
+    return await write();
+  } catch (cause) {
+    const recorded = await getStoredEventHistory(storage, key).catch(() => undefined);
+
+    if (
+      recorded !== undefined &&
+      recorded.events.length >= expected.length &&
+      deepEquals(recorded.events.slice(0, expected.length), toStorageValue(expected))
+    ) {
+      return true;
+    }
+
+    throw cause;
+  }
+}
+
 export type EventAppendSuccessOutcome =
   | {
       readonly status: "appended";
@@ -250,14 +273,20 @@ async function appendEventIfRunRevisionCurrentAtomically(
       continue;
     }
 
-    const updated = await storage.compareAndSetMany(
-      createRunRevisionGuardedEventHistoryCompareAndSetItems(
-        runStorageKey,
-        currentRun,
-        eventsStorageKey,
-        appendState.raw,
-        appendState.nextEvents,
-      ),
+    const updated = await confirmEventAppend(
+      storage,
+      eventsStorageKey,
+      appendState.nextEvents,
+      async () =>
+        await storage.compareAndSetMany(
+          createRunRevisionGuardedEventHistoryCompareAndSetItems(
+            runStorageKey,
+            currentRun,
+            eventsStorageKey,
+            appendState.raw,
+            appendState.nextEvents,
+          ),
+        ),
     );
 
     if (updated) {
@@ -290,7 +319,11 @@ async function appendEventIfCurrent(
     }
 
     const events = [...current, event];
-    await storage.set(key, toStorageValue(events));
+    await confirmEventAppend(storage, key, events, async () => {
+      await storage.set(key, toStorageValue(events));
+
+      return true;
+    });
 
     return makeAppendedEventOutcome(events, options.previousEventHistory);
   }
@@ -325,7 +358,14 @@ async function retryEventAppend(
       return appendState.duplicate;
     }
 
-    if (await write(appendState, attempt)) {
+    if (
+      await confirmEventAppend(
+        storage,
+        key,
+        appendState.nextEvents,
+        async () => await write(appendState, attempt),
+      )
+    ) {
       return makeAppendedEventOutcome(appendState.nextEvents, appendState.raw);
     }
   }

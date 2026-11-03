@@ -41,6 +41,7 @@ List of packages in the Temelj ecosystem.
 Foundational packages are also available in a singe dependency `@tinrab/temelj`, from which you can import `@tinrab/temelj/<package>`.
 
 - [@temelj/async](./packages/async) - Utilities for working with async.
+- [@temelj/audio](./packages/audio) - Utilities for working with Web Audio API. Typed Web Audio graphs, instruments, effects, and scheduling.
 - [@temelj/color](./packages/color) - Utilities for working with colors.
 - [@temelj/event](./packages/event) - Strictly typed publish/subscribe
   utilities.

@@ -29,7 +29,7 @@ const sdk = new NodeSDK({
     [ATTR_SERVICE_VERSION]: "0.1.0",
   }),
   traceExporter: new OTLPTraceExporter(),
-  logRecordProcessors: [new BatchLogRecordProcessor(new OTLPLogExporter())],
+  logRecordProcessors: [new BatchLogRecordProcessor({ exporter: new OTLPLogExporter() })],
   metricReaders: [
     new PeriodicExportingMetricReader({
       exporter: new OTLPMetricExporter(),

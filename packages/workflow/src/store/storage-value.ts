@@ -6,16 +6,11 @@ import { parse } from "../schema/common.ts";
 import { persistedValueSchema } from "../schema/persisted-value.ts";
 
 /** Validates storage writes and omits undefined optional fields from workflow records. */
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Storage adapters validate domain records before converting them to persisted values.
 export function toStorageValue(value: unknown): StorageValue {
   return normalizeStoredValue(value, new WeakSet<object>());
 }
 
-function normalizeStoredValue(
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Recursive storage parsing inspects each record field before returning StorageValue.
-  value: unknown,
-  active: WeakSet<object>,
-): StorageValue {
+function normalizeStoredValue(value: unknown, active: WeakSet<object>): StorageValue {
   if (!Array.isArray(value) && !isPlainObject(value)) {
     return parse(persistedValueSchema, value);
   }

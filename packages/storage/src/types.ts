@@ -812,6 +812,15 @@ export class StorageKeyError extends StorageError {
     );
   }
 
+  static dotSegments(this: void, key: string): never {
+    throw new StorageKeyError(
+      key,
+      "Storage key must not contain '.' or '..' path segments",
+      // eslint-disable-next-line unbound-method
+      StorageKeyError.dotSegments,
+    );
+  }
+
   static invalidTtl(this: void): never {
     throw new StorageKeyError(
       "",
